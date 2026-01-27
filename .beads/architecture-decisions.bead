@@ -181,7 +181,8 @@ rustflags = ["-C", "target-feature=+crt-static"]
 ### Network Capacity
 - **Per Group**: Up to Signal's limit (~1000 members)
 - **Federated Network**: Unlimited (via federation)
-- **Mesh Density**: 30-60% recommended (balanced resilience)
+- **Mesh Health**: Optimal at 30-60% density (balanced resilience without over-connection)
+- **UX Note**: Health score peaks at 100/100 in optimal range (not at 100% density)
 
 ## Threat Model
 
@@ -234,7 +235,7 @@ rustflags = ["-C", "target-feature=+crt-static"]
 ✅ Internal mesh optimization (Blind Matchmaker)
 ✅ Configuration management (Signal Polls)
 ✅ All bot commands
-✅ Mesh density metrics
+✅ Mesh health metrics (normalized score peaking at optimal 30-60% density)
 ✅ Operator least privilege
 
 ### What's NOT In MVP (Phase 4+)

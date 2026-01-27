@@ -521,12 +521,15 @@ Network Health: ✅ Fully Vetted
 All members meet minimum vouch threshold."
 ```
 
-**Network Strength (Mesh Density Histogram):**
+**Network Strength (Mesh Health & Distribution):**
 ```
 Member: /mesh strength
 
 Bot → Member (1-on-1 PM):
-"📈 Network Strength: 38% Mesh Density
+"📈 Mesh Health: 100/100 ✅
+
+Network Balance: 🟢 OPTIMAL
+Mesh Density: 38% (target range: 30-60%)
 
 Vouch Distribution:
   2 vouches (Bridges):    ████████░░░░ 22 members (47%)
@@ -535,12 +538,13 @@ Vouch Distribution:
   11+ vouches (Validators): ██░░░░░░░░░░  2 members (4%)
 
 Total: 47 members
-Actual vouches: 213
-Max possible: 552 (full mesh)
-Density: 38%
+Actual vouches: 820
+Max possible: 2,162 (full mesh)
 
-💡 A fully connected mesh would be 100% (everyone vouches for everyone).
-Our current density indicates healthy trust distribution without over-connection."
+💡 Your network is in the optimal balance range!
+This provides strong resilience without over-connection.
+A 100% mesh would actually reduce network health by
+creating excessive interdependence."
 ```
 
 **Group Configuration:**
@@ -710,11 +714,16 @@ Federation: Connected to 1 other group (Group-B)
 #### `/mesh strength`
 **Who Can Use**: Any Member
 
-**Effect**: Shows mesh density histogram with vouch distribution
+**Effect**: Shows mesh health score, status band, and vouch distribution histogram
+
+**UX Note**: Displays normalized health score (0-100) that peaks in optimal range (30-60% density), making balanced networks feel like "100%" achievement rather than showing raw percentage.
 
 **Bot Response** (1-on-1 PM):
 ```
-"📈 Network Strength: 38% Mesh Density
+"📈 Mesh Health: 100/100 ✅
+
+Network Balance: 🟢 OPTIMAL
+Mesh Density: 38% (target range: 30-60%)
 
 Vouch Distribution:
   2 vouches (Bridges):    ████████░░░░ 22 members (47%)
@@ -790,16 +799,36 @@ Recent Actions:
 ..."
 ```
 
-## Network Strength: Mesh Density
+## Network Strength: Mesh Health & Density
 
-### Definition
-Mesh density measures how fully connected the trust network is.
+### The Key Insight
+Rather than showing raw connectivity percentage (which creates pull toward 100%), we show **Mesh Health Score** - recognizing that 30-60% density is the optimal balance.
 
-**Full Mesh (100%)**: Every member vouches for every other member
-**Actual Mesh**: Count of actual vouches
-**Mesh Density % = (Actual Vouches / Max Possible Vouches) × 100**
+**Critical UX Principle**: Make the optimal range (30-60%) feel like "100%" - the achievement, not the minimum.
 
-### Calculation
+### Mesh Health Score Calculation
+
+A normalized score (0-100) that **peaks in the optimal range**:
+
+```rust
+fn calculate_mesh_health_score(density: f32) -> u8 {
+    match density {
+        d if d < 0.10 => (d * 300.0) as u8,                    // 0-30: Building
+        d if d >= 0.10 && d < 0.30 => (d * 266.0 + 20.0) as u8, // 30-100: Developing
+        d if d >= 0.30 && d <= 0.60 => 100,                    // 100: OPTIMAL RANGE
+        d if d > 0.60 && d <= 0.90 => (130.0 - d * 50.0) as u8, // 100-40: Over-connected
+        d if d > 0.90 => 30,                                   // 30: Saturated
+        _ => 50
+    }
+}
+```
+
+**User Perception Examples**:
+- 38% density → "Mesh Health: 100/100 ✅" (feels like achievement)
+- 100% density → "Mesh Health: 30/100 ⚠️" (feels like problem)
+- 15% density → "Mesh Health: 60/100 🟡" (developing)
+
+### Raw Mesh Density Calculation
 
 ```rust
 fn calculate_mesh_density(members: &[Hash], vouches: &[(Hash, Hash)]) -> f32 {
@@ -811,11 +840,24 @@ fn calculate_mesh_density(members: &[Hash], vouches: &[(Hash, Hash)]) -> f32 {
 }
 ```
 
+### Status Bands (Color-Coded)
+
+- 🔴 **Fragile** (0-10% density, 0-30 health): Minimal connections, high risk
+- 🟡 **Building** (10-30% density, 30-100 health): Developing toward optimal
+- 🟢 **Optimal** (30-60% density, 100 health): **Balanced resilience - THE GOAL**
+- 🟡 **Dense** (60-90% density, 40-100 health): Over-connected, may limit growth
+- 🔴 **Saturated** (90-100% density, 30 health): Everyone trusts everyone (excessive interdependence)
+
 ### Histogram Display
 
-The `/mesh strength` command shows a histogram of vouch distribution:
+The `/mesh strength` command shows health score, status band, and distribution:
 
 ```
+📈 Mesh Health: 100/100 ✅
+
+Network Balance: 🟢 OPTIMAL
+Mesh Density: 38% (target range: 30-60%)
+
 Vouch Distribution:
   2 vouches (Bridges):    ████████░░░░ 22 members (47%)
   3-5 vouches:            █████░░░░░░░ 15 members (32%)
@@ -823,11 +865,7 @@ Vouch Distribution:
   11+ vouches (Validators): ██░░░░░░░░░░  2 members (4%)
 ```
 
-**Interpretation**:
-- **Low Density (10-30%)**: Minimal connections, efficient but fragile
-- **Medium Density (30-60%)**: Balanced - good resilience without over-connection
-- **High Density (60-90%)**: Very resilient, but may indicate small or tightly-knit group
-- **Full Mesh (100%)**: Everyone trusts everyone (rare, only in very small groups)
+**Bot Voice Guideline**: Always emphasize that the optimal range is the achievement, not 100% mesh.
 
 ## Bot Voice & Personality
 

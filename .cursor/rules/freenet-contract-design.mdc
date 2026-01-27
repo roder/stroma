@@ -546,6 +546,101 @@ impl TrustNetworkState {
         
         effective_vouches >= self.config.min_vouch_threshold && standing >= 0
     }
+    
+    /// Calculate mesh density (raw percentage)
+    /// 
+    /// Returns percentage of actual vouches vs maximum possible (full mesh).
+    pub fn calculate_mesh_density(&self) -> f32 {
+        let n = self.members.active.len();
+        if n < 2 {
+            return 0.0;
+        }
+        
+        // Count total vouches in the network
+        let total_vouches: usize = self.vouches.vouches.values()
+            .map(|v| v.len())
+            .sum();
+        
+        // Max possible vouches = n * (n - 1) for directed graph
+        let max_possible = n * (n - 1);
+        
+        (total_vouches as f32 / max_possible as f32) * 100.0
+    }
+    
+    /// Calculate mesh health score (0-100, peaks at optimal 30-60% density)
+    /// 
+    /// Key UX Principle: Makes 30-60% density feel like "100%" achievement,
+    /// rather than showing raw percentage that pulls toward 100% mesh.
+    /// 
+    /// A 100% mesh (everyone vouching everyone) isn't healthier - it creates
+    /// excessive interdependence. The optimal range balances resilience and efficiency.
+    pub fn calculate_mesh_health_score(&self) -> u8 {
+        let density = self.calculate_mesh_density() / 100.0; // Convert to 0.0-1.0
+        
+        match density {
+            d if d < 0.10 => (d * 300.0) as u8,                    // 0-30: Building
+            d if d >= 0.10 && d < 0.30 => (d * 266.0 + 20.0) as u8, // 30-100: Developing
+            d if d >= 0.30 && d <= 0.60 => 100,                    // 100: OPTIMAL RANGE
+            d if d > 0.60 && d <= 0.90 => (130.0 - d * 50.0) as u8, // 100-40: Over-connected
+            d if d > 0.90 => 30,                                   // 30: Saturated
+            _ => 50,
+        }
+    }
+    
+    /// Get mesh health status band
+    pub fn mesh_health_status(&self) -> MeshHealthStatus {
+        let density = self.calculate_mesh_density();
+        
+        match density {
+            d if d < 10.0 => MeshHealthStatus::Fragile,
+            d if d >= 10.0 && d < 30.0 => MeshHealthStatus::Building,
+            d if d >= 30.0 && d <= 60.0 => MeshHealthStatus::Optimal,
+            d if d > 60.0 && d <= 90.0 => MeshHealthStatus::Dense,
+            _ => MeshHealthStatus::Saturated,
+        }
+    }
+}
+
+/// Mesh health status bands for UX display
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeshHealthStatus {
+    Fragile,    // 🔴 0-10%: Minimal connections, high risk
+    Building,   // 🟡 10-30%: Developing toward optimal
+    Optimal,    // 🟢 30-60%: Balanced resilience - THE GOAL
+    Dense,      // 🟡 60-90%: Over-connected, may limit growth
+    Saturated,  // 🔴 90-100%: Excessive interdependence
+}
+
+impl MeshHealthStatus {
+    pub fn emoji(&self) -> &'static str {
+        match self {
+            Self::Fragile => "🔴",
+            Self::Building => "🟡",
+            Self::Optimal => "🟢",
+            Self::Dense => "🟡",
+            Self::Saturated => "🔴",
+        }
+    }
+    
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Fragile => "FRAGILE",
+            Self::Building => "BUILDING",
+            Self::Optimal => "OPTIMAL",
+            Self::Dense => "DENSE",
+            Self::Saturated => "SATURATED",
+        }
+    }
+    
+    pub fn description(&self) -> &'static str {
+        match self {
+            Self::Fragile => "Minimal connections, high risk",
+            Self::Building => "Developing toward optimal",
+            Self::Optimal => "Balanced resilience - THE GOAL",
+            Self::Dense => "Over-connected, may limit growth",
+            Self::Saturated => "Everyone trusts everyone (excessive interdependence)",
+        }
+    }
 }
 ```
 
