@@ -1,0 +1,444 @@
+---
+description: Test-Driven Development standards using nextest with 100% coverage and deterministic behavior
+globs: **/*.rs
+alwaysApply: false
+---
+
+# Testing Standards for Stroma
+
+## Test-Driven Development (TDD) Workflow
+
+### TDD Cycle
+1. **Red**: Write a failing test that describes the desired behavior
+2. **Green**: Write minimal code to make the test pass
+3. **Refactor**: Improve code while keeping tests green
+4. **Repeat**: Continue cycle for each feature
+
+### Test-First Principle
+- **Always write tests before implementation** for security-critical paths
+- Tests serve as executable specifications
+- Tests document expected behavior and edge cases
+
+## Test Framework: nextest
+
+### Setup
+- Use `cargo-nextest` as the test runner
+- Configure in `nextest.toml` at project root
+- Run tests with: `cargo nextest run`
+
+### Configuration Requirements
+```toml
+# nextest.toml
+[profile.default]
+retries = 0  # Deterministic tests should never need retries
+slow-timeout = { period = "60s" }
+```
+
+### Test Organization
+- Unit tests: `#[cfg(test)] mod tests { ... }` in same file
+- Integration tests: `tests/` directory at crate root
+- Property-based tests: Use `proptest` for cryptographic operations
+- Fuzz tests: Use `cargo-fuzz` for input validation
+
+## Deterministic Testing
+
+### Critical Requirement
+All tests must be **deterministic** - same inputs must always produce same outputs.
+
+### Patterns for Determinism
+
+#### Fixed Seeds for Random Operations
+```rust
+// ✅ GOOD: Deterministic seed
+use rand::SeedableRng;
+let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+
+// ❌ BAD: Non-deterministic
+let mut rng = rand::thread_rng();
+```
+
+#### Fixed Test Data
+```rust
+// ✅ GOOD: Deterministic test fixtures
+const TEST_PEPPER: &[u8] = b"test-pepper-constant";
+const TEST_GROUP_ID: &str = "test-group-id-12345";
+
+// ❌ BAD: Random or time-based test data
+let pepper = generate_random_bytes();
+```
+
+#### Mock Time for Time-Dependent Operations
+```rust
+// ✅ GOOD: Use mock time
+use mock_instant::MockClock;
+MockClock::set_time(SystemTime::UNIX_EPOCH + Duration::from_secs(1000));
+
+// ❌ BAD: Real system time
+let now = SystemTime::now();
+```
+
+### Deterministic Cryptographic Operations
+- All HMAC operations must use fixed test keys
+- Merkle tree operations must use deterministic hashing
+- ZK-proof generation must use fixed witness values for tests
+
+## Self-Documenting Tests
+
+### Test Naming Convention
+```rust
+// ✅ GOOD: Descriptive test names
+#[test]
+fn test_hmac_masking_produces_deterministic_hash_for_same_input() { }
+
+#[test]
+fn test_trust_verification_rejects_member_when_vouches_minus_flags_below_threshold() { }
+
+#[test]
+fn test_federation_proposal_triggered_when_overlap_exceeds_10_percent() { }
+
+// ❌ BAD: Vague names
+#[test]
+fn test_hmac() { }
+
+#[test]
+fn test_trust() { }
+```
+
+### Test Structure: Arrange-Act-Assert
+```rust
+#[test]
+fn test_immediate_ejection_when_trust_threshold_violated() {
+    // Arrange: Set up test state
+    let member_hash = hash_identity("test-member");
+    let vouches = 3;
+    let flags = 5;  // Exceeds vouches
+    let safety_threshold = 0;
+    
+    // Act: Execute the function
+    let standing = check_group_standing(member_hash, vouches, flags, safety_threshold);
+    
+    // Assert: Verify expected behavior
+    assert_eq!(standing.status, MemberStatus::Revoked);
+    assert!(standing.should_eject);
+}
+```
+
+### Test Documentation
+- Use `///` doc comments to explain complex test scenarios
+- Include rationale for edge cases
+- Document security properties being tested
+
+```rust
+/// Tests that PSI-CA correctly calculates overlap without revealing member identities.
+/// This is critical for privacy-preserving federation discovery.
+#[test]
+fn test_psi_ca_calculates_overlap_without_identity_leakage() {
+    // ...
+}
+```
+
+## 100% Code Coverage Requirement
+
+### Coverage Tooling
+- Use `cargo-llvm-cov` or `cargo-tarpaulin` for coverage measurement
+- Enforce 100% coverage in CI/CD pipeline
+- Coverage reports must be generated on every test run
+
+### Coverage Strategy
+
+#### Path Coverage
+- Test all branches (if/else, match arms)
+- Test all error paths
+- Test boundary conditions (min/max values, empty collections)
+
+#### Security-Critical Paths
+- **Mandatory**: 100% coverage for:
+  - Identity masking/hashing functions
+  - Trust verification logic
+  - ZK-proof verification
+  - Ejection protocol
+  - PSI-CA operations
+  - Memory zeroization
+
+#### Example: Complete Path Coverage
+```rust
+#[test]
+fn test_hmac_masking_all_paths() {
+    // Test normal case
+    let hash1 = mask_identity("test-id", &TEST_PEPPER);
+    assert_eq!(hash1.len(), 32);
+    
+    // Test empty input
+    let hash2 = mask_identity("", &TEST_PEPPER);
+    assert_eq!(hash2.len(), 32);
+    
+    // Test different peppers produce different hashes
+    let hash3 = mask_identity("test-id", &DIFFERENT_PEPPER);
+    assert_ne!(hash1, hash3);
+    
+    // Test same input + pepper = same hash (deterministic)
+    let hash4 = mask_identity("test-id", &TEST_PEPPER);
+    assert_eq!(hash1, hash4);
+}
+```
+
+## Security Testing Requirements
+
+### Test Data Hygiene
+```rust
+// ✅ GOOD: Use clearly fake test data
+const TEST_SIGNAL_ID: &str = "test-signal-id-00000";
+const TEST_GROUP_ID: &str = "test-group-id-00000";
+
+// ❌ BAD: Production-like identifiers
+const TEST_SIGNAL_ID: &str = "+1234567890";
+```
+
+### Never Commit Sensitive Test Data
+- **NEVER** commit test keys, salts, or real identifiers to git
+- Use deterministic test fixtures that are clearly fake
+- Clean up test data immediately after tests
+- Use `#[ignore]` for tests that require real credentials (document why)
+
+### Memory Safety Testing
+```rust
+#[test]
+fn test_sensitive_buffer_zeroized_after_use() {
+    let mut buffer = [0u8; 32];
+    buffer.copy_from_slice(&TEST_DATA);
+    
+    // Perform operation
+    let result = hash_with_zeroize(&mut buffer);
+    
+    // Verify buffer was zeroized
+    assert_eq!(buffer, [0u8; 32]);
+}
+```
+
+### Cryptographic Property Testing
+```rust
+use proptest::prelude::*;
+
+proptest! {
+    #[test]
+    fn test_hmac_deterministic_for_same_inputs(
+        id in "[a-zA-Z0-9]{1,100}",
+        pepper in prop::array::uniform32(0u8..=255u8)
+    ) {
+        // HMAC-based hashing should be deterministic for same inputs
+        let hash1 = mask_identity_hmac(&id, &pepper);
+        let hash2 = mask_identity_hmac(&id, &pepper);
+        prop_assert_eq!(hash1, hash2);
+    }
+    
+    #[test]
+    fn test_hmac_different_for_different_peppers(
+        id in "[a-zA-Z0-9]{1,100}",
+        pepper1 in prop::array::uniform32(0u8..=255u8),
+        pepper2 in prop::array::uniform32(0u8..=255u8)
+    ) {
+        prop_assume!(pepper1 != pepper2);
+        let hash1 = mask_identity_hmac(&id, &pepper1);
+        let hash2 = mask_identity_hmac(&id, &pepper2);
+        prop_assert_ne!(hash1, hash2);
+    }
+}
+```
+```
+
+## Domain-Specific Test Patterns
+
+### Trust Verification Tests
+```rust
+#[test]
+fn test_trust_verification_requires_two_distinct_vouchers() {
+    // Test that Signer_A IS_NOT Signer_B
+    let voucher1 = hash_identity("voucher-1");
+    let voucher2 = hash_identity("voucher-2");
+    let new_member = hash_identity("new-member");
+    
+    // Should succeed with two distinct vouchers
+    assert!(verify_trust(&[voucher1, voucher2], &new_member).is_ok());
+    
+    // Should fail with same voucher twice
+    assert!(verify_trust(&[voucher1, voucher1], &new_member).is_err());
+}
+```
+
+### Ejection Protocol Tests
+```rust
+#[test]
+fn test_immediate_ejection_when_standing_negative() {
+    let member = create_test_member();
+    let mut state = create_test_state();
+    
+    // Add flags to exceed vouches (Standing = Vouches - Flags)
+    state.add_vouch(&member, 2);
+    state.add_flag(&member, 3);  // Standing = 2 - 3 = -1
+    
+    // Check standing - should be negative
+    let standing = calculate_trust_standing(&member, &state);
+    assert_eq!(standing, -1);
+    
+    // Should trigger immediate ejection
+    let status = check_group_standing(&member, &state);
+    assert_eq!(status, MemberStatus::Revoked);
+    
+    // Verify no grace period - ejection is immediate
+    assert!(should_eject_immediately(&status));
+}
+
+#[test]
+fn test_ephemeral_state_cleanup_after_vetting() {
+    let member = create_test_member();
+    let mut state = create_test_state();
+    
+    // Add sufficient vouches to meet threshold
+    state.add_vouch(&member, 2);
+    
+    // Member should be vetted
+    let status = check_group_standing(&member, &state);
+    assert_eq!(status, MemberStatus::Vetted);
+    
+    // Relationship data should be deleted after threshold met
+    assert!(state.relationship_data(&member).is_none());
+    
+    // Only trust standing should remain
+    let standing = state.get_standing(&member);
+    assert!(standing.is_some());
+}
+```
+
+### PSI-CA Tests
+```rust
+#[test]
+fn test_psi_ca_calculates_overlap_without_revealing_identities() {
+    let set_a = vec![hash("id1"), hash("id2"), hash("id3")];
+    let set_b = vec![hash("id2"), hash("id3"), hash("id4")];
+    
+    // Calculate overlap
+    let overlap = calculate_psi_overlap(&set_a, &set_b);
+    
+    // Verify correct count (should be 2: id2 and id3)
+    assert_eq!(overlap, 2);
+    
+    // Verify no individual identities were exposed
+    // (This would be verified through integration tests with actual PSI implementation)
+}
+```
+
+### Federation Threshold Tests
+```rust
+#[test]
+fn test_federation_proposed_when_overlap_exceeds_10_percent() {
+    // 10% threshold: |A ∩ B| / |A ∪ B| > 0.10
+    let set_a_size = 100;
+    let set_b_size = 50;
+    let overlap = 15;  // 15 / 150 = 10% exactly
+    
+    // Should trigger proposal at exactly 10%
+    assert!(should_propose_federation(overlap, set_a_size, set_b_size));
+    
+    // Should not trigger below 10%
+    assert!(!should_propose_federation(14, set_a_size, set_b_size));
+}
+```
+
+### Social Anchor Hashing Tests
+```rust
+#[test]
+fn test_social_anchor_hashing_dynamic_threshold() {
+    // Test with different group sizes
+    let small_group = create_validators(10);
+    let large_group = create_validators(100);
+    
+    // Threshold should scale with group size
+    let small_threshold = calculate_validator_threshold(small_group.len());
+    let large_threshold = calculate_validator_threshold(large_group.len());
+    
+    assert!(large_threshold > small_threshold);
+    
+    // Verify hash is deterministic for same validators
+    let hash1 = generate_social_anchor(&small_group);
+    let hash2 = generate_social_anchor(&small_group);
+    assert_eq!(hash1, hash2);
+}
+```
+
+## Integration Testing
+
+### Signal Integration Tests
+- Mock `libsignal-service-rs` for deterministic testing
+- Test bot commands: `/vouch`, `/status`, `/mesh`, `/flag`
+- Verify 1-on-1 PM behavior (no group chat leakage)
+- Test immediate ejection triggers Signal group removal
+
+### Freenet Contract Tests
+- Test Wasm contract compilation
+- Test ZK-proof verification in contract
+- Test Merkle tree state transitions
+- Test state stream monitoring
+
+## Test Execution
+
+### Pre-Commit Hooks
+- Run `cargo nextest run` before commit
+- Verify 100% coverage maintained
+- Check for non-deterministic tests
+
+### CI/CD Integration
+```yaml
+# Example CI step
+- name: Run tests with coverage
+  run: |
+    cargo nextest run --all-features
+    cargo llvm-cov --all-features --lcov --output-path lcov.info
+    # Fail if coverage < 100%
+```
+
+## Test Maintenance
+
+### Keeping Tests Green
+- Fix broken tests immediately (TDD discipline)
+- Update tests when requirements change
+- Remove obsolete tests (dead code elimination)
+
+### Test Performance
+- Keep unit tests fast (< 1 second each)
+- Use `#[ignore]` for slow integration tests (document why)
+- Run fast tests frequently, slow tests in CI
+
+## Anti-Patterns to Avoid
+
+### ❌ Non-Deterministic Tests
+```rust
+// ❌ BAD: Uses random data
+#[test]
+fn test_hash() {
+    let random_id = generate_random_id();
+    // ...
+}
+```
+
+### ❌ Incomplete Coverage
+```rust
+// ❌ BAD: Only tests happy path
+#[test]
+fn test_trust() {
+    assert!(verify_trust(&vouchers, &member));
+    // Missing: error cases, edge cases, boundary conditions
+}
+```
+
+### ❌ Vague Test Names
+```rust
+// ❌ BAD: Doesn't describe what's being tested
+#[test]
+fn test1() { }
+```
+
+### ❌ Production Data in Tests
+```rust
+// ❌ BAD: Looks like real data
+const TEST_ID: &str = "+15551234567";
+```

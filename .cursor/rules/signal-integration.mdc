@@ -1,0 +1,253 @@
+---
+description: Signal protocol integration patterns and bot behavior
+globs: **/*signal*.rs,**/*bot*.rs
+alwaysApply: false
+---
+
+# Signal Integration Standards
+
+## Bot Behavior Principles
+
+### Bot Roles
+- **Protocol Gatekeeper**: Strictly enforces 2-vouch requirement for admission to Signal group
+- **Blind Matchmaker (Internal)**: Strategic introduction matching within single group for MST optimization (suggests Validators, but ANY Member can vouch)
+- **Diplomat (External)**: Federation proposals with other Stroma groups via Blind Rendezvous
+- **Health Monitor**: Continuous monitoring of trust standing and vouch counts
+
+### Gatekeeper Pattern (Admission Protocol)
+- Presence in Signal group is **binary** and strictly tied to Freenet state
+- **Core Invariant**: Every member in Signal group has ≥2 vouches from independent Members
+- **Invitees (Leaf Nodes)**: OUTSIDE Signal group (1 vouch, being vetted)
+- **Bridges**: IN Signal group (2 vouches, minimum requirement)
+- **Validators**: IN Signal group (3+ vouches, used for optimization)
+- **Waiting Room**: State of being outside Signal group (not a separate chat)
+- **Vouches Source**: ONLY from members already IN the Stroma Signal group
+- **Who Can Vouch**: ANY Member (Bridges and Validators)
+- Only add users to Signal after Freenet contract confirms ≥2 vouches
+- Monitor Freenet state stream continuously (real-time, not polling)
+
+**Admission Flow:**
+1. Member sends `/invite @Invitee [context]` → Invitation counts as first vouch
+2. Bot selects second Member via Blind Matchmaker (prefers Validators for optimization)
+3. Bot facilitates introduction between invitee and selected Member
+4. Second Member vouches → Bot verifies 2 vouches in Freenet
+5. Bot adds invitee to Signal group (now a Bridge)
+6. Bot announces admission and deletes vetting session data
+
+### Immediate Ejection Protocol
+```rust
+// Logic pattern for auto-ejection (TWO triggers)
+FUNCTION: Check_Group_Standing(Member_Hash)
+LET: Vouch_Count = Count_Vouches(Member_Hash)
+LET: Flag_Count = Count_Flags(Member_Hash)
+LET: Standing = Vouch_Count - Flag_Count
+
+# Trigger 1: Standing negative
+IF: Standing < 0
+THEN: TRIGGER(Immediate_Ejection_Protocol)
+
+# Trigger 2: Vouch count below minimum (voucher left group)
+IF: Vouch_Count < MIN_VOUCH_THRESHOLD
+THEN: TRIGGER(Immediate_Ejection_Protocol)
+
+ACTION: Bot_Execute(Signal_Group_Remove(Member_Hash))
+AND: Send_Private_Notification(Member_Hash, 
+     "You have been removed. To rejoin, secure 2 new vouches via /invite.")
+```
+
+**Ejection Triggers:**
+1. **Standing < 0**: Too many flags (trust violated)
+2. **Vouch count < MIN_VOUCH_THRESHOLD**: Voucher(s) left group
+
+**No Grace Periods:**
+- No 48-hour warnings
+- No re-verification windows
+- Immediate removal when either trigger condition met
+- **Member Responsibility**: Cultivate multiple vouches for resilience
+
+**Heartbeat Monitor:**
+- Runs every 60 minutes
+- Checks vouch count for all members
+- Immediate ejection if < MIN_VOUCH_THRESHOLD
+- No manual intervention required
+
+**Re-Entry Path:**
+- Secure 2 new vouches from validators IN the group
+- Go through admission protocol again
+- **No Public Shaming**: Uses hashes, not names in notifications
+
+## Privacy-First UX (Non-Technical Users)
+
+### Command Interface
+- All vetting/vouching occurs in **1-on-1 PMs** with bot
+- Never expose member operations in group chat (prevents metadata leakage)
+
+**Member Commands:**
+- `/invite @username [context]` - Invite someone (counts as first vouch)
+- `/vouch @username` - Vouch for invitee or existing member
+- `/flag @username [reason]` - Flag member for trust violation (required reason)
+- `/status` - View personal trust standing and vouch count
+- `/status @username` - View another member's standing (if visible)
+- `/mesh` - View network health and topology
+- `/mesh strength` - View mesh density histogram
+- `/mesh config` - View group configuration
+- `/propose-config key=value [reason]` - Propose configuration change
+- `/audit operator` - View operator action history
+
+**Who Can Use:**
+- `/invite`, `/vouch`: Any Member (Bridges and Validators)
+- `/flag`: Only Members (not invitees being vetted)
+- All query commands: Any Member
+
+**Bot Characteristics:**
+- **Natural Language**: Bot responds conversationally, not with technical jargon
+- **Proactive Suggestions**: Bot may suggest strategic introductions to strengthen mesh
+- **Privacy**: All operations use hashed identifiers, never expose social graph
+
+### Voting Interface: Signal Polls
+- **Structured Voting**: Use Signal Polls for all group decisions (NOT reactions)
+- **Poll Options**: Clear choices (✅ Approve / ❌ Reject / ⏸️ Abstain)
+- **Vote Counting**: Automatic display of vote totals and progress
+- **Expiration**: Polls auto-close after voting period (e.g., 48 hours)
+- **Threshold**: Requires `config_change_threshold` approval (e.g., 70%)
+- **Use Cases**: Configuration changes, federation proposals
+
+### User Experience (Abstraction Layer)
+- **Invisible Backend**: Freenet complexity completely hidden from users
+- **Thin Client**: Bot acts as gateway to Freenet contract
+- Bot acts as "Diplomat" for federation proposals
+
+### Signal Poll Usage
+Bot sends Signal Polls to validators for all group decisions:
+
+**Federation Proposal Poll:**
+```
+🔍 Federation Opportunity
+
+Group: Group-B
+Overlap: 15 members (15% of our group)
+Their size: ~100 members
+Intersection density: 15% (above our 10% threshold)
+
+Federation enables:
+- Cross-mesh vouching
+- Shared trust context
+- Increased resilience
+
+Requires 70% approval.
+Voting closes in 48 hours.
+
+[Signal Poll]
+✅ Approve Federation (12) - 60%
+❌ Reject Federation (4) - 20%
+⏸️ Abstain (4) - 20%
+```
+
+**Configuration Change Poll:**
+```
+📋 Configuration Change Proposed
+
+Parameter: min_intersection_density
+Current: 0.10 (10%)
+Proposed: 0.15 (15%)
+Proposer: @Member
+Reason: Tighten federation threshold for better security
+
+Requires 70% approval (config_change_threshold).
+Voting closes in 48 hours.
+
+[Signal Poll]
+✅ Approve Change (14) - 70%
+❌ Reject Change (4) - 20%
+⏸️ Abstain (2) - 10%
+```
+
+- **Status Dashboard**: `/mesh` shows network health, personal standing, role
+- **Progress Indicators**: "You are 1-link away from being fully vetted"
+- **Role Visibility**: "You are now a Validator (can help verify others!)"
+- **Growing Horizon**: Network expansion feels organic, not forced
+
+## Signal Protocol Integration
+
+### Library Usage
+- Use `libsignal-service-rs` for protocol-level group management
+- Implement listener for group events and PMs
+- Handle group member additions/removals atomically
+- **Signal Poll Support**: Use Signal's poll message type for structured voting
+  - Send polls to validators
+  - Monitor poll responses automatically
+  - Calculate approval rates from poll results
+
+### Group Management
+- Bot must have admin privileges to manage membership
+- All membership changes must be verified against Freenet state first
+- Never make membership decisions based solely on Signal group state
+- **Automatic Execution**: Bot automatically adds/removes members based on Freenet state changes
+- **Event-Driven**: Bot monitors Freenet state stream and reacts immediately to state changes
+
+## Federation Proposals
+
+### Discovery Notification
+When bot detects high-density overlap:
+```
+"🔍 Federation Opportunity Detected
+
+I've discovered a compatible trust network (Group-B) with significant overlap:
+- Overlap: 12 shared members
+- Intersection Density: 15% (above our 10% threshold)
+- Their Size: ~80 members
+
+Federation would enable cross-mesh vouching and shared trust context.
+Should we federate?
+
+[Signal Poll created]"
+```
+
+### Bridge Proposals (Mesh Building)
+Bot proactively suggests strategic connections:
+```
+"💡 Mesh Optimization: I can introduce you to a member from a different 
+part of the network. This would strengthen your position and improve 
+overall network resilience.
+
+You currently have 2 vouches (Bridge status). Adding connections with 
+members outside your immediate cluster helps create a more robust mesh.
+
+React with ✅ to accept introduction."
+```
+
+## Data Handling
+
+### Never Store Signal IDs
+- **Critical**: Bot must never store Signal IDs in cleartext
+- **HMAC-based hashing**: Use keyed hashing with group-secret pepper (not deterministic hashing)
+- **Ephemeral Memory**: Raw Signal IDs wiped immediately after hashing
+- **Blinded Identifiers**: Public ID for bot, private ID for ZK-math
+- Hash all identifiers immediately using HMAC
+- Use hashed identifiers for all internal operations
+- **Ephemeral State**: Vetting session data deleted after admission threshold met
+- **Memory Hygiene**: Use `zeroize` crate to purge sensitive buffers
+
+## Vouch Permissions
+
+### Who Can Vouch
+- **ANY Member** in the Stroma Signal group can vouch
+- Includes both Bridges (2 vouches) and Validators (3+ vouches)
+- Invitees (people being vetted) CANNOT vouch
+
+### Blind Matchmaker Role
+- Bot SUGGESTS optimal Members for strategic introductions
+- Bot prefers Validators for intersectional diversity optimization
+- But Members can vouch without bot suggestion
+- Strategic matching is for optimization, not enforcement
+
+### Vouch Contexts
+1. **Vetting**: Vouch for invitee during admission process
+2. **Mesh Building**: Vouch for existing Member to strengthen mesh
+3. **Cross-Mesh**: Member from federated Group-B can vouch for Group-A invitee
+
+### Vouch Validity
+- Vouches must be from independent Members (not the same person)
+- Bot verifies via Freenet that voucher is current Member
+- ZK-proof confirms voucher is in Merkle Tree
+- First vouch = invitation itself (no separate token)

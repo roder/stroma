@@ -1,0 +1,261 @@
+---
+description: Development environment preferences, tooling, and workflow standards
+alwaysApply: true
+---
+
+# Development Environment Standards
+
+## Shell Configuration
+
+### Primary Shell: Fish
+- **Default Shell**: Use `fish` shell for all terminal operations
+- **Path**: `/opt/homebrew/bin/fish` (Homebrew installation)
+- **When to Use**: All terminal commands, scripts, and automation
+- **Scripts**: Write shell scripts in fish syntax when possible
+
+### Fish Shell Patterns
+```fish
+# ✅ GOOD: Fish shell syntax
+set -x PATH $PATH /opt/homebrew/bin
+set -gx CARGO_HOME $HOME/.cargo
+
+# ❌ AVOID: Bash-specific syntax in fish
+export PATH=$PATH:/opt/homebrew/bin  # Use 'set -x' instead
+```
+
+### Terminal Commands
+- Always use fish-compatible syntax when writing commands
+- Use fish's built-in features (autosuggestions, syntax highlighting)
+- Prefer fish functions over aliases where appropriate
+
+## Operating System
+
+### Platform: macOS (darwin)
+- **OS Version**: darwin 25.2.0
+- **Package Manager**: Homebrew (`/opt/homebrew` for Apple Silicon)
+- **Architecture**: Prefer ARM64/Apple Silicon native builds
+
+### Homebrew Usage
+- Install development tools via Homebrew
+- Use `/opt/homebrew/bin` for Homebrew-installed binaries
+- Prefer Homebrew packages over manual installations
+
+## Development Workflow
+
+### Project Structure
+- **Workspace Path**: `/Users/matt/src/github.com/roder/stroma`
+- **Code Organization**: Follow Rust module conventions
+- **Documentation**: Keep design history in `docs/chats/`
+
+### Git Workflow
+- Use standard git commands (fish-compatible)
+- Prefer descriptive commit messages
+- Follow project conventions for branching
+
+### File Paths
+- **Prefer Absolute Paths**: When specifying file paths in tool calls, use absolute paths
+- **Workspace Root**: `/Users/matt/src/github.com/roder/stroma`
+- **Rules Directory**: `/Users/matt/src/github.com/roder/stroma/.cursor/rules`
+
+## Rust Development
+
+### Cargo Commands
+- Use `cargo` commands directly (no wrapper scripts needed)
+- Run tests with: `cargo nextest run`
+- Format with: `cargo fmt`
+- Lint with: `cargo clippy`
+
+### Build Targets
+- **Development**: Native target for faster iteration
+- **Production**: `x86_64-unknown-linux-musl` (static MUSL binary)
+- Use `cross` or `cargo build --target` for cross-compilation
+
+### Environment Variables
+```fish
+# Rust environment
+set -gx CARGO_HOME $HOME/.cargo
+set -gx PATH $PATH $CARGO_HOME/bin
+set -gx RUST_BACKTRACE 1  # For debugging
+```
+
+## Terminal Commands
+
+### Command Execution
+- **Shell**: Always use fish shell for command execution
+- **Working Directory**: Commands should `cd` to appropriate directory if needed
+- **Background Jobs**: Use `is_background: true` for long-running processes
+
+### Path Handling
+- Use absolute paths when possible
+- Fish shell path variables use space-separated format: `set PATH $PATH /new/path`
+- Use `$HOME` or full paths, not `~` expansion (for tool compatibility)
+
+### Command Patterns
+```fish
+# ✅ GOOD: Fish shell commands
+cd /Users/matt/src/github.com/roder/stroma
+cargo nextest run
+mkdir -p .cursor/rules
+
+# ✅ GOOD: Background processes
+cargo build --release &  # In fish, use & for background
+```
+
+## Editor Configuration
+
+### Cursor/VSCode
+- **Workspace**: `stroma.code-workspace`
+- **Settings**: Respect workspace settings
+- **Extensions**: Use Rust-analyzer, rustfmt, clippy extensions
+
+### File Operations
+- **Read Files**: Use absolute paths when possible
+- **Edit Files**: Prefer existing files, create new only when necessary
+- **Search**: Use semantic search for code understanding
+
+## Development Tools
+
+### Required Tools
+- **Rust**: Latest stable version
+- **Cargo**: Rust package manager
+- **Fish Shell**: `/opt/homebrew/bin/fish`
+- **Git**: Version control
+- **Homebrew**: Package manager
+
+### Optional Tools
+- **cross**: For cross-compilation to MUSL
+- **cargo-nextest**: Test runner
+- **cargo-deny**: Dependency auditing
+- **cargo-crev**: Cryptographic verification
+
+### Tool Installation
+```fish
+# Install via Homebrew
+brew install rust
+brew install fish
+
+# Install Rust tools via cargo
+cargo install cargo-nextest
+cargo install cargo-deny
+cargo install cargo-crev
+```
+
+## Environment Setup
+
+### Project Initialization
+```fish
+# Navigate to project
+cd /Users/matt/src/github.com/roder/stroma
+
+# Set up Rust environment
+set -gx PATH $PATH $HOME/.cargo/bin
+
+# Verify tools
+cargo --version
+fish --version
+```
+
+### Development Environment Variables
+- Set environment variables using fish syntax: `set -gx VAR value`
+- Use `set -U` for universal variables that persist across sessions
+- Document required environment variables in project README
+
+## Script Execution
+
+### Shell Scripts
+- **Preferred**: Write scripts in fish shell syntax
+- **Compatibility**: If bash is required, use `#!/bin/bash` shebang
+- **Execution**: Make scripts executable: `chmod +x script.fish`
+
+### Fish Functions
+- Create reusable functions in `~/.config/fish/functions/`
+- Use fish function syntax for project-specific helpers
+- Document functions with comments
+
+## File System
+
+### macOS-Specific Considerations
+- **Case Sensitivity**: macOS file system is case-insensitive by default
+- **Hidden Files**: Use `.cursor/` for Cursor-specific files
+- **Permissions**: Respect file permissions and ownership
+
+### Path Conventions
+- Use forward slashes `/` (macOS supports both, but `/` is standard)
+- Use absolute paths in tool calls for reliability
+- Use `$HOME` for user home directory expansion
+
+## Development Preferences
+
+### Code Organization
+- Follow Rust module conventions
+- Keep related code together
+- Use clear, descriptive names
+
+### Documentation
+- Keep design history in `docs/chats/`
+- Update rules in `.cursor/rules/` as needed
+- Document architectural decisions
+
+### Testing
+- Run tests frequently during development
+- Use `cargo nextest run` for test execution
+- Maintain 100% code coverage
+
+## Command Examples
+
+### Common Development Tasks
+
+```fish
+# Navigate to project
+cd /Users/matt/src/github.com/roder/stroma
+
+# Run tests
+cargo nextest run
+
+# Build for development
+cargo build
+
+# Build for production (MUSL)
+cargo build --target x86_64-unknown-linux-musl --release
+
+# Format code
+cargo fmt
+
+# Lint code
+cargo clippy -- -D warnings
+
+# Check dependencies
+cargo deny check
+cargo crev verify
+
+# Create new module
+mkdir -p src/new_module
+touch src/new_module/mod.rs
+```
+
+## Anti-Patterns
+
+### ❌ Avoid
+- Don't use bash-specific syntax in fish shell
+- Don't use `~` for home directory in tool calls (use `$HOME` or absolute path)
+- Don't assume bash is available (use fish)
+- Don't use `export` in fish (use `set -x` or `set -gx`)
+
+### ✅ Prefer
+- Use fish shell syntax for all commands
+- Use absolute paths in tool calls
+- Use `set -gx` for environment variables
+- Use fish functions for reusable logic
+
+## Integration with Other Rules
+
+### Coordination
+- This rule works with `rust-standards.mdc` for Rust development
+- Coordinates with `tech-stack.mdc` for tooling requirements
+- Supports `testing-standards.mdc` for test execution
+- Enables `gastown-workflow.mdc` for Gastown operations
+
+### Tool Execution
+- All terminal commands should use fish shell
+- All file paths should use absolute paths when possible
+- All environment setup should use fish syntax

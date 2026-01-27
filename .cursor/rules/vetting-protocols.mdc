@@ -1,0 +1,370 @@
+---
+description: Vetting and admission protocols for Stroma trust network
+globs: **/*vetting*.rs,**/*admission*.rs,**/*matchmaker*.rs
+alwaysApply: false
+---
+
+# Vetting Protocols
+
+## Core Invariant
+
+**Signal Group = Fully Vetted Members Only**
+
+Every member in the Stroma Signal group MUST have ≥2 vouches from independent Members at all times. The group is always in a "fully vetted" state.
+
+**Critical Terminology:**
+- **Invitees (Leaf Nodes)**: People OUTSIDE the group being vetted (1 vouch)
+- **Bridges**: Members IN the group with exactly 2 vouches (minimum requirement)
+- **Validators**: Members IN the group with 3+ vouches (high-trust members)
+- **Waiting Room**: State of being outside the Signal group during vetting (not a separate chat)
+
+## Bootstrap: Seed Group (One-Time)
+
+### Initial Setup
+- **Seed Group Size**: 3 members (minimum for triangulation)
+- **Manual Addition**: Operator manually adds 3 initial members to Signal group
+- **Initial Triangle**: All 3 members vouch for each other
+- **Freenet State**: Creates initial Merkle Tree with 3 members, each with 2 vouches
+
+**Bootstrap Logic:**
+```rust
+// One-time initialization
+fn bootstrap_seed_group(seed_members: [SignalId; 3]) {
+    // Hash identifiers
+    let hashes: Vec<_> = seed_members.iter()
+        .map(|id| mask_identity_hmac(id, group_pepper))
+        .collect();
+    
+    // Create mutual vouches (full triangle)
+    for i in 0..3 {
+        for j in 0..3 {
+            if i != j {
+                freenet.add_vouch(hashes[i], hashes[j]);
+            }
+        }
+    }
+    
+    // All 3 members now have 2 vouches each
+    // Bootstrap complete
+}
+```
+
+**After Bootstrap:**
+- Seed group members become initial Validators
+- All subsequent members must be vouched by people IN the group
+- No more manual additions - bot enforces gatekeeper protocol
+
+## Admission Protocol (External → Stroma Group)
+
+### Phase 1: Invitation (First Vouch)
+**Member Action:**
+```
+Member: /invite @PotentialMember "Optional context message"
+Bot → Member (1-on-1 PM): 
+"Your invitation for @PotentialMember has been recorded as the first vouch.
+I'm now reaching out to a validator from a different cluster 
+for the second vouch. I'll keep you updated."
+```
+
+**Requirements:**
+- Referrer must be a member IN the Stroma group
+- Invitation itself counts as first vouch (no token exchange needed)
+- ANY Member can vouch (Bridges and Validators)
+
+### Phase 2: Strategic Matching (Blind Matchmaker)
+**Bot to Invitee:**
+```
+Bot → Invitee (1-on-1 PM):
+"Welcome! You've been invited to join the [GroupName] trust network.
+You need one more vouch from a different member to be admitted.
+I'm facilitating an introduction now..."
+```
+
+**Bot Matching Logic (Strategic):**
+```rust
+fn select_second_member(
+    referrer_hash: Hash,
+    invitee_hash: Hash,
+    graph: &TrustGraph,
+) -> Hash {
+    // Find validators NOT in referrer's immediate cluster
+    // Maximizes intersectional trust diversity
+    // Note: ANY Member can vouch, but bot prefers Validators for optimization
+    let referrer_cluster = graph.get_cluster(referrer_hash);
+    let validators = graph.get_validators();
+    
+    // Filter validators from DIFFERENT clusters
+    let candidates: Vec<_> = validators.iter()
+        .filter(|v| !referrer_cluster.contains(v))
+        .filter(|v| *v != referrer_hash)  // Must be different person
+        .collect();
+    
+    // Select based on:
+    // 1. Cluster diversity (prefer different cluster)
+    // 2. Availability (not currently in other vetting interviews)
+    // 3. Vouch count (higher = more reliable)
+    select_optimal_validator(candidates)
+}
+```
+
+**Validator PM:**
+```
+Bot → Validator (1-on-1 PM): 
+"A member has invited someone to the group. Would you be willing 
+to have a brief chat (10-15 min) with them for a second vouch?
+
+They're outside your usual cluster, which helps strengthen 
+our network's intersectional diversity.
+
+React with ✅ to accept or ❌ to decline."
+```
+
+### Phase 3: Introduction Facilitation
+**Bot connects invitee and validator:**
+```
+Bot creates private Signal chat with 3 people:
+- Invitee
+- Validator
+- Bot (observer, doesn't participate)
+
+Bot: "This is a vetting introduction. @Validator is a member from 
+      a different part of the network. Please have a brief chat.
+      
+      @Validator, if comfortable after your conversation, use: /vouch @Invitee"
+```
+
+### Phase 4: Admission
+**After second vouch received:**
+```rust
+fn process_admission(invitee_hash: Hash) {
+    // Verify 2 vouches from independent Members
+    let vouches = freenet.get_vouches(invitee_hash);
+    
+    assert!(vouches.len() >= 2);
+    assert!(vouches[0].voucher != vouches[1].voucher);  // Different people
+    
+    // Push ZK-proofs to Freenet contract
+    freenet.add_member(invitee_hash, vouches);
+    
+    // Only AFTER Freenet confirms, add to Signal
+    signal.add_to_group(invitee_hash);
+    
+    // Announce in group
+    signal.send_message(
+        "A new member has been verified by two independent witnesses 
+         and woven into the mesh. Welcome!"
+    );
+    
+    // Send welcome PM to new Bridge
+    signal.send_pm(invitee_hash,
+        "Welcome to [GroupName]! You're now a Bridge (2 vouches).
+         
+         💡 Trust Tip: Consider building more connections in the group 
+         to increase your resilience. If a voucher leaves, you'll need 
+         replacement vouches immediately to stay in the group."
+    );
+    
+    // Delete ephemeral vetting data
+    cleanup_vetting_session(invitee_hash);
+}
+```
+
+## Internal Mesh-Building (Within Stroma Group)
+
+### Purpose
+Maintain fully intersectional mesh as group grows by identifying and resolving weak points.
+
+### Cluster Analysis (Internal)
+
+**Definition of Internal Cluster:**
+- Sub-communities within a SINGLE Stroma group
+- Example: 50-person group might have Artist cluster (12), Engineer cluster (15), etc.
+- NOT separate Signal groups - same group, different social affinities
+
+**Bot Topology Mapping:**
+```rust
+fn analyze_internal_topology(members: &[Hash]) -> TopologyReport {
+    // Build graph from vouch relationships
+    let graph = build_trust_graph(members);
+    
+    // Identify node types (all are IN the Signal group)
+    // Note: "Leaf Nodes" (1 vouch) are OUTSIDE group, not in this analysis
+    
+    let bridges: Vec<_> = members.iter()
+        .filter(|m| graph.vouch_count(m) == MIN_VOUCH_THRESHOLD)  // Exactly 2
+        .collect();
+    
+    let validators: Vec<_> = members.iter()
+        .filter(|m| graph.vouch_count(m) > MIN_VOUCH_THRESHOLD)   // 3+
+        .collect();
+    
+    // Identify disconnected clusters (islands)
+    let clusters = graph.find_connected_components();
+    
+    TopologyReport {
+        bridges,           // 2 vouches (in group)
+        validators,        // 3+ vouches (in group)
+        clusters,          // Internal sub-communities
+        total_members: members.len(),
+    }
+}
+```
+
+### Strategic Introduction Matching (Blind Matchmaker)
+
+**Goal:** Achieve MST (Minimum Spanning Tree) with least new interactions.
+
+**Priority Algorithm:**
+```rust
+fn generate_introduction_recommendations(
+    topology: &TopologyReport,
+) -> Vec<IntroductionPair> {
+    let mut recommendations = Vec::new();
+    
+    // Priority 1: Connect Bridges to Validators from different clusters
+    // (Strengthen minimal-trust members first)
+    for bridge in &topology.bridges {
+        let bridge_cluster = topology.get_cluster(bridge);
+        
+        // Find validator from DIFFERENT cluster
+        let validator = topology.validators.iter()
+            .filter(|v| topology.get_cluster(v) != bridge_cluster)
+            .max_by_key(|v| topology.vouch_count(v))
+            .unwrap();
+        
+        recommendations.push(IntroductionPair {
+            person_a: *bridge,
+            person_b: *validator,
+            reason: "Bridge → Validator (different cluster)",
+            priority: 1,
+        });
+    }
+    
+    // Priority 2: Connect Validators from different islands
+    // (Only if islands exist - merges entire clusters)
+    if topology.clusters.len() > 1 {
+        for (cluster_a, cluster_b) in topology.cluster_pairs() {
+            let val_a = cluster_a.top_validator();
+            let val_b = cluster_b.top_validator();
+            
+            recommendations.push(IntroductionPair {
+                person_a: val_a,
+                person_b: val_b,
+                reason: "Bridge islands",
+                priority: 2,
+            });
+        }
+    }
+    
+    recommendations
+}
+```
+
+**Efficiency Math:**
+- Total new interactions = N(Bridges) + I(Islands)
+- Example: 5 bridges + 2 islands = 6 new interactions for 20-person group
+
+### Member Experience
+```
+Member: /mesh status
+
+Bot: "Network Health: Fully Vetted ✅
+      Your Status: Bridge (2 vouches)
+      
+      💡 Suggestion: I can introduce you to a Validator from a different 
+      part of the network to strengthen your position. Would you like that?
+      
+      React with ✅ to accept introduction."
+```
+
+## Continuous Health Monitoring
+
+### Heartbeat Auditor
+```rust
+async fn membership_health_check() {
+    loop {
+        sleep(Duration::minutes(60)).await;
+        
+        for member in signal.get_group_members() {
+            let vouch_count = freenet.get_vouch_count(member).await;
+            
+            // Immediate ejection if below minimum
+            if vouch_count < MIN_VOUCH_THRESHOLD {
+                signal.remove_member(member).await;
+                signal.send_pm(member, 
+                    "Your vouch count dropped below minimum. 
+                     You have been removed from the group. 
+                     To rejoin, secure 2 new vouches via /invite.");
+            }
+        }
+    }
+}
+```
+
+**No Grace Periods:**
+- Vouch count < 2 → Immediate ejection
+- No 48-hour warnings
+- No "re-verification window"
+- Member responsibility to cultivate multiple vouches over time
+
+### Trust Maintenance (Member Responsibility)
+```
+Bot (proactive tip to new members):
+"💡 Trust Tip: You currently have 2 vouches (minimum required).
+ Consider building more connections in the group to become more resilient.
+ If a voucher leaves, you'll need replacement vouches immediately."
+```
+
+## Node Type Thresholds (Configurable)
+
+### Default (Fixed Numbers)
+```rust
+pub struct GroupConfig {
+    pub min_vouch_threshold: usize,      // Default: 2 (Leaf/Bridge boundary)
+    pub validator_threshold: usize,       // Default: 3 (Bridge/Validator boundary)
+    // ...
+}
+```
+
+### Optional (Percentage-Based)
+```rust
+pub struct GroupConfig {
+    pub use_percentage_thresholds: bool,
+    pub validator_percentile: u32,        // e.g., 20 (top 20% are validators)
+    // ...
+}
+
+fn calculate_validator_threshold(group_size: usize, percentile: u32) -> usize {
+    max(3, group_size * percentile / 100)
+}
+```
+
+## Summary: Two Distinct Matching Algorithms
+
+### 1. Internal Matching (Blind Matchmaker - Within Group)
+- **Purpose**: Build MST with least effort
+- **Knowledge**: Bot analyzes topology to identify optimal pairings
+- **Strategy**: Priority-based (Bridges first, then bridge islands)
+- **Anonymity Trade-off**: Bot knows graph structure but not why relationships exist
+- **Context**: Single Stroma group, internal cluster optimization
+- **Who Can Vouch**: ANY Member (Bridges and Validators), bot suggests optimal matches
+
+### 2. External Discovery (Blind Rendezvous - Between Groups)
+- **Purpose**: Discover and federate with other Stroma groups
+- **Knowledge**: Bot knows nothing about other group's structure
+- **Strategy**: PSI-CA for anonymous overlap calculation
+- **Anonymity**: Complete - no graph structure revealed
+- **Context**: Federation between separate Stroma groups
+
+## Key Architectural Principles
+
+1. **Waiting Room = Outside Signal Group**: No special state, just "not admitted yet"
+2. **Invitees (Leaf Nodes) = OUTSIDE Group**: 1 vouch, being vetted (not in Signal group)
+3. **Bridges = IN Group**: 2 vouches (minimum requirement for membership)
+4. **Validators = IN Group**: 3+ vouches (used for optimization, no special privileges)
+5. **Seed Group**: 3-member manual bootstrap, then fully automated
+6. **Gatekeeper**: Bot strictly enforces 2-vouch requirement before admission
+7. **Mesh-Building**: Bot suggests strategic intros to strengthen internal topology
+8. **Immediate Ejection**: No grace periods when vouch count drops
+9. **Trust Maintenance**: Member responsibility to cultivate multiple vouches
+10. **Vouch Permissions**: ANY Member can vouch (not restricted to Validators)

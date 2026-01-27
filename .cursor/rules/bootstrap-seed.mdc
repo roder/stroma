@@ -1,0 +1,193 @@
+---
+description: Bootstrap and seed group initialization for new Stroma groups
+globs: **/*bootstrap*.rs,**/*seed*.rs,**/*init*.rs
+alwaysApply: false
+---
+
+# Bootstrap & Seed Group
+
+## One-Time Initialization
+
+Creating a new Stroma group requires a **3-member seed group** to establish the initial trust triangle.
+
+## Seed Group Requirements
+
+### Minimum Size: 3 Members
+- **Why 3**: Smallest number that allows triangulation (all vouch for each other)
+- **Initial Triangle**: Member A ↔ Member B ↔ Member C ↔ Member A
+- **Result**: Each member has 2 vouches (meets minimum threshold)
+
+### Manual Bootstrap Process
+
+**Step 1: Operator Creates Group**
+```bash
+# Operator runs bootstrap command (ONLY time operator has special privilege)
+cargo run --bin stroma-bootstrap -- \
+  --seed-member-1 "+1234567890" \
+  --seed-member-2 "+0987654321" \
+  --seed-member-3 "+1122334455"
+```
+
+**Step 2: Bot Initialization**
+```rust
+fn bootstrap_new_group(
+    seed_members: [SignalId; 3],
+    group_pepper: &[u8],
+) -> Result<StromaGroup> {
+    // 1. Create new Signal group
+    let signal_group = signal_client.create_group("Stroma Group")?;
+    
+    // 2. Add 3 seed members
+    for member in &seed_members {
+        signal_client.add_to_group(signal_group.id, member)?;
+    }
+    
+    // 3. Hash identifiers
+    let hashes: Vec<_> = seed_members.iter()
+        .map(|id| mask_identity_hmac(id, group_pepper))
+        .collect();
+    
+    // 4. Create initial Freenet contract with mutual vouches
+    let mut contract = FreenetContract::new();
+    
+    // Create full triangle (each vouches for the other two)
+    for i in 0..3 {
+        for j in 0..3 {
+            if i != j {
+                contract.add_vouch(
+                    voucher: hashes[i],
+                    vouchee: hashes[j],
+                    zk_proof: create_bootstrap_proof(),
+                )?;
+            }
+        }
+    }
+    
+    // 5. Publish contract to Freenet
+    freenet_client.publish_contract(contract)?;
+    
+    // 6. Bot takes over - no more manual additions
+    Ok(StromaGroup {
+        signal_group_id: signal_group.id,
+        freenet_contract_address: contract.address,
+        seed_members: hashes,
+    })
+}
+```
+
+**Step 3: Verification**
+```rust
+// Verify bootstrap succeeded
+fn verify_bootstrap(contract: &FreenetContract) -> bool {
+    assert_eq!(contract.member_count(), 3);
+    
+    for member in contract.members() {
+        let vouch_count = contract.get_vouch_count(member);
+        assert_eq!(vouch_count, 2, "Seed member must have 2 vouches");
+    }
+    
+    true
+}
+```
+
+## Post-Bootstrap State
+
+### Seed Members Become Initial Validators
+- All 3 members have 2 vouches
+- All 3 can vouch for newcomers
+- Initial validator pool established
+
+### Operator Role Ends
+- **After bootstrap**: Operator becomes service runner only
+- No more manual additions
+- All subsequent members must go through bot admission protocol
+
+### Bot Takes Control
+- Bot becomes sole admin of Signal group
+- All admissions via 2-vouch protocol
+- All ejections via Freenet contract enforcement
+- Operator cannot override
+
+## Security Considerations
+
+### Bootstrap Ephemeral Data
+```rust
+// After bootstrap, delete sensitive data
+fn cleanup_bootstrap(seed_members: &[SignalId]) {
+    // Zeroize cleartext Signal IDs
+    for id in seed_members {
+        id.zeroize();
+    }
+    
+    // Only hashed identifiers remain
+    // Original Signal IDs never stored to disk
+}
+```
+
+### Seed Group Trust
+- Seed members are **mutually trusted** (pre-existing relationships)
+- Bootstrap assumes seed members know each other well
+- If seed group is compromised, entire network is at risk
+- **Critical**: Choose seed members carefully
+
+### One-Time Operator Privilege
+- Bootstrap is the ONLY time operator manually adds members
+- This privilege ends immediately after bootstrap
+- All bootstrap actions logged to Freenet contract
+- Queryable via `/audit bootstrap`
+
+## Alternative: Bot-Initiated Bootstrap
+
+For even stricter operator least-privilege, bootstrap can be initiated by the first seed member:
+
+```rust
+// First member starts group
+Member A → Bot (new PM): /create-stroma-group
+
+Bot: "Creating new group. You'll be seed member #1.
+      Invite 2 more trusted people to complete the seed group:
+      
+      /add-seed @MemberB
+      /add-seed @MemberC"
+
+// After 3 seed members added
+Bot: "Seed group complete. Creating Signal group and Freenet contract...
+      ✅ Done! All 3 seed members have been added with mutual vouches.
+      You can now invite others via /invite @NewMember."
+```
+
+This removes operator from the trust chain entirely - even bootstrap is user-initiated.
+
+## Bootstrap Audit Trail
+
+```rust
+pub struct BootstrapEvent {
+    pub timestamp: Timestamp,
+    pub seed_members: [Hash; 3],
+    pub signal_group_id: GroupId,
+    pub freenet_contract_address: ContractAddress,
+    pub initiated_by: Hash,  // Operator or first seed member
+}
+```
+
+Any member can query:
+```
+Member: /audit bootstrap
+
+Bot: "Group Bootstrap:
+      - Created: 2026-01-26 10:00:00 UTC
+      - Seed Members: 3 (all with 2 vouches)
+      - Signal Group: [GROUP_ID]
+      - Freenet Contract: [CONTRACT_ADDRESS]
+      - Current Members: 47
+      - Fully Vetted: ✅ (all members have ≥2 vouches)"
+```
+
+## Post-Bootstrap Growth
+
+After bootstrap, group grows ONLY through:
+1. **Admission Protocol**: 2 vouches from members IN the group
+2. **Strategic Matching**: Blind Matchmaker optimizes internal mesh
+3. **Federation**: Blind Rendezvous with other Stroma groups
+
+No more manual additions. Operator's role is purely service maintenance.

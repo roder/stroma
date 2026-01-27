@@ -1,0 +1,244 @@
+---
+description: Internal graph analysis for Blind Matchmaker (MST optimization within single group)
+globs: **/*graph*.rs,**/*topology*.rs,**/*matchmaker*.rs
+alwaysApply: false
+---
+
+# Internal Graph Analysis (Blind Matchmaker)
+
+## Scope: Internal to Single Stroma Group
+
+This module applies ONLY to analyzing and optimizing the trust graph **within a single Stroma Signal group**. This is distinct from external federation between separate groups.
+
+## Purpose
+
+Build a **Minimum Spanning Tree of Trust** within the group using the least number of strategic introductions.
+
+## Node Type Classification
+
+### Dynamic Thresholds (Configurable)
+
+**Default (Fixed Numbers):**
+- **Leaf**: Exactly MIN_VOUCH_THRESHOLD vouches (default: 2)
+- **Bridge**: MIN_VOUCH_THRESHOLD + 1 vouches (default: 3)
+- **Validator**: > MIN_VOUCH_THRESHOLD + 1 vouches (default: 4+)
+
+**Alternative (Percentage-Based):**
+```rust
+fn calculate_thresholds(group_size: usize, config: &GroupConfig) -> Thresholds {
+    if config.use_percentage_thresholds {
+        Thresholds {
+            min_vouch: config.min_vouch_threshold,  // Always 2 minimum
+            validator: max(3, group_size * config.validator_percentile / 100),
+        }
+    } else {
+        Thresholds {
+            min_vouch: config.min_vouch_threshold,
+            validator: config.validator_threshold_fixed,
+        }
+    }
+}
+```
+
+## Topology Analysis
+
+### Graph Construction
+```rust
+pub struct TrustGraph {
+    members: Vec<Hash>,
+    vouches: HashMap<Hash, Vec<Hash>>,  // member -> who vouched for them
+}
+
+impl TrustGraph {
+    fn build_from_freenet(contract: &FreenetContract) -> Self {
+        // Construct graph from Freenet Merkle Tree
+        // Only knows: who has how many vouches
+        // Does NOT know: relationship content, why vouches exist
+    }
+    
+    fn vouch_count(&self, member: &Hash) -> usize {
+        self.vouches.get(member).map(|v| v.len()).unwrap_or(0)
+    }
+    
+    fn classify_node(&self, member: &Hash, thresholds: &Thresholds) -> NodeType {
+        let count = self.vouch_count(member);
+        
+        if count == thresholds.min_vouch {
+            NodeType::Leaf
+        } else if count == thresholds.min_vouch + 1 {
+            NodeType::Bridge
+        } else {
+            NodeType::Validator
+        }
+    }
+}
+```
+
+### Cluster Detection
+```rust
+fn identify_internal_clusters(graph: &TrustGraph) -> Vec<Cluster> {
+    // Use graph algorithms to find connected components
+    // Identifies sub-communities within single group
+    
+    // Example algorithm: Union-Find or DFS
+    let components = find_connected_components(graph);
+    
+    components.into_iter()
+        .map(|members| Cluster {
+            members,
+            validators: members.iter()
+                .filter(|m| graph.classify_node(m) == NodeType::Validator)
+                .collect(),
+        })
+        .collect()
+}
+```
+
+## Strategic Introduction Matching (Blind Matchmaker)
+
+### Goal
+Achieve fully intersectional mesh with **least new interactions**.
+
+**Success Criteria:**
+- [ ] No Leaf Nodes (everyone has ≥ MIN_VOUCH_THRESHOLD)
+- [ ] No disconnected islands (all clusters connected)
+- [ ] Every member seen by 2+ perspectives from different clusters
+
+### Priority Algorithm
+```rust
+fn generate_strategic_introductions(
+    graph: &TrustGraph,
+    clusters: &[Cluster],
+) -> Vec<IntroductionPair> {
+    let mut introductions = Vec::new();
+    
+    // Priority 1: Connect Leaves to Validators from different clusters
+    for leaf in graph.get_leaves() {
+        let leaf_cluster = clusters.find_cluster_for(leaf);
+        
+        // Find validator from DIFFERENT cluster
+        let validator = graph.get_validators()
+            .filter(|v| {
+                let v_cluster = clusters.find_cluster_for(v);
+                v_cluster != leaf_cluster  // Different cluster
+            })
+            .max_by_key(|v| graph.vouch_count(v))  // Highest entropy
+            .expect("No validators in other clusters");
+        
+        introductions.push(IntroductionPair {
+            person_a: leaf,
+            person_b: validator,
+            reason: "Leaf needs second vouch from different cluster",
+            priority: 1,
+        });
+    }
+    
+    // Priority 2: Bridge disconnected islands
+    if clusters.len() > 1 {
+        // Connect top validators from each island
+        for (island_a, island_b) in disconnected_island_pairs(clusters) {
+            introductions.push(IntroductionPair {
+                person_a: island_a.top_validator(),
+                person_b: island_b.top_validator(),
+                reason: "Bridge disconnected islands",
+                priority: 2,
+            });
+        }
+    }
+    
+    introductions.sort_by_key(|i| i.priority);
+    introductions
+}
+```
+
+### Efficiency Math
+**Total new interactions needed:**
+```
+N(Leaves) + I(Disconnected_Islands) = Total
+```
+
+**Example:**
+- 20-person group
+- 5 Leaves (need connection to validator)
+- 2 disconnected islands (need 1 bridge)
+- Total: 5 + 1 = 6 new interactions
+- Result: Entire 20-person group fully vetted
+
+## Member Experience
+
+### Proactive Suggestions
+```
+Bot → Leaf Member (via PM):
+"💡 Network Strengthening: You currently have 2 vouches (minimum required).
+ I can introduce you to a Validator from a different part of the network
+ to broaden your connections and make you more resilient.
+ 
+ Would you like this introduction? React with ✅"
+```
+
+### Strategic Pairing Notification
+```
+Bot → Validator (via PM):
+"🔗 Strategic Introduction: I've identified a member (MemberHash_42) who
+ would benefit from a connection to your part of the network.
+ 
+ This helps strengthen our overall mesh topology. Would you be willing
+ to have a brief intro chat? React with ✅"
+```
+
+## Privacy Boundaries
+
+### What Bot Knows (Internal)
+- ✅ How many vouches each member has
+- ✅ Which members are in which internal clusters
+- ✅ Graph topology (who is Leaf, Bridge, Validator)
+- ✅ Optimal pairings for MST
+
+### What Bot Does NOT Know
+- ❌ Why members vouch for each other
+- ❌ Relationship content or history
+- ❌ Social graph details beyond vouch counts
+- ❌ Personal information or identities (only hashes)
+
+### Member Privacy
+- Members never know WHY bot suggested an introduction
+- Bot doesn't explain clustering logic to members
+- Introductions feel natural, not algorithmic
+- "Blind Matchmaker" = members don't see the optimization logic
+
+## Contrast with External Federation
+
+**Internal (Blind Matchmaker):**
+- Goal: Optimize topology within single group
+- Knowledge: Graph structure for strategic matching
+- Privacy: Content of relationships unknown
+- Outcome: Fully intersectional mesh
+
+**External (Blind Rendezvous):**
+- Goal: Discover and federate separate groups
+- Knowledge: ZERO - only overlap count
+- Privacy: Complete - no graph structure revealed
+- Outcome: Cross-mesh vouching capability
+
+## Implementation Requirements
+
+### Graph Library
+- Use `petgraph` crate for topology analysis
+- Implement algorithms:
+  - Connected components detection
+  - Minimum Spanning Tree calculation
+  - Centrality measures (identify high-entropy validators)
+
+### Optimization
+- Run topology analysis when:
+  - New member admitted
+  - Member ejected (topology may have changed)
+  - Member requests `/mesh status`
+- Cache analysis results, invalidate on state change
+- Keep analysis efficient (< 1 second for groups up to 200 members)
+
+### Privacy Preservation
+- Never log relationship details
+- Never expose why bot suggested specific pairing
+- Graph analysis results stored only in memory, never persisted
+- Use hashed identifiers throughout

@@ -1,0 +1,81 @@
+---
+description: Rust-specific coding standards and patterns for Stroma
+globs: **/*.rs
+alwaysApply: false
+---
+
+# Rust Standards for Stroma
+
+## Core Dependencies
+
+### Required Crates
+- `ring`: For HMAC generation and cryptographic operations
+- `zeroize`: For memory hygiene (purge raw buffers immediately after hashing)
+- `arkworks`: For ZK-SNARK circuit implementation
+- `libsignal-service-rs`: For Signal protocol integration
+- `sled`: For encrypted local cache (if needed)
+- `freenet-scaffold`: For Freenet Wasm contract development
+
+### Supply Chain Security
+- **Mandatory**: Use `cargo-deny` for dependency auditing
+- **Mandatory**: Use `cargo-crev` for cryptographic verification
+- Run these checks in CI/CD pipeline
+
+## Memory Safety & Hygiene
+
+### Identity Masking Pattern
+```rust
+// ✅ GOOD: Immediate hashing with zeroize
+use ring::digest;
+use zeroize::Zeroize;
+
+pub fn mask_identity(signal_id: &str, pepper: &[u8]) -> [u8; 32] {
+    let mut hasher = digest::Context::new(&digest::SHA256);
+    hasher.update(pepper);
+    hasher.update(signal_id.as_bytes());
+    let hash = hasher.finish();
+    let mut result = [0u8; 32];
+    result.copy_from_slice(hash.as_ref());
+    
+    // Zeroize the input if it was in a mutable buffer
+    // (In this case, signal_id is borrowed, but pattern applies)
+    result
+}
+```
+
+### Unsafe Code Policy
+- **Audit all `unsafe` blocks**: Review manually before merging
+- Prefer safe abstractions over unsafe code
+- Document why unsafe is necessary if used
+
+## Binary Requirements
+
+### Static Linking
+- Must produce statically linked MUSL binary
+- Minimize binary size to reduce attack surface
+- Monitor build size - significant increases indicate dependency bloat
+
+### Sandboxing
+- Production bot runs in restricted seccomp sandbox
+- Only allow Signal and Freenet node traffic
+- Block all other network access
+
+## Module Organization
+
+### Core Modules
+1. **Kernel**: Identity masking and HMAC logic
+2. **Shadow Beacon**: Emergent discovery mechanism
+3. **Gatekeeper**: Signal admin bot logic
+4. **Diplomat**: Federation proposal logic
+
+### Error Handling
+- Use `Result<T, E>` for all fallible operations
+- Never silently swallow errors
+- Log security-critical errors appropriately (without leaking sensitive data)
+
+## Code Style
+
+- Follow standard Rust formatting (`rustfmt`)
+- Use `clippy` for linting
+- Prefer explicit types over type inference in security-critical paths
+- Document all public APIs, especially cryptographic functions

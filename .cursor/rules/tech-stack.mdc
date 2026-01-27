@@ -1,0 +1,336 @@
+---
+description: Tech stack requirements, dependencies, and integration patterns for Stroma
+alwaysApply: true
+---
+
+# Tech Stack Standards & Guardrails
+
+## Target Architecture
+
+**Core Stack:** Rust Static Binary | Signal Protocol | Freenet (Dark) | ZK-Proofs
+
+### Architecture Principles
+- **Static Binary**: Must produce statically linked MUSL binary
+- **Minimal Attack Surface**: Keep dependencies minimal, monitor binary size
+- **Privacy-First**: All integrations must preserve anonymity
+- **Decentralized**: No centralized trust authority or coordination
+
+## Required Dependencies
+
+### Core Cryptographic Libraries
+
+#### `ring`
+- **Purpose**: HMAC generation and cryptographic operations
+- **Usage**: Identity masking with keyed hashing (not deterministic hashing)
+- **Version**: Use latest stable, audited version
+- **Pattern**:
+  ```rust
+  use ring::{digest, hmac};
+  
+  // For HMAC-based identity masking with group-secret pepper
+  let key = hmac::Key::new(hmac::HMAC_SHA256, group_secret_pepper);
+  let tag = hmac::sign(&key, signal_id.as_bytes());
+  ```
+
+#### `zeroize`
+- **Purpose**: Memory hygiene - purge sensitive buffers
+- **Usage**: **Mandatory** for all identity masking operations
+- **Requirement**: Must zeroize immediately after hashing
+- **Pattern**:
+  ```rust
+  use zeroize::Zeroize;
+  
+  // Zeroize sensitive data immediately after use
+  buffer.zeroize();
+  ```
+
+#### `arkworks`
+- **Purpose**: ZK-SNARK circuit implementation
+- **Usage**: Trust verification, recursive ZK vouching
+- **Requirement**: Must implement recursive proofs for scalability
+- **Integration**: Freenet contracts accept ZK-SNARK as input
+
+### Protocol Integration Libraries
+
+#### `libsignal-service-rs`
+- **Purpose**: Signal protocol integration
+- **Usage**: Bot commands, group management, 1-on-1 PMs for non-technical users
+- **Pattern**: 
+  - Listen for group events and PMs
+  - Handle `/vouch @username`, `/status`, `/mesh`, `/flag @username` commands
+  - Support reaction-based vetting (👍 emoji)
+  - Execute `GroupMemberRemove` for immediate ejection
+  - Natural language responses (hide technical complexity)
+- **Constraint**: Never store Signal IDs in cleartext, ephemeral memory (wipe immediately)
+
+#### `freenet-scaffold`
+- **Purpose**: Freenet Wasm contract development
+- **Usage**: Merkle tree trust state, contract logic
+- **Requirement**: Contracts must accept ZK-SNARK for verification
+- **Pattern**: Write contracts in Rust/Wasm
+
+### Storage & Caching
+
+#### `sled`
+- **Purpose**: Encrypted local cache (optional, for ephemeral state)
+- **Usage**: Temporary state caching (never store cleartext IDs)
+- **Requirement**: Must be encrypted, all data must be hashed
+- **Ephemeral State**: Relationship data deleted after vetting threshold met
+- **Constraint**: Freenet is source of truth, not local cache
+
+## Build Requirements
+
+### Static MUSL Binary
+- **Requirement**: Must produce statically linked MUSL binary
+- **Target**: `x86_64-unknown-linux-musl` or equivalent
+- **Configuration**: Use `cross` or `cargo build --target` with musl toolchain
+- **Rationale**: Minimal attack surface, no dynamic linking vulnerabilities
+
+### Binary Size Monitoring
+- **Requirement**: Monitor binary size in CI/CD
+- **Tool**: Gastown Deacon or custom script
+- **Action**: Alert on significant size increases (indicates dependency bloat)
+- **Constraint**: Keep attack surface minimal
+
+## Mandatory Tooling
+
+### Supply Chain Security
+
+#### `cargo-deny`
+- **Purpose**: Dependency auditing
+- **Requirement**: **Mandatory** in CI/CD pipeline
+- **Usage**: Check for security vulnerabilities, license issues, duplicate dependencies
+- **Configuration**: Must run before every merge
+
+#### `cargo-crev`
+- **Purpose**: Cryptographic verification of dependencies
+- **Requirement**: **Mandatory** in CI/CD pipeline
+- **Usage**: Verify crate authenticity and security reviews
+- **Integration**: Part of Gastown CI/CD pipeline
+
+### Testing Tooling
+
+#### `cargo-nextest`
+- **Purpose**: Test execution framework
+- **Requirement**: Use for all test runs
+- **Configuration**: See `testing-standards.mdc`
+- **Usage**: `cargo nextest run` for deterministic test execution
+
+#### Coverage Tools
+- **Options**: `cargo-llvm-cov` or `cargo-tarpaulin`
+- **Requirement**: Enforce 100% code coverage
+- **Integration**: Generate coverage reports in CI/CD
+
+### Development Tools
+
+#### `rustfmt`
+- **Purpose**: Code formatting
+- **Requirement**: All code must be formatted
+- **Usage**: Run automatically in pre-commit hooks
+
+#### `clippy`
+- **Purpose**: Linting and code quality
+- **Requirement**: Fix all warnings before merging
+- **Usage**: `cargo clippy -- -D warnings`
+
+## Integration Patterns
+
+### Signal Protocol Integration
+- **Library**: `libsignal-service-rs`
+- **Pattern**: 
+  - Bot acts as Signal group admin
+  - All vetting/vouching in 1-on-1 PMs (never group chat)
+  - Monitor Freenet state stream for membership changes
+  - Immediate ejection when trust threshold violated
+- **Security**: Never log or store Signal IDs
+
+### Freenet Integration
+- **Framework**: `freenet-scaffold` for Wasm contracts
+- **Pattern**:
+  - Store Merkle Tree of Proofs (not member lists)
+  - Contracts verify ZK-SNARKs
+  - State stream monitoring for real-time updates
+  - Emergent discovery via Social Anchor Hashing
+- **Security**: All operations preserve anonymity
+
+### ZK-Proof Integration
+- **Library**: `arkworks`
+- **Pattern**:
+  - Implement recursive proofs for scalability
+  - Constant-time verification regardless of network size
+  - Verify: `zk-Proof(Voucher IN Tree AND Hash_new NOT_IN Tree)`
+- **Requirement**: All trust operations must use ZK-proofs
+
+## Runtime Requirements
+
+### Sandboxing (Production)
+- **Tool**: seccomp
+- **Requirement**: Production bot runs in restricted sandbox
+- **Allowed**: Only Signal and Freenet node traffic
+- **Blocked**: All other network access
+- **Rationale**: Minimize attack surface
+
+### Memory Safety
+- **Requirement**: No `unsafe` blocks without security review
+- **Tool**: `zeroize` for sensitive buffer cleanup
+- **Pattern**: Zeroize immediately after cryptographic operations
+- **Audit**: Review all `unsafe` usage in code review
+
+## Dependency Management
+
+### Version Pinning
+- **Strategy**: Pin major versions, allow patch updates
+- **Security**: Review all dependency updates for security implications
+- **Tool**: `cargo update` with `cargo-deny` verification
+
+### Dependency Bloat Prevention
+- **Requirement**: Minimize dependencies
+- **Monitoring**: Track binary size changes
+- **Action**: Reject dependencies that add significant bloat
+- **Preference**: Well-audited, minimal crates over convenience libraries
+
+### Prohibited Dependencies
+- ❌ **NEVER** use crates that require network access (except Signal/Freenet)
+- ❌ **NEVER** use crates that log or expose identifiers
+- ❌ **NEVER** use crates with known security vulnerabilities
+- ❌ **NEVER** use crates that bypass zeroization requirements
+
+## Build Configuration
+
+### Cargo.toml Requirements
+```toml
+[package]
+name = "stroma"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ring = { version = "...", features = ["std"] }
+zeroize = { version = "...", features = ["zeroize_derive"] }
+arkworks = { version = "..." }
+libsignal-service-rs = { version = "..." }
+sled = { version = "...", optional = true }
+freenet-scaffold = { version = "..." }
+
+[dev-dependencies]
+cargo-nextest = "..."
+proptest = "..."  # For property-based testing
+mock_instant = "..."  # For deterministic time mocking
+
+[profile.release]
+opt-level = "z"  # Optimize for size
+lto = true  # Link-time optimization
+strip = true  # Strip symbols
+```
+
+### Build Targets
+- **Primary**: `x86_64-unknown-linux-musl` (static MUSL)
+- **Development**: Native target for faster iteration
+- **CI/CD**: Build and test on multiple targets
+
+## Integration Guardrails
+
+### Signal Integration Guardrails
+- ✅ **DO**: Use 1-on-1 PMs for all vetting operations
+- ✅ **DO**: Verify Freenet state before Signal actions
+- ✅ **DO**: Execute immediate ejection when threshold violated
+- ❌ **DON'T**: Store Signal IDs in any form
+- ❌ **DON'T**: Expose operations in group chat
+- ❌ **DON'T**: Make Signal group the source of truth
+
+### Freenet Integration Guardrails
+- ✅ **DO**: Store Merkle Tree of Proofs
+- ✅ **DO**: Use ZK-SNARKs for all verification
+- ✅ **DO**: Implement recursive proofs for scalability
+- ❌ **DON'T**: Store member lists directly
+- ❌ **DON'T**: Bypass ZK-proof verification
+- ❌ **DON'T**: Expose member identities in contract state
+
+### Cryptographic Guardrails
+- ✅ **DO**: Use `ring` for all HMAC operations
+- ✅ **DO**: Zeroize all sensitive buffers immediately
+- ✅ **DO**: Use deterministic hashing for tests
+- ❌ **DON'T**: Use non-audited cryptographic libraries
+- ❌ **DON'T**: Skip zeroization of keys or identifiers
+- ❌ **DON'T**: Use pre-shared keys for federation
+
+## Tooling Integration
+
+### CI/CD Pipeline Requirements
+1. **Build**: Static MUSL binary
+2. **Test**: `cargo nextest run` with 100% coverage
+3. **Audit**: `cargo-deny check` and `cargo-crev verify`
+4. **Lint**: `cargo clippy -- -D warnings`
+5. **Format**: `cargo fmt --check`
+6. **Size**: Monitor binary size (alert on increases)
+
+### Pre-Commit Hooks
+- Format code with `rustfmt`
+- Run `cargo clippy` for warnings
+- Run fast unit tests
+- Check for `unsafe` blocks
+
+### Gastown Integration
+- **Beads**: Store tech stack constraints as Immutable Beads
+- **Agents**: Each agent must respect tech stack requirements
+- **Refinery**: Review for dependency bloat and security issues
+- **Deacon**: Monitor build health and binary size
+
+## Version Constraints
+
+### Rust Version
+- **Minimum**: Latest stable Rust (1.70+)
+- **Edition**: 2021
+- **Rationale**: Security updates and modern features
+
+### Dependency Versions
+- **Strategy**: Pin to latest stable, audited versions
+- **Updates**: Review all updates with `cargo-deny` and `cargo-crev`
+- **Security**: Prioritize security patches
+
+## Anti-Patterns (BLOCK)
+
+### ❌ Prohibited Practices
+- **NEVER** add dependencies without security review
+- **NEVER** use dynamic linking (must be static MUSL)
+- **NEVER** bypass supply chain security tools
+- **NEVER** introduce dependencies that require network access (except Signal/Freenet)
+- **NEVER** use unmaintained or unaudited cryptographic libraries
+- **NEVER** skip zeroization in cryptographic code paths
+- **NEVER** store cleartext identifiers in any dependency
+
+### ❌ Prohibited Dependencies
+- No logging frameworks that might leak identifiers
+- No network libraries except Signal/Freenet integrations
+- No database libraries (use Freenet for state)
+- No convenience libraries that add significant bloat
+- No unmaintained or security-vulnerable crates
+
+## Migration & Updates
+
+### Adding New Dependencies
+1. **Justify**: Document why dependency is necessary
+2. **Audit**: Run `cargo-deny` and `cargo-crev`
+3. **Review**: Security review of dependency
+4. **Test**: Verify no binary size bloat
+5. **Document**: Update this file with usage patterns
+
+### Updating Dependencies
+1. **Check**: Review changelog for security fixes
+2. **Audit**: Re-run `cargo-deny` and `cargo-crev`
+3. **Test**: Full test suite must pass
+4. **Verify**: Binary size hasn't increased significantly
+
+## Documentation Requirements
+
+### Dependency Documentation
+- Document purpose of each dependency
+- Document usage patterns and constraints
+- Document security considerations
+- Keep this file updated with all dependencies
+
+### Integration Documentation
+- Document Signal integration patterns
+- Document Freenet contract patterns
+- Document ZK-proof implementation patterns
+- Document security guardrails for each integration

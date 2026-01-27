@@ -1,0 +1,997 @@
+---
+description: User roles, bot commands, and complete UX specification for Stroma trust network
+globs: **/*bot*.rs,**/*signal*.rs,**/*command*.rs
+alwaysApply: false
+---
+
+# User Roles & User Experience
+
+## Role Definitions
+
+### Operator
+**Definition**: Bot administrator who runs the bot as a service.
+
+**Responsibilities:**
+- Run and maintain bot service (systemd daemon or similar)
+- Monitor logs for errors and system health
+- Ensure bot stays online and connected to Freenet/Signal
+- Restart bot on crashes (via systemd auto-restart)
+
+**Privileges (Least Privilege):**
+- Operator is just another Member with service runner duties
+- CANNOT manually execute membership changes
+- CANNOT change consensus thresholds without group vote
+- CANNOT override ejections or bypass protocol
+- CANNOT see cleartext Signal IDs (only hashes)
+- All operator actions are auditable via `/audit operator`
+
+### Members
+**Definition**: Fully vetted, trusted nodes in the mesh network who are IN the Stroma Signal group.
+
+**Requirements:**
+- Minimum 2 vouches from independent Members
+- Trust Standing ≥ 0 (Vouches - Flags)
+- Currently in the Signal group
+
+**Privileges:**
+- Can invite new people (`/invite`)
+- Can vouch for Invitees and other Members (`/vouch`)
+- Can flag other Members (`/flag`)
+- Can propose configuration changes (`/propose-config`)
+- Can vote on federation and configuration proposals
+- Can query network status (`/mesh`, `/status`)
+
+**Sub-Types:**
+- **Bridges**: Members with exactly 2 vouches (minimum requirement)
+- **Validators**: Members with 3+ vouches (high-trust, used for Blind Matchmaker optimization)
+
+**Note**: All Operators are Members (Operator is a service role, not a privilege level).
+
+### Invitees (Leaf Nodes / Islands / Edges)
+**Definition**: People who have been invited but are NOT yet in the Signal group.
+
+**State:**
+- OUTSIDE the Signal group (being vetted)
+- Has 1 vouch from the Member who invited them
+- Needs 1 more vouch from a different Member
+- Receives 1-on-1 PMs from bot during vetting process
+
+**Terminology:**
+- **Invitee**: Preferred term for someone being vetted
+- **Leaf Node**: Technical term (graph theory - 1 connection)
+- **Island/Edge**: Alternative terms for isolated nodes
+- **Waiting Room**: The state of being outside the group during vetting (not a separate chat)
+
+**Privileges:**
+- CANNOT vouch for others
+- CANNOT flag Members
+- CANNOT vote on proposals
+- CAN chat with bot and validators during vetting
+
+**Transition to Member:**
+- When ≥2 vouches from independent Members confirmed by Freenet
+- Bot automatically adds to Signal group
+- Becomes a Bridge (2 vouches)
+
+### Bot
+**Definition**: Automated trust network facilitator running as a Signal user.
+
+**Roles:**
+1. **Protocol Gatekeeper**: Enforces 2-vouch requirement for admission
+2. **Blind Matchmaker**: Suggests strategic introductions within group for mesh optimization
+3. **Diplomat**: Proposes federation with other Stroma groups
+4. **Health Monitor**: Continuously monitors trust standing and vouch counts
+
+**Behavior:**
+- Natural language interface (non-technical, conversational)
+- All operations in 1-on-1 PMs (privacy-first)
+- Event-driven (reacts to Freenet state changes automatically)
+- Proactive suggestions (strategic introductions, mesh strengthening)
+- Transparent (explains decisions in human terms)
+
+**Constraints:**
+- Never stores Signal IDs in cleartext
+- Never bypasses ZK-proof verification
+- Never makes decisions without Freenet confirmation
+- All actions are automatic based on Freenet contract state
+
+### Seed Group
+**Definition**: Initial 3 members who bootstrap a new Stroma group.
+
+**Bootstrap Process:**
+1. Operator manually adds 3 initial members to Signal group (one-time only)
+2. All 3 members vouch for each other (creates initial triangle)
+3. Bot creates Freenet Merkle Tree with 3 members, each with 2 vouches
+4. All 3 become initial Validators (2 vouches each)
+
+**After Bootstrap:**
+- No more manual additions (bot takes over)
+- All subsequent members must be vouched by people IN the group
+- Seed group members can invite and vouch like any other Member
+
+### Group (Stroma Signal Group)
+**Definition**: A Signal group chat containing ONLY fully vetted Members.
+
+**Core Invariant:**
+- Every Member has ≥2 vouches from independent Members at all times
+- No Invitees or partially vetted people in the group
+- No "waiting room" within the group (you're either in or out)
+
+**Membership:**
+- Binary state: Either in the group (fully vetted) or outside (being vetted)
+- Immediate ejection if trust threshold violated (Standing < 0)
+- Immediate ejection if vouch count drops below 2
+- No grace periods, no warnings
+
+### Federation
+**Definition**: Two or more Stroma groups that have discovered each other and agreed to share trust context.
+
+**Discovery:**
+- Emergent (bots find each other via Shadow Beacon)
+- Based on shared members (intersection density)
+- No pre-shared keys or admin coordination
+
+**Federation Process:**
+1. Bot calculates intersection density using PSI-CA (Private Set Intersection)
+2. If overlap meets threshold (configurable, e.g., 10%), bot proposes federation
+3. Members vote via Signal Poll (requires `config_change_threshold` approval)
+4. If approved by BOTH groups, bot establishes federation on Freenet
+5. Cross-mesh vouching now enabled
+
+**Cross-Mesh Vouching:**
+- Member from Group-B can vouch for Invitee to Group-A
+- Trust identity precedes members across federated meshes
+- Groups act as mutual buffers for each other
+
+## User Flows
+
+### Flow 1: Joining the Group (Invitation & Vetting)
+
+**Step 1: Invitation (First Vouch)**
+```
+Member Alice: /invite @Matt "Great activist from local organizing"
+
+Bot → Alice (1-on-1 PM):
+"Your invitation for @Matt has been recorded as the first vouch.
+I'm now reaching out to a validator from a different cluster 
+for the second vouch. I'll keep you updated."
+
+Bot → Matt (1-on-1 PM):
+"Welcome! You've been invited to join the [GroupName] trust network by Alice.
+You need one more vouch from a different member to be admitted.
+I'm facilitating an introduction now..."
+```
+
+**Step 2: Strategic Matching (Blind Matchmaker)**
+```
+Bot analyzes internal topology:
+- Alice is in Cluster-A (Artists)
+- Selects Carol from Cluster-B (Engineers) for intersectional diversity
+- Carol is a Validator (5 vouches)
+
+Bot → Carol (1-on-1 PM):
+"Alice has invited someone to the group. Would you be willing 
+to have a brief chat (10-15 min) with them for a second vouch?
+
+They're outside your usual cluster, which helps strengthen 
+our network's diversity.
+
+React with ✅ to accept or ❌ to decline."
+```
+
+**Step 3: Introduction & Vetting**
+```
+[Carol reacts ✅]
+
+Bot creates new 3-person Signal chat:
+- Matt (Invitee)
+- Carol (Validator)
+- Bot (observer, doesn't participate)
+
+Bot:
+"This is a vetting introduction. @Carol is a validator from 
+a different part of the network. Please have a brief chat.
+
+@Carol, if comfortable after your conversation, use: /vouch @Matt"
+
+[After 15-minute conversation]
+
+Carol: /vouch @Matt
+
+Bot → Carol (PM):
+"Vouch recorded. @Matt now has 2 vouches from independent members."
+```
+
+**Step 4: Admission**
+```
+Bot verifies in Freenet:
+- Vouch 1: Alice (different from Carol) ✓
+- Vouch 2: Carol (different from Alice) ✓
+- ZK-proof verified ✓
+
+Bot automatically adds Matt to Stroma Signal group
+
+Bot → Stroma Group:
+"A new member has been verified by two independent witnesses 
+and woven into the mesh. Welcome!"
+
+Bot → Matt (1-on-1 PM):
+"Welcome to [GroupName]! You're now a Bridge (2 vouches).
+
+💡 Trust Tip: Consider building more connections in the group 
+to increase your resilience. If a voucher leaves, you'll need 
+replacement vouches immediately to stay in the group."
+
+Bot deletes all ephemeral vetting session data
+```
+
+### Flow 2: Vouching
+
+**Vouching an Invitee (During Vetting):**
+```
+Validator: /vouch @Invitee
+
+Bot → Validator (PM):
+"Vouch recorded. @Invitee now has [N] vouches.
+[If N < 2]: They need 1 more vouch from a different member.
+[If N >= 2]: They're now fully vetted and will be admitted to the group."
+```
+
+**Vouching an Existing Member (Mesh Building):**
+```
+Member: /vouch @ExistingMember
+
+Bot → Member (PM):
+"Vouch recorded. @ExistingMember now has [N] vouches total.
+[If promoting to Validator]: They're now a Validator! They can help 
+optimize network connectivity."
+```
+
+**Bot-Suggested Strategic Vouch:**
+```
+Bot → Member (proactive PM):
+"💡 Mesh Optimization: I can introduce you to a member from a different 
+part of the network. This would strengthen your position and improve 
+overall network resilience.
+
+You currently have 2 vouches (Bridge status). Adding connections with 
+members outside your immediate cluster helps create a more robust mesh.
+
+React with ✅ to accept introduction."
+
+[Member reacts ✅]
+
+Bot creates 3-person introduction chat (like vetting flow)
+```
+
+### Flow 3: Flagging
+
+**Flag a Member:**
+```
+Member Alice: /flag @Bob "Posted spam links repeatedly"
+
+Bot → Alice (1-on-1 PM):
+"Flag recorded and verified on Freenet.
+
+@Bob's trust standing:
+- Vouches: 4
+- Flags: 1
+- Standing: 3 (positive)
+
+@Bob remains in the group."
+```
+
+**Automatic Ejection When Standing < 0:**
+```
+[Another member flags Bob]
+
+Bot → Stroma Group:
+"A member's trust standing has dropped below zero and they have 
+been automatically removed from the group. They can re-enter by 
+securing 2 new vouches from current members."
+
+Bot → Bob (1-on-1 PM):
+"Your trust standing has fallen below zero (Standing = -1).
+- Vouches: 4
+- Flags: 5
+- Standing: -1
+
+You've been removed from the group. To re-enter, you'll need 
+to secure 2 new vouches from current members via /invite.
+There is no cooldown period."
+```
+
+**Re-Entry After Ejection:**
+```
+[Alice still trusts Bob, re-invites him]
+
+Alice: /invite @Bob "Misunderstanding cleared up"
+
+Bot → Alice (PM):
+"Your invitation for @Bob has been recorded as the first vouch.
+Note: @Bob was previously in the group but was removed due to 
+negative trust standing.
+
+I'm now reaching out to a validator for the second vouch..."
+
+[Normal vetting flow proceeds]
+```
+
+### Flow 4: Configuration Proposals
+
+**Propose Configuration Change:**
+```
+Member: /propose-config min_intersection_density=0.15 "Tighten federation threshold for better security"
+
+Bot → Stroma Group:
+"📋 Configuration Change Proposed
+
+Parameter: min_intersection_density
+Current: 0.10 (10%)
+Proposed: 0.15 (15%)
+Proposer: @Member
+Reason: Tighten federation threshold for better security
+
+This change requires 70% approval (config_change_threshold).
+Voting closes in 48 hours.
+
+[Signal Poll]
+✅ Approve Change (0)
+❌ Reject Change (0)
+⏸️ Abstain (0)"
+```
+
+**Poll Progress:**
+```
+Signal Poll automatically updates:
+✅ Approve Change (14) - 70%
+❌ Reject Change (4) - 20%
+⏸️ Abstain (2) - 10%
+
+Total: 20 voters
+```
+
+**Poll Closes (Approved):**
+```
+Bot → Stroma Group:
+"✅ Configuration Change APPROVED
+
+Parameter: min_intersection_density
+New Value: 0.15 (15%)
+Approval: 72% (14/20 validators)
+
+Change has been applied to Freenet contract at [timestamp].
+Config version: 12 → 13"
+```
+
+**Poll Closes (Rejected):**
+```
+Bot → Stroma Group:
+"❌ Configuration Change REJECTED
+
+Parameter: min_intersection_density
+Approval: 65% (13/20 validators)
+Required: 70%
+
+Current value remains: 0.10 (10%)"
+```
+
+### Flow 5: Federation
+
+**Bot Discovers Potential Federation:**
+```
+Bot → Stroma Group:
+"🔍 Federation Opportunity Detected
+
+I've discovered a compatible trust network (Group-B) with significant overlap:
+- Overlap: 12 shared members
+- Intersection Density: 15% (above our 10% threshold)
+- Their Size: ~80 members
+- Our Size: 100 members
+
+Federation would enable:
+- Cross-mesh vouching (their members can vouch for our invitees)
+- Shared trust context across both groups
+- Increased resilience and network growth
+
+Should we federate? This requires 70% approval.
+Voting closes in 48 hours.
+
+[Signal Poll]
+✅ Approve Federation (0)
+❌ Reject Federation (0)
+⏸️ Abstain (0)"
+```
+
+**Federation Approved:**
+```
+Bot → Stroma Group:
+"✅ Federation APPROVED with Group-B
+
+Approval: 75% (15/20 validators)
+
+I'm now establishing the federation contract on Freenet.
+Cross-mesh vouching is now enabled. Members from Group-B 
+can vouch for our invitees, and vice versa.
+
+Our shared trust context now spans ~180 members across 2 groups."
+```
+
+**Cross-Mesh Vouching After Federation:**
+```
+Alice (Group-A): /invite @Dan
+
+Bot → Alice (PM):
+"Your invitation for @Dan has been recorded.
+Note: @Dan is already a member of federated Group-B with 4 vouches.
+
+I'm expediting vetting by reaching out to a validator from Group-A 
+who can verify their trustworthiness based on shared context."
+
+[Faster vetting process - only need 1 more vouch from Group-A member]
+```
+
+### Flow 6: Status Queries
+
+**Personal Status:**
+```
+Member: /status
+
+Bot → Member (1-on-1 PM):
+"📊 Your Trust Status
+
+Role: Bridge
+Vouches: 2
+Flags: 0
+Standing: +2 (positive)
+
+💡 Tip: You're at minimum vouch threshold. Building more 
+connections will increase your resilience. If a voucher 
+leaves the group, you'll need immediate replacement vouches.
+
+Your vouchers are from different clusters (good intersectional diversity)."
+```
+
+**Network Overview:**
+```
+Member: /mesh
+
+Bot → Member (1-on-1 PM):
+"🌐 Network Overview
+
+Total Members: 47
+Mesh Density: 38%
+Federation: Connected to 1 other group (Group-B)
+Total Federated Network: ~125 members
+
+Your Position:
+- Role: Bridge (2 vouches)
+- Cluster: Cluster-A (Artists)
+- Connected to: 2 validators
+
+Network Health: ✅ Fully Vetted
+All members meet minimum vouch threshold."
+```
+
+**Network Strength (Mesh Density Histogram):**
+```
+Member: /mesh strength
+
+Bot → Member (1-on-1 PM):
+"📈 Network Strength: 38% Mesh Density
+
+Vouch Distribution:
+  2 vouches (Bridges):    ████████░░░░ 22 members (47%)
+  3-5 vouches:            █████░░░░░░░ 15 members (32%)
+  6-10 vouches:           ███░░░░░░░░░  8 members (17%)
+  11+ vouches (Validators): ██░░░░░░░░░░  2 members (4%)
+
+Total: 47 members
+Actual vouches: 213
+Max possible: 552 (full mesh)
+Density: 38%
+
+💡 A fully connected mesh would be 100% (everyone vouches for everyone).
+Our current density indicates healthy trust distribution without over-connection."
+```
+
+**Group Configuration:**
+```
+Member: /mesh config
+
+Bot → Member (1-on-1 PM):
+"⚙️ Group Configuration
+
+Consensus Thresholds:
+- config_change_threshold: 70%
+- ejection_appeal_threshold: 60%
+
+Federation Parameters:
+- min_intersection_density: 10%
+- validator_percentile: 20% (top 20%)
+
+Trust Parameters:
+- min_vouch_threshold: 2
+
+Metadata:
+- Config version: 8
+- Last updated: 2026-01-20 14:23 UTC
+
+To propose changes, use: /propose-config key=value"
+```
+
+**Operator Audit:**
+```
+Member: /audit operator
+
+Bot → Member (1-on-1 PM):
+"🔍 Operator Actions (Last 30 Days)
+
+Operator: @OperatorHash_42 (Alice)
+
+Recent Actions:
+- 2026-01-25 08:15 UTC: ServiceRestart (reason: server maintenance)
+- 2026-01-20 14:30 UTC: ServiceStart (reason: initial deployment)
+
+Note: Operator has NO special privileges for membership changes.
+All bot actions are automatic based on Freenet contract state.
+Operator cannot override trust decisions or bypass protocols."
+```
+
+## Bot Commands Reference
+
+### Invitation & Vetting Commands
+
+#### `/invite @username [optional: context message]`
+**Who Can Use**: Any Member (Bridges and Validators)
+
+**Effect**:
+- Records invitation as first vouch
+- Starts vetting process for invitee
+- Bot selects second validator via Blind Matchmaker
+- Bot facilitates introduction between invitee and validator
+
+**Example**:
+```
+/invite @Matt "Great activist from local organizing"
+```
+
+**Bot Response** (1-on-1 PM):
+```
+"Your invitation for @Matt has been recorded as the first vouch.
+I'm now reaching out to a validator from a different cluster 
+for the second vouch. I'll keep you updated."
+```
+
+#### `/vouch @username`
+**Who Can Use**: Any Member (Bridges and Validators)
+
+**Effect**:
+- Records vouch for invitee or existing member
+- Bot verifies voucher is current member via Freenet
+- Bot records vouch with ZK-proof
+- If invitee reaches 2 vouches → automatic admission
+
+**Usage Contexts**:
+1. **During Vetting**: Vouch for invitee in introduction chat
+2. **Mesh Building**: Vouch for existing member to strengthen mesh
+3. **Cross-Mesh**: Vouch for invitee from federated group
+
+**Example**:
+```
+/vouch @Matt
+```
+
+**Bot Response** (1-on-1 PM):
+```
+"Vouch recorded. @Matt now has 2 vouches from independent members.
+They're being admitted to the group now."
+```
+
+### Trust Management Commands
+
+#### `/flag @username [required: reason]`
+**Who Can Use**: Any Member (only Members, not Invitees)
+
+**Effect**:
+- Records flag against member
+- Recalculates Standing = Vouches - Flags
+- If Standing < 0 → immediate automatic ejection
+- Bot notifies member and group (uses hashes, not names)
+
+**Example**:
+```
+/flag @Bob "Posted spam links repeatedly"
+```
+
+**Bot Response** (1-on-1 PM):
+```
+"Flag recorded and verified on Freenet.
+
+@Bob's trust standing:
+- Vouches: 4
+- Flags: 1
+- Standing: 3 (positive)
+
+@Bob remains in the group."
+```
+
+**Constraint**: Cannot flag invitees (only members in the group)
+
+### Status Query Commands
+
+#### `/status`
+**Who Can Use**: Any Member
+
+**Effect**: Shows your own trust standing and role
+
+**Bot Response** (1-on-1 PM):
+```
+"📊 Your Trust Status
+
+Role: Bridge
+Vouches: 2
+Flags: 0
+Standing: +2 (positive)
+
+💡 Tip: You're at minimum vouch threshold..."
+```
+
+#### `/status @username`
+**Who Can Use**: Any Member
+
+**Effect**: Shows another member's standing (if visible)
+
+**Privacy Note**: May be limited based on privacy settings (TBD)
+
+#### `/mesh`
+**Who Can Use**: Any Member
+
+**Effect**: Shows network overview and your position
+
+**Bot Response** (1-on-1 PM):
+```
+"🌐 Network Overview
+
+Total Members: 47
+Mesh Density: 38%
+Federation: Connected to 1 other group (Group-B)
+..."
+```
+
+#### `/mesh strength`
+**Who Can Use**: Any Member
+
+**Effect**: Shows mesh density histogram with vouch distribution
+
+**Bot Response** (1-on-1 PM):
+```
+"📈 Network Strength: 38% Mesh Density
+
+Vouch Distribution:
+  2 vouches (Bridges):    ████████░░░░ 22 members (47%)
+  3-5 vouches:            █████░░░░░░░ 15 members (32%)
+..."
+```
+
+#### `/mesh config`
+**Who Can Use**: Any Member
+
+**Effect**: Shows current group configuration
+
+**Bot Response** (1-on-1 PM):
+```
+"⚙️ Group Configuration
+
+Consensus Thresholds:
+- config_change_threshold: 70%
+..."
+```
+
+### Configuration Commands
+
+#### `/propose-config key=value [optional: reason]`
+**Who Can Use**: Any Member
+
+**Effect**:
+- Creates configuration change proposal
+- Bot sends Signal Poll to group
+- Requires `config_change_threshold` approval (e.g., 70%)
+- If approved → bot updates Freenet contract automatically
+
+**Example**:
+```
+/propose-config min_intersection_density=0.15 "Tighten federation threshold"
+```
+
+**Bot Response** (to group):
+```
+"📋 Configuration Change Proposed
+
+Parameter: min_intersection_density
+Current: 0.10 (10%)
+Proposed: 0.15 (15%)
+Proposer: @Member
+Reason: Tighten federation threshold
+
+[Signal Poll created]"
+```
+
+**Valid Configuration Keys**:
+- `config_change_threshold` (float 0.0-1.0)
+- `ejection_appeal_threshold` (float 0.0-1.0)
+- `min_intersection_density` (float 0.0-1.0)
+- `validator_percentile` (integer 1-100)
+- `min_vouch_threshold` (integer, minimum 2)
+
+### Audit Commands
+
+#### `/audit operator`
+**Who Can Use**: Any Member
+
+**Effect**: Shows operator action history (service operations only)
+
+**Bot Response** (1-on-1 PM):
+```
+"🔍 Operator Actions (Last 30 Days)
+
+Operator: @OperatorHash_42
+
+Recent Actions:
+- 2026-01-25 08:15 UTC: ServiceRestart (reason: maintenance)
+..."
+```
+
+## Network Strength: Mesh Density
+
+### Definition
+Mesh density measures how fully connected the trust network is.
+
+**Full Mesh (100%)**: Every member vouches for every other member
+**Actual Mesh**: Count of actual vouches
+**Mesh Density % = (Actual Vouches / Max Possible Vouches) × 100**
+
+### Calculation
+
+```rust
+fn calculate_mesh_density(members: &[Hash], vouches: &[(Hash, Hash)]) -> f32 {
+    let n = members.len();
+    let max_possible_vouches = n * (n - 1);  // Bidirectional edges
+    let actual_vouches = vouches.len();
+    
+    (actual_vouches as f32 / max_possible_vouches as f32) * 100.0
+}
+```
+
+### Histogram Display
+
+The `/mesh strength` command shows a histogram of vouch distribution:
+
+```
+Vouch Distribution:
+  2 vouches (Bridges):    ████████░░░░ 22 members (47%)
+  3-5 vouches:            █████░░░░░░░ 15 members (32%)
+  6-10 vouches:           ███░░░░░░░░░  8 members (17%)
+  11+ vouches (Validators): ██░░░░░░░░░░  2 members (4%)
+```
+
+**Interpretation**:
+- **Low Density (10-30%)**: Minimal connections, efficient but fragile
+- **Medium Density (30-60%)**: Balanced - good resilience without over-connection
+- **High Density (60-90%)**: Very resilient, but may indicate small or tightly-knit group
+- **Full Mesh (100%)**: Everyone trusts everyone (rare, only in very small groups)
+
+## Bot Voice & Personality
+
+### Core Characteristics
+- **Natural Language**: Conversational, not technical jargon
+- **Transparent**: Explains decisions in human terms
+- **Proactive**: Suggests strategic introductions and improvements
+- **Privacy-Conscious**: Never reveals identities or social graph structure
+- **Non-Judgmental**: No shame or blame in trust decisions
+- **Facilitator**: Helps humans make decisions, doesn't decide for them
+
+### Voice Examples
+
+#### Welcoming New Members
+```
+"Welcome to [GroupName]! You're now a Bridge (2 vouches).
+
+💡 Trust Tip: Consider building more connections in the group 
+to increase your resilience. If a voucher leaves, you'll need 
+replacement vouches immediately to stay in the group."
+```
+
+#### Proactive Mesh Optimization
+```
+"💡 Mesh Optimization: I can introduce you to a member from a different 
+part of the network. This would strengthen your position and improve 
+overall network resilience.
+
+You currently have 2 vouches (Bridge status). Adding connections with 
+members outside your immediate cluster helps create a more robust mesh.
+
+React with ✅ to accept introduction."
+```
+
+#### Ejection Notification (Private, No Shame)
+```
+"Your trust standing has fallen below zero (Standing = -1).
+- Vouches: 4
+- Flags: 5
+- Standing: -1
+
+You've been removed from the group. To re-enter, you'll need 
+to secure 2 new vouches from current members via /invite.
+There is no cooldown period."
+```
+
+#### Federation Discovery
+```
+"🔍 Federation Opportunity Detected
+
+I've discovered a compatible trust network (Group-B) with significant overlap.
+
+Federation would enable cross-mesh vouching and shared trust context.
+Should we federate?"
+```
+
+#### Configuration Explanation
+```
+"This change would tighten our federation threshold from 10% to 15%.
+This means we would only federate with groups that share at least 
+15% of our members (currently 10%).
+
+Higher thresholds = more selective federations.
+Lower thresholds = easier federation, faster network growth."
+```
+
+### Error Messages
+
+#### Invalid Command
+```
+"I didn't understand that command. Try:
+- /invite @username - Invite someone new
+- /vouch @username - Vouch for someone
+- /status - See your trust standing
+- /mesh - View network overview"
+```
+
+#### Insufficient Permissions
+```
+"Only current members can flag other members.
+You'll need to be fully vetted first (currently at 1 vouch)."
+```
+
+#### Invalid Configuration Key
+```
+"Invalid configuration key: 'invalid_key'
+
+Valid keys:
+- config_change_threshold
+- min_intersection_density
+- validator_percentile
+
+Use /mesh config to see current values."
+```
+
+## State Transitions
+
+### Invitee → Bridge → Validator
+
+```
+State: Invitee (Outside Group)
+- Has 1 vouch from inviter
+- Receives 1-on-1 PMs from bot
+- In vetting process
+
+  ↓ [Second vouch received from different member]
+
+State: Bridge (In Group)
+- Has exactly 2 vouches
+- Full member privileges
+- Minimum requirement for group membership
+
+  ↓ [Additional vouch received]
+
+State: Validator (In Group)
+- Has 3+ vouches
+- High-trust member
+- Used by Blind Matchmaker for optimization
+- No special privileges (just optimization target)
+```
+
+### Member → Ejected → Re-Entry
+
+```
+State: Member (In Group)
+- Standing ≥ 0
+- Vouch count ≥ 2
+
+  ↓ [Standing drops below 0 OR vouch count < 2]
+
+State: Ejected (Outside Group)
+- Removed from Signal group immediately
+- Can re-enter by securing 2 new vouches
+- No cooldown period
+
+  ↓ [Member invites them back, vetting succeeds]
+
+State: Member (In Group)
+- Fresh start with new vouches
+- Previous flags may still be visible (TBD)
+```
+
+### Group → Federated Group
+
+```
+State: Single Group
+- Isolated trust network
+- Only internal vouching
+
+  ↓ [Bot discovers overlap, members vote to federate]
+
+State: Federated Group
+- Connected to 1+ other groups
+- Cross-mesh vouching enabled
+- Shared trust context
+- Can propose additional federations
+```
+
+## Privacy & Security Considerations
+
+### Data Minimization
+- Bot never stores Signal IDs in cleartext
+- All identifiers hashed immediately (HMAC with group-secret pepper)
+- Vetting session data deleted after admission
+- Memory dumps contain only hashed identifiers
+
+### Metadata Leakage Prevention
+- All vetting/vouching in 1-on-1 PMs (never group chat)
+- Bot uses hashes in notifications, not names
+- No "who vouched for whom" exposed in UI
+- Social graph structure never revealed
+
+### User Transparency
+- Members can see their own trust standing
+- Members can see network health metrics
+- Members CANNOT see detailed social graph
+- Bot explains decisions without revealing graph structure
+
+### Operator Auditability
+- All operator actions logged with timestamps
+- Operator cannot execute manual commands
+- Any member can query operator audit trail
+- Operator is just another member (with service runner role)
+
+## Design Principles
+
+### Non-Technical UX
+- Natural language commands (not CLI-style)
+- Conversational bot responses
+- Visual indicators (emojis for clarity)
+- Progressive disclosure (don't overwhelm with details)
+
+### Privacy-First
+- All operations in 1-on-1 PMs
+- No public shaming (hashes, not names)
+- Minimal metadata exposure
+- Freenet complexity hidden from users
+
+### Human Control
+- Bot suggests, humans decide
+- All configuration changes require group vote
+- Federation requires consensus
+- No bot actions without Freenet contract approval
+
+### Fluid Identity
+- Membership is temporary permission, not permanent status
+- Trust is continuously evaluated
+- Ejection is immediate when threshold violated
+- Re-entry is always possible (no permanent bans)
+
+### Emergent Growth
+- Network expands organically, not forced
+- Federation discovered automatically, approved by humans
+- Bot optimizes, but doesn't control
+- Trust arises mutually across the mesh

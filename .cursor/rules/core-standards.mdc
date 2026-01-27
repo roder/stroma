@@ -1,0 +1,78 @@
+---
+description: Core architectural principles and project standards for Stroma
+alwaysApply: true
+---
+
+# Stroma Core Standards
+
+## Project Identity
+
+- **Project Name**: Stroma (code name) - also known as **Nexus-Mesh Protocol**
+- **Architecture**: Privacy-first, decentralized trust network
+- **Philosophy**: Trust as emergent property, not centralized database
+- **Core Values**: Mutual arising, fluid selfhood, non-hierarchical organization
+
+## Core Architectural Principles
+
+### Anonymity-First Design
+- **Never store Signal IDs in cleartext**. All identifiers must be HMAC-hashed immediately.
+- **HMAC-based hashing**: Use keyed hashing with group-secret pepper (not deterministic hashing).
+- **Ephemeral state**: Relationship data deleted after vetting threshold met.
+- **Blinded identifiers**: Public ID for bot, private ID for ZK-math.
+- If memory is dumped, it must contain only hashed identifiers.
+- Use `zeroize` crate to purge raw buffers immediately after hashing.
+
+### Trust as Emergent Property
+- Trust is **mutually arising** across the network, not centrally managed.
+- The network's "Self" persists even as individual members come and go.
+- Federation occurs through **mutual discovery**, not pre-coordinated keys.
+
+### Zero-Knowledge Architecture
+- Use ZK-SNARKs for all trust verification.
+- Implement **Recursive Zero-Knowledge Vouching** for scalability.
+- Never reveal the social graph structure.
+
+### Stateless Bot Design
+- Bot presence in Signal group is binary and strictly tied to Freenet state.
+- No grace periods for ejection - immediate removal when trust threshold violated.
+- All vetting/vouching occurs in 1-on-1 PMs to prevent metadata leakage.
+
+## Naming Conventions
+
+- **Functions**: Use `snake_case` (Rust convention)
+- **Modules**: Kernel, Shadow Beacon, Gatekeeper, Diplomat
+- **Bot Roles**: Relational Concierge, Protocol Gatekeeper, Zero-Knowledge Witness, Diplomat
+- **Network Terms**: Nexus-Mesh, Social Anchor, Trust Horizon, Blind Vouch, Recursive Vouching
+- **Node Types**: Leaf Node (1 link), Bridge Node (2 links), Validator (3+ links)
+- **Logic Notation**: Use plain-text for formulas (ASSERT, WHERE, AND, etc.) to ensure lossless documentation
+- **Gastown Context**: Use "Beads" for persistent context storage
+
+## Documentation Standards
+
+- Use plain-text logic notation for mathematical formulas to ensure Google Docs compatibility
+- Avoid LaTeX symbols in favor of: `IN`, `NOT IN`, `AND`, `OR`, `=>`, `INTERSECT`
+- Example: `zk-Proof(Voucher IN Tree AND Hash_new NOT_IN Tree)`
+
+## Key Constraints (Immutable)
+
+1. **No Pre-Shared Keys**: Discovery must be emergent, not admin-coordinated
+2. **No Time Windows**: Flags immediately affect standing, no grace periods
+3. **No Cleartext Storage**: All identifiers must be hashed before persistence
+4. **Minimal Attack Surface**: Keep dependencies minimal, audit with `cargo-deny` and `cargo-crev`
+5. **Ephemeral Data**: Relationship data deleted after vetting threshold met
+6. **Instant Enforcement**: Trust is continuously evaluated, ejection is immediate
+7. **User Simplicity**: Signal UI must hide all technical complexity from non-tech users
+
+## Trust Model
+
+### Trust Standing Formula
+- **Calculation**: `Standing = Vouches - Flags`
+- **Threshold**: Standing must remain positive (>= 0)
+- **Evaluation**: Continuous, real-time monitoring
+- **Enforcement**: Immediate ejection when `Standing < 0`
+
+### Network Topology
+- **Leaf Nodes**: 1 trust link (needs "Second Witness")
+- **Bridge Nodes**: 2 trust links (connectors between clusters)
+- **Validators**: 3+ trust links (high-entropy verification nodes)
+- **Minimum Spanning Tree**: Efficient connectivity with minimal new relationships

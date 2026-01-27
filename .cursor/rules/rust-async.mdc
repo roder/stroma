@@ -1,0 +1,384 @@
+---
+description: Async programming patterns and concurrency standards for Stroma using tokio
+globs: **/*.rs
+alwaysApply: false
+---
+
+# Rust Async Programming Standards
+
+## Core Async Runtime
+
+### Tokio
+- **Mandatory**: Use `tokio` as the async runtime for all asynchronous operations
+- **Features**: Enable `full` features for comprehensive async support
+- **Version**: Use latest stable tokio (1.35+)
+
+```rust
+// Cargo.toml
+tokio = { version = "1.35", features = ["full"] }
+```
+
+## Key Principles
+
+### Code Quality
+- Write clear, concise, and idiomatic Rust code with accurate examples
+- Use async programming paradigms effectively, leveraging `tokio` for concurrency
+- Prioritize modularity, clean code organization, and efficient resource management
+- Use expressive variable names that convey intent (e.g., `is_ready`, `has_connected`)
+- Adhere to Rust's naming conventions: `snake_case` for variables/functions, `PascalCase` for types/structs
+- Avoid code duplication; use functions and modules to encapsulate reusable logic
+- Write code with safety, concurrency, and performance in mind, embracing Rust's ownership and type system
+
+### Stroma-Specific Async Patterns
+- **Freenet State Stream**: Real-time monitoring (NOT polling) using async streams
+- **Signal Bot Event Loop**: Event-driven architecture with tokio channels
+- **Proof Generation**: Offload CPU-intensive STARK generation to dedicated threads
+- **Memory Hygiene**: Ensure zeroization works correctly with async operations
+
+## Async Programming Patterns
+
+### Basic Async Functions
+```rust
+// ✅ GOOD: Clear async function signature
+async fn process_vouch(
+    member_hash: Hash,
+    voucher_hash: Hash,
+) -> Result<(), VouchError> {
+    // Async operation
+    let proof = generate_stark_proof(member_hash, voucher_hash).await?;
+    freenet.store_proof(proof).await?;
+    Ok(())
+}
+```
+
+### Task Spawning
+- Use `tokio::spawn` for independent concurrent tasks
+- Use `tokio::task::spawn_blocking` for CPU-intensive operations (e.g., STARK proof generation)
+- Prefer scoped tasks with structured concurrency
+
+```rust
+// ✅ GOOD: Spawn blocking for CPU-intensive work
+async fn generate_proof_async(data: ProofData) -> Result<Proof, Error> {
+    tokio::task::spawn_blocking(move || {
+        // CPU-intensive STARK proof generation
+        generate_stark_proof_sync(data)
+    })
+    .await?
+}
+```
+
+### Task Management
+- Use `tokio::select!` for managing multiple async tasks and cancellations
+- Favor structured concurrency: prefer scoped tasks and clean cancellation paths
+- Implement timeouts, retries, and backoff strategies for robust async operations
+
+```rust
+// ✅ GOOD: Using select! for timeout
+use tokio::time::{timeout, Duration};
+
+async fn fetch_with_timeout() -> Result<Data, Error> {
+    timeout(Duration::from_secs(5), fetch_data())
+        .await
+        .map_err(|_| Error::Timeout)?
+}
+```
+
+## Channels and Concurrency
+
+### Channel Types
+- **MPSC**: Use `tokio::sync::mpsc` for multi-producer, single-consumer (e.g., bot commands)
+- **Broadcast**: Use `tokio::sync::broadcast` for event broadcasting (e.g., state changes)
+- **Oneshot**: Use `tokio::sync::oneshot` for one-time responses (e.g., RPC)
+
+```rust
+// ✅ GOOD: Bounded MPSC for bot commands
+let (tx, mut rx) = tokio::sync::mpsc::channel::<BotCommand>(100);
+
+// ✅ GOOD: Broadcast for state changes
+let (state_tx, _) = tokio::sync::broadcast::channel::<StateChange>(50);
+```
+
+### Channel Best Practices
+- **Prefer bounded channels** for backpressure; handle capacity limits gracefully
+- Use `try_send` when you can't afford to block
+- Handle channel closure explicitly (don't panic on `SendError`)
+
+### Shared State
+- Use `tokio::sync::Mutex` for shared mutable state across async tasks
+- Use `tokio::sync::RwLock` for read-heavy workloads
+- **Minimize lock duration**: Hold locks for shortest time possible
+- **Avoid deadlocks**: Always acquire locks in consistent order
+
+```rust
+// ✅ GOOD: Minimal lock scope
+async fn update_state(state: Arc<Mutex<State>>, data: Data) -> Result<(), Error> {
+    // Do work before acquiring lock
+    let processed = process_data(data)?;
+    
+    // Acquire lock only for mutation
+    {
+        let mut state = state.lock().await;
+        state.apply(processed);
+    } // Lock released here
+    
+    Ok(())
+}
+```
+
+## Error Handling and Safety
+
+### Error Propagation
+- Use `Result<T, E>` and `Option<T>` for all fallible operations
+- Use `?` operator to propagate errors in async functions
+- Implement custom error types using `thiserror` for descriptive errors
+
+```rust
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum VouchError {
+    #[error("Freenet error: {0}")]
+    Freenet(#[from] FreenetError),
+    
+    #[error("Invalid proof")]
+    InvalidProof,
+    
+    #[error("Member not found: {0}")]
+    MemberNotFound(Hash),
+}
+```
+
+### Async Safety
+- Handle errors and edge cases early, returning errors where appropriate
+- Use `.await` responsibly, ensuring safe points for context switching
+- **Never block** in async functions (use `spawn_blocking` instead)
+- Be aware of cancellation points (`.await`) and ensure cleanup happens
+
+## Event-Driven Architecture (Stroma-Specific)
+
+### Bot Event Loop Pattern
+```rust
+async fn bot_event_loop(
+    freenet: Arc<FreenetClient>,
+    signal: Arc<SignalClient>,
+) -> Result<(), Error> {
+    let mut state_stream = freenet.subscribe_to_state_changes().await?;
+    
+    loop {
+        tokio::select! {
+            Some(event) = state_stream.next() => {
+                match event {
+                    StateChange::MemberVetted(hash) => {
+                        signal.add_member(hash).await?;
+                    },
+                    StateChange::MemberRevoked(hash) => {
+                        signal.remove_member(hash).await?;
+                    },
+                    StateChange::FederationApproved(group) => {
+                        establish_federation(group).await?;
+                    },
+                }
+            }
+            
+            _ = tokio::signal::ctrl_c() => {
+                log::info!("Shutting down gracefully");
+                break;
+            }
+        }
+    }
+    
+    Ok(())
+}
+```
+
+### State Stream Monitoring (NOT Polling)
+```rust
+// ✅ GOOD: Real-time state stream
+async fn monitor_freenet_state(client: &FreenetClient) {
+    let mut stream = client.subscribe_to_state_changes().await.unwrap();
+    
+    while let Some(change) = stream.next().await {
+        handle_state_change(change).await;
+    }
+}
+
+// ❌ BAD: Polling (inefficient)
+async fn poll_freenet_state(client: &FreenetClient) {
+    loop {
+        let state = client.get_state().await.unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await; // Wasteful
+    }
+}
+```
+
+## Testing Async Code
+
+### Test Attributes
+```rust
+#[tokio::test]
+async fn test_vouch_admission() {
+    let bot = setup_test_bot().await;
+    let result = bot.process_vouch(test_hash()).await;
+    assert!(result.is_ok());
+}
+```
+
+### Time Testing
+- Use `tokio::time::pause` for deterministic time testing
+- Use `tokio::time::advance` to skip time in tests
+- Avoid real delays in tests (use mocked time)
+
+```rust
+#[tokio::test]
+async fn test_ejection_timeout() {
+    tokio::time::pause();
+    
+    let bot = setup_test_bot().await;
+    
+    // Advance time by 60 minutes
+    tokio::time::advance(Duration::from_secs(3600)).await;
+    
+    // Check ejection happened
+    assert!(bot.member_was_ejected(test_hash()));
+}
+```
+
+### Integration Testing
+- Test async behavior and concurrency
+- Use mocks and fakes for external dependencies (Signal, Freenet)
+- Test cancellation and timeout scenarios
+
+## Performance Optimization
+
+### Minimize Async Overhead
+- Use sync code where async is not needed (e.g., pure computation)
+- Avoid unnecessary `.await` points
+- Batch operations when possible to reduce context switching
+
+### Blocking Operations
+```rust
+// ✅ GOOD: Offload blocking work
+async fn compute_proof(data: Data) -> Result<Proof, Error> {
+    tokio::task::spawn_blocking(move || {
+        // CPU-intensive proof generation (winterfell STARKs)
+        winterfell::generate_proof(data)
+    })
+    .await?
+}
+
+// ❌ BAD: Blocking in async context
+async fn compute_proof_bad(data: Data) -> Result<Proof, Error> {
+    // This blocks the async runtime!
+    winterfell::generate_proof(data)
+}
+```
+
+### Cooperative Multitasking
+- Use `tokio::task::yield_now` to yield control in long-running loops
+- Optimize data structures for async use (reduce lock contention)
+- Keep critical sections short
+
+### Time-Based Operations
+- Use `tokio::time::sleep` for delays (not `std::thread::sleep`)
+- Use `tokio::time::interval` for periodic tasks
+- Use `tokio::time::timeout` for operation timeouts
+
+```rust
+// ✅ GOOD: Async sleep
+async fn wait_for_confirmation() {
+    tokio::time::sleep(Duration::from_secs(5)).await;
+}
+
+// ✅ GOOD: Periodic heartbeat
+async fn heartbeat_monitor() {
+    let mut interval = tokio::time::interval(Duration::from_secs(60));
+    
+    loop {
+        interval.tick().await;
+        check_member_standing().await;
+    }
+}
+```
+
+## Stroma-Specific Patterns
+
+### Freenet Integration
+- Monitor state stream continuously (real-time, not polling)
+- Use async for all Freenet operations
+- Handle connection loss gracefully with retries
+
+### Signal Integration
+- Event-driven command handling via channels
+- Async PM handling for vetting operations
+- Non-blocking group management operations
+
+### Proof Generation
+- Always use `spawn_blocking` for STARK proof generation
+- Don't block the async runtime with CPU-intensive crypto
+- Consider proof generation queue with backpressure
+
+## Key Conventions
+
+1. **Module Structure**: Separate concerns (networking, state, business logic)
+2. **Configuration**: Use environment variables (consider `config` crate)
+3. **Documentation**: Well-documented with inline comments and Rustdoc
+4. **Logging**: Use `tracing` for structured async-aware logging
+
+## Async Ecosystem for Stroma
+
+### Required Crates
+- `tokio`: Async runtime (features = ["full"])
+- `futures`: Stream utilities
+- `tracing`: Async-aware logging
+- `thiserror`: Error handling
+
+### Integration Crates
+- `libsignal-service-rs`: Signal protocol (async)
+- `freenet-core`: Freenet integration (async)
+- `winterfell`: STARKs (use with `spawn_blocking`)
+
+## Anti-Patterns to Avoid
+
+### ❌ DON'T: Block in async context
+```rust
+async fn bad_example() {
+    std::thread::sleep(Duration::from_secs(1)); // Blocks runtime!
+}
+```
+
+### ❌ DON'T: Hold locks across await points
+```rust
+async fn bad_example(mutex: &Mutex<Data>) {
+    let data = mutex.lock().await;
+    some_async_operation().await; // Still holding lock!
+    // ^^^ Can cause deadlocks
+}
+```
+
+### ❌ DON'T: Ignore cancellation
+```rust
+async fn bad_example() {
+    loop {
+        work().await;
+        // No way to cancel this loop gracefully
+    }
+}
+```
+
+### ✅ DO: Use select! for cancellation
+```rust
+async fn good_example(mut cancel: Receiver<()>) {
+    loop {
+        tokio::select! {
+            _ = work() => {},
+            _ = cancel.recv() => break,
+        }
+    }
+}
+```
+
+## Reference
+
+- Rust async book: https://rust-lang.github.io/async-book/
+- Tokio documentation: https://tokio.rs/tokio/tutorial
+- Tokio best practices: https://tokio.rs/tokio/topics/tracing

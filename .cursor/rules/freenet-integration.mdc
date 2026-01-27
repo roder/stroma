@@ -1,0 +1,143 @@
+---
+description: Freenet contract development and state management patterns
+globs: **/*freenet*.rs,**/*contract*.rs,**/*wasm*.rs
+alwaysApply: false
+---
+
+# Freenet Integration Standards
+
+## Contract Architecture (Dark State)
+
+### Wasm Contract Pattern
+- Write Freenet contracts in Rust/Wasm using `freenet-scaffold`
+- **Decentralized State**: Contract exists across network, no single server
+- **Deterministic Execution**: Every node calculates same result
+- Contracts accept ZK-SNARK as input for verification
+- Store Merkle Tree of Proofs, not member lists
+- **Ephemeral Relationship Data**: Deleted after vetting threshold met
+- **State Survives**: Trust state persists even if bot/server crashes
+
+### Group Configuration Storage
+```rust
+pub struct GroupConfig {
+    // Consensus thresholds (changeable via group vote only)
+    pub federation_approval_threshold: f32,  // e.g., 0.70 (70%)
+    pub config_change_threshold: f32,        // e.g., 0.80 (80%)
+    
+    // Admission and membership thresholds
+    pub min_vouch_threshold: usize,          // Default: 2 (minimum to stay in group)
+    pub use_percentage_thresholds: bool,     // Toggle fixed vs percentage-based
+    pub validator_threshold_fixed: usize,    // Default: 3 (if fixed)
+    pub validator_percentile: u32,           // e.g., 20 (if percentage-based)
+    
+    // Federation density thresholds (per-group, independent)
+    pub min_intersection_density_self: f32,  // e.g., 0.10-0.30 (BidirectionalMin)
+    
+    // Discovery URIs (percentile-based)
+    pub discovery_percentiles: Vec<u32>,     // e.g., [10, 20, 30, 50]
+    
+    // Metadata
+    pub config_version: u64,
+    pub last_updated: Timestamp,
+}
+```
+
+**Configuration Management:**
+- All config stored in Freenet contract, NOT controlled by operator
+- Changes require group vote exceeding `config_change_threshold`
+- Any member can query: `/mesh config`
+- Any member can propose: `/propose-config key=value`
+
+### State Verification
+Contract must verify:
+```
+zk-Proof(Voucher IN Tree AND Hash_new NOT_IN Tree)
+```
+
+## Emergent Discovery (Shadow Beacons)
+
+### Social Anchor Hashing
+- Generate Freenet URI from: `Hash(Sorted(Top-N-Validators))`
+- **Dynamic threshold**: Number of validators (N) must be calculated based on group size, not hardcoded
+- **Configurable**: Threshold should be configurable to balance Sybil attack resilience vs. discovery probability
+- Use most trusted validators (highest number of vouches) up to the threshold
+- Sort Signal IDs alphabetically before hashing
+- URI changes as group composition changes (organic discovery)
+- **Design consideration**: Threshold should scale with group size to maintain security properties
+
+### Bloom Filter Strategy (External Federation Only)
+- **Scope**: EXTERNAL - discovery between separate Stroma groups
+- Publish "Bloom Filter" at multiple URIs (percentile-based)
+- Scan multiple URIs on Freenet for overlapping filters
+- Use Private Set Intersection (PSI-CA) to prove overlap without revealing IDs
+- Calculate BidirectionalMin: Both groups check if overlap meets their threshold
+- Alert validators via Signal Poll if both thresholds satisfied: "I have found a sister mesh. Should we begin federation?"
+
+### Zero-Knowledge Discovery (External Only)
+- **Scope**: EXTERNAL - discovery between separate Stroma groups
+- Bots find each other through "social frequency," not pre-shared keys
+- Discovery is **emergent** - no admin coordination required
+- If groups share core trusted validators, they independently calculate overlapping URIs
+- **Complete Anonymity**: No graph structure exposed to other group
+
+## State Management
+
+### Merkle Tree Storage
+- **Never store member lists directly**
+- Store Merkle Tree of Proofs representing trust state
+- All state transitions must be verifiable through tree structure
+
+### State Stream Monitoring
+- Bot must continuously monitor Freenet state stream (real-time, not polling)
+- **Long-Polling/WebSocket**: Efficient real-time updates
+- React immediately to state changes (e.g., trust threshold violations)
+- State changes trigger immediate Signal group actions
+- **Trust Standing**: Monitor `Standing = Vouches - Flags` in real-time
+- **Instant Enforcement**: No grace periods, ejection immediate when `Standing < 0`
+
+## Federation Logic
+
+### Mesh Overlap Calculation (BidirectionalMin)
+```
+FUNCTION: Calculate_Mesh_Overlap(Bot_A_Set, Bot_B_Set)
+USE: Commutative_Encryption(Key_A, Key_B)  # Double-blinding
+RESULT: Intersection_Size = COUNT(Encrypted_Set_A == Encrypted_Set_B)
+
+# Each group evaluates with its own threshold
+LET: Density_In_A = Intersection_Size / SIZE(Bot_A_Set)
+LET: Density_In_B = Intersection_Size / SIZE(Bot_B_Set)
+
+# Retrieve each group's threshold from their Freenet contract
+LET: Threshold_A = Get_Group_Config(Bot_A).min_intersection_density_self
+LET: Threshold_B = Get_Group_Config(Bot_B).min_intersection_density_self
+
+# Both thresholds must be satisfied (BidirectionalMin)
+IF: (Density_In_A >= Threshold_A) AND (Density_In_B >= Threshold_B)
+THEN: PROPOSE(Federation_Event)
+```
+
+**Key Principles:**
+- **Independent Thresholds**: Each group configures its own minimum overlap percentage
+- **BidirectionalMin**: Both groups must satisfy their own threshold for federation proposal
+- **Asymmetric Groups**: Handles different group sizes fairly (small groups can require higher thresholds)
+- **Group Autonomy**: Thresholds stored in each group's Freenet contract, changeable only via group vote
+
+### Federation Contract
+- Bots "sign" federation contract on Freenet after human consensus (70% approval)
+- **Shared Freenet State**: Unified contract for confederated meshes
+- Contract enables cross-mesh vouching (Shadow-Vouch)
+- **Bridge Maintenance**: Bot proactively suggests connections when bridge density drops
+- **Reciprocal Buffer**: Groups act as mutual buffers for each other
+- **Trust Identity**: Member's trust identity precedes them across meshes
+
+## Privacy Guarantees
+
+### Anonymous Operations
+- All Freenet operations must preserve anonymity
+- Never expose member identities in contract state
+- Use hashed identifiers throughout
+
+### Rendezvous Hashing
+- Use rendezvous hashing strategy for bot discovery
+- Monthly rotation: `URI = Hash(Secret + "2026-01")` (example format)
+- Secret derived from group state, not pre-shared

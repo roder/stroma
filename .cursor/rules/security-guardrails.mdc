@@ -1,0 +1,133 @@
+---
+description: Security guardrails and quality standards that must never be violated
+alwaysApply: true
+---
+
+# Security & Quality Guardrails
+
+## Critical Security Constraints
+
+### Anonymity-First Violations (BLOCK)
+- ❌ **NEVER** store Signal IDs in cleartext
+- ❌ **NEVER** log member identifiers to disk
+- ❌ **NEVER** expose social graph structure to external groups (federation)
+- ❌ **NEVER** use pre-shared keys for federation
+- ❌ **NEVER** use deterministic hashing (must use HMAC with group-secret pepper)
+- ❌ **NEVER** retain vetting session data after admission (must be ephemeral)
+- ❌ **NEVER** expose relationship content (bot knows topology, not content)
+
+### Memory Safety Violations (BLOCK)
+- ❌ **NEVER** leave sensitive buffers in memory after use
+- ❌ **NEVER** skip zeroization of cryptographic keys
+- ❌ **NEVER** use `unsafe` blocks without explicit security review
+
+### Trust Model Violations (BLOCK)
+- ❌ **NEVER** add grace periods for ejection (no 48-hour warnings, no re-verification windows)
+- ❌ **NEVER** make trust decisions without Freenet verification
+- ❌ **NEVER** bypass ZK-proof verification
+- ❌ **NEVER** allow `Standing < 0` to persist (immediate ejection required)
+- ❌ **NEVER** allow vouch count < MIN_VOUCH_THRESHOLD (immediate ejection required)
+- ❌ **NEVER** use polling for state monitoring (must use real-time stream)
+- ❌ **NEVER** admit members with < 2 vouches from independent validators
+
+## Supply Chain Security
+
+### Mandatory Audits
+- **Always** run `cargo-deny` before merging
+- **Always** run `cargo-crev` for cryptographic verification
+- **Always** review dependency changes for security implications
+
+### Dependency Management
+- Keep attack surface minimal
+- Monitor binary size - significant increases indicate bloat
+- Prefer well-audited crates over convenience libraries
+
+## Code Review Checklist
+
+### Before Merging
+- [ ] No `unsafe` blocks without security justification
+- [ ] No Signal IDs stored in cleartext
+- [ ] All sensitive buffers zeroized
+- [ ] Freenet state verified before Signal actions
+- [ ] ZK-proofs verified for all trust operations
+- [ ] No pre-shared keys in codebase
+- [ ] `cargo-deny` and `cargo-crev` checks pass
+
+### Gastown-Specific Checks
+- [ ] Review Refinery output for unsafe blocks
+- [ ] Check git hooks for accidental key commits
+- [ ] Monitor Deacon build size reports
+- [ ] Verify Beads contain security constraints
+
+## Sandboxing Requirements
+
+### Production Environment
+- Bot must run in seccomp sandbox
+- Only allow Signal and Freenet node traffic
+- Block all other network access
+- Static MUSL binary required
+
+## Error Handling Security
+
+### Information Leakage Prevention
+- Never log sensitive identifiers
+- Never expose internal state in error messages
+- Use generic error messages for security-critical failures
+- Log security events without revealing member identities
+
+## Testing Security
+
+### Test Data Hygiene
+- Never commit test keys or salts to git
+- Use deterministic test fixtures (fixed seeds for reproducibility)
+- Clean up test data immediately
+- Never use production-like identifiers in tests
+- Test ephemeral state cleanup (verify data deletion after threshold)
+- Test HMAC-based hashing with fixed test pepper
+
+## Architecture Violations (BLOCK)
+
+### Centralization Anti-Patterns
+- ❌ **NEVER** introduce centralized trust authority
+- ❌ **NEVER** require admin coordination for federation
+- ❌ **NEVER** store trust state outside Freenet
+- ❌ **NEVER** give operator special privileges beyond service runner role
+
+### State Management Violations
+- ❌ **NEVER** make Signal group the source of truth
+- ❌ **NEVER** bypass Freenet state verification
+- ❌ **NEVER** cache trust decisions locally without verification
+- ❌ **NEVER** allow operator to modify GroupConfig without group vote
+- ❌ **NEVER** hardcode consensus thresholds (must be in Freenet contract)
+- ❌ **NEVER** allow vouches from people outside Stroma group (only Members can vouch)
+- ❌ **NEVER** create "waiting room" as separate chat (outside = not in group, binary state)
+- ❌ **NEVER** restrict vouching to only Validators (ANY Member can vouch)
+
+## Operator Least Privilege Constraints (BLOCK)
+
+### Operator Privilege Violations
+- ❌ **NEVER** allow operator to manually execute membership changes
+- ❌ **NEVER** allow operator to override group decisions
+- ❌ **NEVER** allow operator to change consensus thresholds unilaterally
+- ❌ **NEVER** allow operator to bypass ejection protocol
+- ❌ **NEVER** allow operator access to cleartext Signal IDs
+- ❌ **NEVER** allow operator to unilaterally federate groups
+- ❌ **NEVER** allow operator to modify GroupConfig without group consensus
+- ❌ **NEVER** require operator to manually execute commands (must be automatic)
+
+### Configuration Management
+- ✅ **DO** store all configuration in Freenet contract
+- ✅ **DO** require group vote for configuration changes (via Signal Polls)
+- ✅ **DO** make configuration discoverable via `/mesh config`
+- ✅ **DO** log all operator actions to Freenet contract
+- ✅ **DO** treat operator as just another member (with service runner duties only)
+- ✅ **DO** enforce `config_change_threshold` for all config updates
+- ✅ **DO** use Signal Polls for all group decisions (NOT reactions)
+- ✅ **DO** implement automatic execution of contract-approved actions
+
+### Audit Requirements
+- ✅ **DO** log all operator actions with timestamps (service start/stop/restart only)
+- ✅ **DO** make audit trail queryable by any member
+- ✅ **DO** verify bot automatically executes only contract-approved actions
+- ✅ **DO** flag any attempt to bypass group consensus
+- ✅ **DO** ensure operator role is limited to service management only

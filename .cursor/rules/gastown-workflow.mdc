@@ -1,0 +1,73 @@
+---
+description: Gastown-specific workflow patterns and agent coordination
+alwaysApply: true
+---
+
+# Gastown Workflow Standards
+
+## Agent Organization
+
+### Agent Roles
+- **Mayor (Lead Agent)**: Project architecture and security auditing
+- **Agent-Signal**: `libsignal-service-rs` and protocol-level group management
+- **Agent-Freenet**: Wasm contract development and sharded state logic
+- **Agent-Crypto**: ZK-SNARK circuits and Private Set Intersection (PSI)
+- **Witness Agent**: Constant audit of other agents to ensure no Signal ID logging
+
+### Context Persistence
+- Use **Beads** (git-backed persistent memory) for all architectural constraints
+- Store security constraints (Anonymity-First, No Time Windows) in `.beads/` directory
+- Ensure sub-agents read constraints before writing code
+
+## Implementation Roadmap (Beads)
+
+1. **Bead-01**: Scaffold Rust project with `cargo-deny` and basic Signal-link
+2. **Bead-02**: Develop "Social Anchor" hashing for emergent discovery
+3. **Bead-03**: Implement HMAC-masking logic and local `sled` encrypted cache
+4. **Bead-04**: Develop Freenet Wasm contract for Merkle-tree trust
+5. **Bead-05**: Integrate `arkworks` for ZK-vouch verification
+6. **Bead-06**: Final integration: "Diplomat" logic for federation proposals
+
+## Safety Precautions
+
+### Refinery Audits
+- **Mandatory**: Manually review Refinery output for any `unsafe` Rust blocks
+- Refinery manages merges - verify security constraints are maintained
+
+### Hook State Checks
+- Regularly check git worktrees (Hooks) for accidental commits
+- Ensure no "Private Salt" or test-keys in git history
+- Verify no Signal IDs committed
+
+### Deacon Monitoring
+- Use Gastown Deacon to monitor bot build health
+- Significant build size increases indicate dependency bloat
+- Violates minimal attack surface requirement
+
+## Parallel Execution (Convoy)
+
+### Agent Coordination
+- Use `gt convoy` for parallel development
+- Ensure Witness Agent audits all other agents simultaneously
+- Never allow agents to work in isolation without oversight
+
+## Context Preservation
+
+### Bead Requirements
+- Pin architectural constraints as **Immutable Beads**
+- Store in `.beads/` directory for persistent access
+- All agents must read relevant Beads before task execution
+
+### System Prompt Integration
+- Mayor must receive system prompt with security constraints
+- Store constraints in Beads for sub-agent access
+- Ensure context survives across agent sessions
+
+## Quality Gates
+
+### Before Agent Completion
+- Security constraints verified
+- No unsafe blocks introduced
+- No cleartext identifiers stored
+- Freenet state verification maintained
+- Supply chain audits passed
