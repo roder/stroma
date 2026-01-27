@@ -557,8 +557,42 @@ cargo build --features federation
 4. Federation proposal (Signal Poll)
 5. Contract signing (both groups)
 6. Cross-mesh vouching (shadow vouches)
+7. Shadow Handover Protocol (bot identity rotation)
 
 **No Breaking Changes**: Just enable existing code
+
+### Bot Identity Rotation: Shadow Handover (Phase 4+)
+
+**Problem**: Signal phone numbers can be banned, compromised, or operators may wish to rotate for security reasons.
+
+**Solution**: Shadow Handover Protocol for cryptographic succession.
+
+**Concept**: Bot's Signal identity (phone number) is ephemeral; cryptographic identity (keypair) persists. When rotation is needed:
+
+1. Bot-Old generates new keypair for Bot-New
+2. Bot-Old creates Succession Document (signed)
+3. Bot-Old deploys to Freenet contract
+4. Bot-New proves possession of new_bot_privkey
+5. Freenet contract validates; trust graph unchanged
+6. Bot-New announces to Signal group
+
+**Benefits**:
+- Cryptographic proof of succession (not operator assertion)
+- Trust context preserved (members' vouches unchanged)
+- Freenet contract authorizes transition (decentralized)
+- Aligns with fluid identity philosophy (identity is relational, not fixed)
+
+**Operator CLI (Phase 4+)**:
+```bash
+stroma rotate \
+  --config /etc/stroma/config.toml \
+  --new-phone "+0987654321" \
+  --reason "Signal ban recovery"
+```
+
+**MVP Workaround**: Operator manually handles Signal bans by re-registering with backup phone number.
+
+See `.beads/federation-roadmap.bead` for full protocol specification.
 
 ## Federation Use Cases
 

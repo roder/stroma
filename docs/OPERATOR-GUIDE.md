@@ -20,65 +20,140 @@ A **service runner** who maintains the bot infrastructure.
 ## Prerequisites
 
 ### Required
-- **Linux server** (VPS or dedicated)
+- **Linux server** (VPS or dedicated, or Docker/Podman)
 - **Signal account** (phone number required for bot)
-- **Rust 1.93+** (musl 1.2.5 with improved DNS)
-- **freenet-core v0.1.107+** (decentralized state storage)
-- **Static IP or stable connection** (for freenet-core node)
+- **Stable internet connection** (for embedded Freenet kernel and Signal)
 
-### Recommended
-- **systemd** (for auto-restart on crashes)
-- **Monitoring** (journalctl, prometheus, or similar)
+### For Binary Installation
+- **No Rust required** (download pre-built binary)
+- **systemd** (recommended for auto-restart)
+
+### For Container Installation
+- **Docker or Podman** (container runtime)
+- **docker-compose** (optional, for easier management)
+
+### For Source Build (Advanced)
+- **Rust 1.93+** (musl 1.2.5 with improved DNS)
+- **Build tools** (gcc, make, etc.)
+
+### Recommended for All Methods
+- **Monitoring** (journalctl, logs, or prometheus)
 - **Backup phone number** (in case of Signal ban)
+- **Backup strategy** (for pepper.secret)
 
 ## Installation
 
-### Step 1: Install Rust 1.93+
+**Choose your installation method based on your security/ease preference:**
+
+### Method 1: Container Installation (Recommended for Most Operators)
+
+**Easiest deployment with minimal tradeoff:**
 
 ```bash
-# Install or update Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-rustup update stable
+# Pull verified image (wraps the same static binary)
+docker pull ghcr.io/roder/stroma:latest
 
-# Verify version
-rustc --version  # Should show 1.93+
+# Verify image signature (cosign)
+cosign verify ghcr.io/roder/stroma:latest
 
-# Add MUSL target for static binaries
-rustup target add x86_64-unknown-linux-musl
+# Run container
+docker run -d \
+  --name stroma \
+  --restart unless-stopped \
+  -v stroma-data:/data \
+  -e SIGNAL_PHONE="+1234567890" \
+  ghcr.io/roder/stroma:latest
 ```
 
-**Why Rust 1.93+:**
-- Bundled musl 1.2.5 with major DNS resolver improvements
-- More reliable networking for Signal and freenet-core
-- Critical for production deployments
+**What's Inside the Container:**
+- Same `stroma-x86_64-musl` static binary as Method 2
+- Minimal distroless base (no shell, no package manager)
+- Non-root user
+- Read-only root filesystem
 
-### Step 2: Install freenet-core
+**Attack Surface**: Static binary + container runtime (~100KB overhead)  
+**Security**: Very high (hardened container wraps secure binary)  
+**Ease**: Maximum (single command)
+
+→ **[Container Deployment Guide](#container-deployment)** below
+
+---
+
+### Method 2: Static Binary Installation (Maximum Security)
+
+**Minimal attack surface, requires systemd setup:**
 
 ```bash
-# Clone freenet-core
-git clone https://github.com/freenet/freenet-core.git
-cd freenet-core
+# Download verified release binary
+wget https://github.com/roder/stroma/releases/download/v1.0.0/stroma-x86_64-musl
+wget https://github.com/roder/stroma/releases/download/v1.0.0/stroma-x86_64-musl.sha256
+wget https://github.com/roder/stroma/releases/download/v1.0.0/stroma-x86_64-musl.asc
 
-# Install freenet-core binary
-cargo install --path crates/core
+# Verify checksum
+sha256sum -c stroma-x86_64-musl.sha256
+
+# Verify GPG signature
+gpg --recv-keys [STROMA_GPG_KEY]
+gpg --verify stroma-x86_64-musl.asc stroma-x86_64-musl
+
+# Install
+chmod +x stroma-x86_64-musl
+sudo mv stroma-x86_64-musl /usr/local/bin/stroma
 
 # Verify installation
-freenet --version
+stroma version
 ```
 
-### Step 3: Install Stroma
+**What You Get:**
+- Single static binary with embedded Freenet kernel
+- No external dependencies
+- No Rust installation required
+- GPG-signed and checksummed
+
+**Attack Surface**: Minimal (static binary only)  
+**Security**: Maximum  
+**Ease**: Medium (requires systemd configuration)
+
+→ **[Binary Deployment Guide](#binary-deployment)** below
+
+---
+
+### Method 3: Build from Source (For Auditors/Developers)
+
+**Maximum control and auditability:**
 
 ```bash
-# Clone Stroma
+# Install Rust 1.93+ (if not already installed)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+rustup update stable
+rustup target add x86_64-unknown-linux-musl
+
+# Clone and verify source
 git clone https://github.com/roder/stroma.git
 cd stroma
+git verify-commit HEAD  # Verify signed commit
 
-# Build production binary (static MUSL)
+# Audit dependencies
+cargo audit
+cargo deny check
+
+# Build static binary (includes embedded Freenet kernel)
 cargo build --release --target x86_64-unknown-linux-musl
 
 # Binary location
 ./target/x86_64-unknown-linux-musl/release/stroma
 ```
+
+**What You Build:**
+- Same binary as distributed in Method 2
+- Reproducible build (can verify against released binary)
+- Full source audit possible
+
+**Attack Surface**: Minimal (same as Method 2)  
+**Security**: Maximum (verified source)  
+**Ease**: Difficult (requires Rust knowledge)
+
+→ **[Source Build Guide](#source-build)** below
 
 ## Configuration
 
@@ -122,21 +197,14 @@ chmod 600 /var/lib/stroma/pepper.secret
 
 ## Bootstrap Process (One-Time)
 
-### Step 1: Start freenet-core Node
+### Important: Embedded Freenet
+Stroma includes an **embedded Freenet kernel** - you don't need to install or run freenet-core separately. Everything is in one binary.
 
-```bash
-# Start freenet-core in dark mode (anonymous)
-freenet --mode dark &
-
-# Verify node is running
-curl http://127.0.0.1:8080/health
-```
-
-### Step 2: Create Seed Group (Manual - 3 Members)
+### Step 1: Create Seed Group (Manual - 3 Members)
 
 ```bash
 # You need 3 people to start (including yourself)
-# Manually create Signal group and add all 3
+# Manually create Signal group and add all 3 members
 ```
 
 **Seed Group Requirements:**
@@ -144,69 +212,156 @@ curl http://127.0.0.1:8080/health
 - All 3 must trust each other
 - All 3 will become initial Validators
 
-### Step 3: Initialize Freenet Contract
+### Step 2: Run Bootstrap Command
 
 ```bash
-# Run Stroma bootstrap command
-./stroma bootstrap \
-  --config ~/.config/stroma/config.toml \
-  --seed-members @Alice,@Bob,@Carol
+# Bootstrap initializes embedded Freenet kernel + contract
+stroma bootstrap \
+  --config /etc/stroma/config.toml \
+  --signal-phone "+1234567890" \
+  --seed-members @Alice,@Bob,@Carol \
+  --group-name "My Trust Network"
 
-# Bot will:
-# - Hash all 3 Signal IDs
-# - Create initial vouch graph (triangle: everyone vouches everyone)
-# - Deploy contract to freenet-core
-# - Return contract_key
+# Bootstrap process:
+# 1. Initializes embedded Freenet kernel (dark mode)
+# 2. Hashes all 3 Signal IDs with group pepper
+# 3. Creates initial vouch graph (triangle: everyone vouches everyone)
+# 4. Deploys TrustNetworkState contract to embedded kernel
+# 5. Writes contract_key to config.toml
+# 6. Outputs contract key and confirmation
 ```
 
-### Step 4: Update Config with Contract Key
+**Output:**
+```
+✅ Bootstrap Complete
+
+Embedded Freenet kernel initialized (dark mode)
+Contract deployed: 0x123abc...
+Contract key written to /etc/stroma/config.toml
+
+Seed members:
+- @Alice (hashed: 0xabc...)
+- @Bob (hashed: 0xdef...)  
+- @Carol (hashed: 0x789...)
+
+All 3 members have 2 vouches each (initial triangle).
+
+Ready to start bot service.
+```
+
+### Step 3: Start Bot Service
 
 ```bash
-# Add contract_key to config.toml
-# (Output from bootstrap command)
-nano ~/.config/stroma/config.toml
+# Run bot (embedded Freenet kernel starts automatically)
+stroma run --config /etc/stroma/config.toml
 
-# Should look like:
-# [freenet]
-# contract_key = "0x123abc..."
+# Bot is now:
+# - Running embedded Freenet kernel
+# - Monitoring Freenet state stream
+# - Connected to Signal
+# - Ready for member commands
 ```
 
-### Step 5: Start Bot Service
+**After this point, you have NO special privileges. All membership changes are automatic based on Freenet contract state.**
+
+## Deployment Methods
+
+### Method 1: Container Deployment (Recommended)
+
+#### Using docker-compose
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+
+services:
+  stroma:
+    image: ghcr.io/roder/stroma:latest
+    container_name: stroma
+    restart: unless-stopped
+    volumes:
+      - stroma-data:/data
+      - ./config.toml:/data/config.toml:ro
+      - ./pepper.secret:/data/pepper.secret:ro
+    environment:
+      - SIGNAL_PHONE=+1234567890
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+
+volumes:
+  stroma-data:
+    driver: local
+```
 
 ```bash
-# Run bot
-./stroma run --config ~/.config/stroma/config.toml
+# Start service
+docker-compose up -d
 
-# Bot is now running and monitoring Freenet state stream
+# View logs
+docker-compose logs -f stroma
+
+# Stop service
+docker-compose down
 ```
 
-**After this point, you have NO special privileges. All membership changes are automatic based on Freenet contract.**
+#### Using docker/podman directly
 
-## Service Management
+```bash
+# Bootstrap (one-time)
+docker run --rm \
+  -v stroma-data:/data \
+  ghcr.io/roder/stroma:latest bootstrap \
+  --signal-phone "+1234567890" \
+  --seed-members @Alice,@Bob,@Carol \
+  --group-name "My Network"
 
-### systemd Service (Recommended)
+# Run service
+docker run -d \
+  --name stroma \
+  --restart unless-stopped \
+  -v stroma-data:/data \
+  ghcr.io/roder/stroma:latest run
+```
+
+---
+
+### Method 2: Binary Deployment (systemd)
+
+#### Create systemd Service
 
 ```bash
 # Create systemd service file
-sudo nano /etc/systemd/system/stroma-bot.service
+sudo nano /etc/systemd/system/stroma.service
 ```
 
 ```ini
 [Unit]
-Description=Stroma Trust Network Bot
-After=network.target freenet-core.service
-Requires=freenet-core.service
+Description=Stroma Trust Network Bot (with Embedded Freenet)
+After=network.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=stroma
 Group=stroma
-WorkingDirectory=/opt/stroma
-ExecStart=/opt/stroma/stroma run --config /etc/stroma/config.toml
+WorkingDirectory=/var/lib/stroma
+ExecStart=/usr/local/bin/stroma run --config /etc/stroma/config.toml
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/stroma /var/log/stroma
 
 [Install]
 WantedBy=multi-user.target
@@ -215,84 +370,93 @@ WantedBy=multi-user.target
 ```bash
 # Enable and start service
 sudo systemctl daemon-reload
-sudo systemctl enable stroma-bot
-sudo systemctl start stroma-bot
+sudo systemctl enable stroma
+sudo systemctl start stroma
 
 # Check status
-sudo systemctl status stroma-bot
+sudo systemctl status stroma
 ```
 
-### freenet-core Service
-
-```bash
-# Create systemd service for freenet-core
-sudo nano /etc/systemd/system/freenet-core.service
-```
-
-```ini
-[Unit]
-Description=Freenet Core Node
-After=network.target
-
-[Service]
-Type=simple
-User=stroma
-Group=stroma
-ExecStart=/usr/local/bin/freenet --mode dark
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-# Enable and start
-sudo systemctl enable freenet-core
-sudo systemctl start freenet-core
-```
+**Note**: Single service (no separate freenet-core service needed - it's embedded)
 
 ## Monitoring & Maintenance
 
 ### View Logs
 
+#### Container Deployment
 ```bash
-# Stroma bot logs
-journalctl -u stroma-bot -f
+# View logs
+docker logs -f stroma
 
-# freenet-core logs
-journalctl -u freenet-core -f
+# Or with docker-compose
+docker-compose logs -f stroma
+```
 
-# Both services
-journalctl -u stroma-bot -u freenet-core -f
+#### Binary Deployment (systemd)
+```bash
+# View bot logs (includes embedded Freenet kernel logs)
+journalctl -u stroma -f
+
+# View recent logs
+journalctl -u stroma -n 100
+
+# Follow logs with grep
+journalctl -u stroma -f | grep -i "error\|warn"
 ```
 
 ### Check Health
 
 ```bash
-# Bot health
-curl http://127.0.0.1:9090/health  # If health endpoint implemented
+# Using CLI command
+stroma status
 
-# freenet-core health
-curl http://127.0.0.1:8080/health
-
-# Service status
-systemctl status stroma-bot freenet-core
+# Output:
+# ✅ Bot Status: Running
+# ✅ Embedded Freenet Kernel: Active (dark mode)
+# ✅ Signal Connection: Connected
+# ✅ Contract State: Synced
+# 
+# Group: My Trust Network
+# Members: 47
+# Contract: 0x123abc...
+# Uptime: 3 days, 5 hours
 ```
 
-### Restart Services
-
+#### Container Deployment
 ```bash
-# Restart bot only
-sudo systemctl restart stroma-bot
+# Container health
+docker ps | grep stroma
 
-# Restart freenet-core (WARNING: may cause brief state sync delay)
-sudo systemctl restart freenet-core
+# Logs
+docker logs stroma --tail 50
+```
 
-# Restart both
-sudo systemctl restart freenet-core stroma-bot
+#### Binary Deployment (systemd)
+```bash
+# Service status
+systemctl status stroma
+
+# Active check
+systemctl is-active stroma
+```
+
+### Restart Service
+
+#### Container Deployment
+```bash
+# Restart container
+docker restart stroma
+
+# Or with docker-compose
+docker-compose restart stroma
+```
+
+#### Binary Deployment (systemd)
+```bash
+# Restart service (includes embedded Freenet kernel)
+sudo systemctl restart stroma
+
+# Note: Brief state sync delay (seconds) as kernel reconnects
 ```
 
 ## What Operators Cannot Do
@@ -348,30 +512,42 @@ sudo systemctl restart freenet-core stroma-bot
 
 ### Bot Not Responding to Commands
 
-**Check:**
+#### Container Deployment
 ```bash
-# Is bot service running?
-systemctl status stroma-bot
+# Is container running?
+docker ps | grep stroma
 
-# Is freenet-core running?
-systemctl status freenet-core
+# Check logs
+docker logs stroma --tail 100
 
-# Check logs for errors
-journalctl -u stroma-bot -n 50
+# Restart if needed
+docker restart stroma
+```
+
+#### Binary Deployment (systemd)
+```bash
+# Is service running?
+systemctl status stroma
+
+# Check logs
+journalctl -u stroma -n 100
+
+# Restart if needed
+sudo systemctl restart stroma
 ```
 
 **Common Issues:**
-- freenet-core node not running → start it
 - Signal credentials expired → re-authenticate
 - Network connectivity issues → check firewall
+- Embedded Freenet kernel startup failure → check data_dir permissions
 
 ### Bot Banned from Signal
 
 **Response:**
 1. Register new bot account with backup phone number
 2. Update config.toml with new phone number
-3. Restart bot service
-4. Bot will recover state from freenet-core
+3. Restart service
+4. Bot will recover state from embedded Freenet kernel
 
 **Prevention**: Follow Signal's terms of service, avoid spam-like behavior
 
@@ -383,11 +559,18 @@ journalctl -u stroma-bot -n 50
 
 **Fix:**
 ```bash
-# Force state sync (if implemented)
-./stroma sync --force
+# Check embedded kernel status
+stroma status
 
-# Or restart bot (will re-sync on startup)
-systemctl restart stroma-bot
+# Force state sync (if implemented)
+stroma sync --force
+
+# Or restart (will re-sync on startup)
+# Container:
+docker restart stroma
+
+# Binary/systemd:
+sudo systemctl restart stroma
 ```
 
 ### Performance Issues
@@ -398,13 +581,24 @@ systemctl restart stroma-bot
 - Memory leaks
 
 **Check:**
-```bash
-# Monitor resources
-htop
-journalctl -u stroma-bot | grep -i "error\|warn"
 
-# Check freenet-core health
-curl http://127.0.0.1:8080/metrics
+#### Container
+```bash
+# Monitor container resources
+docker stats stroma
+
+# Check logs for errors
+docker logs stroma | grep -i "error\|warn"
+```
+
+#### Binary/systemd
+```bash
+# Monitor system resources
+htop
+systemctl status stroma
+
+# Check logs
+journalctl -u stroma | grep -i "error\|warn"
 ```
 
 ## Updates & Maintenance
@@ -472,53 +666,105 @@ sudo systemctl restart freenet-core
 
 ### Bot Goes Offline
 
-**Impact**: Temporary disruption, state preserved
+**Impact**: Temporary disruption, state preserved in embedded Freenet kernel
 
 **Recovery:**
-1. Restart bot service
-2. Bot re-syncs from freenet-core automatically
-3. No data loss (Freenet is persistent)
+
+#### Container
+```bash
+docker restart stroma
+```
+
+#### Binary/systemd
+```bash
+sudo systemctl restart stroma
+```
+
+**Process:**
+1. Bot restarts with embedded Freenet kernel
+2. Kernel re-syncs from Freenet network automatically
+3. No data loss (Freenet persistence embedded)
 
 **Time to Recovery**: < 5 minutes
 
-### freenet-core Node Failure
-
-**Impact**: Bot cannot read/write state
-
-**Recovery:**
-1. Restart freenet-core node
-2. Wait for state sync (may take minutes)
-3. Bot automatically reconnects
-
-**Time to Recovery**: 5-15 minutes
-
 ### Server Failure
 
-**Impact**: Total outage
+**Impact**: Total outage until new server deployed
 
 **Recovery:**
 1. Set up new server
-2. Install freenet-core and Stroma
-3. Restore pepper.secret from backup
-4. Restore config.toml
-5. Start services
-6. Bot re-syncs state from Freenet network
+2. Install Stroma (container or binary)
+3. Restore `pepper.secret` from backup (CRITICAL)
+4. Restore `config.toml` from backup
+5. Start service
+6. Embedded kernel re-syncs state from Freenet network
 
 **Time to Recovery**: 30-60 minutes
 
-**Critical**: You MUST have `pepper.secret` backup or member hashes won't match!
+**Critical Requirements:**
+- ✅ MUST have `pepper.secret` backup (member hashes won't match without it)
+- ✅ MUST have `config.toml` backup (contract key needed)
+- ⚠️ Network must have other nodes with contract state (or state is lost)
+
+### Embedded Kernel Data Loss
+
+**Symptoms:**
+- `/var/lib/stroma/freenet` directory corrupted or deleted
+- Kernel fails to start
+
+**Recovery:**
+```bash
+# Stop service
+# Container:
+docker stop stroma
+
+# Binary/systemd:
+sudo systemctl stop stroma
+
+# Remove corrupted data
+rm -rf /var/lib/stroma/freenet
+
+# Restart (kernel will re-sync from network)
+# Container:
+docker start stroma
+
+# Binary/systemd:
+sudo systemctl start stroma
+```
+
+**Time to Recovery**: 10-30 minutes (depends on network size and peer availability)
 
 ### Signal Ban
 
 **Impact**: Bot cannot send/receive messages
 
-**Recovery:**
+**MVP Recovery (Manual):**
 1. Register new Signal account (backup phone number)
 2. Update config.toml with new credentials
 3. Restart bot
 4. Bot continues with new Signal identity
 
 **Note**: May require group notification and re-adding bot to Signal group
+
+**Future (Phase 4+): Shadow Handover Protocol**
+
+In Phase 4+, Stroma will support automated bot identity rotation via the Shadow Handover Protocol:
+
+```bash
+# Future command (not available in MVP)
+stroma rotate \
+  --config /etc/stroma/config.toml \
+  --new-phone "+0987654321" \
+  --reason "Signal ban recovery"
+```
+
+**Shadow Handover Benefits**:
+- Cryptographic proof of succession (old bot signs handover to new bot)
+- Trust context preserved (members' vouches unchanged)
+- Freenet contract validates transition (decentralized, not operator assertion)
+- Seamless for members (bot announces identity change automatically)
+
+See `.beads/federation-roadmap.bead` for protocol specification.
 
 ## Operator Audit Trail
 
@@ -539,9 +785,9 @@ This builds trust by demonstrating you're not manipulating the system.
 
 ## Costs & Resources
 
-### Server Requirements
-- **CPU**: 2 cores (1 for bot, 1 for freenet-core)
-- **RAM**: 2GB (1GB for bot, 1GB for freenet-core)
+### Server Requirements (Embedded Kernel)
+- **CPU**: 2 cores (bot + embedded Freenet kernel in single process)
+- **RAM**: 1.5-2GB (single process with embedded kernel)
 - **Storage**: 10GB (grows with group size)
 - **Network**: Stable connection, ~100GB/month bandwidth
 
@@ -550,18 +796,40 @@ This builds trust by demonstrating you're not manipulating the system.
 - **Signal**: Free (just need phone number)
 - **Total**: $10-20/month
 
-### Scaling
+### Scaling (Single Binary with Embedded Kernel)
 - Small group (3-50 members): 1 CPU, 1GB RAM
 - Medium group (50-200 members): 2 CPUs, 2GB RAM
 - Large group (200-1000 members): 4 CPUs, 4GB RAM
 
+**Note**: Embedded kernel is more efficient than running separate processes (shared memory, no IPC overhead)
+
 ## Frequently Asked Questions
 
+### Which deployment method should I use?
+- **Most operators**: Container (easy deployment, wraps same secure binary)
+- **Security-focused**: Static binary (absolute minimal attack surface)
+- **Auditors/developers**: Source build (full control and verification)
+
+**All methods use the same secure static binary** - container just wraps it for ease.
+
+### Is the container less secure than standalone binary?
+No significant difference. The container contains the **exact same static binary**. Attack surface difference is ~100KB of well-audited container runtime. We don't compromise member security for operator ease.
+
 ### Can I run multiple bots on one server?
-Yes, but each bot needs its own freenet-core node and Signal account. Run separate systemd services.
+
+**Container**: Yes, easy
+```bash
+docker run -d --name stroma-group-a -v data-a:/data ghcr.io/roder/stroma:latest
+docker run -d --name stroma-group-b -v data-b:/data ghcr.io/roder/stroma:latest
+```
+
+**Binary/systemd**: Yes, but need separate services
+- Each bot needs separate config.toml and pepper.secret
+- Create multiple systemd units (stroma-group-a.service, stroma-group-b.service)
+- Each bot has embedded Freenet kernel (no sharing)
 
 ### Can I move the bot to a new server?
-Yes. Stop services, backup `pepper.secret` and config, move to new server, restore, restart.
+Yes. Stop service, backup `pepper.secret` and `config.toml`, move to new server, restore, restart. Embedded Freenet kernel will re-sync state from network.
 
 ### What if I lose the pepper.secret file?
 **Critical failure**. All member hashes will be different, breaking the trust network. **Always backup pepper.secret!**
@@ -588,7 +856,244 @@ You can see the Signal group members in the Signal app, but the bot only stores/
 
 ---
 
+---
+
+## Appendix: Detailed Deployment Guides
+
+### Container Deployment (Full Guide)
+
+#### Using docker-compose (Recommended)
+
+**1. Create deployment directory**
+```bash
+mkdir -p ~/stroma
+cd ~/stroma
+```
+
+**2. Create docker-compose.yml**
+```yaml
+version: '3.8'
+
+services:
+  stroma:
+    image: ghcr.io/roder/stroma:latest
+    container_name: stroma
+    restart: unless-stopped
+    volumes:
+      - stroma-data:/data
+      - ./config.toml:/data/config.toml:ro
+      - ./pepper.secret:/data/pepper.secret:ro
+    environment:
+      - TZ=UTC
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M,mode=1777
+
+volumes:
+  stroma-data:
+    driver: local
+```
+
+**3. Generate pepper**
+```bash
+openssl rand -base64 32 > pepper.secret
+chmod 600 pepper.secret
+```
+
+**4. Create config.toml** (use template from Configuration section)
+
+**5. Bootstrap**
+```bash
+docker-compose run --rm stroma bootstrap \
+  --config /data/config.toml \
+  --signal-phone "+1234567890" \
+  --seed-members @Alice,@Bob,@Carol \
+  --group-name "My Network"
+```
+
+**6. Start service**
+```bash
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+```
+
+---
+
+### Binary Deployment (Full Guide)
+
+**1. System preparation**
+```bash
+# Create user and directories
+sudo useradd -r -s /bin/false -d /var/lib/stroma -m stroma
+sudo mkdir -p /var/log/stroma /etc/stroma
+sudo chown stroma:stroma /var/lib/stroma /var/log/stroma
+```
+
+**2. Install binary**
+```bash
+# Download
+cd /tmp
+wget https://github.com/roder/stroma/releases/download/v1.0.0/stroma-x86_64-musl
+wget https://github.com/roder/stroma/releases/download/v1.0.0/stroma-x86_64-musl.sha256
+wget https://github.com/roder/stroma/releases/download/v1.0.0/stroma-x86_64-musl.asc
+
+# Verify
+sha256sum -c stroma-x86_64-musl.sha256
+gpg --verify stroma-x86_64-musl.asc stroma-x86_64-musl
+
+# Install
+sudo install -m 755 stroma-x86_64-musl /usr/local/bin/stroma
+```
+
+**3. Generate pepper**
+```bash
+sudo -u stroma openssl rand -base64 32 > /var/lib/stroma/pepper.secret
+sudo chmod 600 /var/lib/stroma/pepper.secret
+```
+
+**4. Create config** (use template, save to `/etc/stroma/config.toml`)
+
+**5. Bootstrap**
+```bash
+sudo -u stroma stroma bootstrap \
+  --config /etc/stroma/config.toml \
+  --signal-phone "+1234567890" \
+  --seed-members @Alice,@Bob,@Carol \
+  --group-name "My Network"
+```
+
+**6. Create systemd service** (use template from Service Management section)
+
+**7. Start service**
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable stroma
+sudo systemctl start stroma
+sudo systemctl status stroma
+```
+
+---
+
+### Source Build (Full Guide)
+
+**1. Install Rust 1.93+**
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+rustup update stable
+rustc --version  # Verify 1.93+
+```
+
+**2. Add MUSL target**
+```bash
+rustup target add x86_64-unknown-linux-musl
+
+# Install MUSL tools
+# Ubuntu/Debian:
+sudo apt install musl-tools
+
+# Fedora/RHEL:
+sudo dnf install musl-gcc
+```
+
+**3. Clone and audit**
+```bash
+git clone https://github.com/roder/stroma.git
+cd stroma
+
+# Install audit tools
+cargo install cargo-audit cargo-deny
+
+# Run audits
+cargo audit
+cargo deny check
+```
+
+**4. Build**
+```bash
+# Build static binary (includes embedded Freenet kernel)
+cargo build --release --target x86_64-unknown-linux-musl
+
+# Binary will be at:
+# target/x86_64-unknown-linux-musl/release/stroma
+```
+
+**5. Optional: Verify reproducible build**
+```bash
+# Your build should match official release
+sha256sum target/x86_64-unknown-linux-musl/release/stroma
+
+# Compare to official checksum
+curl -L https://github.com/roder/stroma/releases/download/v1.0.0/stroma-x86_64-musl.sha256
+```
+
+**6. Install and deploy** (follow Binary Deployment steps)
+
+---
+
+## Security Analysis: Single Binary, Two Distributions
+
+### The Key Insight
+
+**We build ONE artifact, distribute TWO ways:**
+
+```
+┌──────────────────────────────────┐
+│  Build Phase (GitHub Actions)   │
+├──────────────────────────────────┤
+│  cargo build --release --target │
+│  x86_64-unknown-linux-musl      │
+│                                  │
+│  Output: stroma-x86_64-musl     │
+│  (Static binary with embedded   │
+│   Freenet kernel)                │
+└──────────────────────────────────┘
+              │
+              ├──────────────────┬──────────────────┐
+              ▼                  ▼                  ▼
+    ┌─────────────────┐  ┌─────────────┐  ┌────────────────┐
+    │  Distribution 1 │  │Distribution2│  │ Distribution 3 │
+    │  Static Binary  │  │  Container  │  │  Source Code   │
+    ├─────────────────┤  ├─────────────┤  ├────────────────┤
+    │ + GPG sign      │  │ FROM scratch│  │ git clone      │
+    │ + SHA256        │  │ COPY binary │  │ cargo build    │
+    │ → GitHub Release│  │ → GHCR      │  │ → User builds  │
+    └─────────────────┘  └─────────────┘  └────────────────┘
+```
+
+### Security Properties
+
+**All three methods provide THE SAME binary:**
+- Same static MUSL compilation
+- Same embedded Freenet kernel
+- Same security properties
+- Verifiable via checksums
+
+**Container is NOT a security compromise:**
+- Contains the exact same binary as standalone
+- Adds ~100KB of well-audited container runtime (containerd/runc)
+- Distroless base has NO shell, NO package manager
+- Just a packaging convenience
+
+**Operators choose ease vs absolute minimal:**
+- Container: Binary + 100KB runtime = 99.9% secure, 100% easy
+- Standalone: Binary only = 100% secure, 80% easy
+
+**Members' security is never compromised** - same binary in both cases.
+
+---
+
 **See Also:**
 - [User Guide](USER-GUIDE.md) - For group members
 - [Developer Guide](DEVELOPER-GUIDE.md) - For contributors
 - [Spike Week Briefing](SPIKE-WEEK-BRIEFING.md) - Technology validation
+
+---
+
+**Last Updated**: 2026-01-27

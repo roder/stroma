@@ -87,6 +87,12 @@ If we design for federation from the start (but implement single-group first):
 - No cross-group state synchronization
 - No global trust context
 
+❌ **Bot Identity Rotation (Shadow Handover)**
+- No Signal phone number rotation capability
+- No cryptographic succession protocol
+- No automated handover between old/new bot instances
+- Note: Operator must manually handle Signal bans in MVP
+
 ### Federation Infrastructure (Present but Disabled)
 Even though federation is NOT implemented, the infrastructure is PRESENT:
 
@@ -363,6 +369,86 @@ pub struct FederatedTrustNetworkState {
     bridge_members: HashSet<MemberHash>,
 }
 ```
+
+### Bot Identity Rotation: Shadow Handover Protocol (Phase 4+)
+
+#### Concept: Cryptographic Succession
+**Purpose**: Enable bot to rotate Signal phone number while maintaining cryptographic identity and trust continuity
+
+**Use Cases**:
+- Signal ban recovery (fast failover to new number)
+- Operator anonymity enhancement (periodic rotation)
+- Multi-bot federation (different numbers for different groups)
+- Operational security (limit exposure of any single number)
+
+#### Shadow Handover Protocol (Phase 4+)
+
+**Process**:
+```
+1. Bot-Old (Current Signal Number) prepares to expire
+   - Generates new keypair for Bot-New
+   - Creates Succession Document signed with Bot-Old's key
+   
+2. Succession Document structure:
+   - old_bot_pubkey: Current bot's public key
+   - new_bot_pubkey: New bot's public key
+   - timestamp: When succession occurs
+   - signature: Signed by old_bot_privkey
+   - reason: "rotation" | "ban_recovery" | "security_upgrade"
+   
+3. Bot-Old deploys Succession Document to Freenet contract
+   - Contract verifies signature matches old_bot_pubkey
+   - Contract updates: authorized_bot_keys.add(new_bot_pubkey)
+   - Contract maintains: Trust context remains unchanged
+   
+4. Bot-New (New Signal Number) arises
+   - Authenticates with new Signal phone number
+   - Presents Succession Document to Freenet contract
+   - Proves possession of new_bot_privkey (signs challenge)
+   
+5. Freenet Contract validates succession
+   - Verifies Succession Document signature (old bot signed it)
+   - Verifies Bot-New possesses new_bot_privkey
+   - Updates authorized bot identity
+   - Trust graph remains unchanged (members' vouches persist)
+   
+6. Bot-New announces to Signal group
+   "I am the same Stroma node. My Signal identity has changed,
+    but my cryptographic signature is valid. Trust continuity
+    maintained via Freenet contract."
+```
+
+#### Operator CLI Command (Phase 4+)
+```bash
+# Operator manually registers new Signal account first
+# Then initiates rotation
+stroma rotate \
+  --config /etc/stroma/config.toml \
+  --new-phone "+0987654321" \
+  --reason "Signal ban recovery"
+
+# Bot orchestrates Shadow Handover automatically
+```
+
+#### Security Properties
+- ✅ Cryptographic proof of succession (not just operator assertion)
+- ✅ Trust context preserved (members' vouches unchanged)
+- ✅ Freenet contract authorizes transition (not centralized)
+- ✅ Signal identity is ephemeral, cryptographic identity persists
+- ✅ Aligns with fluid identity philosophy
+
+#### Implementation Considerations (Phase 4+)
+- [ ] Add bot keypair to Freenet contract schema
+- [ ] Add succession document structure
+- [ ] Add signature verification in contract verify()
+- [ ] Add `stroma rotate` CLI command
+- [ ] Add graceful Bot-Old shutdown (after handover complete)
+- [ ] Add Bot-New startup with succession verification
+- [ ] Add Signal group membership transfer logic
+- [ ] Test: Prevent replay attacks on succession documents
+- [ ] Test: Handle concurrent Bot-Old and Bot-New (race conditions)
+
+**Not in MVP**: Operator must manually handle Signal bans by re-registering with backup phone number.
 
 ### Scaling Beyond Federation
 

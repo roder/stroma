@@ -121,7 +121,8 @@ Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/status`, `
 
 → **[Trust Model Deep Dive](docs/TRUST-MODEL.md)** - Vouching, flagging, ejection math
 
-### 3. Decentralized State (Freenet)
+### 3. Decentralized State (Embedded Freenet Kernel)
+- **Embedded kernel**: Runs in-process with bot (single binary, no external service)
 - **No central server**: State exists across peer-to-peer network
 - **Eventual consistency**: Summary-delta synchronization (no consensus algorithms)
 - **Set-based membership**: BTreeSet with on-demand Merkle Tree generation
@@ -155,6 +156,7 @@ Rather than raw density %, we show **Mesh Health** (0-100) that peaks at optimal
 - **Human control**: Both groups vote to approve
 - **Private overlap**: PSI-CA reveals only count, not identities
 - **Cross-mesh vouching**: Members vouch across federated groups
+- **Shadow Handover**: Bot identity rotation with cryptographic succession
 
 → **[Federation Roadmap](docs/FEDERATION.md)** - North star design
 
@@ -178,15 +180,16 @@ Even though federation isn't in MVP, **every design decision optimizes for it**:
 ## Technical Architecture
 
 ### Core Innovation: Recursive ZK-Vouching
+- **Embedded Freenet Kernel**: In-process (single binary, no external service)
 - **Zero-Knowledge Proofs**: Verify trust without revealing who vouched (STARKs)
 - **Set-Based State**: BTreeSet membership with on-demand Merkle Trees
 - **Mergeable Contracts**: CRDT-like eventual consistency (no consensus algorithms)
 - **Vouch Invalidation**: Voucher-flaggers cancel their own vouches (logical consistency)
 
-### Three Layers
+### Three Layers (Single Binary)
 1. **Signal** - Human interface (bot commands, 1-on-1 PMs, conversational)
 2. **Rust Bot** - Trust logic (gatekeeper, matchmaker, health monitor, diplomat)
-3. **Freenet** - Decentralized state (ComposableState, summary-delta sync, anonymous routing)
+3. **Embedded Freenet** - Decentralized state (in-process kernel, ComposableState, anonymous routing)
 
 → **[Technical Deep Dive](docs/DEVELOPER-GUIDE.md)** - Architecture, modules, contracts
 
@@ -201,10 +204,12 @@ _For detailed specifications on Trust Model, Mesh Health, Federation, Technical 
 | Component | Technology | Why |
 |-----------|------------|-----|
 | **Language** | Rust 1.93+ | musl 1.2.5, improved DNS, static binaries |
-| **State** | [freenet-core](https://github.com/freenet/freenet-core) | Decentralized, ComposableState, anonymous |
+| **Embedded Kernel** | freenet-stdlib v0.1.30+ | In-process, decentralized, anonymous |
+| **Contracts** | freenet-scaffold v0.2+ | ComposableState, summary-delta sync |
 | **ZK-Proofs** | STARKs (winterfell) | No trusted setup, post-quantum |
 | **Identity** | HMAC-SHA256 (ring) | Group-scoped hashing |
 | **Interface** | Signal (libsignal-service-rs) | Familiar UX, E2E encrypted |
+| **CLI** | clap 4+ | Operator commands |
 
 → **[Full Technical Stack](docs/DEVELOPER-GUIDE.md)** - Architecture, contracts, performance targets
 
@@ -218,30 +223,38 @@ _For detailed specifications on Trust Model, Mesh Health, Federation, Technical 
 
 → **[Security Model](docs/DEVELOPER-GUIDE.md#security)** - Threat model, attack resistance
 
-## Development
+## Getting Started
 
-### Prerequisites
-- Rust 1.93+ (required for musl 1.2.5 DNS improvements)
-- Signal account (phone number)
-- freenet-core node
-- Linux environment
+### For Operators
 
-### Quick Start
+**Container (Recommended - Easiest):**
 ```bash
-# Install Rust 1.93+
-rustup update stable && rustc --version
+docker run -d -v stroma-data:/data ghcr.io/roder/stroma:latest
+```
 
-# Clone and build
+**Static Binary (Maximum Security):**
+```bash
+wget https://github.com/roder/stroma/releases/download/v1.0.0/stroma
+gpg --verify stroma.asc && chmod +x stroma && ./stroma run
+```
+
+Both methods use the **same secure static binary** (container just wraps it for ease).
+
+→ **[Operator Guide](docs/OPERATOR-GUIDE.md)** - Complete installation, bootstrap, maintenance
+
+### For Developers
+
+```bash
+# Clone and build (includes embedded Freenet kernel)
 git clone https://github.com/roder/stroma.git
 cd stroma
 cargo build --release --target x86_64-unknown-linux-musl
 
-# Run (after freenet-core node is running)
-./target/release/stroma --config config.toml
+# Binary includes everything - no external freenet-core needed
+./target/x86_64-unknown-linux-musl/release/stroma --help
 ```
 
-→ **[Operator Guide](docs/OPERATOR-GUIDE.md)** - Installation, configuration, deployment  
-→ **[Developer Guide](docs/DEVELOPER-GUIDE.md)** - Build, test, contribute  
+→ **[Developer Guide](docs/DEVELOPER-GUIDE.md)** - Architecture, testing, contributing  
 → **[Spike Week](docs/SPIKE-WEEK-BRIEFING.md)** - Technology validation checklist
 
 ## Implementation Roadmap

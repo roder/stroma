@@ -1,12 +1,44 @@
 # Stroma Implementation Checklist
 
+## 📊 Project Status Overview
+
+**Last Updated**: 2026-01-27
+
+### ✅ Completed (Documentation & Design Phase)
+- [X] Git repository initialized
+- [X] All constraint beads created (security, architecture, federation)
+- [X] Comprehensive UX specification (user-roles-ux.mdc)
+- [X] Trust model with vouch invalidation (VOUCH-INVALIDATION-LOGIC.md)
+- [X] Mesh health score design (peaks at 30-60% density)
+- [X] Embedded Freenet kernel architecture decision
+- [X] Single-binary-two-distributions strategy
+- [X] Operator CLI design (operator-cli.mdc)
+- [X] README.md restructured (309 lines, 3 audiences)
+- [X] 4 comprehensive guides created (USER-GUIDE, OPERATOR-GUIDE, DEVELOPER-GUIDE, FEDERATION)
+- [X] Technology stack finalized (Rust 1.93+, freenet-stdlib, STARKs)
+
+### ⏳ Current Phase: Spike Week (Week 0)
+**Objective**: Validate core technologies before full implementation
+
+**Status**: Documentation complete, ready to begin technology validation
+
+**Next Actions**: See Spike Week section below
+
+### 📋 Tracked for Implementation (Not Yet Started)
+- [ ] Dockerfile (hardened container wrapping static binary)
+- [ ] GitHub Actions release workflow (binary + container)
+- [ ] GitHub Actions CI workflow (tests, security audits)
+- [ ] All code modules (see Phase 0-3 below)
+
+---
+
 ## 🚀 Immediate Actions
 
 ### Git & Workspace Setup
 - [X] Complete git initialization
-  - [X Stage all existing files: `git add .`
-  - [X] Create initial commit: `git commit -m "Initial commit: Gastown workspace with UX specification"`
-  - [X] Optionally set up remote: `git remote add origin <url>`
+  - [X] Stage all existing files: `git add .`
+  - [X] Create initial commit
+  - [X] Optionally set up remote
 
 ### Constraint Beads (Immutable)
 - [X] Create `.beads/security-constraints.bead`
@@ -16,13 +48,16 @@
   - [X] HMAC hashing requirements
   - [X] Zeroization requirements
   - [X] Vouch permissions (ANY Member can vouch)
+  - [X] Co-authored-by requirement for Claude commits
   
 - [X] Create `.beads/architecture-decisions.bead`
-  - [X] freenet-core as state storage
+  - [X] freenet-stdlib as embedded kernel (#9)
   - [X] STARKs (winterfell) for ZK-proofs
-  - [X] Each bot runs own node
+  - [X] Each bot runs own embedded kernel (no sharing)
   - [X] Performance targets
   - [X] Threat model
+  - [X] Single binary, two distributions (#10)
+  - [X] Operator CLI design
   
 - [X] Create `.beads/federation-roadmap.bead`
   - [X] MVP = single group (no federation)
@@ -30,33 +65,64 @@
   - [X] Phase 4+ federation features
   - [X] Design principles
 
-### Agent Structure
+### Agent Structure (Gastown Coordination)
 - [ ] Define agent boundaries
+  - [ ] Agent-CLI: Operator interface (bootstrap, run, utils)
   - [ ] Agent-Signal: Signal protocol integration
-  - [ ] Agent-Freenet: freenet-core node & state
+  - [ ] Agent-Freenet: Embedded kernel integration
   - [ ] Agent-Crypto: STARKs + HMAC + zeroization
+  - [ ] Agent-Gatekeeper: Admission/ejection protocol
+  - [ ] Agent-Matchmaker: Mesh optimization
   - [ ] Witness-Agent: Security audit (continuous)
   
 - [ ] Create Mayor briefing document
-  - [ ] Technology stack decisions
-  - [ ] Security constraints
-  - [ ] Implementation roadmap
-  - [ ] Agent coordination strategy
+  - [ ] Technology stack decisions (embedded kernel, CLI, distribution)
+  - [ ] Security constraints (no external freenet-core)
+  - [ ] Implementation roadmap (Spike Week → Phase 0-3)
+  - [ ] Agent coordination strategy (parallel Beads)
+
+### Outstanding Questions (MUST NOT LOSE - Critical for Spike Week)
+
+**Track in Multiple Locations** (docs/TODO.md, docs/SPIKE-WEEK-BRIEFING.md, README.md):
+
+1. **Q1: STARK Verification in Wasm**
+   - Can we verify STARK proofs in contract verify() method?
+   - Target: < 100ms per proof
+   - Decision impacts: Client-side vs contract-side verification
+
+2. **Q2: Proof Storage Strategy**
+   - Should we store STARK proofs in contract state or just outcomes?
+   - Options: Temporary, permanent, no storage
+   - Impact: Storage costs, trustlessness, audit trail
+
+3. **Q3: On-Demand Merkle Tree Performance**
+   - How expensive is generating Merkle Tree from BTreeSet?
+   - Target: < 100ms for 1000 members
+   - Decision: On-demand vs caching Merkle root
+
+4. **Q4: Freenet Conflict Resolution**
+   - How does Freenet handle merge conflicts?
+   - May need vector clocks or causal ordering
+   - Impact: Ejection timing, concurrent updates
+
+5. **Q5: Custom Validation Beyond ComposableState**
+   - Can we enforce complex invariants in verify()?
+   - Example: "every member >= 2 effective vouches"
+   - Decision: Contract-enforced vs bot-enforced
+
+**Status**: All questions documented in Spike Week briefing with test plans
 
 ## 🔬 Spike Week (Week 0 - Validation Phase)
 
 **Objective**: Validate core technologies before committing to architecture
 
-### Day 1-2: freenet-core Integration & Contract Design
-- [ ] Install freenet-core from https://github.com/freenet/freenet-core
-  - [ ] `git clone https://github.com/freenet/freenet-core.git`
-  - [ ] `cd freenet-core`
-  - [ ] `git submodule update --init --recursive`
-  - [ ] `cargo install --path crates/core`
-  
-- [ ] Run freenet-core node locally
-  - [ ] Start node: `freenet &`
-  - [ ] Verify node is running
+### Day 1-2: Embedded Freenet Kernel & Contract Design
+- [ ] Test embedded Freenet kernel (in-process, not external service)
+  - [ ] Add `freenet-stdlib = { version = "0.1.30", features = ["full"] }` to Cargo.toml
+  - [ ] Initialize FreenetKernel in-process
+  - [ ] Test kernel starts in dark mode (anonymous routing)
+  - [ ] Verify no external freenet-core service needed
+  - [ ] Test kernel data persistence and recovery
   
 - [ ] Test ComposableState trait (CRITICAL)
   - [ ] Install freenet-scaffold: Add to test Cargo.toml
@@ -152,16 +218,22 @@
 **Objective**: Core infrastructure with federation-ready design
 
 ### Module Structure
+- [ ] Create `src/cli/` directory (Operator CLI interface)
+  - [ ] `src/cli/mod.rs`
+  - [ ] `src/cli/bootstrap.rs` - Bootstrap command (seed group)
+  - [ ] `src/cli/run.rs` - Run command (normal operation)
+  - [ ] `src/cli/utils.rs` - Status, verify, export-pepper, version
+  
 - [ ] Create `src/kernel/` directory
   - [ ] `src/kernel/mod.rs`
   - [ ] `src/kernel/hmac.rs` - HMAC-based hashing
   - [ ] `src/kernel/zeroize_helpers.rs` - Immediate buffer purging
   
-- [ ] Create `src/freenet/` directory
+- [ ] Create `src/freenet/` directory (Embedded kernel, not external service)
   - [ ] `src/freenet/mod.rs`
-  - [ ] `src/freenet/node.rs` - freenet-core node management
-  - [ ] `src/freenet/contract.rs` - Wasm contract deployment
-  - [ ] `src/freenet/state_stream.rs` - Real-time state monitoring
+  - [ ] `src/freenet/embedded_kernel.rs` - In-process Freenet kernel (freenet-stdlib)
+  - [ ] `src/freenet/contract.rs` - Wasm contract deployment to embedded kernel
+  - [ ] `src/freenet/state_stream.rs` - Real-time state monitoring from embedded kernel
   
 - [ ] Create `src/signal/` directory
   - [ ] `src/signal/mod.rs`
@@ -198,15 +270,18 @@
   - [ ] `src/federation/diplomat.rs` - Federation proposals (unused)
 
 ### Cargo Configuration
-- [ ] Update `Cargo.toml`
+- [X] Update `Cargo.toml`
+  - [X] Add freenet-stdlib with "full" features (embedded kernel)
+  - [X] Add freenet-scaffold (ComposableState utilities)
   - [ ] Add ring (HMAC)
   - [ ] Add zeroize (memory hygiene)
   - [ ] Add winterfell (STARKs)
-  - [ ] Add freenet-core dependency
   - [ ] Add libsignal-service-rs
   - [ ] Add tokio (async runtime)
   - [ ] Add serde (serialization)
-  - [ ] Add tracing (logging)
+  - [ ] Add ciborium (CBOR for Freenet contracts)
+  - [ ] Add tracing (structured logging)
+  - [ ] Add clap (CLI argument parsing)
   
 - [ ] Create `.cargo/config.toml`
   - [ ] Configure MUSL target: `x86_64-unknown-linux-musl`
@@ -219,14 +294,188 @@
   - [ ] Configure bans (deny multiple versions)
   - [ ] Configure sources (deny unknown registries)
 
+### Distribution & Deployment Infrastructure (TRACK FOR FUTURE)
+
+**Critical Principle**: Single binary artifact, two distribution methods (no security compromise)
+
+#### Dockerfile Creation
+- [ ] Create `Dockerfile` (hardened container wrapping static binary)
+  - [ ] Multi-stage build pattern:
+    ```dockerfile
+    # Stage 1: Builder (build static MUSL binary)
+    FROM rust:1.93-alpine AS builder
+    # ... build stroma-x86_64-musl
+    
+    # Stage 2: Runtime (distroless - no shell, no package manager)
+    FROM gcr.io/distroless/static:nonroot
+    COPY --from=builder /build/stroma /stroma
+    USER nonroot:nonroot
+    ENTRYPOINT ["/stroma"]
+    ```
+  - [ ] Security features:
+    - [ ] FROM scratch or distroless (minimal base)
+    - [ ] Non-root user (UID 65532)
+    - [ ] Read-only root filesystem
+    - [ ] No shell, no package manager
+    - [ ] Only contains the static binary
+  - [ ] Document: Container uses SAME binary as standalone (no security compromise)
+  
+#### GitHub Actions Release Workflow
+- [ ] Create `.github/workflows/release.yml` (triggered on git tags)
+  - [ ] **Build Phase**:
+    - [ ] Checkout code
+    - [ ] Setup Rust 1.93 with x86_64-unknown-linux-musl target
+    - [ ] Build static binary: `cargo build --release --target x86_64-unknown-linux-musl`
+    - [ ] Output: `stroma-v$VERSION-x86_64-musl`
+  - [ ] **Sign & Checksum Binary**:
+    - [ ] Generate SHA256: `sha256sum stroma > stroma.sha256`
+    - [ ] GPG sign binary: `gpg --detach-sign --armor stroma`
+    - [ ] Output: `stroma.asc` (signature)
+  - [ ] **Build Container Image** (from same binary):
+    - [ ] Copy static binary into Dockerfile context
+    - [ ] Build image: `docker build -t ghcr.io/roder/stroma:$VERSION`
+    - [ ] Tag as `:latest` if main release
+    - [ ] Sign image with cosign: `cosign sign ghcr.io/roder/stroma:$VERSION`
+  - [ ] **Publish Artifacts**:
+    - [ ] Publish to GitHub Releases:
+      - `stroma-x86_64-musl` (binary)
+      - `stroma.sha256` (checksum)
+      - `stroma.asc` (GPG signature)
+    - [ ] Push image to ghcr.io/roder/stroma
+    - [ ] Push image signature (cosign)
+  - [ ] **Verify Reproducible Build**:
+    - [ ] Build twice, compare checksums
+    - [ ] Document build environment
+    - [ ] Enable users to verify binary matches source
+
+#### GitHub Actions CI Workflow  
+- [ ] Create `.github/workflows/ci.yml` (on push, PR)
+  - [ ] **Test Phase**:
+    - [ ] cargo test --all-features
+    - [ ] cargo nextest run (if using nextest)
+  - [ ] **Lint Phase**:
+    - [ ] cargo clippy -- -D warnings
+    - [ ] cargo fmt --check
+  - [ ] **Security Audit Phase**:
+    - [ ] cargo deny check (dependencies, licenses, advisories)
+    - [ ] cargo audit (vulnerabilities)
+    - [ ] Scan for cleartext Signal IDs (grep patterns)
+  - [ ] **Coverage Phase** (optional):
+    - [ ] cargo llvm-cov nextest
+    - [ ] Upload to codecov or similar
+
+#### Container Image Hardening Documentation
+- [X] Document security analysis in `.beads/architecture-decisions.bead`
+  - [X] Attack surface comparison: Standalone vs Container
+  - [X] Mitigation: Same binary in both (no compromise)
+  - [X] Justification: ~100KB runtime overhead acceptable for 80% ease gain
+  - [X] Verification: Image signature with cosign
+- [X] Document in `docs/OPERATOR-GUIDE.md`:
+  - [X] Container deployment guide (docker-compose + standalone)
+  - [X] Image verification steps (cosign)
+  - [X] Security properties of distroless base
+  - [X] Comparison table: attack surface vs ease of use
+
+### Recent Architectural Changes (2026-01-27)
+
+#### Change #1: Embedded Freenet Kernel
+**Decision**: Embed Freenet kernel in-process (not external service)
+
+**Updated Files:**
+- [X] `.beads/architecture-decisions.bead` - Added decision #9
+- [X] `.cursor/rules/freenet-integration.mdc` - Updated to reflect embedded kernel
+- [X] `.cursor/rules/operator-cli.mdc` - Created new rule for CLI design
+- [X] `docs/OPERATOR-GUIDE.md` - Updated installation, bootstrap, monitoring
+- [X] `docs/DEVELOPER-GUIDE.md` - Updated module structure, event loop
+- [X] `Cargo.toml` - Added freenet-stdlib dependency
+- [X] `README.md` - Updated tech stack, getting started
+
+**Implementation Status**: Design complete, tracked for Spike Week validation
+
+#### Change #2: Single Binary, Two Distributions
+**Decision**: Build ONE static binary, distribute via standalone + container
+
+**Updated Files:**
+- [X] `.beads/architecture-decisions.bead` - Added decision #10
+- [X] `docs/OPERATOR-GUIDE.md` - Added 3-tier deployment guide
+- [X] `README.md` - Updated getting started section
+
+**Key Insight**: Container wraps same binary as standalone (no security compromise)
+
+**Implementation Status**: Design complete, Dockerfile tracked for Phase 0
+
+#### Change #3: Operator CLI Interface
+**Decision**: CLI for service management only (no trust operations)
+
+**Commands Defined:**
+- `stroma bootstrap` - One-time seed group initialization
+- `stroma run` - Normal operation (embedded kernel)
+- `stroma status` - Health check
+- `stroma verify` - Config validation
+- `stroma export-pepper` - Backup pepper
+- `stroma version` - Version info
+
+**Updated Files:**
+- [X] `.beads/architecture-decisions.bead` - Module structure updated
+- [X] `.cursor/rules/operator-cli.mdc` - Created comprehensive CLI spec
+- [X] `docs/OPERATOR-GUIDE.md` - CLI usage examples
+- [X] `docs/TODO.md` - Added cli/ module to Phase 0
+
+**Implementation Status**: Design complete, tracked for Phase 0
+
+#### Change #4: Mesh Health Score UX
+**Decision**: Normalize density to peak at optimal 30-60% range
+
+**Updated Files:**
+- [X] `README.md` - Added Mesh Health Score section
+- [X] `.cursor/rules/user-roles-ux.mdc` - Updated bot command examples
+- [X] `.cursor/rules/freenet-contract-design.mdc` - Added helper methods
+- [X] `.beads/architecture-decisions.bead` - Updated network capacity notes
+
+**Key Formula**: Health score = 100/100 when density is 30-60% (not at 100% density)
+
+**Implementation Status**: Design complete, tracked for Phase 2 (Blind Matchmaker)
+
+#### Change #5: Shadow Handover Protocol (Phase 4+ Documentation)
+**Decision**: Document bot identity rotation protocol as Phase 4+ feature
+
+**Updated Files:**
+- [X] `.beads/federation-roadmap.bead` - Added full protocol specification
+- [X] `.beads/architecture-decisions.bead` - Added decision #12
+- [X] `.cursor/rules/operator-cli.mdc` - Added future `rotate` command
+- [X] `docs/OPERATOR-GUIDE.md` - Added to disaster recovery section
+- [X] `docs/DEVELOPER-GUIDE.md` - Added shadow_handover.rs to module structure
+- [X] `docs/FEDERATION.md` - Added Shadow Handover section
+- [X] `README.md` - Added to Federation (Phase 4+) features
+- [X] `docs/TODO.md` - Added to Phase 4+ roadmap
+
+**Key Concept**: Bot's Signal identity (phone number) is ephemeral; cryptographic identity (keypair) persists. Succession documents signed by old bot authorize new bot.
+
+**MVP Workaround**: Operator manually handles Signal bans by re-registering with backup phone number.
+
+**Implementation Status**: Documented, deferred to Phase 4+
+
 ### Phase 0 Beads Issues
-- [ ] Create Bead-01: HMAC identity masking with zeroization
+- [ ] Create Bead-01: Operator CLI interface
+  - [ ] `bd create --title "Implement operator CLI commands"`
+  - [ ] Specify: Bootstrap command (seed group initialization)
+  - [ ] Specify: Run command (normal operation with embedded kernel)
+  - [ ] Specify: Utility commands (status, verify, export-pepper, version)
+  - [ ] Specify: NO trust operation commands (operator least privilege)
+  - [ ] Use clap for argument parsing
+  
+- [ ] Create Bead-02: HMAC identity masking with zeroization
   - [ ] `bd create --title "Implement HMAC identity masking"`
   - [ ] Specify: HMAC-SHA256 with group-secret pepper
   - [ ] Specify: Zeroize buffers immediately
   - [ ] Specify: Unit tests with fixed test pepper
   
-- [ ] Create Bead-02: freenet-core node and state monitoring
+- [ ] Create Bead-03: Embedded Freenet kernel integration
+  - [ ] `bd create --title "Integrate embedded Freenet kernel"`
+  - [ ] Specify: Use freenet-stdlib (not external freenet-core service)
+  - [ ] Specify: Initialize kernel in-process
+  - [ ] Specify: Dark mode (anonymous routing)
+  - [ ] Specify: Single event loop for kernel + Signal
   - [ ] `bd create --title "Integrate freenet-core node"`
   - [ ] Specify: Node lifecycle management
   - [ ] Specify: Wasm contract deployment (stub)
@@ -494,6 +743,14 @@
   - [ ] Bot-to-bot discovery
   - [ ] Federation voting
   - [ ] Cross-mesh vouching implementation
+  - [ ] Shadow Handover Protocol (bot identity rotation)
+    - [ ] Bot keypair in Freenet contract schema
+    - [ ] Succession document structure
+    - [ ] Signature verification in contract verify()
+    - [ ] `stroma rotate` CLI command
+    - [ ] Graceful Bot-Old shutdown
+    - [ ] Bot-New startup with succession verification
+    - [ ] Signal group membership transfer logic
 
 ### Phase 3 Success Criteria
 - [ ] Social Anchor hash computed correctly

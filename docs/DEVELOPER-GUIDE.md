@@ -25,6 +25,7 @@ This guide explains Stroma's architecture, technical stack, and development work
 **Solution**: Zero-knowledge proofs verify trust without revealing who vouched
 
 **Technologies:**
+- **Embedded Freenet Kernel** (freenet-stdlib) - In-process, not external service
 - **STARKs** (winterfell) - No trusted setup, post-quantum secure
 - **On-Demand Merkle Trees** - Generated from BTreeSet for ZK-proofs (not stored)
 - **ComposableState** - Freenet trait for mergeable state with summary-delta sync
@@ -37,13 +38,14 @@ This guide explains Stroma's architecture, technical stack, and development work
 | Component | Library/Version | Purpose |
 |-----------|----------------|---------|
 | **Language** | Rust 1.93+ | musl 1.2.5, improved DNS, memory safety |
-| **State Storage** | [freenet-core](https://github.com/freenet/freenet-core) v0.1.107+ | Decentralized P2P storage |
+| **Embedded Kernel** | [freenet-stdlib](https://docs.rs/freenet-stdlib) v0.1.30+ | In-process Freenet kernel |
 | **Contract Framework** | [freenet-scaffold](https://github.com/freenet/freenet-scaffold) v0.2+ | ComposableState utilities |
 | **ZK-Proofs** | winterfell | STARKs (no trusted setup) |
 | **Identity Hashing** | ring (HMAC-SHA256) | Group-scoped masking |
 | **Memory Hygiene** | zeroize | Immediate buffer purging |
 | **Signal Integration** | libsignal-service-rs | Protocol-level Signal |
 | **Async Runtime** | tokio 1.35+ | Event-driven execution |
+| **CLI Framework** | clap 4+ | Operator interface |
 | **Supply Chain** | cargo-deny, cargo-crev | Security audits |
 
 ### Why Rust 1.93+
@@ -106,10 +108,21 @@ src/
     ├── mod.rs                       # Feature flag: #[cfg(feature = "federation")]
     ├── shadow_beacon.rs             # Social Anchor Hashing (Phase 4+)
     ├── psi_ca.rs                    # Private Set Intersection (Phase 4+)
-    └── diplomat.rs                  # Federation proposals (Phase 4+)
+    ├── diplomat.rs                  # Federation proposals (Phase 4+)
+    └── shadow_handover.rs           # Bot identity rotation (Phase 4+)
 ```
 
 **Key Design**: `federation/` exists but is disabled via feature flag in MVP (validates architecture scales).
+
+### Future: Shadow Handover (Phase 4+)
+
+The `shadow_handover.rs` module will implement cryptographic bot identity rotation:
+
+- **Purpose**: Allow bot to rotate Signal phone number while preserving trust context
+- **Mechanism**: Succession Document signed by old bot key, validated by Freenet contract
+- **Use Cases**: Signal ban recovery, periodic rotation, operational security
+
+See `.beads/federation-roadmap.bead` for protocol specification.
 
 ## Freenet Contract Design
 
@@ -251,29 +264,62 @@ pub fn should_eject(&self, member: &MemberHash) -> bool {
 
 ## Bot Architecture
 
-### Event-Driven Design
+### Event-Driven Design with Embedded Kernel
 
 ```rust
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    // Initialize
-    let freenet = FreenetClient::connect().await?;
-    let signal = SignalBot::authenticate().await?;
+    // Parse CLI arguments
+    let cli = Cli::parse();
     
-    // Subscribe to Freenet state stream (real-time, not polling)
-    let mut state_stream = freenet.subscribe_to_contract(contract_key).await?;
+    match cli.command {
+        Commands::Run { config, .. } => {
+            run_bot_service(config).await?;
+        }
+        Commands::Bootstrap { .. } => {
+            // Bootstrap handled separately
+        }
+        // ... other commands
+    }
     
-    // Event loop
+    Ok(())
+}
+
+async fn run_bot_service(config_path: PathBuf) -> Result<(), Error> {
+    let config = load_config(&config_path)?;
+    
+    // Initialize embedded Freenet kernel (in-process, not external service)
+    let kernel = FreenetKernel::builder()
+        .mode(NetworkMode::Dark)  // Anonymous routing
+        .data_dir(&config.freenet.data_dir)
+        .build()
+        .await?;
+    
+    // Load existing contract
+    let contract_key = config.freenet.contract_key;
+    
+    // Initialize Signal bot
+    let signal = SignalBot::authenticate(&config.signal).await?;
+    
+    // Subscribe to contract state stream from embedded kernel
+    let mut state_stream = kernel.subscribe_to_contract(contract_key).await?;
+    
+    // Event loop (single process handles both Freenet and Signal)
     loop {
         tokio::select! {
-            // Freenet state changes
+            // Freenet state changes (from embedded kernel)
             Some(state_change) = state_stream.next() => {
                 handle_state_change(state_change, &signal).await?;
             }
             
             // Signal messages
             Some(message) = signal.recv_message() => {
-                handle_signal_command(message, &freenet).await?;
+                handle_signal_command(message, &kernel, contract_key).await?;
+            }
+            
+            // Periodic health check
+            _ = health_check_interval.tick() => {
+                check_all_trust_standings(&kernel, &signal, contract_key).await?;
             }
         }
     }

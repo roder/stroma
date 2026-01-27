@@ -1,6 +1,7 @@
 *.code-workspace
-.cursor/dev-environment.mdc
+.cursor/rules/dev-environment.mdc
 docs/chats/*
+docs/SESSION-SUMMARY-*.md
 /target
 
 # Gas Town HQ .gitignore

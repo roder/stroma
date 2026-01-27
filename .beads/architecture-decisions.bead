@@ -126,19 +126,36 @@ rustflags = ["-C", "target-feature=+crt-static"]
 
 ## Node Architecture
 
-### Each Bot = Own freenet-core Node
-**Decision**: No shared nodes between bots
+### Embedded Freenet Kernel (Architectural Decision #9)
+**Decision**: Embed Freenet kernel directly into Stroma binary (not external service)
 
 **Rationale:**
-- Privacy: Shared nodes could leak correlations
+- Simpler deployment (single binary, single service)
+- Reduced attack surface (no IPC between processes)
+- Better error handling (no inter-process communication failures)
+- Easier for operators (fewer moving parts)
+- Self-contained (all dependencies embedded)
+
+**Implementation:**
+- Use `freenet-stdlib` crate with "full" features
+- Freenet kernel runs in-process within Stroma
+- No separate freenet-core service to manage
+- Single event loop handles both Freenet and Signal
+
+**Implications:**
+- Binary size: ~50-80MB (includes embedded kernel)
+- Memory: ~100-500MB total (depending on group size)
+- Single systemd service (not two)
+- Bot can recover state after offline (Freenet persistence embedded)
+
+### Each Bot = Own Embedded Kernel
+**Decision**: No shared kernels between bots
+
+**Rationale:**
+- Privacy: Shared kernels could leak correlations
 - Resilience: One bot failure doesn't affect others
 - Isolation: Each group has independent state
 - Security: No cross-group information leakage
-
-**Implications:**
-- Operator must run freenet-core node (systemd service)
-- Each bot requires ~100-500MB memory (depending on group size)
-- Bot can recover state after going offline (Freenet persistence)
 
 ### Bot Operator Role
 **Responsibilities:**
@@ -261,19 +278,24 @@ rustflags = ["-C", "target-feature=+crt-static"]
 - Ensures privacy model works at scale
 - Goal: Connect as many people as possible anonymously via trust
 
-## Module Structure (Federation-Ready)
+## Module Structure (Federation-Ready with Embedded Freenet)
 
 ### Source Code Organization
 ```
 src/
-├── main.rs                          # Event loop, CLI entry point
+├── main.rs                          # CLI + Event loop entry point
+├── cli/                             # Operator CLI (Bootstrap, Run, Utilities)
+│   ├── mod.rs
+│   ├── bootstrap.rs                 # Bootstrap command (seed group)
+│   ├── run.rs                       # Run command (normal operation)
+│   └── utils.rs                     # Status, verify, export-pepper
 ├── kernel/                          # Identity Masking
 │   ├── mod.rs
 │   ├── hmac.rs                      # HMAC-based hashing
 │   └── zeroize_helpers.rs           # Immediate buffer purging
-├── freenet/                         # Freenet Integration
+├── freenet/                         # Embedded Freenet Kernel
 │   ├── mod.rs
-│   ├── node.rs                      # freenet-core node management
+│   ├── embedded_kernel.rs           # In-process Freenet kernel (freenet-stdlib)
 │   ├── contract.rs                  # Wasm contract deployment
 │   └── state_stream.rs              # Real-time state monitoring
 ├── signal/                          # Signal Integration
@@ -306,7 +328,12 @@ src/
     └── diplomat.rs                  # Federation proposals (Phase 4+)
 ```
 
-**Key Design**: `federation/` module exists but is disabled via feature flag in MVP. This ensures architecture is federation-ready without implementing federation logic.
+**Key Changes from External Node Approach:**
+- Added `cli/` module for operator interface
+- `freenet/node.rs` → `freenet/embedded_kernel.rs` (in-process)
+- No separate freenet-core service management
+- Single event loop handles both Freenet and Signal
+- `federation/` module exists but disabled via feature flag in MVP
 
 ## Freenet Contract Schema (Mergeable & Federation-Ready)
 
@@ -545,15 +572,143 @@ Each field in TrustNetworkState must implement ComposableState:
 - Monitor heartbeat (ejection checks every 60 min)
 - Monitor Freenet state stream health
 
+## Distribution Strategy (Architectural Decision #10)
+
+### Single Binary, Multiple Distribution Methods
+**Decision**: Build ONE static MUSL binary, distribute via two methods
+
+**Binary Artifact:**
+- `stroma-v1.0.0-x86_64-unknown-linux-musl` (single static binary)
+- Built once in CI/CD (GitHub Actions)
+- GPG-signed for authenticity
+- SHA256 checksum for integrity
+- Reproducible builds (users can verify)
+
+**Distribution Methods:**
+
+#### Method 1: Static Binary (Primary - Maximum Security)
+**Target**: Security-conscious operators
+
+```bash
+# Download verified release
+wget https://github.com/roder/stroma/releases/download/v1.0.0/stroma
+gpg --verify stroma.asc stroma
+chmod +x stroma && ./stroma run --config config.toml
+```
+
+**Attack Surface**: Minimal (static binary only)
+
+#### Method 2: Container Image (Secondary - Ease of Use)
+**Target**: Most operators (ease of deployment)
+
+```bash
+# Same binary wrapped in minimal container
+docker run -d -v stroma-data:/data ghcr.io/roder/stroma:latest
+```
+
+**Container Construction:**
+```dockerfile
+FROM scratch
+COPY stroma-v1.0.0-x86_64-unknown-linux-musl /stroma
+ENTRYPOINT ["/stroma"]
+```
+
+**Attack Surface**: Static binary + container runtime (~100KB overhead)
+
+**Key Insight**: Container wraps the SAME binary as standalone distribution. No security compromise - just ease-of-use wrapper.
+
+**Rationale:**
+- ONE artifact to audit and verify
+- Container users get same security as standalone users
+- Operators choose ease vs absolute minimal attack surface
+- No separate "container build" - just packaging
+- Members' security not compromised for operator ease
+
+### CLI Interface (Operator UX)
+
+**Bootstrap Commands:**
+```bash
+stroma bootstrap \
+  --signal-phone "+1234567890" \
+  --seed-members @Alice,@Bob,@Carol \
+  --group-name "My Network"
+```
+
+**Runtime Commands:**
+```bash
+stroma run --config /etc/stroma/config.toml
+```
+
+**Utility Commands (Service Management Only):**
+```bash
+stroma status          # Show bot + freenet health
+stroma verify          # Verify config integrity
+stroma export-pepper   # Backup pepper (encrypted)
+stroma version         # Version info
+```
+
+**Forbidden Commands (Operator Least Privilege):**
+- ❌ No `add-member` or `remove-member` (automatic only)
+- ❌ No `override-ejection` or `bypass-protocol`
+- ❌ No trust operations (vouch, flag, etc.)
+
+**Design**: CLI is for service management only, not trust operations.
+
+## Architectural Decision #12: Shadow Handover Protocol (Phase 4+)
+
+**Status**: DEFERRED TO PHASE 4+
+
+**Problem**: Signal phone numbers can be banned, compromised, or operators may wish to rotate for security reasons. MVP has no automated mechanism for bot identity rotation.
+
+**MVP Approach**: Operator manually handles Signal bans by re-registering with backup phone number and restarting service.
+
+**Future Solution (Phase 4+)**: Shadow Handover Protocol for cryptographic succession.
+
+**Concept**: Bot's Signal identity (phone number) is ephemeral; cryptographic identity (keypair) persists. Succession documents signed by old bot authorize new bot, and Freenet contract validates the transition.
+
+**Process**:
+```
+1. Bot-Old generates keypair for Bot-New
+2. Bot-Old creates Succession Document (signed)
+3. Bot-Old deploys to Freenet contract
+4. Bot-New proves possession of new_bot_privkey
+5. Freenet validates; trust graph unchanged
+6. Bot-New announces to Signal group
+```
+
+**Future CLI Command (Phase 4+)**:
+```bash
+stroma rotate \
+  --config /etc/stroma/config.toml \
+  --new-phone "+0987654321" \
+  --reason "Signal ban recovery"
+```
+
+**Security Properties**:
+- ✅ Cryptographic proof of succession (not operator assertion)
+- ✅ Trust context preserved (members' vouches unchanged)
+- ✅ Freenet contract authorizes (decentralized)
+- ✅ Aligns with fluid identity philosophy
+
+**Why Deferred**:
+- MVP scope: Manual recovery is acceptable for initial deployment
+- Complexity: Requires additional Freenet contract fields
+- Dependencies: Need stable contract schema first
+- Testing: Race conditions between old/new bot instances
+
+See `.beads/federation-roadmap.bead` for full protocol specification.
+
 ## Summary: Key Architectural Invariants
 
-1. **freenet-core** is the source of truth (Signal state is derived)
-2. **STARKs** for all trust verification (no trusted setup)
-3. **HMAC-SHA256** for identity masking (group-scoped)
-4. **Each bot = own node** (no shared nodes)
-5. **Federation-ready** (hooks present, disabled in MVP)
-6. **Security > Speed** (latency acceptable, security paramount)
-7. **Static MUSL binary** (minimal attack surface)
-8. **Operator is service runner** (no special privileges)
+1. **Embedded Freenet** kernel (in-process, not external service)
+2. **freenet-core** is the source of truth (Signal state is derived)
+3. **STARKs** for all trust verification (no trusted setup)
+4. **HMAC-SHA256** for identity masking (group-scoped)
+5. **Each bot = own kernel** (no shared kernels)
+6. **Federation-ready** (hooks present, disabled in MVP)
+7. **Security > Speed** (latency acceptable, security paramount)
+8. **Static MUSL binary** (minimal attack surface)
+9. **Operator is service runner** (no special privileges)
+10. **Single binary artifact** (same for standalone and container)
 
 These decisions are IMMUTABLE and apply to ALL phases of development.

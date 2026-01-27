@@ -2,6 +2,28 @@
 name = "stroma"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.93"  # Required for musl 1.2.5 (improved DNS resolver)
+rust-version = "1.93"  # Required for musl 1.2.5 with improved DNS resolver
+
+[[bin]]
+name = "stroma"
+path = "src/main.rs"
 
 [dependencies]
+# Embedded Freenet kernel (in-process, not external service)
+freenet-stdlib = { version = "0.1.30", features = ["full"] }
+freenet-scaffold = "0.2.1"
+
+# TODO: Add remaining dependencies during implementation
+# - Signal integration (libsignal-service-rs)
+# - ZK-proofs (winterfell)
+# - Crypto (ring, zeroize)
+# - Async (tokio)
+# - CLI (clap)
+# - Serialization (serde, ciborium)
+
+[profile.release]
+lto = true              # Link-time optimization
+codegen-units = 1       # Better optimization
+strip = true            # Remove symbols
+opt-level = "z"         # Optimize for size
+panic = "abort"         # Smaller binary

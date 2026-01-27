@@ -1,13 +1,33 @@
 ---
-description: Freenet contract development with ComposableState and summary-delta synchronization
-globs: **/*freenet*.rs,**/*contract*.rs,**/*wasm*.rs,**/*state*.rs
+description: Freenet embedded kernel and contract development with ComposableState
+globs: **/*freenet*.rs,**/*contract*.rs,**/*wasm*.rs,**/*state*.rs,**/*kernel*.rs
 alwaysApply: false
 ---
 
 # Freenet Integration Standards
 
-## Critical Update (2026-01-26)
+## Critical Updates
 
+### Update 1 (2026-01-27): Embedded Freenet Kernel
+**Architectural Decision**: Embed Freenet kernel directly into Stroma binary (not external service)
+
+**References:**
+- [Freenet Manual - Tutorial](https://freenet.org/resources/manual/tutorial/) - Embedding patterns
+- `.beads/architecture-decisions.bead` - Decision #9
+
+**Implementation:**
+- Use `freenet-stdlib` crate with "full" features (not `freenet-core` CLI)
+- Freenet kernel runs in-process within Stroma event loop
+- No separate freenet-core service to manage
+- Single binary includes both bot logic and embedded kernel
+
+**Benefits:**
+- Simpler deployment (single service)
+- Reduced attack surface (no IPC)
+- Better error handling (in-process)
+- Easier for operators
+
+### Update 2 (2026-01-26): ComposableState Requirement
 **Major Architectural Discovery**: Freenet contracts require `ComposableState` trait for summary-delta synchronization.
 
 **References:**
@@ -16,22 +36,122 @@ alwaysApply: false
 - `.cursor/rules/freenet-contract-design.mdc` - Complete ComposableState patterns
 
 **Key Changes**:
+- ❌ **OLD**: External freenet-core service
+- ✅ **NEW**: Embedded Freenet kernel (in-process)
 - ❌ **OLD**: Store Merkle Trees in contract state
 - ✅ **NEW**: Use set-based structures (BTreeSet), generate Merkle Trees on-demand
 - ❌ **OLD**: Store Vec<VouchProof> (not easily mergeable)
 - ✅ **NEW**: Use HashMap<MemberHash, BTreeSet<MemberHash>> (naturally mergeable)
 
+## Embedded Kernel Pattern
+
+### Initialize Embedded Freenet Kernel
+
+```rust
+use freenet_stdlib::prelude::*;
+
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    // Initialize embedded Freenet kernel (in-process, not external service)
+    let kernel = FreenetKernel::builder()
+        .mode(NetworkMode::Dark)  // Anonymous routing
+        .data_dir(config.freenet.data_dir)
+        .build()
+        .await?;
+    
+    // Initialize Signal bot
+    let signal = SignalBot::authenticate(config.signal).await?;
+    
+    // Load or deploy contract
+    let contract = if config.contract_key.is_empty() {
+        // Bootstrap: Deploy new contract
+        deploy_trust_network_contract(&kernel, &seed_members).await?
+    } else {
+        // Normal: Load existing contract
+        kernel.load_contract(config.contract_key).await?
+    };
+    
+    // Single event loop for both Freenet and Signal
+    run_bot_event_loop(kernel, signal, contract).await
+}
+```
+
+### Event Loop with Embedded Kernel
+
+```rust
+async fn run_bot_event_loop(
+    kernel: FreenetKernel,
+    signal: SignalBot,
+    contract_key: ContractKey,
+) -> Result<(), Error> {
+    // Subscribe to contract state stream (real-time, not polling)
+    let mut state_stream = kernel.subscribe_to_contract(contract_key).await?;
+    
+    loop {
+        tokio::select! {
+            // Freenet state changes (from embedded kernel)
+            Some(state_change) = state_stream.next() => {
+                handle_freenet_change(state_change, &signal).await?;
+            }
+            
+            // Signal messages
+            Some(message) = signal.recv_message() => {
+                handle_signal_command(message, &kernel, contract_key).await?;
+            }
+            
+            // Periodic health check (heartbeat)
+            _ = health_check_interval.tick() => {
+                check_all_trust_standings(&kernel, &signal, contract_key).await?;
+            }
+        }
+    }
+}
+```
+
+**Key Points:**
+- Single process handles both Freenet and Signal
+- No IPC (inter-process communication) overhead
+- Kernel is embedded, not external service
+- State stream is in-process (faster, more reliable)
+
+### Deploy Contract to Embedded Kernel
+
+```rust
+async fn deploy_trust_network_contract(
+    kernel: &FreenetKernel,
+    seed_members: &[SignalId],
+) -> Result<ContractKey, Error> {
+    // Build initial state
+    let initial_state = TrustNetworkState {
+        members: create_seed_member_set(seed_members),
+        vouches: create_initial_triangle_vouches(seed_members),
+        flags: FlagGraph::default(),
+        config: GroupConfigV1::default(),
+    };
+    
+    // Deploy contract to embedded kernel
+    let contract_key = kernel.deploy_contract(
+        CONTRACT_WASM_BYTES,  // Compiled Wasm contract
+        initial_state,
+        ContractParameters::default(),
+    ).await?;
+    
+    Ok(contract_key)
+}
+```
+
 ## Contract Architecture (Eventual Consistency)
 
 ### Wasm Contract Pattern with ComposableState
 - Write Freenet contracts in Rust/Wasm using `freenet-scaffold` v0.2+
+- **Embedded Kernel**: Runs in-process within Stroma (not external service)
 - **Decentralized State**: Contract exists across network, no single server
 - **Eventual Consistency**: States merge via summary-delta synchronization (no consensus)
 - **Mergeable Structures**: Use CRDT-like patterns (BTreeSet, HashMap, Last-Write-Wins)
 - **ComposableState Trait**: All state fields must implement verify, summarize, delta, apply_delta
 - **Merkle Trees**: Generated on-demand for ZK-proof verification (not stored in contract)
 - **Ephemeral Relationship Data**: Deleted after vetting threshold met
-- **State Survives**: Trust state persists even if bot/server crashes
+- **State Survives**: Trust state persists even if bot crashes (kernel syncs from network)
 
 ### Group Configuration (Last-Write-Wins)
 ```rust
