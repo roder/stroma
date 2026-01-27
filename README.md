@@ -14,58 +14,67 @@ Build federations of human networks connected by trust while preserving individu
 
 ## The Problem
 
-Activists are frequently subject to repression, which prevents meaningful coordination because they do not know or trust all members of their group.  On the other hand, it is not ideal to be known by all members of the group, but how can the group know they trust you?
+Activists are subject to repression and repression prevents coordination. How can an activist know the members of a Signal group can be trusted?  
+
+On the other hand, anonymity is security, but how can the group know they can trust you?
+
+This creates a fundamental tension: **verification requires exposure, but exposure creates vulnerability.**
 
 Traditional solutions create new problems:
-- **Invite links**: Anyone with the link can join - no vetting
-- **Admin gatekeepers**: One person controls who gets in - creates hierarchy
-- **Voting on strangers**: How do you vote on someone you don't know?
-- **Large groups become cliques**: Trust clusters form, newcomers stay on the periphery
+- **Invite links**: Anyone with the link can join - no vetting, no trust verification
+- **Admin gatekeepers**: One person controls who gets in - single point of failure, creates hierarchy
+- **Trusting strangers**: Members join without vetting - how do you know they won't leak the group or infiltrate it?
+- **Large groups become cliques**: Trust clusters form, newcomers isolated on the periphery
 
 ## How Stroma Solves This
 
-Stroma is a **smart bot** (no AI) that manages your Signal group using a simple principle: **You can only join if two people already in the group vouch for you, and those two people must be from different parts of the network.**
+Stroma resolves the tension between verification and anonymity through **distributed trust verification with cryptographic privacy**. 
+
+The core principle: **You can only join if two independent members vouch for you, but the bot never learns why they trust you.**
 
 ### What This Means:
 - **No strangers**: Every member is personally vouched for by at least 2 people already in the group
-- **No gatekeepers**: No single person controls entry - trust is distributed
-- **No cliques**: The bot ensures vouches come from different parts of your network
-- **No hierarchy**: Trust emerges from relationships, not authority
+- **No gatekeepers**: No single person controls entry - trust is distributed across the network
+- **No cliques**: The bot ensures vouches come from different parts of your network (cross-cluster)
+- **No hierarchy**: Trust emerges from relationships, not authority or admin power
+- **No identity exposure**: All identifiers cryptographically hashed - bot sees network topology, not people
 
 ### How It Works (Simple):
 
-1. **Someone invites you**: A member sends `/invite @YourName "Context about you"` to the bot in a private message
+1. **Someone invites you**: A member sends `/invite @YourName "Context about you"` to the bot (private message only)
    - Their invitation counts as your first vouch
-   - Bot immediately starts the vetting process
+   - Bot hashes your Signal ID immediately (never stores cleartext)
+   - Vetting process begins
 
-2. **You get vetted**: The bot introduces you to a second member from a different part of the network
-   - Bot creates a 3-person Signal chat (you, the member, and the bot)
-   - You have a brief conversation (10-15 minutes)
-   - Bot doesn't participate - just facilitates the introduction
+2. **You get vetted**: The bot suggests you chat with a second member from a different part of the network
+   - Bot facilitates introduction (suggests validator from different cluster)
+   - You have a brief conversation to establish trust
+   - Bot doesn't participate - just makes strategic matchmaking suggestion
 
 3. **Second vouch**: After your conversation, the member vouches for you
-   - They send `/vouch @YourName` to the bot
-   - Bot verifies the second vouch with cryptographic proof
+   - They send `/vouch @YourName` to the bot (private message)
+   - Bot verifies the second vouch with zero-knowledge cryptographic proof
+   - Two independent vouches confirmed from different network clusters
 
 4. **You're admitted**: The bot adds you to the Signal group
-   - You're now a Bridge (2 effective vouches)
-   - Your trust standing is positive
-   - Bot welcomes you and deletes all vetting session data
+   - You're now a Bridge (2 effective vouches from independent members)
+   - Your trust standing is positive (Standing = Vouches - Flags >= 0)
+   - Bot welcomes you and immediately deletes all vetting session data (ephemeral)
 
 5. **You stay connected**: Keep building relationships in the group
-   - If a voucher leaves the group → you need a new vouch immediately
-   - If a voucher flags you → their vouch is invalidated, you need a replacement
-   - Build 3+ connections to become a Validator (more resilient)
+   - If a voucher leaves → you need a replacement vouch immediately (automatic ejection otherwise)
+   - If a voucher flags you → their vouch is invalidated, you need a replacement (vouch invalidation)
+   - Build 3+ connections to become a Validator (more resilient, helps with network optimization)
 
-### The Magic:
+### The Magic: Trust Without Exposure
 
-The bot acts like a **"Blind Matchmaker"** - it sees the pattern of connections but doesn't know your personal relationships. It suggests introductions to strengthen the group's trust network without knowing why people trust each other.
+The bot acts as a **"Blind Matchmaker"** - it sees network topology (who has how many vouches) but never learns why people trust each other. It optimizes the trust mesh using graph algorithms while maintaining complete anonymity.
 
-**For non-technical users**: It just feels like a helpful bot that manages your Signal group. You use simple commands like `/invite @friend` or `/status` in private messages with the bot. The bot handles everything else automatically - vetting newcomers, monitoring trust, and keeping the group secure. You don't need to understand the technical details to use it, any more than you need to understand the technical details of the internet for it to be secure and valuable. You can if you want though, this project is fully open-source.
+**For non-technical users**: It feels like a helpful bot managing your Signal group. You use simple commands like `/invite @friend` or `/status` in private messages. The bot handles everything automatically - vetting newcomers, monitoring trust standing, suggesting strategic introductions, and keeping the group secure. All technical complexity is hidden. You don't need to understand cryptography any more than you need to understand TCP/IP to use the internet securely. But you can - this project is fully open-source.
  
-**For privacy advocates**: All identities are cryptographically hashed (HMAC-SHA256 with group-secret pepper), trust is verified with zero-knowledge proofs (STARKs - no trusted setup, post-quantum secure), state is stored in decentralized Freenet network with eventual consistency (ComposableState, summary-delta sync), and the social graph is never exposed.
+**For privacy advocates & security auditors**: All identities are cryptographically hashed (HMAC-SHA256 with group-secret pepper, immediate zeroization). Trust is verified with zero-knowledge proofs (STARKs - no trusted setup, post-quantum secure). State is stored in decentralized Freenet network with eventual consistency (ComposableState, summary-delta sync). Social graph structure never exposed to external parties. Memory dumps contain only hashes. Bot operator has least-privilege access (service runner only, no manual override). All vetting occurs in 1-on-1 PMs (no group-chat metadata leakage).
 
-**For developers**: Built on [freenet-core](https://github.com/freenet/freenet-core) (Rust-native Wasm contracts with ComposableState trait). Uses set-based membership (BTreeSet) with on-demand Merkle Tree generation for ZK-proof verification. State synchronizes via summary-delta protocol with CRDT-like merge semantics (no consensus algorithms). Trust verified via STARKs (winterfell library). See [freenet-contract-design.mdc](.cursor/rules/freenet-contract-design.mdc) for patterns.
+**For developers & contributors**: Built on embedded [freenet-core](https://github.com/freenet/freenet-core) kernel (in-process, not external service). Contracts use ComposableState trait for mergeable state with CRDT-like semantics. Set-based membership (BTreeSet) with on-demand Merkle Tree generation for ZK-proof verification (not stored). Internal matchmaking uses Minimum Spanning Tree algorithm (Union-Find, betweenness centrality) achieving optimal mesh with maximum anonymity. External federation via Private Set Intersection with Cardinality (PSI-CA) and Social Anchor Hashing (emergent discovery, no pre-shared keys). Trust verified via STARKs (winterfell). See [ALGORITHMS.md](docs/ALGORITHMS.md) for MST implementation, [freenet-contract-design.mdc](.cursor/rules/freenet-contract-design.mdc) for patterns.
 
 ## Why "Stroma"?
 
