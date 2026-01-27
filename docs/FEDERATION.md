@@ -706,7 +706,7 @@ When Phase 4 is complete, federation should:
 - [ ] No social graph exposed during discovery
 - [ ] Federation dissolves gracefully if bridge members leave
 - [ ] Performance: < 10 seconds for PSI-CA handshake
-- [ ] Privacy: Zero member identities revealed
+- [ ] Trust map protection: Even if one group's bot is seized, can't enumerate other group's members (PSI-CA defense)
 
 ## Philosophy: Why Federation is the North Star
 
@@ -720,16 +720,17 @@ Stroma isn't just about building a secure messaging bot. It's about:
 
 **Emergent Organization**: Groups self-organize without hierarchical coordination
 
-**Scalable Privacy**: The network can grow to millions while preserving individual anonymity
+**Scalable Privacy**: The network can grow to millions while protecting members from trust map seizure
 
 ### The Vision
 
 Imagine a world where:
 - Trust networks span continents
 - No central authority validates identity
-- Privacy is default, not optional
+- Member identities protected even if infrastructure seized
 - Groups self-organize around shared values
 - Trust emerges from authentic human relationships
+- Activists can coordinate without fear of trust map compromise
 
 **That's why we build federation-ready from day one.**
 

@@ -339,10 +339,12 @@ Any member can query: `/audit operator`
 - **Immediate Enforcement**: No grace periods, instant ejection
 - **Continuous Monitoring**: State stream monitored in real-time
 
-### Attack Resistance
-- **No Pre-Shared Keys**: Discovery is emergent, not coordinated
-- **Sybil Resistance**: Dynamic validator threshold based on group size
-- **Social Anchor Security**: Federation dissolves if shared members leave
+### Attack Resistance (Trust Map Seizure)
+- **No Centralized Storage**: Freenet distributed (no single seizure point)
+- **Cryptographic Privacy**: HMAC hashes, zeroization (memory dumps safe)
+- **Metadata Isolation**: 1-on-1 PMs, operator least-privilege
+- **Sybil Resistance**: 2-vouch requirement, cross-cluster vouching
+- **No Pre-Shared Keys**: Discovery emergent, not coordinated
 - **Minimal Attack Surface**: Static MUSL binary, seccomp sandbox
 
 ## Architectural Constraints
@@ -370,11 +372,12 @@ Any member can query: `/audit operator`
 - Federation occurs without admin coordination
 - Immediate ejection when trust threshold violated
 
-### Security Goals
-- Memory dump contains only hashed identifiers
-- Social graph structure never exposed
+### Security Goals (Trust Map Protection)
+- Memory dump contains only hashed identifiers (not real identities)
+- Trust map can't be seized in usable form (three-layer defense)
+- Even if server compromised, adversary gets only hashes and topology
 - Zero-knowledge proofs for all trust operations
-- No single point of failure or compromise
+- No single point of failure to compromise member identities
 
 ### User Experience Goals
 - Organic, natural network expansion

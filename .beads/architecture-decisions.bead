@@ -203,43 +203,76 @@ rustflags = ["-C", "target-feature=+crt-static"]
 
 ## Threat Model
 
-### In Scope (Defended Against)
-1. **Compromised Operator**
-   - Defense: Operator least privilege (service runner only)
-   - Defense: All actions approved by Freenet contract
-   - Defense: No access to cleartext Signal IDs
+**Primary Threat**: Trust map seizure by state-level adversary or compromised operator
 
-2. **Signal Metadata Analysis**
-   - Defense: All operations in 1-on-1 PMs (not group chat)
-   - Defense: HMAC-hashed identifiers (no cleartext)
-   - Defense: Bot uses hashes in all communications
+**Adversary Goal**: Obtain trust map to identify group members and their relationships
 
-3. **Freenet Network Analysis**
-   - Defense: Anonymous routing (dark mode)
-   - Defense: Encrypted state storage
-   - Defense: No IP address correlation
+### Three-Layer Defense (Architectural Core)
 
-4. **State-Level Adversaries**
-   - Defense: ZK-proofs (no trust in authority)
-   - Defense: No social graph exposure
-   - Defense: Decentralized state (no single target)
-   - Defense: Post-quantum secure (STARKs)
+**Layer 1: No Centralized Storage**
+- Trust map distributed across Freenet network (not single server)
+- Adversary needs to seize multiple peers to reconstruct
+- Eventual consistency via summary-delta sync
+
+**Layer 2: Cryptographic Privacy**
+- All identities HMAC-hashed (group-secret pepper, can't be reversed)
+- Immediate zeroization of cleartext (memory hygiene)
+- ZK-proofs verify trust without revealing vouchers
+- Memory dumps contain only hashes
+
+**Layer 3: Metadata Isolation**
+- All vetting in 1-on-1 PMs (no Signal group chat metadata)
+- Operator least-privilege (service runner only, can't export data)
+- No logs of relationship content or reasons
+
+**Result**: Even if adversary compromises bot or server:
+- They only get hashes (not identities)
+- Group size and topology (not relationship details)
+- Vouch counts (not who vouched for whom in cleartext)
+
+### Attack Vectors & Mitigations
+
+1. **Server Seizure**
+   - Attack: Police/adversary seizes bot server
+   - Defense: Three-layer architecture (above)
+   - Outcome: Adversary gets only hashes and topology
+
+2. **Compromised Operator**
+   - Attack: Operator coerced to hand over data
+   - Defense: Operator can't export trust map (least-privilege)
+   - Outcome: Operator has no more access than server seizure
+
+3. **Signal Metadata Analysis**
+   - Attack: Adversary analyzes Signal group metadata
+   - Defense: All vetting in 1-on-1 PMs (no group chat patterns)
+   - Outcome: No vetting metadata to analyze
+
+4. **Freenet Network Analysis**
+   - Attack: Adversary monitors Freenet traffic
+   - Defense: Anonymous routing (dark mode), encrypted storage
+   - Outcome: No IP correlation, no cleartext intercepts
 
 5. **Sybil Attacks**
-   - Defense: 2-vouch requirement from independent Members
-   - Defense: Blind Matchmaker ensures cross-cluster vouching
-   - Defense: Dynamic Validator threshold (percentile-based)
+   - Attack: Create many fake identities to infiltrate
+   - Defense: 2-vouch from independent members, cross-cluster requirement
+   - Outcome: Attacker must convince real humans (difficult to scale)
+
+6. **State-Level Adversaries**
+   - Attack: Government attempts mass surveillance
+   - Defense: Three-layer defense, ZK-proofs, post-quantum STARKs
+   - Outcome: Even with resources, can't reverse hashes or reconstruct identities
 
 ### Out of Scope (Assumed Secure)
-1. **Signal Protocol Compromise**: Assume Signal's E2E encryption is secure
-2. **Freenet Protocol Vulnerabilities**: Assume freenet-core routing is anonymous
-3. **Quantum Computing**: STARKs are post-quantum secure, but HMAC-SHA256 is not (acceptable for now)
+1. **Signal Protocol**: Assume Signal's E2E encryption is secure
+2. **Freenet Protocol**: Assume freenet-core anonymous routing works
+3. **Quantum Computing**: STARKs are post-quantum, HMAC-SHA256 is not (acceptable for now, can upgrade to SHA3)
+4. **Physical Device Seizure**: Assume members protect their own Signal devices
 
 ### Risk Mitigation
-- **Signal Bans**: Bot operator has backup phone numbers
-- **Freenet Node Failure**: Bot can recover state on restart
-- **Network Partitions**: Freenet handles eventually consistent state
-- **STARK Proof Too Large**: Validated in Spike Week (< 100KB target)
+- **Signal Bans**: Operator has backup phone numbers
+- **Freenet Node Failure**: Bot recovers state on restart
+- **Network Partitions**: Freenet handles eventual consistency
+- **STARK Proof Size**: Validated in Spike Week (< 100KB)
 
 ## MVP Scope vs Federation
 
