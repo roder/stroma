@@ -1,0 +1,417 @@
+# Security Constraints (IMMUTABLE)
+
+**Status**: Pinned - Cannot be modified without explicit unpinning ceremony
+**Last Updated**: 2026-01-26
+**Applies To**: All agents, all code, all phases
+
+## Critical Principle
+
+These constraints are **NON-NEGOTIABLE**. Any code that violates these constraints MUST be rejected, regardless of functionality or convenience.
+
+## 1. Anonymity-First Design
+
+### Never Store Signal IDs in Cleartext
+- ❌ **NEVER** store Signal IDs in any persistent storage
+- ❌ **NEVER** log Signal IDs to disk, console, or any output
+- ❌ **NEVER** transmit Signal IDs over network in cleartext
+- ❌ **NEVER** include Signal IDs in error messages
+- ❌ **NEVER** cache Signal IDs in memory longer than necessary
+
+### HMAC-Based Identity Masking (REQUIRED)
+```rust
+// ✅ REQUIRED PATTERN
+use ring::hmac;
+use zeroize::Zeroize;
+
+pub fn mask_identity(signal_id: &str, group_pepper: &[u8]) -> Hash {
+    // Use HMAC-SHA256 with group-secret pepper (NOT deterministic hashing)
+    let key = hmac::Key::new(hmac::HMAC_SHA256, group_pepper);
+    let tag = hmac::sign(&key, signal_id.as_bytes());
+    
+    // Convert to hash
+    let hash = Hash::from_bytes(tag.as_ref());
+    
+    // Zeroize the input buffer if mutable
+    // (In this case signal_id is borrowed, but pattern applies to owned data)
+    
+    hash
+}
+```
+
+**Key Requirements:**
+- Use HMAC-SHA256 (ring crate)
+- Use group-secret pepper (unique per group, never shared)
+- NOT deterministic hashing (same ID = different hash with different pepper)
+- Group pepper stored securely (environment variable, never in code)
+
+### Immediate Zeroization (MANDATORY)
+- ✅ **ALWAYS** use `zeroize` crate for sensitive buffers
+- ✅ **ALWAYS** zeroize immediately after hashing
+- ✅ **ALWAYS** zeroize on drop (use `ZeroizeOnDrop` derive)
+- ✅ **ALWAYS** zeroize on error paths (don't leak on panic)
+
+```rust
+// ✅ REQUIRED PATTERN
+use zeroize::{Zeroize, ZeroizeOnDrop};
+
+#[derive(ZeroizeOnDrop)]
+struct SensitiveData {
+    signal_id: String,
+    pepper: Vec<u8>,
+}
+
+impl SensitiveData {
+    fn process(&mut self) -> Hash {
+        // Process data
+        let hash = mask_identity(&self.signal_id, &self.pepper);
+        
+        // Explicit zeroization
+        self.signal_id.zeroize();
+        self.pepper.zeroize();
+        
+        hash
+    }
+}
+```
+
+### Memory Hygiene Verification
+- Memory dump MUST contain ONLY hashed identifiers
+- No cleartext Signal IDs in core dumps, crash logs, or debug output
+- Test with intentional panic to verify zeroization
+
+## 2. Trust Model Enforcement
+
+### No Grace Periods (ABSOLUTE)
+- ❌ **NEVER** add grace periods for ejection
+- ❌ **NEVER** add warnings before ejection
+- ❌ **NEVER** add re-verification windows
+- ❌ **NEVER** delay ejection for any reason
+
+### Vouch Invalidation (CRITICAL LOGIC)
+- **Rule**: If a voucher flags a member, that vouch is invalidated
+- **Rationale**: Logical inconsistency - you can't both trust and distrust someone
+- **Calculation**: Effective vouches = Total vouches - Voucher-flaggers
+- **Impact**: Prevents "vouch bombing" and aligns with fluid identity philosophy
+
+**Two Independent Ejection Triggers:**
+1. **Standing < 0**: `Standing = Effective_Vouches - Regular_Flags < 0`
+2. **Effective_Vouches < min_vouch_threshold**: Default 2, configurable
+
+**Definitions**:
+```
+Voucher_Flaggers = All_Vouchers ∩ All_Flaggers
+Effective_Vouches = |All_Vouchers| - |Voucher_Flaggers|
+Regular_Flags = |All_Flaggers| - |Voucher_Flaggers|
+Standing = Effective_Vouches - Regular_Flags
+```
+
+**Both triggers result in IMMEDIATE ejection** (no delay, no notification beforehand)
+
+### Freenet as Source of Truth (ABSOLUTE)
+- ❌ **NEVER** make Signal group the source of truth
+- ❌ **NEVER** cache trust decisions locally without Freenet verification
+- ❌ **NEVER** allow operator to override Freenet state
+- ✅ **ALWAYS** verify with Freenet before Signal actions
+
+```rust
+// ✅ REQUIRED PATTERN
+async fn add_member_to_signal(
+    member_hash: Hash,
+    freenet: &FreenetClient,
+    signal: &SignalClient,
+) -> Result<(), Error> {
+    // MUST verify with Freenet first
+    let verified = freenet.verify_member_vetted(member_hash).await?;
+    
+    if !verified {
+        return Err(Error::NotVetted);
+    }
+    
+    // Only AFTER Freenet confirms, modify Signal state
+    signal.add_member(member_hash).await?;
+    
+    Ok(())
+}
+```
+
+### Zero-Knowledge Proof Verification (MANDATORY)
+- ❌ **NEVER** bypass ZK-proof verification
+- ❌ **NEVER** accept trust without cryptographic proof
+- ✅ **ALWAYS** verify STARK proofs before admission
+- ✅ **ALWAYS** verify Merkle tree membership
+
+```rust
+// ✅ REQUIRED PATTERN
+async fn verify_vouch(
+    member_hash: Hash,
+    voucher_a: Hash,
+    voucher_b: Hash,
+    proof: StarkProof,
+    freenet: &FreenetClient,
+) -> Result<bool, Error> {
+    // Verify proof cryptographically
+    let proof_valid = winterfell::verify_proof(&proof)?;
+    
+    if !proof_valid {
+        return Ok(false);
+    }
+    
+    // Verify vouchers are in Merkle tree
+    let voucher_a_valid = freenet.verify_in_tree(voucher_a).await?;
+    let voucher_b_valid = freenet.verify_in_tree(voucher_b).await?;
+    
+    // Verify vouchers are different
+    if voucher_a == voucher_b {
+        return Ok(false);
+    }
+    
+    // Verify member is NOT in tree (new member)
+    let member_not_in_tree = !freenet.verify_in_tree(member_hash).await?;
+    
+    Ok(proof_valid && voucher_a_valid && voucher_b_valid && member_not_in_tree)
+}
+```
+
+## 3. State Management
+
+### Real-Time State Stream (REQUIRED)
+- ❌ **NEVER** use polling for Freenet state
+- ✅ **ALWAYS** use real-time state stream monitoring
+- ✅ **ALWAYS** react to state changes immediately
+
+```rust
+// ✅ REQUIRED PATTERN (Real-time stream)
+async fn monitor_state_changes(freenet: &FreenetClient) {
+    let mut stream = freenet.subscribe_to_state_changes().await.unwrap();
+    
+    while let Some(change) = stream.next().await {
+        match change {
+            StateChange::MemberVetted(hash) => handle_admission(hash).await,
+            StateChange::MemberRevoked(hash) => handle_ejection(hash).await,
+            StateChange::FederationApproved(group) => handle_federation(group).await,
+        }
+    }
+}
+
+// ❌ FORBIDDEN PATTERN (Polling)
+async fn poll_state_changes(freenet: &FreenetClient) {
+    loop {
+        let state = freenet.get_state().await.unwrap();
+        // Process state...
+        tokio::time::sleep(Duration::from_secs(1)).await; // ❌ Wasteful polling
+    }
+}
+```
+
+### Ephemeral Session Data (MANDATORY)
+- Vetting session data MUST be deleted after admission threshold met
+- No persistent storage of relationship content
+- No logs of why people trust each other
+
+```rust
+// ✅ REQUIRED PATTERN
+async fn complete_admission(member_hash: Hash, session: VettingSession) {
+    // Add member to Freenet
+    freenet.add_member(member_hash).await?;
+    
+    // Add member to Signal
+    signal.add_member(member_hash).await?;
+    
+    // DELETE ephemeral vetting session data
+    session.delete().await?;
+    
+    // Logs must NOT contain relationship details
+    log::info!("Member {} admitted", member_hash); // Hash only, no context
+}
+```
+
+## 4. Vouch Permissions
+
+### ANY Member Can Vouch (CRITICAL)
+- ❌ **NEVER** restrict vouching to only Validators
+- ✅ **ALWAYS** allow ANY Member (Bridges and Validators) to vouch
+- ✅ Bot MAY suggest Validators for optimization (Blind Matchmaker)
+- ✅ Bot CANNOT enforce Validator-only vouching
+
+```rust
+// ✅ REQUIRED PATTERN
+fn can_vouch(member: &Member) -> bool {
+    // ANY Member in the group can vouch
+    member.is_in_group()
+}
+
+// ❌ FORBIDDEN PATTERN
+fn can_vouch_forbidden(member: &Member) -> bool {
+    member.is_validator() // ❌ WRONG: Only Validators
+}
+```
+
+### First Vouch = Invitation (REQUIRED)
+- ❌ **NEVER** implement token exchange system
+- ✅ Invitation itself counts as first vouch
+- ✅ Bot immediately starts vetting process
+
+```rust
+// ✅ REQUIRED PATTERN
+async fn process_invite(
+    inviter_hash: Hash,
+    invitee: SignalId,
+) -> Result<(), Error> {
+    // Hash invitee identity immediately
+    let invitee_hash = mask_identity(&invitee, &group_pepper);
+    invitee.zeroize(); // Zeroize immediately
+    
+    // Record invitation as FIRST VOUCH
+    freenet.record_vouch(invitee_hash, inviter_hash).await?;
+    
+    // Start vetting process immediately (no token exchange)
+    start_vetting_process(invitee_hash).await?;
+    
+    Ok(())
+}
+```
+
+## 5. Operator Least Privilege
+
+### Operator is Service Runner ONLY
+- ❌ **NEVER** allow operator to manually execute membership changes
+- ❌ **NEVER** allow operator to override group decisions
+- ❌ **NEVER** allow operator to change consensus thresholds unilaterally
+- ❌ **NEVER** allow operator to bypass ejection protocol
+- ❌ **NEVER** allow operator access to cleartext Signal IDs
+- ❌ **NEVER** allow operator to unilaterally federate groups
+- ❌ **NEVER** allow operator to modify GroupConfig without group consensus
+
+### Operator CAN (Service Runner Duties)
+- ✅ Start/stop bot service (systemd daemon)
+- ✅ Monitor logs for errors
+- ✅ Restart bot on crashes
+- ✅ Ensure bot stays online
+
+### Bot Automatic Execution (REQUIRED)
+```rust
+// ✅ REQUIRED PATTERN: Bot executes automatically
+async fn bot_event_loop(freenet: &FreenetClient, signal: &SignalClient) {
+    let mut stream = freenet.subscribe_to_state_changes().await.unwrap();
+    
+    loop {
+        tokio::select! {
+            Some(event) = stream.next() => {
+                // Bot AUTOMATICALLY executes contract-approved actions
+                match event {
+                    StateChange::MemberVetted(hash) => {
+                        signal.add_member(hash).await.unwrap(); // Automatic
+                    },
+                    StateChange::MemberRevoked(hash) => {
+                        signal.remove_member(hash).await.unwrap(); // Automatic
+                    },
+                }
+            }
+        }
+    }
+}
+```
+
+### Configuration Management (REQUIRED)
+- All configuration stored in Freenet contract
+- Configuration changes require group vote (Signal Poll)
+- Vote must exceed `config_change_threshold` (e.g., 70%)
+- Bot automatically applies approved changes
+
+## 6. Privacy & Metadata Protection
+
+### All Operations in 1-on-1 PMs (MANDATORY)
+- ❌ **NEVER** expose vetting operations in group chat
+- ❌ **NEVER** announce who vouched for whom
+- ✅ **ALWAYS** use 1-on-1 PMs for vetting
+- ✅ **ALWAYS** use hashes (not names) in group announcements
+
+### Social Graph Never Exposed
+- ❌ **NEVER** reveal who vouched for whom
+- ❌ **NEVER** expose relationship structure
+- ❌ **NEVER** allow queries like "who vouched for X?"
+- ✅ Bot knows topology for optimization (Blind Matchmaker)
+- ✅ Bot does NOT know relationship content or reasons
+
+## 7. Node Type Definitions (CRITICAL TERMINOLOGY)
+
+### Clear Distinction
+- **Invitees (Leaf Nodes)**: OUTSIDE Signal group (1 vouch, being vetted)
+- **Bridges**: IN Signal group (2 vouches, minimum requirement)
+- **Validators**: IN Signal group (3+ vouches, high-trust members, NO special privileges)
+
+### Waiting Room = State, Not Place
+- ❌ **NEVER** create separate "waiting room" chat
+- ✅ "Waiting room" = state of being OUTSIDE Signal group
+- ✅ Invitees receive 1-on-1 PMs from bot (not in special space)
+
+## 8. Testing & Verification
+
+### Security Testing (MANDATORY)
+- Test with intentional panic to verify zeroization
+- Test memory dumps contain only hashes
+- Test bot CANNOT bypass Freenet verification
+- Test operator CANNOT manually execute commands
+- Test all ejection triggers work immediately
+
+### Property-Based Testing (REQUIRED)
+```rust
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+    
+    proptest! {
+        #[test]
+        fn test_different_pepper_different_hash(
+            signal_id in ".*",
+            pepper1 in prop::collection::vec(any::<u8>(), 16..32),
+            pepper2 in prop::collection::vec(any::<u8>(), 16..32),
+        ) {
+            let hash1 = mask_identity(&signal_id, &pepper1);
+            let hash2 = mask_identity(&signal_id, &pepper2);
+            
+            // Same ID with different pepper MUST produce different hashes
+            if pepper1 != pepper2 {
+                assert_ne!(hash1, hash2);
+            }
+        }
+    }
+}
+```
+
+## 9. Supply Chain Security
+
+### Mandatory Tools (MUST PASS)
+- `cargo-deny check` MUST pass (no vulnerabilities)
+- `cargo-crev verify` MUST pass (cryptographic verification)
+- Run in CI/CD pipeline (blocking)
+
+### Dependency Policy
+- Audit all new dependencies before adding
+- Prefer well-audited crates (ring, zeroize, winterfell)
+- Reject dependencies that could leak identifiers
+- Monitor binary size (increases indicate bloat)
+
+## 10. Violations & Enforcement
+
+### What Happens If These Constraints Are Violated
+- Code MUST be rejected (no exceptions)
+- Security review MUST flag violations
+- Witness Agent MUST block violating code
+- Pull requests MUST be blocked
+
+### Witness Agent Responsibilities
+- Monitor all agents for Signal ID leakage
+- Verify zeroization in all crypto operations
+- Block unsafe patterns (cleartext IDs, polling, etc.)
+- Read this Bead before every code review
+
+## Summary: The Five Absolutes
+
+1. **NEVER store Signal IDs in cleartext** - HMAC hash immediately, zeroize buffers
+2. **NEVER bypass ZK-proof verification** - All trust operations use STARKs
+3. **NEVER add grace periods** - Ejection is immediate (no warnings)
+4. **NEVER make Signal source of truth** - Freenet is authoritative
+5. **NEVER restrict vouching to Validators** - ANY Member can vouch
+
+These constraints are IMMUTABLE and apply to ALL code, ALL agents, ALL phases (including federation in Phase 4+).

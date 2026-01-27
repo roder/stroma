@@ -86,6 +86,7 @@ isProject: false
 
 | Component | Technology | Rationale |
 |-----------|-----------|-----------|
+| **Rust Version** | 1.93+ | Bundled musl 1.2.5 with improved DNS resolver for reliable networking |
 | **State Storage** | [freenet-core](https://github.com/freenet/freenet-core) | Rust-native, Wasm contracts, active development (v0.1.107) |
 | **ZK-Proofs** | STARKs (winterfell) | No trusted setup, post-quantum secure, transparent |
 | **Identity Masking** | HMAC-SHA256 (ring) | Group-scoped hashing with pepper, zeroization |
@@ -101,6 +102,8 @@ isProject: false
 4. **Latency acceptable**: Seconds to hours for vetting (security > speed)
 5. **Bot deployment**: Operator's choice (local/VPS/container)
 6. **State recovery**: Bot can go offline and recover from freenet-core state
+7. **ComposableState for contracts**: Set-based membership, summary-delta sync
+8. **Merkle Trees on-demand**: Generate from BTreeSet for ZK-proofs (not stored)
 
 ## Immediate Next Steps
 
@@ -110,12 +113,20 @@ isProject: false
 
 **Duration**: 5 days (1 week)
 
-**Spike 1: freenet-core Integration (2 days)**
+**Spike 1: freenet-core Integration & ComposableState (2 days)**
 - Install and run freenet-core node locally
-- Deploy simple Wasm contract to store/retrieve state
+- Install freenet-scaffold and implement ComposableState trait
+- Test set-based membership (BTreeSet) with merge semantics
+- Test on-demand Merkle Tree generation (benchmark with 10-1000 members)
+- Deploy contract with ComposableState to freenet-core
 - Test state stream monitoring (real-time updates)
-- Measure: Can we store Merkle Tree? Can we monitor changes?
-- **Risk Mitigation**: If freenet-core too immature, evaluate alternatives
+- **Answer Outstanding Questions Q1-Q5** (CRITICAL):
+  - Q1: Can we verify STARK proofs in contract verify()?
+  - Q2: Should we store proofs or just outcomes?
+  - Q3: How expensive is on-demand Merkle Tree generation?
+  - Q4: How does Freenet handle merge conflicts?
+  - Q5: Can we add custom validation beyond ComposableState?
+- **Risk Mitigation**: If freenet-core too immature OR ComposableState doesn't fit, evaluate alternatives
 
 **Spike 2: Signal Bot Registration (1 day)**
 - Register bot account with Signal (phone number)
@@ -440,16 +451,20 @@ bd create --title "Implement STARK circuits for vouch verification" \
   "
 ```
 
-#### **Bead-05: Contract Schema (Federation-Ready)**
+#### **Bead-05: Contract Schema (ComposableState & Federation-Ready)**
 ```bash
-bd create --title "Design Freenet contract schema with federation hooks" \
+bd create --title "Design Freenet contract schema with ComposableState" \
   --description "
-  - TrustNetworkState struct (members, vouches, config)
-  - Federation hooks (unused in MVP, but present in schema):
-    - federation_contracts: Vec<ContractHash> (empty)
-    - validator_anchors: BloomFilter (computed but not broadcast)
-  - GroupConfig struct (all consensus thresholds)
-  - State update functions (add_member, remove_member, record_vouch)
+  - Implement ComposableState trait for all state fields
+  - MemberSet: BTreeSet-based (active + removed tombstones)
+  - VouchGraph: HashMap<MemberHash, BTreeSet<MemberHash>> (mergeable)
+  - FlagGraph: Similar to VouchGraph
+  - GroupConfigV1: Last-Write-Wins with version field
+  - TrustNetworkState: #[composable] macro for auto-composition
+  - Helper methods: generate_merkle_tree(), calculate_standing(), should_eject()
+  - Federation hooks (Phase 4+, feature-flagged)
+  - Test: Merge semantics are commutative (order-independent)
+  - Based on decisions from Outstanding Questions Q1-Q5
   "
 ```
 

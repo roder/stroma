@@ -148,9 +148,11 @@ Traditional trust networks require revealing the social graph to scale. Stroma s
 - **Automatic Execution**: Bot executes contract-approved actions without operator intervention
 
 #### 3. State Layer: Freenet (Dark)
-- Decentralized, anonymous state storage
-- Merkle Tree of Proofs (not member lists)
-- ZK-proof verification, state stream monitoring
+- Decentralized, anonymous state storage with eventual consistency
+- Set-based membership (BTreeSet) with summary-delta synchronization
+- Merkle Trees generated on-demand for ZK-proof verification (not stored)
+- ComposableState trait for mergeable state (CRDT-like semantics)
+- State stream monitoring (real-time, not polling)
 - Emergent bot discovery via Social Anchor Hashing
 
 ## Core Modules
@@ -214,17 +216,51 @@ Traditional trust networks require revealing the social graph to scale. Stroma s
 - **Admission**: Invitee added to Signal group ONLY after Freenet confirms 2 vouches
 
 ### Trust Standing & Ejection
-- **Calculation**: `Standing = Vouches - Flags`
-- **Ejection Triggers** (Independent):
-  1. `Standing < 0` (too many flags relative to vouches)
-  2. `Vouches < min_vouch_threshold` (default: 2, voucher left group)
+- **Calculation**: `Standing = Effective_Vouches - Regular_Flags`
+- **Vouch Invalidation**: If a voucher flags a member, that vouch is invalidated (logical inconsistency)
+- **Ejection Triggers** (Two Independent Conditions):
+  1. **Trigger 1**: `Standing < 0` (too many regular flags relative to effective vouches)
+  2. **Trigger 2**: `Effective_Vouches < min_vouch_threshold` (default: 2, includes voucher-flagger invalidation)
 - **No Grace Periods**: Immediate ejection, no warnings, no re-verification windows
 - **Heartbeat Monitor**: Checks every 60 minutes, automatic ejection if either trigger met
 - **Continuous Evaluation**: Trust monitored in real-time via Freenet state stream
-- **Member Responsibility**: Cultivate multiple vouches for resilience against voucher departure
+- **Member Responsibility**: Cultivate multiple vouches for resilience
 - **Re-Entry Path**: Secure 2 new vouches from Members IN the group, go through admission again
 - **No Cooldown**: Can re-enter immediately after securing new vouches
 - **No Public Shaming**: Bot uses hashes, not names in notifications
+
+#### **Standing Math with Vouch Invalidation**
+
+**Key Principle**: If a voucher flags you, their vouch is invalidated (they can't both trust and distrust you).
+
+**Calculation**:
+```
+All_Vouchers = Set of members who vouched for you
+All_Flaggers = Set of members who flagged you
+Voucher_Flaggers = All_Vouchers ∩ All_Flaggers (contradictory)
+
+Effective_Vouches = |All_Vouchers| - |Voucher_Flaggers|
+Regular_Flags = |All_Flaggers| - |Voucher_Flaggers|
+Standing = Effective_Vouches - Regular_Flags
+```
+
+**Examples**:
+
+| All Vouches | All Flags | Voucher-Flaggers | Effective Vouches | Regular Flags | Standing | Trigger 1 | Trigger 2 | Result |
+|-------------|-----------|------------------|-------------------|---------------|----------|-----------|-----------|---------|
+| 2 (A,B) | 0 () | 0 | 2 | 0 | +2 | ✅ (≥0) | ✅ (2≥2) | **Stays** |
+| 2 (A,B) | 1 (C) | 0 | 2 | 1 | +1 | ✅ (≥0) | ✅ (2≥2) | **Stays** (flagged by non-voucher) |
+| 2 (A,B) | 1 (A) | 1 (A) | **1** | 0 | +1 | ✅ (≥0) | ❌ (1<2) | **EJECTED** (voucher flagged = invalidated vouch) |
+| 3 (A,B,C) | 1 (A) | 1 (A) | **2** | 0 | +2 | ✅ (≥0) | ✅ (2≥2) | **Stays** (2 effective vouches remain) |
+| 2 (A,B) | 2 (A,B) | 2 (A,B) | **0** | 0 | 0 | ✅ (≥0) | ❌ (0<2) | **EJECTED** (both vouchers flagged) |
+| 2 (A,B) | 3 (A,C,D) | 1 (A) | **1** | 2 | -1 | ❌ (<0) | ❌ (1<2) | **EJECTED** (both triggers) |
+| 3 (A,B,C) | 5 (D,E,F,G,H) | 0 | 3 | 5 | -2 | ❌ (<0) | ✅ (3≥2) | **EJECTED** (Trigger 1) |
+
+**Key Insights**:
+- Voucher-flaggers invalidate their own vouches (logical consistency)
+- You need 2 effective vouches (after invalidation) to stay in group
+- Standing is calculated from effective vouches and regular flags (excluding voucher-flaggers from both)
+- The two triggers remain independent but now work with effective vouches
 
 ### Network Topology & Node Types
 
@@ -333,8 +369,10 @@ Density: 38%
 ## Technical Stack
 
 ### Core Technologies
-- **Language**: Rust (static binary, x86_64-unknown-linux-musl)
+- **Language**: Rust 1.93+ (musl 1.2.5 with improved DNS resolver)
+- **Static Binary**: x86_64-unknown-linux-musl
 - **State Storage**: [freenet-core](https://github.com/freenet/freenet-core) (Rust-native, Wasm contracts, v0.1.107+)
+- **Contract Framework**: [freenet-scaffold](https://github.com/freenet/freenet-scaffold) (ComposableState, summary-delta sync)
 - **ZK-Proofs**: STARKs via winterfell (no trusted setup, post-quantum secure)
 - **Identity Masking**: HMAC-SHA256 via ring crate
 - **Memory Hygiene**: zeroize crate (immediate buffer purging)
@@ -346,6 +384,13 @@ Density: 38%
 - Each bot runs its own freenet-core node (no shared nodes)
 - Bot operator provides Signal credentials
 - Bot can recover state after going offline
+
+### Contract Architecture
+- **State Structures**: Set-based (BTreeSet, HashMap) for natural mergeability
+- **Synchronization**: Summary-delta sync via ComposableState trait
+- **Merkle Trees**: Generated on-demand from member sets (not stored in contract)
+- **ZK-Proofs**: Validate state transitions (client-side or contract-side, TBD in Spike Week)
+- **Merge Semantics**: CRDT-like eventual consistency (no consensus algorithms)
 
 ### Performance Targets
 - **Scalability**: 10²-10³ (100x to 1000x) without revealing social graph
@@ -463,13 +508,23 @@ The operator runs the bot as a **service** and performs ONE-TIME manual bootstra
 ## Development
 
 ### Prerequisites
-- Rust (latest stable, 1.70+)
+- **Rust 1.93+** (required for musl 1.2.5 with improved DNS resolver)
 - Signal account for bot (phone number required)
 - freenet-core node (https://github.com/freenet/freenet-core)
 - MUSL toolchain for static binary
 
+**Why Rust 1.93+:**
+- Bundled musl 1.2.5 with major DNS resolver improvements
+- More reliable networking for Signal and freenet-core
+- Better handling of large DNS records and recursive name servers
+- See: [Rust 1.93 Release](https://www.infoworld.com/article/4120988/rust-1-93-updates-bundled-musl-library-to-boost-networking.html)
+
 ### Setup
 ```bash
+# Ensure Rust 1.93+ is installed
+rustup update stable
+rustc --version  # Should show 1.93+
+
 # Add MUSL target
 rustup target add x86_64-unknown-linux-musl
 
@@ -529,11 +584,14 @@ freenet &
 ### Spike Week (Week 0 - Validation Phase)
 **Before full implementation, validate core technologies:**
 
-1. **freenet-core Integration** (2 days)
+1. **freenet-core Integration & ComposableState** (2 days)
    - Install and run freenet-core node locally
-   - Deploy simple Wasm contract to store/retrieve state
+   - Install freenet-scaffold and implement ComposableState trait
+   - Test set-based membership (BTreeSet) with merge semantics
+   - Test on-demand Merkle Tree generation (benchmark 10-1000 members)
+   - Deploy contract with ComposableState to freenet-core
    - Test state stream monitoring (real-time updates)
-   - Validate: Can we store Merkle Tree and monitor changes?
+   - **Answer 5 critical questions** about contract design (see Outstanding Questions below)
 
 2. **Signal Bot Registration** (1 day)
    - Register bot account with Signal (phone number)
@@ -549,6 +607,34 @@ freenet &
 
 **Deliverable**: Go/No-Go decision report with technology validation
 
+#### **Outstanding Questions (MUST Resolve in Spike Week)**
+
+**Critical**: These questions fundamentally affect contract architecture and MUST be answered before Phase 0:
+
+1. **STARK Verification in Wasm**: Can we verify STARK proofs in contract verify() without performance issues?
+   - Test: Compile winterfell to Wasm, measure verification time
+   - Target: < 100ms per proof
+   - Decision: Client-side vs contract-side verification
+
+2. **Proof Storage Strategy**: Should we store STARK proofs in contract state or just outcomes?
+   - Options: Temporary storage, permanent storage, no storage
+   - Impact: Storage costs, audit trail, trustlessness
+
+3. **Merkle Tree Performance**: How expensive is on-demand Merkle Tree generation from BTreeSet?
+   - Test: Benchmark with 10, 100, 500, 1000 members
+   - Target: < 100ms for 1000 members
+   - Decision: On-demand generation vs caching Merkle root
+
+4. **Conflict Resolution**: How does Freenet handle conflicts when two nodes submit incompatible updates?
+   - Test: Create divergent states, attempt merge
+   - Document: Freenet's conflict resolution behavior
+   - Impact: May need vector clocks or causal ordering
+
+5. **Custom Validation**: Can we enforce complex invariants (e.g., "every member >= 2 vouches") in verify()?
+   - Test: Implement complex validation in verify() method
+   - Document: Contract API limitations
+   - Decision: Contract-enforced vs bot-enforced invariants
+
 ### Phase 0: Foundation (Weeks 1-2)
 **Focus**: Core infrastructure with federation-ready design
 
@@ -556,9 +642,16 @@ freenet &
 - **Freenet Integration**: freenet-core node management, state stream monitoring
 - **Signal Integration**: Bot authentication, group management, command parsing
 - **Crypto Layer**: STARK circuits for vouch verification (winterfell)
-- **Contract Schema**: Federation-ready (hooks present but unused in MVP)
+- **Contract Schema**: ComposableState-based (set-based membership, vouch graph, flags)
+- **Merkle Tree**: On-demand generation from BTreeSet for ZK-proofs
 
-**Deliverable**: Working foundation modules
+**Key Decisions from Spike Week**:
+- Set-based membership (not Merkle Tree as primary storage)
+- ComposableState trait for mergeable state
+- Summary-delta synchronization for eventual consistency
+- Answers to 5 outstanding questions about contract design
+
+**Deliverable**: Working foundation modules with validated contract design
 
 ### Phase 1: Bootstrap & Core Trust (Weeks 3-4)
 **Focus**: Seed group, vetting, admission, ejection

@@ -1,6 +1,7 @@
 [package]
 name = "stroma"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+rust-version = "1.93"  # Required for musl 1.2.5 (improved DNS resolver)
 
 [dependencies]

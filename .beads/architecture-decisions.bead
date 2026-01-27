@@ -1,0 +1,558 @@
+# Architecture Decisions (IMMUTABLE)
+
+**Status**: Pinned - Cannot be modified without explicit unpinning ceremony
+**Last Updated**: 2026-01-26
+**Applies To**: All implementation phases
+
+## Core Technologies (FINALIZED)
+
+### State Storage: freenet-core
+- **Repository**: https://github.com/freenet/freenet-core
+- **Version**: v0.1.107+ (latest stable)
+- **Rationale**: Rust-native, Wasm contracts, active development
+- **Architecture**: Each bot runs its own freenet-core node (no shared nodes)
+
+**Key Features:**
+- Decentralized state storage (no central authority)
+- Wasm contracts with ComposableState trait (summary-delta synchronization)
+- Anonymous network routing (dark mode)
+- State stream monitoring (real-time, not polling)
+- Eventual consistency via deterministic merging (no consensus algorithms)
+
+**Installation:**
+```bash
+git clone https://github.com/freenet/freenet-core.git
+cd freenet-core
+cargo install --path crates/core
+```
+
+### ZK-Proofs: STARKs (winterfell)
+- **Library**: winterfell (Facebook's STARK library)
+- **Rationale**: No trusted setup, post-quantum secure, transparent
+- **Alternative Considered**: PLONK (rejected due to trusted setup requirement)
+
+**Why STARKs:**
+- ✅ No trusted setup ceremony (critical for trust network)
+- ✅ Transparent (no authority to compromise)
+- ✅ Post-quantum secure (future-proof)
+- ✅ Scales to federation (proof sizes reasonable)
+- ⚠️ Larger proofs than PLONK (acceptable trade-off)
+
+**Performance Targets:**
+- Proof Size: < 100KB (validated in Spike Week)
+- Proof Generation: < 10 seconds (acceptable latency)
+- Verification: Constant time (regardless of network size)
+
+### Identity Masking: HMAC-SHA256 (ring)
+- **Library**: ring crate
+- **Algorithm**: HMAC-SHA256
+- **Method**: Keyed hashing with group-secret pepper (NOT deterministic)
+
+**Why HMAC (not deterministic hashing):**
+- Different groups = different hashes for same person
+- Enables privacy-preserving federation (PSI-CA)
+- No global identifier correlation
+- Group pepper acts as namespace isolation
+
+**Implementation:**
+```rust
+use ring::hmac;
+
+pub fn mask_identity(signal_id: &str, group_pepper: &[u8]) -> Hash {
+    let key = hmac::Key::new(hmac::HMAC_SHA256, group_pepper);
+    let tag = hmac::sign(&key, signal_id.as_bytes());
+    Hash::from_bytes(tag.as_ref())
+}
+```
+
+### Memory Hygiene: zeroize
+- **Library**: zeroize crate
+- **Purpose**: Immediate buffer purging for sensitive data
+- **Requirement**: MANDATORY for all crypto operations
+
+**Usage:**
+```rust
+use zeroize::{Zeroize, ZeroizeOnDrop};
+
+#[derive(ZeroizeOnDrop)]
+struct SensitiveData {
+    data: Vec<u8>,
+}
+```
+
+### Signal Integration: libsignal-service-rs
+- **Library**: libsignal-service-rs
+- **Purpose**: Protocol-level Signal integration
+- **Features**: Bot authentication, group management, 1-on-1 PMs
+
+**Constraints:**
+- Bot requires phone number registration
+- Operator provides Signal credentials
+- Bot handles Signal bans (fallback/recovery strategy needed)
+- Upper bound: Signal group limits (~1000 members per group)
+
+### Async Runtime: tokio
+- **Library**: tokio (version 1.35+)
+- **Features**: ["full"] for comprehensive async support
+- **Rationale**: Industry standard, well-tested, excellent performance
+
+**Usage:**
+- All I/O operations async
+- State stream monitoring via tokio streams
+- CPU-intensive work (STARK proofs) via `spawn_blocking`
+
+### Static Binary: MUSL
+- **Target**: x86_64-unknown-linux-musl
+- **Rust Version**: 1.93+ (required for musl 1.2.5 with improved DNS resolver)
+- **musl Version**: 1.2.5 (bundled in Rust 1.93+)
+- **Rationale**: Minimal attack surface, no dynamic linking vulnerabilities
+- **Build**: Static linking with LTO and size optimization
+
+**Why Rust 1.93+:**
+- musl 1.2.5 includes major DNS resolver improvements (1.2.4/1.2.5)
+- More reliable networking for static Linux binaries
+- Better handling of large DNS records and recursive name servers
+- Critical for Signal and freenet-core networking reliability
+
+**Configuration (.cargo/config.toml):**
+```toml
+[build]
+target = "x86_64-unknown-linux-musl"
+
+[target.x86_64-unknown-linux-musl]
+linker = "x86_64-linux-musl-gcc"
+rustflags = ["-C", "target-feature=+crt-static"]
+```
+
+## Node Architecture
+
+### Each Bot = Own freenet-core Node
+**Decision**: No shared nodes between bots
+
+**Rationale:**
+- Privacy: Shared nodes could leak correlations
+- Resilience: One bot failure doesn't affect others
+- Isolation: Each group has independent state
+- Security: No cross-group information leakage
+
+**Implications:**
+- Operator must run freenet-core node (systemd service)
+- Each bot requires ~100-500MB memory (depending on group size)
+- Bot can recover state after going offline (Freenet persistence)
+
+### Bot Operator Role
+**Responsibilities:**
+- Provide Signal credentials (phone number)
+- Run bot service (systemd daemon or similar)
+- Monitor logs for errors
+- Restart bot on crashes
+- Handle Signal bans (re-register if needed)
+
+**NOT Responsible For:**
+- Manual membership changes (bot is automatic)
+- Trust decisions (governed by Freenet contract)
+- Configuration changes (requires group vote)
+
+## Performance Targets
+
+### Scalability
+- **Target**: 10²-10³ (100x to 1000x scaling factor)
+- **Method**: Federation between groups (Phase 4+)
+- **Constraint**: Signal group limits (~1000 members per group)
+- **Strategy**: Horizontal scaling via federation, not vertical scaling
+
+### Latency
+- **Philosophy**: Security > Speed
+- **Acceptable**: Seconds to hours for vetting operations
+- **Reason**: Trust decisions are high-stakes, thoroughness matters
+
+**Specific Targets:**
+- Invitation to admission: Minutes to hours (human-paced)
+- STARK proof generation: < 10 seconds
+- Freenet state updates: < 1 second
+- Ejection enforcement: < 1 second (immediate)
+
+### Proof Performance
+- **Size**: < 100KB per STARK proof (validated in Spike Week)
+- **Generation**: < 10 seconds on modern CPU
+- **Verification**: < 100ms (constant time)
+- **Storage**: Freenet (decentralized, no single point of failure)
+
+### Network Capacity
+- **Per Group**: Up to Signal's limit (~1000 members)
+- **Federated Network**: Unlimited (via federation)
+- **Mesh Density**: 30-60% recommended (balanced resilience)
+
+## Threat Model
+
+### In Scope (Defended Against)
+1. **Compromised Operator**
+   - Defense: Operator least privilege (service runner only)
+   - Defense: All actions approved by Freenet contract
+   - Defense: No access to cleartext Signal IDs
+
+2. **Signal Metadata Analysis**
+   - Defense: All operations in 1-on-1 PMs (not group chat)
+   - Defense: HMAC-hashed identifiers (no cleartext)
+   - Defense: Bot uses hashes in all communications
+
+3. **Freenet Network Analysis**
+   - Defense: Anonymous routing (dark mode)
+   - Defense: Encrypted state storage
+   - Defense: No IP address correlation
+
+4. **State-Level Adversaries**
+   - Defense: ZK-proofs (no trust in authority)
+   - Defense: No social graph exposure
+   - Defense: Decentralized state (no single target)
+   - Defense: Post-quantum secure (STARKs)
+
+5. **Sybil Attacks**
+   - Defense: 2-vouch requirement from independent Members
+   - Defense: Blind Matchmaker ensures cross-cluster vouching
+   - Defense: Dynamic Validator threshold (percentile-based)
+
+### Out of Scope (Assumed Secure)
+1. **Signal Protocol Compromise**: Assume Signal's E2E encryption is secure
+2. **Freenet Protocol Vulnerabilities**: Assume freenet-core routing is anonymous
+3. **Quantum Computing**: STARKs are post-quantum secure, but HMAC-SHA256 is not (acceptable for now)
+
+### Risk Mitigation
+- **Signal Bans**: Bot operator has backup phone numbers
+- **Freenet Node Failure**: Bot can recover state on restart
+- **Network Partitions**: Freenet handles eventually consistent state
+- **STARK Proof Too Large**: Validated in Spike Week (< 100KB target)
+
+## MVP Scope vs Federation
+
+### What's In MVP (Phase 0-3)
+✅ Single group trust network
+✅ Bootstrap seed group (3 members)
+✅ Invitation & vetting flow
+✅ Vouching & flagging (ANY Member can vouch)
+✅ Ejection enforcement (two independent triggers)
+✅ Internal mesh optimization (Blind Matchmaker)
+✅ Configuration management (Signal Polls)
+✅ All bot commands
+✅ Mesh density metrics
+✅ Operator least privilege
+
+### What's NOT In MVP (Phase 4+)
+❌ Federation between groups
+❌ Shadow Beacon broadcast
+❌ PSI-CA bot-to-bot protocol
+❌ Cross-mesh vouching
+❌ Federated Merkle Trees
+
+### Federation as North Star
+**Critical Principle**: Even though federation is NOT in the MVP, it is the **ultimate objective** and guides ALL design decisions.
+
+**Federation-Ready Design:**
+- Contract schema includes federation hooks (unused in MVP, but present)
+- Identity hashing is re-computable for PSI-CA (group-scoped HMAC)
+- Module structure includes `federation/` directory (disabled in MVP)
+- Node type definitions support cross-mesh scenarios
+- Social Anchor hashing computed locally (not broadcast in MVP)
+
+**Why This Matters:**
+- Avoids costly refactoring later
+- Validates architecture scales to federation
+- Ensures privacy model works at scale
+- Goal: Connect as many people as possible anonymously via trust
+
+## Module Structure (Federation-Ready)
+
+### Source Code Organization
+```
+src/
+├── main.rs                          # Event loop, CLI entry point
+├── kernel/                          # Identity Masking
+│   ├── mod.rs
+│   ├── hmac.rs                      # HMAC-based hashing
+│   └── zeroize_helpers.rs           # Immediate buffer purging
+├── freenet/                         # Freenet Integration
+│   ├── mod.rs
+│   ├── node.rs                      # freenet-core node management
+│   ├── contract.rs                  # Wasm contract deployment
+│   └── state_stream.rs              # Real-time state monitoring
+├── signal/                          # Signal Integration
+│   ├── mod.rs
+│   ├── bot.rs                       # Bot authentication & commands
+│   ├── group.rs                     # Group management (add/remove)
+│   └── pm.rs                        # 1-on-1 PM handling
+├── crypto/                          # ZK-Proofs & Trust Verification
+│   ├── mod.rs
+│   ├── stark_circuit.rs             # STARK circuit for vouching
+│   ├── proof_generation.rs          # Generate proofs (spawn_blocking)
+│   └── proof_verification.rs        # Verify proofs
+├── gatekeeper/                      # Admission & Ejection Protocol
+│   ├── mod.rs
+│   ├── admission.rs                 # Vetting & admission logic
+│   ├── ejection.rs                  # Immediate ejection (two triggers)
+│   └── health_monitor.rs            # Continuous standing checks
+├── matchmaker/                      # Internal Mesh Optimization
+│   ├── mod.rs
+│   ├── graph_analysis.rs            # Topology analysis
+│   ├── cluster_detection.rs         # Identify internal clusters
+│   └── strategic_intro.rs           # MST optimization suggestions
+├── config/                          # Group Configuration
+│   ├── mod.rs
+│   └── group_config.rs              # GroupConfig struct (Freenet contract)
+└── federation/                      # Federation Logic (DISABLED IN MVP)
+    ├── mod.rs                       # Feature flag: #[cfg(feature = "federation")]
+    ├── shadow_beacon.rs             # Social Anchor Hashing (Phase 4+)
+    ├── psi_ca.rs                    # Private Set Intersection (Phase 4+)
+    └── diplomat.rs                  # Federation proposals (Phase 4+)
+```
+
+**Key Design**: `federation/` module exists but is disabled via feature flag in MVP. This ensures architecture is federation-ready without implementing federation logic.
+
+## Freenet Contract Schema (Mergeable & Federation-Ready)
+
+### Key Insight: ComposableState Requirement
+**Critical Discovery**: Freenet contracts must implement `ComposableState` trait for summary-delta synchronization. This requires **mergeable state structures** (CRDT-like semantics).
+
+**References:**
+- [freenet-scaffold](https://github.com/freenet/freenet-scaffold) - Contract development utilities
+- [Understanding Delta-Sync](https://freenet.org/news/summary-delta-sync/) - Synchronization approach
+
+### TrustNetworkState (MVP - Mergeable Design)
+```rust
+use freenet_scaffold_macro::composable;
+use std::collections::{BTreeSet, HashMap};
+
+// === Individual Composable Types ===
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct MemberSet {
+    active: BTreeSet<MemberHash>,      // Mergeable via set union
+    removed: BTreeSet<MemberHash>,     // Tombstones (never re-add)
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct VouchGraph {
+    // member -> set of vouchers (mergeable via map union)
+    vouches: HashMap<MemberHash, BTreeSet<MemberHash>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct FlagGraph {
+    // member -> set of flaggers (mergeable via map union)
+    flags: HashMap<MemberHash, BTreeSet<MemberHash>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct GroupConfigV1 {
+    config_change_threshold: f32,
+    min_intersection_density: f32,
+    min_vouch_threshold: usize,
+    validator_percentile: u32,
+    version: u64,           // For Last-Write-Wins conflict resolution
+    last_updated: Timestamp,
+}
+
+// === Main State (Auto-composed) ===
+
+#[composable]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct TrustNetworkState {
+    // Field order matters! (dependencies go later)
+    config: GroupConfigV1,        // No dependencies
+    members: MemberSet,           // Depends on config
+    vouches: VouchGraph,          // Depends on members
+    flags: FlagGraph,             // Depends on members
+    
+    // Federation hooks (Phase 4+, disabled in MVP via feature flag)
+    #[cfg(feature = "federation")]
+    federation_contracts: FederationSet,
+    
+    #[cfg(feature = "federation")]
+    validator_anchors: BloomFilter,
+}
+
+// #[composable] macro auto-generates:
+// - TrustNetworkStateSummary
+// - TrustNetworkStateDelta
+// - ComposableState implementation
+```
+
+### Merkle Tree: On-Demand Generation (NOT Stored)
+**Key Design Decision**: Don't store Merkle Trees in contract state. Generate on demand for ZK-proof verification.
+
+```rust
+impl TrustNetworkState {
+    /// Generate Merkle Tree from current member set for ZK-proof verification
+    pub fn generate_merkle_tree(&self) -> MerkleTree<MemberHash> {
+        let sorted: Vec<_> = self.members.active.iter().cloned().collect();
+        MerkleTree::from_leaves(sorted)
+    }
+    
+    /// Get Merkle root for ZK-proof verification
+    pub fn merkle_root(&self) -> Hash {
+        self.generate_merkle_tree().root()
+    }
+    
+    /// Calculate effective state considering voucher-flaggers
+    /// 
+    /// CRITICAL: If a voucher flags a member, that vouch is invalidated.
+    /// Logical consistency: You can't simultaneously trust and distrust someone.
+    pub fn calculate_effective_state(&self, member: &MemberHash) -> (usize, i32) {
+        let vouchers = self.vouches.get(member).cloned().unwrap_or_default();
+        let flaggers = self.flags.get(member).cloned().unwrap_or_default();
+        
+        // Find vouchers who also flagged (contradictory - invalidates their vouch)
+        let voucher_flaggers: HashSet<_> = vouchers
+            .intersection(&flaggers)
+            .collect();
+        
+        // Effective vouches = total vouches - voucher_flaggers
+        let effective_vouches = vouchers.len() - voucher_flaggers.len();
+        
+        // Regular flags = flags from non-vouchers
+        let regular_flags = flaggers.len() - voucher_flaggers.len();
+        
+        // Standing = effective_vouches - regular_flags
+        let standing = effective_vouches as i32 - regular_flags as i32;
+        
+        (effective_vouches, standing)
+    }
+    
+    /// Calculate trust standing for a member (using effective vouches)
+    pub fn calculate_standing(&self, member: &MemberHash) -> i32 {
+        let (_, standing) = self.calculate_effective_state(member);
+        standing
+    }
+    
+    /// Check if member should be ejected (two independent triggers)
+    pub fn should_eject(&self, member: &MemberHash) -> bool {
+        let (effective_vouches, standing) = self.calculate_effective_state(member);
+        
+        // Trigger 1: Standing < 0 (too many regular flags)
+        if standing < 0 {
+            return true;
+        }
+        
+        // Trigger 2: Effective vouches < min_vouch_threshold (includes voucher-flagger invalidation)
+        if effective_vouches < self.config.min_vouch_threshold {
+            return true;
+        }
+        
+        false
+    }
+}
+```
+
+**Why On-Demand Generation:**
+- Merkle Trees are not naturally mergeable (two trees with different roots = conflict)
+- BTreeSet is naturally mergeable (set union is commutative)
+- Generate tree only when needed for ZK-proof verification
+- **Performance**: Validated in Spike Week (Q3)
+
+### Why Federation Hooks Are Present (But Unused in MVP)
+- Validates schema works for federation
+- Ensures contract merge semantics support federated state
+- Allows testing PSI-CA locally (Phase 3)
+- No breaking changes needed when implementing Phase 4
+- Feature flags disable federation code in MVP
+
+### GroupConfig (MVP)
+```rust
+pub struct GroupConfig {
+    // Consensus thresholds
+    config_change_threshold: f32,      // e.g., 0.70 (70%) - used for ALL decisions
+    ejection_appeal_threshold: f32,    // e.g., 0.60 (60%)
+    
+    // Federation parameters (configured but not used in MVP)
+    min_intersection_density: f32,     // e.g., 0.10-0.30 (configurable per-group)
+    validator_percentile: u32,         // e.g., 20 (top 20%)
+    
+    // Trust parameters
+    min_vouch_threshold: usize,        // Default: 2 (minimum vouches to stay in group)
+    
+    // Metadata
+    config_version: u64,
+    last_updated: Timestamp,
+}
+```
+
+**Key Decisions**:
+- Single `config_change_threshold` for ALL group decisions (configuration changes, federation proposals)
+- Set-based membership (BTreeSet) with tombstones for removed members
+- Merkle Tree generated on-demand (not stored in contract state)
+- ComposableState trait implementation required (freenet-scaffold)
+- CRDT-like merge semantics for all state fields
+
+### ComposableState Implementation
+Each field in TrustNetworkState must implement ComposableState:
+
+1. **verify()**: Validate state invariants (vouch count >= 2, standing >= 0)
+2. **summarize()**: Create compact summary for comparison
+3. **delta()**: Calculate minimal changes needed to sync
+4. **apply_delta()**: Apply changes to current state (merge logic)
+
+**See**: `.cursor/rules/freenet-contract-design.mdc` for complete patterns and examples.
+
+## Development Workflow
+
+### Spike Week (Week 0 - Validation Phase)
+**Mandatory**: Before full implementation, validate core technologies
+
+**Objectives:**
+1. freenet-core works for our use case (Days 1-2)
+2. Signal bot can manage group (Day 3)
+3. STARKs meet performance targets (Days 4-5)
+
+**Deliverable**: Go/No-Go decision report
+
+### Phased Implementation
+- **Phase 0** (Weeks 1-2): Foundation with federation-ready design
+- **Phase 1** (Weeks 3-4): Bootstrap & Core Trust
+- **Phase 2** (Weeks 5-6): Mesh Optimization
+- **Phase 3** (Week 7): Federation Prep (validate, don't broadcast)
+
+### Testing Strategy
+- Unit tests: All modules (100% coverage)
+- Integration tests: Async behavior, event-driven logic
+- Property tests: Cryptographic guarantees (proptest)
+- Security tests: Memory dumps, zeroization, no cleartext IDs
+
+### CI/CD Requirements
+- `cargo test` must pass
+- `cargo clippy -- -D warnings` must pass
+- `cargo fmt --check` must pass
+- `cargo deny check` must pass (supply chain security)
+- `cargo crev verify` must pass (cryptographic verification)
+- Binary size monitoring (alert on increases > 10%)
+
+## Deployment Model
+
+### Production Environment
+- Static MUSL binary (x86_64-unknown-linux-musl)
+- Run in seccomp sandbox (restrict syscalls)
+- systemd service (auto-restart on crash)
+- Only allow Signal and freenet-core traffic (firewall)
+
+### Configuration
+- Environment variables (not hardcoded)
+- Group pepper stored securely (never committed)
+- Signal credentials via environment or config file
+- Freenet node address (localhost or remote)
+
+### Monitoring
+- Structured logging (tracing crate)
+- Log security events (no cleartext IDs)
+- Monitor heartbeat (ejection checks every 60 min)
+- Monitor Freenet state stream health
+
+## Summary: Key Architectural Invariants
+
+1. **freenet-core** is the source of truth (Signal state is derived)
+2. **STARKs** for all trust verification (no trusted setup)
+3. **HMAC-SHA256** for identity masking (group-scoped)
+4. **Each bot = own node** (no shared nodes)
+5. **Federation-ready** (hooks present, disabled in MVP)
+6. **Security > Speed** (latency acceptable, security paramount)
+7. **Static MUSL binary** (minimal attack surface)
+8. **Operator is service runner** (no special privileges)
+
+These decisions are IMMUTABLE and apply to ALL phases of development.

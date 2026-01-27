@@ -10,8 +10,8 @@ alwaysApply: true
 ### Agent Roles
 - **Mayor (Lead Agent)**: Project architecture and security auditing
 - **Agent-Signal**: `libsignal-service-rs` and protocol-level group management
-- **Agent-Freenet**: Wasm contract development and sharded state logic
-- **Agent-Crypto**: ZK-SNARK circuits and Private Set Intersection (PSI)
+- **Agent-Freenet**: Wasm contract development with ComposableState, summary-delta synchronization
+- **Agent-Crypto**: STARK circuits (winterfell) and HMAC identity masking
 - **Witness Agent**: Constant audit of other agents to ensure no Signal ID logging
 
 ### Context Persistence
@@ -21,12 +21,42 @@ alwaysApply: true
 
 ## Implementation Roadmap (Beads)
 
-1. **Bead-01**: Scaffold Rust project with `cargo-deny` and basic Signal-link
-2. **Bead-02**: Develop "Social Anchor" hashing for emergent discovery
-3. **Bead-03**: Implement HMAC-masking logic and local `sled` encrypted cache
-4. **Bead-04**: Develop Freenet Wasm contract for Merkle-tree trust
-5. **Bead-05**: Integrate `arkworks` for ZK-vouch verification
-6. **Bead-06**: Final integration: "Diplomat" logic for federation proposals
+### Spike Week (Week 0 - Validation)
+**CRITICAL**: Validate freenet-core ComposableState, Signal bot, STARK proofs before full implementation
+
+**Outstanding Questions** (MUST answer in Spike Week):
+1. Can we verify STARK proofs in contract verify()? (Wasm performance)
+2. Should we store proofs or just outcomes? (Storage strategy)
+3. How expensive is on-demand Merkle Tree generation? (Performance)
+4. How does Freenet handle merge conflicts? (Conflict resolution)
+5. Can we add custom validation beyond ComposableState? (Contract API)
+
+### Phase 0: Foundation (Weeks 1-2)
+1. **Bead-01**: HMAC identity masking with zeroization
+2. **Bead-02**: freenet-core node and state stream monitoring
+3. **Bead-03**: Signal bot authentication and commands
+4. **Bead-04**: STARK circuits for vouch verification
+5. **Bead-05**: Freenet contract schema with ComposableState (set-based, mergeable)
+
+### Phase 1: Bootstrap & Core Trust (Weeks 3-4)
+6. **Bead-06**: Bootstrap seed group (3 members, triangle vouching)
+7. **Bead-07**: Invitation & vetting flow (no token exchange)
+8. **Bead-08**: Admission protocol (ZK-proof verification)
+9. **Bead-09**: Ejection protocol (two independent triggers)
+10. **Bead-10**: Health monitoring (continuous standing checks)
+
+### Phase 2: Mesh Optimization (Weeks 5-6)
+11. **Bead-11**: Graph topology analysis (Blind Matchmaker)
+12. **Bead-12**: Internal cluster detection
+13. **Bead-13**: Strategic introduction suggestions (MST)
+14. **Bead-14**: Configuration management (Signal Polls)
+15. **Bead-15**: Advanced commands (/mesh, /mesh strength, /propose-config)
+
+### Phase 3: Federation Prep (Week 7)
+16. **Bead-16**: Social Anchor hashing (compute locally, don't broadcast)
+17. **Bead-17**: PSI-CA implementation (test with mock data)
+18. **Bead-18**: Federation hooks validation
+19. **Bead-19**: Documentation for Phase 4
 
 ## Safety Precautions
 

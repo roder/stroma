@@ -36,18 +36,24 @@ alwaysApply: false
 
 ### Immediate Ejection Protocol
 ```rust
-// Logic pattern for auto-ejection (TWO triggers)
+// Logic pattern for auto-ejection (TWO triggers with vouch invalidation)
 FUNCTION: Check_Group_Standing(Member_Hash)
-LET: Vouch_Count = Count_Vouches(Member_Hash)
-LET: Flag_Count = Count_Flags(Member_Hash)
-LET: Standing = Vouch_Count - Flag_Count
+LET: All_Vouchers = Get_Vouchers(Member_Hash)
+LET: All_Flaggers = Get_Flaggers(Member_Hash)
+LET: Voucher_Flaggers = All_Vouchers INTERSECT All_Flaggers
+
+# Calculate effective state (voucher-flaggers invalidate their vouch)
+LET: Effective_Vouches = |All_Vouchers| - |Voucher_Flaggers|
+LET: Regular_Flags = |All_Flaggers| - |Voucher_Flaggers|
+LET: Standing = Effective_Vouches - Regular_Flags
 
 # Trigger 1: Standing negative
 IF: Standing < 0
 THEN: TRIGGER(Immediate_Ejection_Protocol)
 
-# Trigger 2: Vouch count below minimum (voucher left group)
-IF: Vouch_Count < MIN_VOUCH_THRESHOLD
+# Trigger 2: Effective vouch count below minimum
+# (includes voucher left group OR voucher flagged member)
+IF: Effective_Vouches < MIN_VOUCH_THRESHOLD
 THEN: TRIGGER(Immediate_Ejection_Protocol)
 
 ACTION: Bot_Execute(Signal_Group_Remove(Member_Hash))
@@ -56,8 +62,10 @@ AND: Send_Private_Notification(Member_Hash,
 ```
 
 **Ejection Triggers:**
-1. **Standing < 0**: Too many flags (trust violated)
-2. **Vouch count < MIN_VOUCH_THRESHOLD**: Voucher(s) left group
+1. **Standing < 0**: Too many regular flags relative to effective vouches
+2. **Effective_Vouches < MIN_VOUCH_THRESHOLD**: Voucher(s) left group OR voucher-flaggers invalidated vouches
+
+**Vouch Invalidation**: If a voucher flags a member, that vouch is invalidated (logical consistency - can't both trust and distrust)
 
 **No Grace Periods:**
 - No 48-hour warnings

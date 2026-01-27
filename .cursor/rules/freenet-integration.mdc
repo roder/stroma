@@ -1,57 +1,114 @@
 ---
-description: Freenet contract development and state management patterns
-globs: **/*freenet*.rs,**/*contract*.rs,**/*wasm*.rs
+description: Freenet contract development with ComposableState and summary-delta synchronization
+globs: **/*freenet*.rs,**/*contract*.rs,**/*wasm*.rs,**/*state*.rs
 alwaysApply: false
 ---
 
 # Freenet Integration Standards
 
-## Contract Architecture (Dark State)
+## Critical Update (2026-01-26)
 
-### Wasm Contract Pattern
-- Write Freenet contracts in Rust/Wasm using `freenet-scaffold`
+**Major Architectural Discovery**: Freenet contracts require `ComposableState` trait for summary-delta synchronization.
+
+**References:**
+- [freenet-scaffold](https://github.com/freenet/freenet-scaffold) - Contract development utilities
+- [Understanding Delta-Sync](https://freenet.org/news/summary-delta-sync/) - Synchronization approach
+- `.cursor/rules/freenet-contract-design.mdc` - Complete ComposableState patterns
+
+**Key Changes**:
+- ❌ **OLD**: Store Merkle Trees in contract state
+- ✅ **NEW**: Use set-based structures (BTreeSet), generate Merkle Trees on-demand
+- ❌ **OLD**: Store Vec<VouchProof> (not easily mergeable)
+- ✅ **NEW**: Use HashMap<MemberHash, BTreeSet<MemberHash>> (naturally mergeable)
+
+## Contract Architecture (Eventual Consistency)
+
+### Wasm Contract Pattern with ComposableState
+- Write Freenet contracts in Rust/Wasm using `freenet-scaffold` v0.2+
 - **Decentralized State**: Contract exists across network, no single server
-- **Deterministic Execution**: Every node calculates same result
-- Contracts accept ZK-SNARK as input for verification
-- Store Merkle Tree of Proofs, not member lists
+- **Eventual Consistency**: States merge via summary-delta synchronization (no consensus)
+- **Mergeable Structures**: Use CRDT-like patterns (BTreeSet, HashMap, Last-Write-Wins)
+- **ComposableState Trait**: All state fields must implement verify, summarize, delta, apply_delta
+- **Merkle Trees**: Generated on-demand for ZK-proof verification (not stored in contract)
 - **Ephemeral Relationship Data**: Deleted after vetting threshold met
 - **State Survives**: Trust state persists even if bot/server crashes
 
-### Group Configuration Storage
+### Group Configuration (Last-Write-Wins)
 ```rust
-pub struct GroupConfig {
-    // Consensus thresholds (changeable via group vote only)
-    pub federation_approval_threshold: f32,  // e.g., 0.70 (70%)
-    pub config_change_threshold: f32,        // e.g., 0.80 (80%)
+use freenet_scaffold::ComposableState;
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct GroupConfigV1 {
+    // Consensus thresholds
+    config_change_threshold: f32,      // e.g., 0.70 (70%) - used for ALL decisions
+    ejection_appeal_threshold: f32,    // e.g., 0.60 (60%)
     
-    // Admission and membership thresholds
-    pub min_vouch_threshold: usize,          // Default: 2 (minimum to stay in group)
-    pub use_percentage_thresholds: bool,     // Toggle fixed vs percentage-based
-    pub validator_threshold_fixed: usize,    // Default: 3 (if fixed)
-    pub validator_percentile: u32,           // e.g., 20 (if percentage-based)
+    // Federation parameters
+    min_intersection_density: f32,     // e.g., 0.10-0.30 (per-group)
+    validator_percentile: u32,         // e.g., 20 (top 20%)
     
-    // Federation density thresholds (per-group, independent)
-    pub min_intersection_density_self: f32,  // e.g., 0.10-0.30 (BidirectionalMin)
+    // Trust parameters
+    min_vouch_threshold: usize,        // Default: 2 (minimum vouches to stay in group)
     
-    // Discovery URIs (percentile-based)
-    pub discovery_percentiles: Vec<u32>,     // e.g., [10, 20, 30, 50]
+    // Metadata (for Last-Write-Wins conflict resolution)
+    version: u64,                      // Incremented on each change
+    last_updated: Timestamp,
+}
+
+impl ComposableState for GroupConfigV1 {
+    type Summary = (u64, Timestamp);
+    type Delta = Option<GroupConfigV1>;
     
-    // Metadata
-    pub config_version: u64,
-    pub last_updated: Timestamp,
+    fn apply_delta(&mut self, .., delta: &Option<Self::Delta>) -> Result<(), String> {
+        if let Some(new_config) = delta {
+            // Last-Write-Wins: Keep config with higher version
+            if new_config.version > self.version {
+                *self = new_config.clone();
+            }
+        }
+        Ok(())
+    }
 }
 ```
 
 **Configuration Management:**
 - All config stored in Freenet contract, NOT controlled by operator
-- Changes require group vote exceeding `config_change_threshold`
+- Changes require Signal Poll vote exceeding `config_change_threshold`
 - Any member can query: `/mesh config`
-- Any member can propose: `/propose-config key=value`
+- Any member can propose: `/propose-config key=value [reason]`
+- Last-Write-Wins conflict resolution via version field
 
-### State Verification
-Contract must verify:
+### State Verification (Contract verify() Method)
+```rust
+impl ComposableState for TrustNetworkState {
+    fn verify(&self, _parent: &Self::ParentState, params: &Self::Parameters) -> Result<(), String> {
+        // Verify all members have >= min_vouch_threshold EFFECTIVE vouches
+        // (considering vouch invalidation when voucher flags)
+        for member in &self.members.active {
+            let (effective_vouches, standing) = self.calculate_effective_state(member);
+            
+            // Check effective vouch count (not total vouches)
+            if effective_vouches < self.config.min_vouch_threshold {
+                return Err(format!(
+                    "Member {} has only {} effective vouches (need {})",
+                    member, effective_vouches, self.config.min_vouch_threshold
+                ));
+            }
+            
+            // Verify standing >= 0
+            if standing < 0 {
+                return Err(format!("Member {} has negative standing ({})", member, standing));
+            }
+        }
+        
+        // [Optional] Verify ZK-proofs (TBD based on Spike Week Q1)
+        
+        Ok(())
+    }
+}
 ```
-zk-Proof(Voucher IN Tree AND Hash_new NOT_IN Tree)
+
+**Key Change**: Verification uses **effective vouches** (total minus voucher-flaggers), not total vouches.
 ```
 
 ## Emergent Discovery (Shadow Beacons)

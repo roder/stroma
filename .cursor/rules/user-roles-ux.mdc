@@ -274,9 +274,32 @@ Bot → Alice (1-on-1 PM):
 "Flag recorded and verified on Freenet.
 
 @Bob's trust standing:
-- Vouches: 4
-- Flags: 1
+- All vouches: 4 (Carol, Dave, Eve, Frank)
+- All flags: 1 (Alice)
+- Voucher-flaggers: 0 (none of Bob's vouchers flagged him)
+- Effective vouches: 4
+- Regular flags: 1
 - Standing: 3 (positive)
+
+@Bob remains in the group."
+```
+
+**Flag by Voucher (Vouch Invalidation):**
+```
+Member Carol: /flag @Bob "Behavior changed, no longer trust them"
+
+Bot → Carol (1-on-1 PM):
+"Flag recorded and verified on Freenet.
+
+⚠️ Note: You previously vouched for @Bob. Flagging them invalidates your vouch.
+
+@Bob's trust standing:
+- All vouches: 4 (Carol, Dave, Eve, Frank)
+- All flags: 2 (Alice, Carol)
+- Voucher-flaggers: 1 (Carol - vouch invalidated)
+- Effective vouches: 3 (Dave, Eve, Frank remain)
+- Regular flags: 1 (Alice)
+- Standing: 2 (positive)
 
 @Bob remains in the group."
 ```
@@ -441,15 +464,40 @@ Bot → Member (1-on-1 PM):
 "📊 Your Trust Status
 
 Role: Bridge
-Vouches: 2
-Flags: 0
+All vouches: 2 (Alice, Bob)
+All flags: 0
+Voucher-flaggers: 0
+Effective vouches: 2 ✅
+Regular flags: 0
 Standing: +2 (positive)
 
-💡 Tip: You're at minimum vouch threshold. Building more 
+💡 Tip: You're at minimum effective vouch threshold. Building more 
 connections will increase your resilience. If a voucher 
-leaves the group, you'll need immediate replacement vouches.
+leaves the group OR flags you, you'll need immediate replacement vouches.
 
 Your vouchers are from different clusters (good intersectional diversity)."
+```
+
+**Status with Voucher-Flagger:**
+```
+Member: /status
+
+Bot → Member (1-on-1 PM):
+"📊 Your Trust Status
+
+Role: Bridge
+All vouches: 3 (Alice, Bob, Carol)
+All flags: 1 (Alice)
+⚠️ Voucher-flaggers: 1 (Alice - vouch invalidated)
+Effective vouches: 2 ✅ (Bob, Carol)
+Regular flags: 0
+Standing: +2 (positive)
+
+💡 Note: Alice vouched for you but later flagged you, invalidating 
+her vouch. You still have 2 effective vouches from Bob and Carol.
+
+You're at minimum effective vouch threshold. Consider building more 
+connections for resilience."
 ```
 
 **Network Overview:**

@@ -14,9 +14,11 @@ Every member in the Stroma Signal group MUST have ≥2 vouches from independent 
 
 **Critical Terminology:**
 - **Invitees (Leaf Nodes)**: People OUTSIDE the group being vetted (1 vouch)
-- **Bridges**: Members IN the group with exactly 2 vouches (minimum requirement)
-- **Validators**: Members IN the group with 3+ vouches (high-trust members)
+- **Bridges**: Members IN the group with exactly 2 effective vouches (minimum requirement)
+- **Validators**: Members IN the group with 3+ effective vouches (high-trust members)
 - **Waiting Room**: State of being outside the Signal group during vetting (not a separate chat)
+- **Effective Vouches**: Total vouches minus voucher-flaggers (vouchers who also flagged)
+- **Vouch Invalidation**: If a voucher flags a member, that vouch is invalidated (logical consistency)
 
 ## Bootstrap: Seed Group (One-Time)
 

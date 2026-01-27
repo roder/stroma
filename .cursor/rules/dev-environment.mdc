@@ -59,6 +59,12 @@ export PATH=$PATH:/opt/homebrew/bin  # Use 'set -x' instead
 
 ## Rust Development
 
+### Rust Version
+- **Required**: Rust 1.93+ (for musl 1.2.5 with improved DNS resolver)
+- **Update**: `rustup update stable`
+- **Verify**: `rustc --version` (should show 1.93+)
+- **Why 1.93+**: Bundled musl 1.2.5 improves networking reliability for Signal and freenet-core
+
 ### Cargo Commands
 - Use `cargo` commands directly (no wrapper scripts needed)
 - Run tests with: `cargo nextest run`
@@ -67,7 +73,7 @@ export PATH=$PATH:/opt/homebrew/bin  # Use 'set -x' instead
 
 ### Build Targets
 - **Development**: Native target for faster iteration
-- **Production**: `x86_64-unknown-linux-musl` (static MUSL binary)
+- **Production**: `x86_64-unknown-linux-musl` (static MUSL binary with musl 1.2.5)
 - Use `cross` or `cargo build --target` for cross-compilation
 
 ### Environment Variables

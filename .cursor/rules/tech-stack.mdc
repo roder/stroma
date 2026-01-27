@@ -64,10 +64,14 @@ alwaysApply: true
 - **Constraint**: Never store Signal IDs in cleartext, ephemeral memory (wipe immediately)
 
 #### `freenet-scaffold`
-- **Purpose**: Freenet Wasm contract development
-- **Usage**: Merkle tree trust state, contract logic
-- **Requirement**: Contracts must accept ZK-SNARK for verification
-- **Pattern**: Write contracts in Rust/Wasm
+- **Purpose**: Freenet Wasm contract development with summary-delta synchronization
+- **Version**: 0.2+ (with freenet-scaffold-macro)
+- **Usage**: Implement ComposableState trait for mergeable state structures
+- **Requirement**: All contract state fields must implement ComposableState
+- **Pattern**: Use #[composable] macro for automatic Summary/Delta generation
+- **Synchronization**: Summary-delta sync for eventual consistency (no consensus)
+- **State Structures**: Prefer BTreeSet, HashMap (naturally mergeable)
+- **Merkle Trees**: Generate on-demand from sets (not stored in contract)
 
 ### Storage & Caching
 
@@ -239,12 +243,16 @@ strip = true  # Strip symbols
 - ❌ **DON'T**: Make Signal group the source of truth
 
 ### Freenet Integration Guardrails
-- ✅ **DO**: Store Merkle Tree of Proofs
-- ✅ **DO**: Use ZK-SNARKs for all verification
-- ✅ **DO**: Implement recursive proofs for scalability
-- ❌ **DON'T**: Store member lists directly
-- ❌ **DON'T**: Bypass ZK-proof verification
-- ❌ **DON'T**: Expose member identities in contract state
+- ✅ **DO**: Use ComposableState trait for all contract state
+- ✅ **DO**: Use set-based structures (BTreeSet, HashMap) for mergeability
+- ✅ **DO**: Generate Merkle Trees on-demand (not stored in contract)
+- ✅ **DO**: Implement summary-delta synchronization
+- ✅ **DO**: Test merge semantics are commutative (order-independent)
+- ✅ **DO**: Use tombstones for deletions (grow-only sets)
+- ❌ **DON'T**: Store Merkle Trees as primary state (not mergeable)
+- ❌ **DON'T**: Use Vec for state (order matters, not easily mergeable)
+- ❌ **DON'T**: Bypass ComposableState trait (required by freenet-scaffold)
+- ❌ **DON'T**: Expose member identities in contract state (use hashes)
 
 ### Cryptographic Guardrails
 - ✅ **DO**: Use `ring` for all HMAC operations
@@ -279,9 +287,14 @@ strip = true  # Strip symbols
 ## Version Constraints
 
 ### Rust Version
-- **Minimum**: Latest stable Rust (1.70+)
+- **Minimum**: Rust 1.93+ (released Jan 22, 2026)
 - **Edition**: 2021
-- **Rationale**: Security updates and modern features
+- **Rationale**: 
+  - Bundled musl 1.2.5 with major DNS resolver improvements
+  - More reliable networking for Signal and freenet-core
+  - Better handling of large DNS records and recursive name servers
+  - Security updates and modern features
+- **Reference**: [Rust 1.93 Release](https://www.infoworld.com/article/4120988/rust-1-93-updates-bundled-musl-library-to-boost-networking.html)
 
 ### Dependency Versions
 - **Strategy**: Pin to latest stable, audited versions
