@@ -14,7 +14,7 @@ Build federations of human networks connected by trust while preserving individu
 
 ## The Problem
 
-You want a private group chat where everyone can trust each other. But how do you know who to let in?
+Activists are frequently subject to repression, which prevents meaningful coordination because they do not know or trust all members of their group.  On the other hand, it is not ideal to be known by all members of the group, but how can the group know they trust you?
 
 Traditional solutions create new problems:
 - **Invite links**: Anyone with the link can join - no vetting
@@ -95,6 +95,7 @@ Stroma serves three audiences. Choose your path:
 **You want to understand or contribute to Stroma.**
 
 - **[Developer Guide](docs/DEVELOPER-GUIDE.md)** - Architecture, technical stack, contract design
+- **[Algorithms](docs/ALGORITHMS.md)** - **MST matchmaking, PSI-CA federation, complexity analysis**
 - **[Trust Model Technical](docs/TRUST-MODEL.md)** - Vouch invalidation, ejection triggers, mesh health
 - **[Federation Roadmap](docs/FEDERATION.md)** - Phase 4+ vision and design
 - **[TODO Checklist](docs/TODO.md)** - Implementation roadmap and task tracking

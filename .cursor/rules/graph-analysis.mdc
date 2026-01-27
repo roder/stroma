@@ -14,6 +14,8 @@ This module applies ONLY to analyzing and optimizing the trust graph **within a 
 
 Build a **Minimum Spanning Tree of Trust** within the group using the least number of strategic introductions.
 
+**See**: `docs/ALGORITHMS.md` for complete mathematical foundations, complexity analysis, and worked examples.
+
 ## Node Type Classification
 
 ### Dynamic Thresholds (Configurable)
@@ -224,10 +226,10 @@ Bot → Validator (via PM):
 
 ### Graph Library
 - Use `petgraph` crate for topology analysis
-- Implement algorithms:
-  - Connected components detection
-  - Minimum Spanning Tree calculation
-  - Centrality measures (identify high-entropy validators)
+- Implement algorithms (see `docs/ALGORITHMS.md` for pseudocode):
+  - **Union-Find** for connected components detection (O(N × α(N)))
+  - **Brandes' Algorithm** for betweenness centrality (O(N × E))
+  - **Greedy MST Construction** for strategic introductions (O(N × E))
 
 ### Optimization
 - Run topology analysis when:
@@ -235,10 +237,15 @@ Bot → Validator (via PM):
   - Member ejected (topology may have changed)
   - Member requests `/mesh status`
 - Cache analysis results, invalidate on state change
-- Keep analysis efficient (< 1 second for groups up to 200 members)
+- Performance targets (see `docs/ALGORITHMS.md` Complexity Analysis):
+  - 20 members: < 10ms
+  - 100 members: < 50ms
+  - 500 members: < 200ms
+  - 1000 members: < 500ms
 
 ### Privacy Preservation
 - Never log relationship details
 - Never expose why bot suggested specific pairing
 - Graph analysis results stored only in memory, never persisted
 - Use hashed identifiers throughout
+- See `docs/ALGORITHMS.md` "Privacy Guarantees" section for formal analysis

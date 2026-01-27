@@ -30,6 +30,7 @@ This guide explains Stroma's architecture, technical stack, and development work
 - **On-Demand Merkle Trees** - Generated from BTreeSet for ZK-proofs (not stored)
 - **ComposableState** - Freenet trait for mergeable state with summary-delta sync
 - **Vouch Invalidation** - Logical consistency (can't both trust and distrust)
+- **Minimum Spanning Tree** - Optimal mesh topology with maximum anonymity (see [ALGORITHMS.md](ALGORITHMS.md))
 
 ## Technical Stack
 
@@ -98,9 +99,9 @@ src/
 │   └── health_monitor.rs            # Continuous standing checks
 ├── matchmaker/                      # Internal Mesh Optimization
 │   ├── mod.rs
-│   ├── graph_analysis.rs            # Topology analysis
-│   ├── cluster_detection.rs         # Identify internal clusters
-│   └── strategic_intro.rs           # MST optimization suggestions
+│   ├── graph_analysis.rs            # Topology analysis (Union-Find, centrality)
+│   ├── cluster_detection.rs         # Identify internal clusters (connected components)
+│   └── strategic_intro.rs           # MST optimization (see ALGORITHMS.md)
 ├── config/                          # Group Configuration
 │   ├── mod.rs
 │   └── group_config.rs              # GroupConfig struct (Freenet contract)
@@ -113,6 +114,8 @@ src/
 ```
 
 **Key Design**: `federation/` exists but is disabled via feature flag in MVP (validates architecture scales).
+
+**See**: [ALGORITHMS.md](ALGORITHMS.md) for detailed MST algorithm, PSI-CA protocol, and complexity analysis.
 
 ### Future: Shadow Handover (Phase 4+)
 
@@ -849,6 +852,7 @@ This project uses **Gastown** - multi-agent coordination with specialized roles:
 ## Resources
 
 ### Internal Documentation
+- [Algorithms](ALGORITHMS.md) - **Matchmaking algorithms & cryptographic protocols**
 - [User Guide](USER-GUIDE.md) - For group members
 - [Operator Guide](OPERATOR-GUIDE.md) - For bot administrators
 - [Trust Model](TRUST-MODEL.md) - Mathematical details
