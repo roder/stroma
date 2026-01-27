@@ -26,6 +26,7 @@ alwaysApply: false
 - Reduced attack surface (no IPC)
 - Better error handling (in-process)
 - Easier for operators
+- **Trust Map Protection**: Distributed state (no single seizure point)
 
 ### Update 2 (2026-01-26): ComposableState Requirement
 **Major Architectural Discovery**: Freenet contracts require `ComposableState` trait for summary-delta synchronization.

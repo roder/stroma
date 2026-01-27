@@ -27,10 +27,11 @@ alwaysApply: true
 - Priority 2: Connect Validators across disconnected islands
 - Note: ANY Member can vouch, but bot suggests Validators for optimization
 
-**Anonymity Trade-off:**
-- Bot knows topology (who has how many vouches, cluster membership)
-- Bot does NOT know why relationships exist or relationship content
-- Bot uses this to optimize for intersectional mesh
+**Trust Map Protection:**
+- Bot operates on HMAC hashes only (no cleartext identities stored)
+- Bot knows topology (vouch counts, cluster membership via hashes)
+- Even if bot seized, adversary only gets hashes and topology, not identities
+- Three-layer defense prevents trust map seizure in usable form
 
 **Node Types (Within Group):**
 - **Bridges**: Members with 2 vouches (minimum requirement)
@@ -53,10 +54,11 @@ alwaysApply: true
 - Propose federation if BidirectionalMin thresholds satisfied
 - Facilitate cross-mesh vouching after federation
 
-**Anonymity Guarantee:**
+**Trust Map Protection (Cross-Group):**
 - Bot knows NOTHING about other group's structure
-- Only knows: group size, overlap count, threshold
-- Complete privacy preservation
+- Only knows: group size, overlap count (via PSI-CA)
+- Even if one bot seized, can't enumerate other group's members
+- Double-blinding prevents either group from decrypting alone
 
 ## Terminology Rules
 

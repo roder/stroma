@@ -110,7 +110,8 @@ AND: Send_Private_Notification(Member_Hash,
 **Bot Characteristics:**
 - **Natural Language**: Bot responds conversationally, not with technical jargon
 - **Proactive Suggestions**: Bot may suggest strategic introductions to strengthen mesh
-- **Privacy**: All operations use hashed identifiers, never expose social graph
+- **Metadata Isolation**: All vetting in 1-on-1 PMs (Layer 3 of trust map protection)
+- **Privacy**: All operations use hashed identifiers, no cleartext stored
 
 ### Voting Interface: Signal Polls
 - **Structured Voting**: Use Signal Polls for all group decisions (NOT reactions)

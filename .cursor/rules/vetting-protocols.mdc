@@ -347,7 +347,7 @@ fn calculate_validator_threshold(group_size: usize, percentile: u32) -> usize {
 - **Purpose**: Build MST with least effort
 - **Knowledge**: Bot analyzes topology to identify optimal pairings
 - **Strategy**: Priority-based (Bridges first, then bridge islands)
-- **Anonymity Trade-off**: Bot knows graph structure but not why relationships exist
+- **Trust Map Protection**: Bot operates on hashes only, no cleartext identities stored
 - **Context**: Single Stroma group, internal cluster optimization
 - **Who Can Vouch**: ANY Member (Bridges and Validators), bot suggests optimal matches
 
@@ -355,7 +355,7 @@ fn calculate_validator_threshold(group_size: usize, percentile: u32) -> usize {
 - **Purpose**: Discover and federate with other Stroma groups
 - **Knowledge**: Bot knows nothing about other group's structure
 - **Strategy**: PSI-CA for anonymous overlap calculation
-- **Anonymity**: Complete - no graph structure revealed
+- **Trust Map Protection**: Even if one bot seized, can't enumerate other group's members
 - **Context**: Federation between separate Stroma groups
 
 ## Key Architectural Principles
