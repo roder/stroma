@@ -17,6 +17,31 @@ A **service runner** who maintains the bot infrastructure.
 
 **After bootstrap, you're just another member with service maintenance duties.**
 
+## Operator Threat Model
+
+**Your Responsibility**: Protect the infrastructure from seizure while understanding you can't compromise member identities even if coerced.
+
+### If You Are Compromised
+
+**Scenario**: Police/adversary seizes your server or coerces you to hand over data.
+
+**What They Get**:
+- Hashed identifiers (can't be reversed to real identities)
+- Group size and connection topology (but not who people actually are)
+- Vouch counts (but not relationship details)
+
+**What They DON'T Get**:
+- Member identities (never stored in cleartext)
+- Trust map in usable form (distributed across Freenet network)
+- Vetting conversation history (ephemeral, deleted after admission)
+
+**Three-Layer Defense** (built into the system):
+1. **No Centralized Storage**: Trust map distributed across Freenet peers
+2. **Cryptographic Privacy**: Only hashes in memory/storage, immediate zeroization
+3. **Metadata Isolation**: All vetting in 1-on-1 PMs, you can't manually export data
+
+**Your Job**: Keep the service running. The architecture protects members even if you're compromised.
+
 ## Prerequisites
 
 ### Required

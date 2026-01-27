@@ -487,6 +487,12 @@ vouches from current members via /invite. No cooldown period."
 
 ## Zero-Knowledge Proof Verification
 
+### Purpose: Trust Map Protection
+
+**Threat**: Adversary seizes bot server and captures trust map to identify members
+
+**Defense**: ZK-proofs verify trust without exposing who vouched for whom
+
 ### What Gets Verified
 
 For admission, bot proves:
@@ -497,10 +503,11 @@ Voucher_A ≠ Voucher_B AND
 Invitee ∉ Active_Members
 ```
 
-**Without revealing**:
-- Who Voucher_A is
-- Who Voucher_B is
-- The social graph structure
+**Without revealing** (even if server seized):
+- Who Voucher_A actually is (only hash)
+- Who Voucher_B actually is (only hash)
+- The complete social graph structure
+- Relationship content or reasons
 
 ### STARK Proof
 

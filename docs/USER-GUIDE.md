@@ -333,30 +333,47 @@ The bot abstracts all technical complexity. You just use simple Signal commands.
 
 ## Privacy & Security
 
-### What the Bot Knows
-- Pattern of connections (topology)
-- Trust standings (vouches, flags)
-- Network structure (clusters)
+### How Your Group is Protected
 
-### What the Bot Doesn't Know
-- Why you trust people
-- What you talk about
-- Your personal relationships
-- Content of your conversations
+**The Real Threat**: What happens if a state-level adversary or compromised operator tries to seize the trust map to identify members?
+
+**Three-Layer Defense**:
+
+1. **No Single Place to Seize**
+   - Trust map stored across distributed Freenet network (not one server)
+   - Adversary would need to seize multiple peers to reconstruct
+
+2. **Only Hashes, Not Identities**
+   - Your Signal ID is hashed immediately (can't be reversed)
+   - Bot memory contains only hashes, never cleartext
+   - Even if server compromised, adversary only gets hashes
+
+3. **No Signal Metadata**
+   - All vetting in 1-on-1 private messages (not group chat)
+   - Operator can't manually export or query trust map
+   - No logs of why people trust each other
+
+**Result**: Even if adversary compromises the bot or server, they only get:
+- Hashes (not your real identity)
+- Group size and connection patterns (not who you actually are)
+- Vouch counts (not relationship details)
 
 ### What's Protected
-- **Signal IDs**: Never stored in cleartext (HMAC-hashed immediately)
-- **Social Graph**: Never exposed to anyone (ZK-proofs hide structure)
-- **Vetting Content**: Deleted after admission (ephemeral)
-- **Metadata**: All operations in 1-on-1 PMs (not group chat)
+- **Your Identity**: Never stored in cleartext, always hashed
+- **Trust Relationships**: Distributed across network, can't be seized from one place
+- **Vetting Conversations**: Deleted after admission (ephemeral)
+- **Group Metadata**: All operations in 1-on-1 PMs (not group chat)
 
 ## Common Questions
 
 ### Can the operator see who I am?
-No. The operator sees only hashed identifiers, not cleartext Signal IDs.
+No. The operator sees only hashed identifiers, not your real Signal ID. Even if coerced, they can't reveal your identity.
 
 ### Can the operator add/remove people?
-No. Only the bot can add/remove people, and only based on Freenet contract state.
+No. Only the bot can add/remove people, and only based on Freenet contract state. Operator can't manually override this.
+
+### What if the server is seized by police/government?
+They would only get hashes (not identities) and connection patterns (not relationship details). Your real identity remains protected because it's never stored in cleartext.
 
 ### What if my voucher leaves the group?
 You need an immediate replacement vouch to stay in. Bot monitors this automatically and will notify you.
