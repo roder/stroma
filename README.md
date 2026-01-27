@@ -2,7 +2,7 @@
 
 **Secure group messaging where trust is earned, not granted.**
 
-The goal of this project is to build federations of human networks based on trust and anonymity. 
+The goal of this project is to help build federations of human networks based on trust and anonymity. 
 
 ## The Problem
 
@@ -26,19 +26,38 @@ Stroma is a **smart bot** (no AI) that manages your Signal group using a simple 
 
 ### How It Works (Simple):
 
-1. **Someone invites you**: A member sends `/invite @YourName` to the bot (this counts as your first vouch)
-2. **You get vetted**: The bot introduces you to a second person from a different part of the network for a brief chat
-3. **Second vouch**: After your conversation, they vouch for you with `/vouch @YourName`
-4. **You're admitted**: The bot adds you to the Signal group (you're now a Bridge with 2 vouches)
-5. **You stay connected**: Keep building relationships - if your vouchers leave, you need new ones immediately
+1. **Someone invites you**: A member sends `/invite @YourName "Context about you"` to the bot in a private message
+   - Their invitation counts as your first vouch
+   - Bot immediately starts the vetting process
+
+2. **You get vetted**: The bot introduces you to a second member from a different part of the network
+   - Bot creates a 3-person Signal chat (you, the member, and the bot)
+   - You have a brief conversation (10-15 minutes)
+   - Bot doesn't participate - just facilitates the introduction
+
+3. **Second vouch**: After your conversation, the member vouches for you
+   - They send `/vouch @YourName` to the bot
+   - Bot verifies the second vouch with cryptographic proof
+
+4. **You're admitted**: The bot adds you to the Signal group
+   - You're now a Bridge (2 effective vouches)
+   - Your trust standing is positive
+   - Bot welcomes you and deletes all vetting session data
+
+5. **You stay connected**: Keep building relationships in the group
+   - If a voucher leaves the group → you need a new vouch immediately
+   - If a voucher flags you → their vouch is invalidated, you need a replacement
+   - Build 3+ connections to become a Validator (more resilient)
 
 ### The Magic:
 
 The bot acts like a **"Blind Matchmaker"** - it sees the pattern of connections but doesn't know your personal relationships. It suggests introductions to strengthen the group's trust network without knowing why people trust each other.
 
-**For non-technical users**: It just feels like a helpful bot that manages your group. You don't need to understand the technical details.
+**For non-technical users**: It just feels like a helpful bot that manages your Signal group. You use simple commands like `/invite @friend` or `/status` in private messages with the bot. The bot handles everything else automatically - vetting newcomers, monitoring trust, and keeping the group secure. You don't need to understand the technical details.
 
-**For privacy advocates**: All identities are cryptographically hashed (HMAC-SHA256), trust is verified with zero-knowledge proofs (STARKs - no trusted setup), and the social graph is never exposed.
+**For privacy advocates**: All identities are cryptographically hashed (HMAC-SHA256 with group-secret pepper), trust is verified with zero-knowledge proofs (STARKs - no trusted setup, post-quantum secure), state is stored in decentralized Freenet network with eventual consistency (ComposableState, summary-delta sync), and the social graph is never exposed.
+
+**For developers**: Built on [freenet-core](https://github.com/freenet/freenet-core) (Rust-native Wasm contracts with ComposableState trait). Uses set-based membership (BTreeSet) with on-demand Merkle Tree generation for ZK-proof verification. State synchronizes via summary-delta protocol with CRDT-like merge semantics (no consensus algorithms). Trust verified via STARKs (winterfell library). See [freenet-contract-design.mdc](.cursor/rules/freenet-contract-design.mdc) for patterns.
 
 ## Why "Stroma"?
 
@@ -46,9 +65,97 @@ In biology, stroma is the supportive tissue that holds organs together. In your 
 
 ---
 
+## User Experience
+
+### For Group Members
+
+#### Daily Interaction
+You interact with Stroma through a bot in Signal - the messaging app you already use. Everything happens through simple commands in private messages:
+
+**Inviting someone new:**
+```
+You → Bot (1-on-1 PM): /invite @Friend "Great organizer from local community"
+
+Bot → You:
+"Your invitation for @Friend has been recorded as the first vouch.
+I'm now reaching out to a member from a different part of the network 
+for the second vouch. I'll keep you updated."
+```
+
+**Checking your status:**
+```
+You → Bot: /status
+
+Bot → You:
+"📊 Your Trust Status
+Role: Bridge
+Effective vouches: 2 ✅ (Alice, Bob)
+Standing: +2 (positive)
+
+💡 Tip: You're at minimum threshold. Building more connections 
+will increase your resilience if a voucher leaves or flags you."
+```
+
+**Viewing network health:**
+```
+You → Bot: /mesh strength
+
+Bot → You:
+"📈 Network Strength: 38% Mesh Density
+
+Vouch Distribution:
+  2 vouches (Bridges):    ████████░░░░ 22 members (47%)
+  3-5 vouches:            █████░░░░░░░ 15 members (32%)
+  ...
+"
+```
+
+#### What You See
+- **Natural Language**: Bot speaks conversationally, not with technical jargon
+- **Privacy**: All interactions in 1-on-1 PMs (never in group chat)
+- **Transparency**: You can see your trust standing, network health, and configuration
+- **Simplicity**: Complex cryptography and Freenet state management completely hidden
+
+#### What You Don't See
+- Freenet contracts, ComposableState, or summary-delta synchronization
+- HMAC hashing, zeroization, or Merkle Tree generation
+- STARK proof generation or verification
+- State stream monitoring or merge conflicts
+
+The bot handles all technical complexity automatically. You just use simple Signal commands.
+
+### For Operators
+
+#### Responsibilities
+- **Bootstrap** (one-time): Manually add 3 seed members, initialize Freenet contract, start bot
+- **Maintenance** (ongoing): Run bot service (systemd), monitor logs, restart on crashes
+- **NO Special Privileges**: Operator is just another member (cannot override group decisions)
+
+#### What Operators Can't Do
+- Manually add/remove members (bot does this automatically based on Freenet state)
+- Change configuration without group vote
+- Override ejections or bypass trust protocol
+- See cleartext Signal IDs (only hashed identifiers)
+
+#### Deployment
+```bash
+# Start freenet-core node
+systemctl start freenet-core
+
+# Start Stroma bot
+systemctl start stroma-bot
+
+# Monitor (read-only)
+journalctl -u stroma-bot -f
+```
+
+Operator is a **service runner**, not a **privileged admin**. The group governs itself through Signal Polls.
+
+---
+
 ## Technical Overview
 
-Stroma (also known as the **Nexus-Mesh Protocol**) is a scalable trust network that leverages Signal for its user interface and Freenet for its decentralized, anonymous back-end. The core innovation is **Recursive Zero-Knowledge (ZK) Vouching**, which allows the network to scale by 10²-10³ without revealing the social graph.
+Stroma is a scalable trust network that leverages Signal for its user interface and Freenet for its decentralized, anonymous back-end. The core innovation is **Recursive Zero-Knowledge (ZK) Vouching**, which allows the network to scale by 10²-10³ without revealing the social graph.
 
 **Fundamental Principle**: Trust is an **emergent property** of the mesh, not a centralized database.
 
@@ -98,10 +205,12 @@ Stroma (also known as the **Nexus-Mesh Protocol**) is a scalable trust network t
 
 Traditional trust networks require revealing the social graph to scale. Stroma solves this by:
 
-- **Zero-Knowledge Proofs**: Verify trust without revealing who vouched
+- **Zero-Knowledge Proofs**: Verify trust without revealing who vouched (STARKs - no trusted setup)
 - **Recursive Proofs**: Batch updates for constant-time verification regardless of network size
 - **Private Set Intersection (PSI)**: Calculate overlap between groups without revealing member identities
-- **Merkle Tree of Proofs**: Store cryptographic proofs, not member lists
+- **Set-Based Membership**: Store member sets (BTreeSet), generate Merkle Trees on-demand for ZK-proofs
+- **Mergeable State**: CRDT-like structures enable eventual consistency without consensus algorithms
+- **Vouch Invalidation**: Voucher-flaggers invalidate their own vouches (logical consistency)
 
 ### Scaling Model
 
@@ -114,12 +223,15 @@ Traditional trust networks require revealing the social graph to scale. Stroma s
 
 ### Key Terminology
 
-- **Trust Standing**: `Standing = Vouches - Flags` (must remain positive)
+- **Trust Standing**: `Standing = Effective_Vouches - Regular_Flags` (must remain ≥ 0)
+- **Effective Vouches**: Total vouches minus voucher-flaggers (vouchers who also flagged)
+- **Vouch Invalidation**: If a voucher flags a member, that vouch is invalidated
+- **Voucher-Flaggers**: Members who both vouched for AND flagged someone (contradictory, invalidates vouch)
 - **Social Anchor**: Top-N validators used for emergent bot discovery
 - **Shadow Beacon**: Encrypted bot discovery advertisement on Freenet
 - **PSI-CA**: Private Set Intersection Cardinality for anonymous overlap detection
-- **Trust Horizon**: Anonymous trust verification without lineage tracing
-- **Recursive Vouching**: Trust flows through bridges at scale
+- **ComposableState**: Freenet trait for mergeable state with summary-delta synchronization
+- **On-Demand Merkle Trees**: Generated from member sets for ZK-proofs (not stored in contract)
 - **Fluid Selfhood**: Dynamic, relational identity concept
 
 ## Architecture
@@ -127,33 +239,47 @@ Traditional trust networks require revealing the social graph to scale. Stroma s
 ### Three-Layer Design
 
 #### 1. User Interface Layer: Signal
-- Human-facing interface for trust operations
-- Bot commands (`/vouch`, `/status`, `/mesh`, `/flag`)
-- All vetting/vouching in 1-on-1 PMs (never group chat)
-- Bot never stores Signal IDs in cleartext
+- **Human-facing interface** for trust operations (familiar, E2E encrypted)
+- **Bot commands**: 10 commands for invitation, vouching, flagging, status, configuration
+- **All operations in 1-on-1 PMs** (never group chat) - prevents metadata leakage
+- **Conversational responses**: Natural language, non-technical (abstracts complexity)
+- **Signal Polls**: Structured voting for configuration and federation decisions
+- **Privacy**: Bot never stores Signal IDs in cleartext (HMAC-hashed immediately)
 
 #### 2. Trust Logic Layer: Rust Bot
-- **Roles**:
-  - **Protocol Gatekeeper**: Strictly enforces 2-vouch requirement for admission
-  - **Blind Matchmaker (Internal)**: Strategic introductions for MST within single group
-  - **Diplomat (External)**: Federation with other Stroma groups via Blind Rendezvous
-  - **Health Monitor**: Continuous monitoring of trust standing and vouch counts
-- Identity masking (HMAC hashing with group-secret pepper)
-- Trust verification (ZK-proof validation)
-- Ejection protocol (immediate removal when `Standing < 0` OR vouch count < 2)
-- Federation proposals (diplomatic coordination between separate groups)
-- **Ephemeral Memory**: Raw IDs wiped immediately, vetting sessions deleted after admission
-- Stateless - all state comes from Freenet
-- **User Abstraction**: Hides all Freenet complexity from non-technical users
-- **Automatic Execution**: Bot executes contract-approved actions without operator intervention
+- **Four Roles**:
+  - **Protocol Gatekeeper**: Enforces 2-effective-vouch requirement for admission
+  - **Blind Matchmaker**: Suggests strategic introductions across internal clusters for MST optimization
+  - **Diplomat**: Discovers and proposes federation with other groups (Phase 4+)
+  - **Health Monitor**: Continuous trust standing checks via Freenet state stream
+
+- **Core Functions**:
+  - Identity masking (HMAC-SHA256 with group-secret pepper, immediate zeroization)
+  - Trust verification (STARK proof validation via winterfell)
+  - Vouch invalidation (voucher-flaggers invalidate their own vouches)
+  - Ejection protocol (immediate when Standing < 0 OR Effective_Vouches < 2)
+  - Mesh optimization (graph analysis, cluster detection, strategic suggestions)
+  - Configuration management (Signal Polls, automatic updates)
+  
+- **Design Principles**:
+  - **Ephemeral Memory**: Raw Signal IDs wiped immediately, vetting data deleted after admission
+  - **Stateless**: All persistent state comes from Freenet (bot can restart without data loss)
+  - **Event-Driven**: Monitors Freenet state stream, reacts to changes in real-time
+  - **User Abstraction**: Completely hides Freenet/crypto complexity from users
+  - **Automatic Execution**: Executes all Freenet contract-approved actions without operator intervention
 
 #### 3. State Layer: Freenet (Dark)
-- Decentralized, anonymous state storage with eventual consistency
-- Set-based membership (BTreeSet) with summary-delta synchronization
-- Merkle Trees generated on-demand for ZK-proof verification (not stored)
-- ComposableState trait for mergeable state (CRDT-like semantics)
-- State stream monitoring (real-time, not polling)
-- Emergent bot discovery via Social Anchor Hashing
+- **Decentralized Storage**: No central server, state exists across peer-to-peer network
+- **Eventual Consistency**: Summary-delta synchronization (no consensus algorithms like Paxos/Raft)
+- **ComposableState Contracts**: Wasm code defines how to merge conflicting states deterministically
+- **Set-Based Membership**: BTreeSet for members (naturally mergeable via set union)
+- **Vouch Graph**: HashMap<MemberHash, BTreeSet<MemberHash>> (mergeable via map union)
+- **On-Demand Merkle Trees**: Generated from member sets for ZK-proof verification (not stored in contract)
+- **State Stream**: Real-time monitoring (not polling) - bot reacts to changes immediately
+- **Anonymous Routing**: Dark mode (no IP exposure)
+- **Emergent Discovery**: Bots find each other via Social Anchor Hashing (Phase 4+)
+
+**Key Innovation**: Freenet's summary-delta sync enables efficient eventual consistency without requiring all nodes to agree simultaneously.
 
 ## Core Modules
 
@@ -174,22 +300,23 @@ Traditional trust networks require revealing the social graph to scale. Stroma s
 - **Commutative Encryption**: Double-blinding for PSI handshake
 
 ### C. The Gatekeeper (Signal Admin Bot)
-- **Purpose**: Strictly enforce 2-vouch requirement for group admission
+- **Purpose**: Strictly enforce 2-effective-vouch requirement for group admission
 - **Admission Protocol**:
   1. Member sends `/invite @username [context]` - invitation counts as first vouch
   2. Bot selects second Member via Blind Matchmaker (prefers Validators for optimization)
   3. Bot facilitates vetting interview with selected Member from different cluster
   4. Second Member vouches via `/vouch @username`
-  5. Admission ONLY after 2 vouches confirmed in Freenet contract
+  5. Admission ONLY after 2 effective vouches confirmed in Freenet contract
 - **Vouches Source**: ONLY from Members already IN the Stroma Signal group
 - **Who Can Vouch**: ANY Member (Bridges and Validators), not restricted to Validators only
 - **Waiting Room**: State of being OUTSIDE Signal group during vetting (not a separate chat)
-- **Trust Standing**: `Standing = Vouches - Flags` (must remain positive)
+- **Trust Standing**: `Standing = Effective_Vouches - Regular_Flags` (must remain ≥ 0)
+- **Vouch Invalidation**: If a voucher flags a member, that vouch is invalidated
 - **Ejection Triggers**:
-  - `Standing < 0` (flagged too much) → Immediate removal
-  - Vouch count < 2 (voucher left group) → Immediate removal
+  - `Standing < 0` (too many regular flags) → Immediate removal
+  - `Effective_Vouches < 2` (voucher left OR voucher flagged) → Immediate removal
 - **No Grace Periods**: No warnings, no re-verification windows, instant ejection
-- **UX**: All operations in 1-on-1 PMs via Signal Polls
+- **UX**: All operations in 1-on-1 PMs, bot responds conversationally
 - **Bot Commands**: `/invite`, `/vouch`, `/flag`, `/status`, `/mesh`, `/mesh strength`, `/mesh config`, `/propose-config`, `/audit operator`
 
 ### D. The Diplomat (External Federation)
@@ -271,8 +398,10 @@ Standing = Effective_Vouches - Regular_Flags
 
 **Node Classification:**
 - **Invitees (Leaf Nodes)**: 1 vouch, being vetted in "waiting room" (outside group)
-- **Bridges**: 2 vouches (minimum threshold) - at risk if voucher leaves, but in group
-- **Validators**: 3+ vouches - more resilient, used for Blind Matchmaker optimization
+- **Bridges**: 2 effective vouches (minimum threshold) - at risk if voucher leaves OR flags, but in group
+- **Validators**: 3+ effective vouches - more resilient, used for Blind Matchmaker optimization
+
+**Effective Vouches**: Total vouches minus voucher-flaggers (members who both vouched AND flagged you). See Trust Standing section for details.
 
 **No Special Privileges:**
 - Validators have no extra permissions
