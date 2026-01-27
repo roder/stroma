@@ -406,6 +406,30 @@ mod tests {
 - Block unsafe patterns (cleartext IDs, polling, etc.)
 - Read this Bead before every code review
 
+## 11. Git Commit Standards (AI Agents)
+
+### Co-Authorship Attribution (MANDATORY)
+- ✅ **ALWAYS** include Co-authored-by trailer in commits authored by Claude
+- ✅ **ALWAYS** use HEREDOC for proper formatting
+- ✅ Format: `Co-authored-by: Claude <claude@anthropic.com>`
+- ✅ Position: At END of commit message with blank line before
+
+### Example
+```bash
+git commit -m "$(cat <<'EOF'
+Add vouch invalidation logic to trust model
+
+- Voucher-flaggers invalidate their own vouches
+- Prevents logical inconsistency (can't both trust and distrust)
+- Aligns with fluid identity philosophy
+
+Co-authored-by: Claude <claude@anthropic.com>
+EOF
+)"
+```
+
+**See**: `.cursor/rules/git-standards.mdc` for complete git workflow
+
 ## Summary: The Five Absolutes
 
 1. **NEVER store Signal IDs in cleartext** - HMAC hash immediately, zeroize buffers
@@ -413,5 +437,6 @@ mod tests {
 3. **NEVER add grace periods** - Ejection is immediate (no warnings)
 4. **NEVER make Signal source of truth** - Freenet is authoritative
 5. **NEVER restrict vouching to Validators** - ANY Member can vouch
+6. **NEVER commit without Co-authored-by** - All AI-authored commits must attribute Claude
 
 These constraints are IMMUTABLE and apply to ALL code, ALL agents, ALL phases (including federation in Phase 4+).

@@ -1,0 +1,202 @@
+---
+description: Git workflow and commit standards for Stroma project
+globs: **/*
+alwaysApply: true
+---
+
+# Git Standards for Stroma
+
+## Commit Message Standards
+
+### Co-Authorship Attribution (MANDATORY for AI Agents)
+
+**CRITICAL**: All commits authored by Claude MUST include Co-authored-by trailer.
+
+**Format**:
+```bash
+git commit -m "$(cat <<'EOF'
+Commit message title
+
+Optional detailed description of changes.
+
+Co-authored-by: Claude <claude@anthropic.com>
+EOF
+)"
+```
+
+**Requirements**:
+- Co-authored-by line at the END of commit message
+- Blank line before Co-authored-by
+- Exact format: `Co-authored-by: Claude <claude@anthropic.com>`
+- Use HEREDOC for multi-line commit messages (ensures proper formatting)
+
+### Commit Message Style
+
+**Title**:
+- Concise summary (1-2 sentences)
+- Focus on "why" rather than "what"
+- Use imperative mood ("Add feature" not "Added feature")
+- Follow repository's existing style (`git log` for examples)
+
+**Body** (optional but recommended for significant changes):
+- Detailed description of changes
+- List major modifications with bullet points
+- Explain rationale for architectural decisions
+- Reference issues or beads if relevant
+
+**Example Good Commit**:
+```bash
+git commit -m "$(cat <<'EOF'
+Implement ComposableState contract schema for mergeable state
+
+Major changes:
+- Replace Merkle Tree storage with set-based membership (BTreeSet)
+- Add VouchGraph using HashMap for natural mergeability
+- Implement on-demand Merkle Tree generation for ZK-proofs
+- Add summary-delta synchronization support
+
+Rationale:
+- Freenet requires ComposableState trait for eventual consistency
+- Set-based structures are naturally mergeable (CRDT-like)
+- Merkle Trees generated on demand (not stored in contract)
+
+Resolves Outstanding Question Q3 from Spike Week.
+
+Co-authored-by: Claude <claude@anthropic.com>
+EOF
+)"
+```
+
+**Example Bad Commit**:
+```bash
+# ❌ BAD: No co-authorship, no details, vague message
+git commit -m "Update files"
+```
+
+## Branch Management
+
+### Branch Naming
+- Use descriptive branch names
+- Format: `feature/description` or `fix/description`
+- Examples: `feature/vouch-invalidation`, `fix/merkle-tree-performance`
+
+### Main Branch Protection
+- `main` branch should always be in working state
+- Run tests before pushing to main
+- Use feature branches for experimental work
+
+## Workflow Standards
+
+### Before Committing
+1. **Review Changes**: `git diff` to see what's changed
+2. **Run Quality Gates** (if code changed):
+   - `cargo fmt --check`
+   - `cargo clippy -- -D warnings`
+   - `cargo nextest run`
+   - `cargo deny check`
+3. **Stage Selectively**: Add only related changes
+4. **Write Good Message**: Clear, detailed, with Co-authored-by
+
+### Committing Process
+```bash
+# Review what's changed
+git status
+git diff
+
+# Stage changes
+git add <files>
+
+# Commit with Co-authored-by (AI agents)
+git commit -m "$(cat <<'EOF'
+Title: Brief description
+
+Detailed description if needed.
+
+Co-authored-by: Claude <claude@anthropic.com>
+EOF
+)"
+
+# Verify commit
+git log -1 --pretty=fuller
+```
+
+### After Committing
+1. **Sync with Remote**: `git pull --rebase`
+2. **Sync Beads**: `bd sync` (if available)
+3. **Push**: `git push`
+4. **Verify**: `git status` shows "up to date with origin"
+
+## Git Hooks (Pre-commit)
+
+### Security Checks
+- Ensure no Signal IDs in cleartext (grep for patterns)
+- Ensure no secrets or keys committed (`.env`, `*.key`, etc.)
+- Ensure no test data with real identifiers
+
+### Code Quality Checks
+- Run `cargo fmt` (auto-format)
+- Run `cargo clippy` (lint)
+- Run fast unit tests (not integration tests)
+
+## Merge Standards
+
+### Pull Request Requirements
+- All commits must include Co-authored-by if authored by Claude
+- PR description must explain changes
+- All quality gates must pass
+- Security review required for crypto/identity code
+
+### Merge Strategy
+- Prefer rebase over merge commits for linear history
+- Squash feature branches before merging to main
+- Keep main branch history clean and readable
+
+## Commit Anti-Patterns
+
+### ❌ NEVER Do These
+- Commit without Co-authored-by (when Claude authored)
+- Commit secrets or keys (`.env`, `*.key`, etc.)
+- Commit cleartext Signal IDs or test data
+- Use `git commit -m "wip"` or `git commit -m "update"`
+- Skip quality gates before committing
+- Force push to main (`git push --force`)
+- Amend commits that have been pushed (without explicit user request)
+- Skip hooks (`git commit --no-verify`)
+
+### ✅ ALWAYS Do These
+- Include Co-authored-by for AI-authored commits
+- Review changes before committing (`git diff`)
+- Write clear, detailed commit messages
+- Run quality gates before pushing
+- Pull with rebase before pushing
+- Verify push succeeded (`git status`)
+
+## Special Cases
+
+### Amending Commits
+- Only amend if:
+  1. User explicitly requested amend, OR
+  2. Commit SUCCEEDED but pre-commit hook auto-modified files, AND
+  3. HEAD commit was created by you in this conversation, AND
+  4. Commit has NOT been pushed to remote
+- NEVER amend pushed commits (requires force push)
+
+### Handling Conflicts
+- Pull with rebase to get remote changes
+- Resolve conflicts carefully
+- Preserve both sides' intent when possible
+- Run tests after conflict resolution
+- Commit with clear message explaining conflict resolution
+
+## Integration with AGENTS.md
+
+This file works with `AGENTS.md` landing protocol:
+- AGENTS.md defines workflow (when to commit/push)
+- This file defines standards (how to commit)
+- Both are mandatory for all AI agent work
+
+## Reference
+
+- Git Documentation: https://git-scm.com/doc
+- Co-authored-by Format: https://docs.github.com/en/pull-requests/committing-changes-to-your-project/creating-and-editing-commits/creating-a-commit-with-multiple-authors
+- Conventional Commits: https://www.conventionalcommits.org/ (optional, not required)

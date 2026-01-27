@@ -38,3 +38,43 @@ bd sync               # Sync with git
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
 
+## Git Commit Standards
+
+**When creating commits as an AI agent**, you MUST follow these standards:
+
+### Co-Authorship Attribution (MANDATORY)
+**CRITICAL**: All commits authored by Claude MUST include Co-authored-by trailer:
+
+```bash
+git commit -m "$(cat <<'EOF'
+Commit message title
+
+Detailed description of changes...
+
+Co-authored-by: Claude <claude@anthropic.com>
+EOF
+)"
+```
+
+**Format Requirements**:
+- Co-authored-by line at the END of commit message
+- Blank line before Co-authored-by
+- Exact format: `Co-authored-by: Claude <claude@anthropic.com>`
+- Use HEREDOC for multi-line commit messages
+
+**Example**:
+```bash
+git commit -m "$(cat <<'EOF'
+Add HMAC identity masking with zeroization
+
+- Implement HMAC-SHA256 with group-secret pepper
+- Add immediate zeroization of sensitive buffers
+- Add unit tests with fixed test pepper
+
+Co-authored-by: Claude <claude@anthropic.com>
+EOF
+)"
+```
+
+**See**: `.cursor/rules/git-standards.mdc` for complete standards.
+
