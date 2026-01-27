@@ -455,6 +455,40 @@
 
 **Implementation Status**: Documented, deferred to Phase 4+
 
+#### Change #6: Validator Threshold Strategy (Phased Approach)
+**Decision**: Fixed thresholds for MVP, configurable safeguards for Phase 2, percentage-based for Phase 4+
+
+**Rationale**:
+- **MVP (Now)**: Small groups (3-30 members) with fixed Bridge=2, Validator=3+
+  - Simplest implementation
+  - Most transparent to members
+  - Lowest governance overhead
+  - Status: ✅ Implement in MVP
+
+- **Phase 2 Gate**: Add configurable `min_vouch_threshold` (if medium groups stabilize)
+  - Trigger: Operator feedback indicates stable 30-50 member groups
+  - Scope: Allow groups to choose 2 (easier) vs 3+ (harder)
+  - Safety: Requires consensus, cannot retroactively eject
+  - Status: 📋 Design, gate decision before Phase 2
+
+- **Phase 4 Gate**: Add percentage-based `validator_percentile` (if large groups request)
+  - Trigger: Multiple federated groups request percentage-based scaling
+  - Scope: Percentage-based validator threshold (e.g., top 20%)
+  - Safety: Elevated consensus (85%), quarterly limit, min >= 3
+  - Status: 📋 Design, gate decision before Phase 4
+
+**Updated Files:**
+- [ ] Create `docs/VALIDATOR-THRESHOLD-STRATEGY.md` - Comprehensive phased approach
+- [ ] Update `.beads/architecture-decisions.bead` - Add validator strategy decision
+- [ ] Update `docs/TODO.md` - Add Phase 2 and Phase 4 gates
+
+**Implementation Status**: Design complete, gates tracked for Phase 2 and Phase 4+ reviews
+
+**Key Success Metrics**:
+- MVP: Small groups stable with fixed thresholds
+- Phase 2: Medium groups benefit from configurable min_vouch_threshold
+- Phase 4: Large/federated groups benefit from percentage-based validators
+
 ### Phase 0 Beads Issues
 - [ ] Create Bead-01: Operator CLI interface
   - [ ] `bd create --title "Implement operator CLI commands"`
@@ -506,6 +540,30 @@
 - [ ] Signal bot can manage group (add/remove members)
 - [ ] HMAC masking works with immediate zeroization
 - [ ] Contract schema supports federation hooks (present but unused)
+
+## 🚪 PHASE 2 GATE: Medium Group Decisions (Before Weeks 5-6)
+
+**Trigger Condition**: Operator feedback indicates stable 30-50 member groups
+
+**Decision Point**:
+- [ ] Review Phase 2 Gate Questions (see `docs/VALIDATOR-THRESHOLD-STRATEGY.md`)
+  - Do small groups naturally reach 30-50 members?
+  - What percentage become Validators at current fixed threshold?
+  - Do operators request min_vouch_threshold changes?
+  - Are there observed downsides to fixed thresholds?
+
+**If Phase 2 Gate Opens (YES, need configurability)**:
+- [ ] Implement configurable `min_vouch_threshold`
+  - [ ] Add to GroupConfig (range 2-4)
+  - [ ] Add `/propose-config min_vouch_threshold` command
+  - [ ] Require config_change_threshold consensus
+  - [ ] Cannot retroactively eject (new threshold only)
+
+**If Phase 2 Gate Remains Closed (NO, fixed thresholds sufficient)**:
+- [ ] Continue with fixed Bridge=2, Validator=3+
+- [ ] Revisit gate during Phase 3 or before Phase 4
+
+---
 
 ## 🌱 Phase 1: Bootstrap & Core Trust (Weeks 3-4)
 
@@ -682,6 +740,41 @@
 - [ ] Configuration changes via Signal Poll (70% threshold)
 - [ ] Operator audit trail queryable
 - [ ] Bot proactively suggests mesh optimization
+
+## 🔧 Phase 3: Federation Preparation (Week 7)
+
+### Phase 3 Pre-Implementation Review
+- [ ] Validator Threshold Strategy review
+  - [ ] **If Phase 2 Gate was closed**: Continue with fixed Bridge=2, Validator=3+
+  - [ ] **If Phase 2 Gate was open**: Review configurable min_vouch_threshold implementation
+  - [ ] Document feedback: Did configurability help medium groups?
+
+---
+
+## 🚪 PHASE 4 GATE: Large Group Decisions (Before Q2 2026)
+
+**Trigger Condition**: Multiple federated groups request percentage-based validator scaling
+
+**Decision Point**:
+- [ ] Review Phase 4 Gate Questions (see `docs/VALIDATOR-THRESHOLD-STRATEGY.md`)
+  - How many groups exceed 200 members?
+  - Do federated groups report scaling issues?
+  - Is fixed 3+ validator threshold limiting MST optimization?
+  - Would percentage-based validator selection improve bridge density?
+
+**If Phase 4 Gate Opens (YES, need percentage-based validators)**:
+- [ ] Implement percentage-based `validator_percentile`
+  - [ ] Add to GroupConfig (formula: `max(3, group_size * validator_percentile / 100)`)
+  - [ ] Add `/propose-config validator_percentile` command
+  - [ ] Require elevated consensus (85%+ threshold)
+  - [ ] Limit changes to once per quarter
+  - [ ] Cannot retroactively change existing validators
+
+**If Phase 4 Gate Remains Closed (NO, configurable threshold sufficient)**:
+- [ ] Continue with current approach (fixed or configurable min_vouch_threshold)
+- [ ] Revisit if large federated networks emerge
+
+---
 
 ## 🔧 Phase 3: Federation Preparation (Week 7)
 
