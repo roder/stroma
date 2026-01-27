@@ -356,6 +356,7 @@ Any member can query: `/audit operator`
 4. **Never require admin coordination for federation**
 5. **Never make Signal group the source of truth**
 6. **Never expose social graph structure**
+7. **Never allow unilateral 2-point standing swings** (no single member can eject another through their own action)
 
 ### Design Principles
 - **Emergent over Coordinated**: Discovery must be organic

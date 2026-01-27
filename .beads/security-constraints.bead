@@ -93,17 +93,38 @@ impl SensitiveData {
 - **Calculation**: Effective vouches = Total vouches - Voucher-flaggers
 - **Impact**: Prevents "vouch bombing" and aligns with fluid identity philosophy
 
+**CRITICAL PRINCIPLE - NO UNILATERAL 2-POINT SWINGS**:
+- ❌ **NEVER** allow any single member to cause a 2-point swing in another member's standing
+- ❌ **NEVER** count a flag from a voucher as both invalidating vouch AND adding a flag
+- ✅ Voucher-flaggers are excluded from BOTH vouch count AND flag count
+- ✅ A single member's flag (even from a voucher) invalidates only the vouch, not both
+- **Why**: No single actor should unilaterally eject another member through their own action
+
 **Two Independent Ejection Triggers:**
 1. **Standing < 0**: `Standing = Effective_Vouches - Regular_Flags < 0`
 2. **Effective_Vouches < min_vouch_threshold**: Default 2, configurable
 
-**Definitions**:
+**Definitions** (Mathematically Precise):
 ```
-Voucher_Flaggers = All_Vouchers ∩ All_Flaggers
+All_Vouchers = {members who vouched for target}
+All_Flaggers = {members who flagged target}
+Voucher_Flaggers = All_Vouchers ∩ All_Flaggers (contradictory members)
+
 Effective_Vouches = |All_Vouchers| - |Voucher_Flaggers|
 Regular_Flags = |All_Flaggers| - |Voucher_Flaggers|
 Standing = Effective_Vouches - Regular_Flags
+
+KEY: Members in Voucher_Flaggers contribute NEITHER to vouches NOR flags
 ```
+
+**Example (NO 2-point swing)**:
+- Bob has 2 vouches (Alice, Carol), 0 flags
+- Alice flags Bob
+- Voucher_Flaggers = {Alice}
+- Effective_Vouches = 2 - 1 = **1** ← Alice's vouch removed
+- Regular_Flags = 1 - 1 = **0** ← Alice's flag NOT counted
+- Standing = 1 - 0 = **1** (drop of 1, not 2)
+- Result: Ejected via Trigger 2 (Effective_Vouches < 2)
 
 **Both triggers result in IMMEDIATE ejection** (no delay, no notification beforehand)
 

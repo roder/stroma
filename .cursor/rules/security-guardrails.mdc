@@ -43,6 +43,29 @@ alwaysApply: true
 - ❌ **NEVER** use polling for state monitoring (must use real-time stream)
 - ❌ **NEVER** admit members with < 2 vouches from independent validators
 
+### Vouch Invalidation Violations (BLOCK - NO UNILATERAL 2-POINT SWINGS)
+- ❌ **NEVER** allow a single member's action to cause 2-point standing swing
+- ❌ **NEVER** count a flag from a voucher as BOTH invalidating vouch AND adding flag
+- ❌ **NEVER** implement: `Standing_change = -2` from single member's flag
+- ✅ **ALWAYS** exclude voucher-flaggers from BOTH vouch count AND flag count
+- ✅ **ALWAYS** ensure: flag from voucher = vouch invalidation only (1-point max effect)
+- ✅ **ALWAYS** require multiple independent flags from non-vouchers for standing-based ejection
+
+**Mathematical Enforcement**:
+```rust
+// ✅ REQUIRED PATTERN - Separate calculations
+Voucher_Flaggers = All_Vouchers ∩ All_Flaggers
+Effective_Vouches = All_Vouchers.len() - Voucher_Flaggers.len()
+Regular_Flags = All_Flaggers.len() - Voucher_Flaggers.len()
+Standing = Effective_Vouches as i32 - Regular_Flags as i32
+
+// ❌ FORBIDDEN PATTERN - Any implementation that produces 2-point swings
+if alice_flags_bob {
+    bob_standing -= 2; // ❌ WRONG
+    bob_standing -= 1; // ✅ CORRECT (vouch invalidation only)
+}
+```
+
 ## Supply Chain Security
 
 ### Mandatory Audits

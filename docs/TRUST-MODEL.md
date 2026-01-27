@@ -64,16 +64,34 @@ Standing = Effective_Vouches - Regular_Flags
 
 ## Ejection Triggers (Two Independent Conditions)
 
+### Critical Design Principle: NO UNILATERAL 2-POINT SWINGS
+
+**The Rule**: No single member's action can cause another member's standing to drop by 2 points.
+
+**Why This Matters**: Prevents weaponization. A voucher should be able to:
+1. Invalidate their vouch (1-point consequence for their poor judgment)
+2. File a flag to warn the group
+
+...but these actions should NOT combine into automatic ejection through a single actor.
+
+**How It Works**: Voucher-flaggers are excluded from BOTH vouch count AND flag count. Their flag doesn't add to the flag total; their action is treated as vouch invalidation only.
+
 ### Trigger 1: Standing < 0
 **Condition**: `Effective_Vouches - Regular_Flags < 0`
 
-**Meaning**: Too many flags relative to effective vouches
+**Meaning**: Too many regular flags (from non-vouchers) relative to effective vouches
 
-**Example**:
+**Example (Single Non-Voucher Can't Eject)**:
 - Effective vouches: 3
-- Regular flags: 5
+- Regular flags: 1 (from non-voucher Carol)
+- Standing: 3 - 1 = +2 ✅
+- **Result**: STAYS (single flag isn't enough)
+
+**Example (Multiple Independent Flags Can Eject)**:
+- Effective vouches: 3
+- Regular flags: 5 (from multiple non-vouchers)
 - Standing: 3 - 5 = -2 ❌
-- **Result**: EJECTED
+- **Result**: EJECTED (but required multiple independent perspectives)
 
 ### Trigger 2: Effective_Vouches < min_vouch_threshold
 **Condition**: `Effective_Vouches < 2` (default threshold)

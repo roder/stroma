@@ -32,11 +32,17 @@ This is contradictory and undermines the trust model.
 ### Core Principle
 **If a voucher flags a member, that vouch is invalidated.**
 
+**Critical Constraint: NO UNILATERAL 2-POINT SWINGS**
+- No single member can cause a 2-point standing change through their own action
+- Flags from vouchers invalidate the vouch ONLY
+- A voucher's flag is NOT counted as an additional regular flag
+
 Rationale:
 - Vouches represent **current trust**, not historical endorsement
 - You can't simultaneously trust and distrust someone
 - Aligns with "fluid identity" philosophy (trust is relational and dynamic)
-- Prevents gaming the system
+- Prevents weaponization: prevents single member from ejecting another unilaterally
+- Ensures: standing reductions require independent perspectives
 
 ### Refined Calculation
 
