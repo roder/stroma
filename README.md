@@ -30,7 +30,7 @@ Traditional solutions create new problems:
 
 Stroma resolves the tension between verification and anonymity through **distributed trust verification with cryptographic privacy**. 
 
-The core principle: **You can only join if two independent members vouch for you, but the bot never learns why they trust you.**
+The core principle: **You can only join if two independent members vouch for you, and the trust map is protected so it can never expose the group structure to an adversary.**
 
 ### What This Means:
 - **No strangers**: Every member is personally vouched for by at least 2 people already in the group
@@ -66,13 +66,17 @@ The core principle: **You can only join if two independent members vouch for you
    - If a voucher flags you → their vouch is invalidated, you need a replacement (vouch invalidation)
    - Build 3+ connections to become a Validator (more resilient, helps with network optimization)
 
-### The Magic: Trust Without Exposure
+### The Magic: Trust Map Protection
 
-The bot acts as a **"Blind Matchmaker"** - it sees network topology (who has how many vouches) but never learns why people trust each other. It optimizes the trust mesh using graph algorithms while maintaining complete anonymity.
+The bot acts as a **"Blind Matchmaker"** - it optimizes the trust mesh using graph algorithms while maintaining complete anonymity. The critical innovation: **the trust map never exists in any form that could be seized or exposed.**
 
 **For non-technical users**: It feels like a helpful bot managing your Signal group. You use simple commands like `/invite @friend` or `/status` in private messages. The bot handles everything automatically - vetting newcomers, monitoring trust standing, suggesting strategic introductions, and keeping the group secure. All technical complexity is hidden. You don't need to understand cryptography any more than you need to understand TCP/IP to use the internet securely. But you can - this project is fully open-source.
  
-**For privacy advocates & security auditors**: All identities are cryptographically hashed (HMAC-SHA256 with group-secret pepper, immediate zeroization). Trust is verified with zero-knowledge proofs (STARKs - no trusted setup, post-quantum secure). State is stored in decentralized Freenet network with eventual consistency (ComposableState, summary-delta sync). Social graph structure never exposed to external parties. Memory dumps contain only hashes. Bot operator has least-privilege access (service runner only, no manual override). All vetting occurs in 1-on-1 PMs (no group-chat metadata leakage).
+**For privacy advocates & security auditors**: **Trust map protection** via three independent defense layers:
+1. **No centralized storage**: Trust map is stored in decentralized Freenet network (distributed across peers, no single seizure point)
+2. **Cryptographic privacy**: All identities hashed (HMAC-SHA256 with group-secret pepper), trust verified with ZK-proofs (STARKs), memory contains only hashes (memory dumps reveal nothing)
+3. **Metadata isolation**: All vetting in 1-on-1 PMs (no Signal group metadata), bot operator has least-privilege (service runner only, can't manually access or export data)
+Together: **Even if adversary compromises the bot or server, they only get hashes of group size and topology, not member identities or relationship details.**
 
 **For developers & contributors**: Built on embedded [freenet-core](https://github.com/freenet/freenet-core) kernel (in-process, not external service). Contracts use ComposableState trait for mergeable state with CRDT-like semantics. Set-based membership (BTreeSet) with on-demand Merkle Tree generation for ZK-proof verification (not stored). Internal matchmaking uses Minimum Spanning Tree algorithm (Union-Find, betweenness centrality) achieving optimal mesh with maximum anonymity. External federation via Private Set Intersection with Cardinality (PSI-CA) and Social Anchor Hashing (emergent discovery, no pre-shared keys). Trust verified via STARKs (winterfell). See [ALGORITHMS.md](docs/ALGORITHMS.md) for MST implementation, [freenet-contract-design.mdc](.cursor/rules/freenet-contract-design.mdc) for patterns.
 
