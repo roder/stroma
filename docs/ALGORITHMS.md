@@ -485,43 +485,61 @@ Output: Federation contract (if both groups vote yes)
 
 ### Internal Matchmaking Privacy Model
 
-**Adversary Model**: Bot is honest-but-curious (follows protocol but may try to learn more)
+**Threat Model**: State-level adversary seizes bot server or compromises operator
 
-**Information Leakage Analysis:**
+**Three-Layer Defense Against Trust Map Seizure:**
 
-| What Bot Learns | Privacy Impact | Mitigation |
-|----------------|----------------|------------|
-| Vouch counts | LOW - aggregate topology only | No relationship content revealed |
-| Cluster membership | MEDIUM - knows who knows whom | But not WHY they know each other |
-| Centrality scores | LOW - structural importance only | No personal attributes leaked |
-| Introduction success | MEDIUM - knows if members connect | But only success/failure, not quality |
+| Layer | Defense | Result if Compromised |
+|-------|---------|---------------------|
+| **No Centralized Storage** | Freenet distributed state | Adversary needs multiple peer seizures |
+| **Cryptographic Privacy** | HMAC-hashed identifiers | Memory dumps contain only hashes |
+| **Metadata Isolation** | 1-on-1 PMs only | No Signal group metadata to analyze |
 
-**Guaranteed Anonymity**:
-- ✅ Bot cannot learn relationship reasons
-- ✅ Bot cannot correlate identities across groups (different hashes)
-- ✅ Bot cannot reconstruct full social graph (only topology)
-- ✅ Members cannot see optimization logic (blind matchmaker)
+**Information Available to Adversary (if bot compromised):**
+
+| What Adversary Gets | Privacy Impact | Why It's Safe |
+|-------------------|----------------|---------------|
+| Hashed identifiers | LOW - can't reverse HMAC | Group-secret pepper required to correlate |
+| Vouch counts | LOW - aggregate only | No cleartext identities |
+| Cluster membership (hashes) | MEDIUM - topology visible | But can't identify who they are |
+| Introduction suggestions | LOW - just matching logic | No personal relationship content |
+
+**Guaranteed Protections**:
+- ✅ Adversary cannot reverse hashes to identities (HMAC with secret pepper)
+- ✅ Adversary cannot correlate identities across groups (different peppers = different hashes)
+- ✅ Adversary cannot learn relationship content (only topology visible)
+- ✅ Adversary needs multiple peer seizures to reconstruct state (Freenet distribution)
+- ✅ Memory dumps reveal only hashes, not cleartext (immediate zeroization)
 
 ### External Federation Privacy Model
 
-**Adversary Model**: Malicious group tries to learn other group's membership
+**Threat Model**: Malicious group or state adversary attempts to enumerate other group's members
 
-**Information Leakage Analysis:**
+**Federation-Specific Attack Vectors:**
 
-| Attack Vector | Privacy Risk | Defense |
-|--------------|--------------|---------|
-| Enumerate all members | HIGH - brute force PSI | Double-blinding prevents decryption |
-| Timing analysis | MEDIUM - infer size from latency | Add random delays (constant-time) |
-| Sybil attack | HIGH - flood with fake members | Require ZK-proof of existing vouches |
-| Colluding groups | LOW - shared members already known | Ephemeral keys prevent correlation |
+| Attack Vector | Threat | Defense |
+|--------------|--------|---------|
+| **Fake Group Enumeration** | Create fake group to extract member list | PSI-CA double-blinding (neither side can decrypt alone) |
+| **Timing Analysis** | Infer group size from response latency | Add random delays (constant-time operations) |
+| **Sybil Attack** | Flood with fake members to boost overlap | Require ZK-proof of existing vouches before federation |
+| **Replay Attack** | Reuse captured PSI-CA messages | Ephemeral keys destroyed after handshake |
+| **Cross-Group Tracking** | Correlate same person across groups | Different group peppers = different hashes |
+| **Bloom Filter Analysis** | Deduce members from filter patterns | Multi-threshold publishing (adds noise) |
 
-**Guaranteed Anonymity**:
-- ✅ Neither bot can decrypt the other's member list
-- ✅ Only intersection COUNT revealed, not identities
+**Three-Layer Defense (Applied to Federation):**
+
+1. **No Centralized Registry**: Shadow Beacon uses emergent discovery (no admin coordination, no seizure target)
+2. **Cryptographic Privacy**: PSI-CA double-blinding (neither group can decrypt other's members alone)
+3. **Metadata Isolation**: Only overlap COUNT revealed, not identities
+
+**Guaranteed Protections**:
+- ✅ Neither bot can decrypt the other's member list without cooperation
+- ✅ Only intersection COUNT revealed, never identities
 - ✅ Ephemeral keys prevent replay or correlation attacks
-- ✅ Different hash spaces prevent cross-group tracking
+- ✅ Different hash spaces prevent cross-group tracking (same person = different hash)
+- ✅ If adversary seizes one group's bot, they can't enumerate the other group's members
 
-**Formal Security**: PSI-CA is secure under the Decisional Diffie-Hellman (DDH) assumption.
+**Formal Security**: PSI-CA is secure under the Decisional Diffie-Hellman (DDH) assumption (computational hardness)
 
 ---
 

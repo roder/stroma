@@ -5,16 +5,29 @@ alwaysApply: true
 
 # Security & Quality Guardrails
 
+## Threat Model: Trust Map Seizure
+
+**Primary Threat**: State-level adversary or compromised operator attempts to seize trust map to identify group members and relationships.
+
+**Three-Layer Defense** (ALL layers REQUIRED):
+1. **No Centralized Storage**: Freenet distributed (no single seizure point)
+2. **Cryptographic Privacy**: Only hashes in memory/storage (zeroization)
+3. **Metadata Isolation**: 1-on-1 PMs, operator least-privilege
+
+**Result**: Even if adversary compromises bot/server, they only get hashes and topology, not identities or relationship details.
+
 ## Critical Security Constraints
 
-### Anonymity-First Violations (BLOCK)
-- ❌ **NEVER** store Signal IDs in cleartext
-- ❌ **NEVER** log member identifiers to disk
-- ❌ **NEVER** expose social graph structure to external groups (federation)
-- ❌ **NEVER** use pre-shared keys for federation
+### Trust Map Protection Violations (BLOCK)
+- ❌ **NEVER** store trust map in centralized database (Layer 1 violation)
+- ❌ **NEVER** store Signal IDs in cleartext (Layer 2 violation)
+- ❌ **NEVER** log member identifiers to disk (Layer 2 violation)
+- ❌ **NEVER** expose vetting in group chat (Layer 3 violation)
+- ❌ **NEVER** expose social graph structure to external parties
+- ❌ **NEVER** use pre-shared keys for federation (creates seizure target)
 - ❌ **NEVER** use deterministic hashing (must use HMAC with group-secret pepper)
 - ❌ **NEVER** retain vetting session data after admission (must be ephemeral)
-- ❌ **NEVER** expose relationship content (bot knows topology, not content)
+- ❌ **NEVER** allow operator to export or query trust map manually
 
 ### Memory Safety Violations (BLOCK)
 - ❌ **NEVER** leave sensitive buffers in memory after use

@@ -407,37 +407,62 @@ fn process_sensitive_data(mut data: SensitiveData) -> Hash {
 
 ### Threat Model
 
-#### In Scope (Defended Against)
+**Primary Threat**: Trust map seizure by state-level adversary or compromised operator
 
-1. **Compromised Operator**
+**Adversary Goal**: Obtain trust map to identify group members and their relationships
+
+#### Attack Vectors & Defenses
+
+**1. Trust Map Seizure Attempts**
+
+**Attack**: Adversary compromises bot server, captures memory dump, or coerces operator to export trust map
+
+**Three-Layer Defense**:
+
+| Layer | Defense Mechanism | Result if Compromised |
+|-------|------------------|----------------------|
+| **No Centralized Storage** | Trust map in Freenet (distributed) | Adversary needs to seize multiple peers |
+| **Cryptographic Privacy** | HMAC-hashed IDs, immediate zeroization | Memory dumps contain only hashes |
+| **Metadata Isolation** | 1-on-1 PMs, operator least-privilege | No Signal metadata, operator can't export |
+
+**Result**: Even if adversary compromises bot or server, they only get:
+- Hashes (not identities)
+- Group size and topology (not relationship details)
+- Vouch counts (not who vouched for whom in cleartext)
+
+**2. Compromised Operator**
    - Defense: Operator least privilege (service runner only)
    - Defense: All actions approved by Freenet contract
    - Defense: No access to cleartext Signal IDs
+   - Defense: Cannot manually export or query trust map
 
-2. **Signal Metadata Analysis**
-   - Defense: All operations in 1-on-1 PMs
-   - Defense: HMAC-hashed identifiers
-   - Defense: No social graph exposure
+**3. Signal Metadata Analysis**
+   - Defense: All operations in 1-on-1 PMs (no group chat metadata)
+   - Defense: HMAC-hashed identifiers (different hashes per group)
+   - Defense: No announcement of who vouched for whom
 
-3. **Freenet Network Analysis**
-   - Defense: Anonymous routing (dark mode)
+**4. Freenet Network Analysis**
+   - Defense: Anonymous routing (dark mode, no IP exposure)
    - Defense: Encrypted state storage
-   - Defense: No IP correlation
+   - Defense: Distributed storage (no single node has full map)
 
-4. **State-Level Adversaries**
-   - Defense: ZK-proofs (no trust in authority)
-   - Defense: Post-quantum secure (STARKs)
-   - Defense: Decentralized (no single target)
+**5. State-Level Adversaries**
+   - Defense: ZK-proofs (verify trust without revealing vouchers)
+   - Defense: Post-quantum secure (STARKs, no trusted setup)
+   - Defense: Decentralized (no single target to compromise)
+   - Defense: Three-layer defense prevents useful seizure
 
-5. **Sybil Attacks**
+**6. Sybil Attacks**
    - Defense: 2-vouch requirement from independent Members
-   - Defense: Blind Matchmaker ensures cross-cluster vouching
+   - Defense: Cross-cluster vouching (Blind Matchmaker optimization)
+   - Defense: Immediate ejection if flagged
 
 #### Out of Scope (Assumed Secure)
 
-1. **Signal Protocol Compromise**: Assume E2E encryption is secure
-2. **Freenet Protocol Vulnerabilities**: Assume anonymous routing works
-3. **Quantum Computing**: STARKs are post-quantum, but HMAC-SHA256 is not (acceptable for now)
+1. **Signal Protocol Compromise**: Assume Signal's E2E encryption is secure
+2. **Freenet Protocol Vulnerabilities**: Assume Freenet's anonymous routing works
+3. **Quantum Computing**: STARKs are post-quantum secure, HMAC-SHA256 is not (acceptable for now, can upgrade to SHA3)
+4. **Physical Device Seizure**: Assume members protect their own Signal devices
 
 ## Performance Targets
 

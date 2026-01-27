@@ -320,18 +320,57 @@ async fn bot_event_loop(freenet: &FreenetClient, signal: &SignalClient) {
 
 ## 6. Privacy & Metadata Protection
 
+### Threat Model: Trust Map Seizure
+
+**Primary Threat**: State-level adversary or compromised operator attempts to seize trust map to identify group members and their relationships.
+
+**Attack Vectors**:
+1. Server compromise (gain access to bot server)
+2. Memory dump (capture running process memory)
+3. Operator compromise (coerced or malicious operator)
+4. Freenet node seizure (seize distributed state)
+5. Signal metadata analysis (analyze group patterns)
+
+**Three-Layer Defense** (ALL layers REQUIRED):
+
+**Layer 1: No Centralized Storage**
+- ✅ Trust map stored in decentralized Freenet network
+- ✅ Distributed across peers (no single seizure point)
+- ✅ State reconstructable only with peer cooperation
+- ❌ **NEVER** store trust map in centralized database
+
+**Layer 2: Cryptographic Privacy**
+- ✅ All identities HMAC-hashed (group-secret pepper)
+- ✅ Memory contains only hashes (immediate zeroization)
+- ✅ ZK-proofs verify trust without revealing vouchers
+- ❌ **NEVER** store cleartext identifiers anywhere
+- **Result**: Memory dumps reveal only hashes, not identities
+
+**Layer 3: Metadata Isolation**
+- ✅ All vetting in 1-on-1 PMs (no Signal group metadata)
+- ✅ Operator least-privilege (service runner only)
+- ✅ No logs of relationship content or reasons
+- ❌ **NEVER** expose vetting operations in group chat
+- ❌ **NEVER** announce who vouched for whom
+
+**Adversary Scenario**: Even if adversary compromises bot or server, they only get:
+- Hashes (not identities)
+- Group size and topology (not relationship details)
+- Vouch counts (not who vouched for whom in cleartext)
+
 ### All Operations in 1-on-1 PMs (MANDATORY)
 - ❌ **NEVER** expose vetting operations in group chat
 - ❌ **NEVER** announce who vouched for whom
 - ✅ **ALWAYS** use 1-on-1 PMs for vetting
 - ✅ **ALWAYS** use hashes (not names) in group announcements
 
-### Social Graph Never Exposed
-- ❌ **NEVER** reveal who vouched for whom
-- ❌ **NEVER** expose relationship structure
-- ❌ **NEVER** allow queries like "who vouched for X?"
+### Trust Map Never in Seizeable Form
+- ❌ **NEVER** reveal who vouched for whom in cleartext
+- ❌ **NEVER** expose relationship structure to external parties
+- ❌ **NEVER** allow queries like "who vouched for X?" with cleartext
 - ✅ Bot knows topology for optimization (Blind Matchmaker)
-- ✅ Bot does NOT know relationship content or reasons
+- ✅ Bot does NOT store relationship content or reasons
+- ✅ Bot operates on hashed identifiers only
 
 ## 7. Node Type Definitions (CRITICAL TERMINOLOGY)
 
