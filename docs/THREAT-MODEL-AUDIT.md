@@ -94,19 +94,9 @@
 - [ ] `.cursor/rules/signal-integration.mdc` - Emphasize metadata isolation
 - [ ] `.cursor/rules/cluster-terminology.mdc` - Clarify privacy boundaries
 
-## Key Messaging Updates
+## Consistent Messaging Standards
 
-### Old Framing (Incorrect Focus)
-- "Bot doesn't know why people trust each other"
-- Focus on bot's semantic knowledge
-- Emphasis on relationship content privacy
-
-### New Framing (Correct Focus)
-- "Trust map protected from seizure"
-- Focus on adversary's ability to compromise system
-- Emphasis on three-layer defense against state-level threats
-
-### Consistent Language
+### Required Terminology
 
 **Use These Terms**:
 - "Trust map seizure" (primary threat)
@@ -116,10 +106,19 @@
 - "Memory dumps reveal nothing" (cryptographic privacy benefit)
 - "Metadata isolation" (Signal/operator protection)
 
-**Avoid These Framings**:
-- "Bot doesn't know why" (not the security concern)
-- "Voting on strangers" (not a Signal problem)
-- Focus on bot's knowledge vs. adversary's access
+### Prohibited Framings
+
+**Never Use These**:
+- "Bot doesn't know why people trust each other" (not the security concern)
+- "Voting on strangers" (not a Signal problem - use "trusting strangers")
+- Focus on bot's semantic knowledge (focus on adversary's ability to seize)
+
+### Security Messaging Framework
+
+**Always Frame Security Around**:
+- What adversary gets if they compromise system
+- Three independent defense layers
+- Concrete attack scenarios and mitigations
 
 ## Implementation Checklist
 
@@ -144,12 +143,12 @@
 - [ ] Update federation roadmap with threat model
 
 ### Phase 5: Validation
-- [ ] Grep all files for old framing patterns
-- [ ] Verify consistent language across all documents
-- [ ] Test security messaging with target audiences
+- [ ] Grep all files for prohibited framing patterns
+- [ ] Verify consistent terminology across all documents
+- [ ] Verify all threat model sections use three-layer defense framework
 
 ---
 
-**Status**: Audit in progress  
-**Next Step**: Systematically update files in priority order  
-**Completion Criteria**: All documents consistently emphasize trust map protection via three-layer defense
+**Status**: Priority 1 Complete (Core Security Documents)  
+**Next Step**: Priority 2 (User-Facing Documentation)  
+**Completion Criteria**: All documents consistently frame security around trust map seizure protection via three-layer defense
