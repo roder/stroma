@@ -1,0 +1,140 @@
+# Bead: Bot Deployment Model
+
+**Status**: Immutable Architectural Constraint  
+**Created**: 2026-01-28  
+**Context**: Architecture Decision 2.1
+
+---
+
+## Constraint: 1:1 Bot-to-Group Relationship
+
+**Principle**: One bot process per Stroma group.
+
+### Architecture Rule
+
+```
+1 Bot Instance = 1 Signal Group = 1 Freenet Contract = 1 Trust Mesh
+```
+
+**NEVER**:
+- ❌ Design bot to manage multiple Signal groups (1:N)
+- ❌ Multiplex Signal messages across groups
+- ❌ Share Freenet contracts across groups
+- ❌ Use single phone number for multiple groups
+
+**ALWAYS**:
+- ✅ Deploy one bot instance per group
+- ✅ Use separate phone numbers per group
+- ✅ Isolate state across bot instances
+- ✅ Use systemd service templates for multi-group deployment
+
+### Deployment Model
+
+```rust
+pub struct StromaBot {
+    signal_client: PresageManager,   // One Signal connection
+    freenet_node: FreenetClient,     // One Freenet node  
+    group_id: GroupId,                // Single group
+    group_name: String,               // "Mission Control", "Activists-NYC"
+    config: GroupConfig,              // Group-specific config
+}
+```
+
+**One bot = one of everything above.**
+
+### Multi-Group Deployment
+
+**Systemd Services:**
+```
+stroma-bot@mission-control.service
+stroma-bot@activists-nyc.service
+stroma-bot@mutual-aid-sf.service
+```
+
+**Configuration:**
+```
+/etc/stroma/groups/mission-control/config.toml
+/etc/stroma/groups/activists-nyc/config.toml
+/etc/stroma/groups/mutual-aid-sf/config.toml
+```
+
+**State Storage:**
+```
+/var/lib/stroma/mission-control/state.db
+/var/lib/stroma/activists-nyc/state.db
+/var/lib/stroma/mutual-aid-sf/state.db
+```
+
+### Rationale
+
+**Why 1:1?**
+- **Simplicity**: Each bot owns one contract, one state, one group
+- **Isolation**: One group's issues don't cascade to others
+- **Clear Identity**: Bot phone number = Group identity
+- **Debugging**: Logs, state, errors are per-group
+- **Federation**: Each bot represents one mesh (natural alignment)
+- **Scale**: <100 groups = <100 processes (acceptable resource usage)
+
+**Why NOT 1:N?**
+- Complex state multiplexing
+- Group leakage risk (bug in one affects all)
+- Federation confusion (which group is federating?)
+- Debugging nightmare (multiplexed logs)
+- Violates single responsibility principle
+
+### Resource Requirements
+
+**Per Bot Instance:**
+- RAM: ~100MB
+- Storage: ~50MB (database)
+- Network: Minimal (Signal + Freenet)
+
+**For 10 Groups:**
+- RAM: ~1GB
+- Storage: ~500MB
+- Network: Minimal
+
+**Acceptable for <100 groups.**
+
+### Code Constraints
+
+**Block These Patterns:**
+```rust
+// ❌ NEVER do this
+pub struct StromaBot {
+    groups: HashMap<GroupId, GroupState>,  // NO multi-tenancy
+}
+
+// ❌ NEVER do this  
+match group_id {
+    "group1" => handle_group1(),
+    "group2" => handle_group2(),
+    // NO multiplexing
+}
+```
+
+**Enforce These Patterns:**
+```rust
+// ✅ ALWAYS do this
+pub struct StromaBot {
+    group_id: GroupId,         // Single group only
+    group_name: String,        // Single name only
+    // ... single group fields
+}
+
+// ✅ ALWAYS validate
+assert_eq!(bot.managed_groups().len(), 1);
+```
+
+### Gastown Agent Instructions
+
+**When implementing bot:**
+1. Design assumes single group per instance
+2. No code for managing multiple groups
+3. Configuration is per-instance, not per-group
+4. Deployment guide should show systemd templates for multi-group
+
+**If agent suggests 1:N:**
+- **REJECT** - violates architectural constraint
+- **REDIRECT** - show multi-instance deployment model
+- **BLOCK** - do not merge 1:N code

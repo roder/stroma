@@ -370,10 +370,13 @@ fn calculate_mesh_health_score(density: f32) -> u8 {
 
 ```rust
 pub struct GroupConfig {
-    // Consensus thresholds
-    config_change_threshold: f32,      // e.g., 0.70 (70%)
-    ejection_appeal_threshold: f32,    // e.g., 0.60 (60%)
+    // Group identity
+    group_name: String,                // "Mission Control" - changeable via consensus
     
+    // Consensus thresholds
+    config_change_threshold: f32,      // e.g., 0.70 (70%) - for all proposals
+    default_poll_timeout: Duration,    // e.g., 48h - default if not specified
+
     // Federation parameters (Phase 4+)
     min_intersection_density: f32,     // e.g., 0.10-0.30
     validator_percentile: u32,         // e.g., 20 (top 20%)

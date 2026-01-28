@@ -2,27 +2,42 @@
 
 ## 📊 Project Status Overview
 
-**Last Updated**: 2026-01-27
+**Last Updated**: 2026-01-28
 
-### ✅ Completed (Documentation & Design Phase)
-- [X] Git repository initialized
-- [X] All constraint beads created (security, architecture, federation)
+### ✅ Completed (Architectural Foundation)
+- [X] Git repository initialized (6 commits on signal-bot branch)
+- [X] 7 architectural constraint beads created:
+  - [X] bot-deployment-model.bead (1:1 bot-to-group)
+  - [X] group-identity.bead (group names required)
+  - [X] governance-model.bead (bot execute-only, operator no privileges)
+  - [X] proposal-system.bead (/propose command structure)
+  - [X] technology-stack.bead (Presage over libsignal-service-rs)
+  - [X] voting-mechanism.bead (native polls for anonymity)
+  - [X] poll-implementation-gastown.bead (Agent-Signal task)
+- [X] All rules updated with architectural decisions (6 files)
+- [X] All documentation updated (4 files)
 - [X] Comprehensive UX specification (user-roles-ux.mdc)
-- [X] Trust model with vouch invalidation (VOUCH-INVALIDATION-LOGIC.md)
+- [X] Trust model with vouch invalidation
 - [X] Mesh health score design (peaks at 30-60% density)
-- [X] Embedded Freenet kernel architecture decision
-- [X] Single-binary-two-distributions strategy
-- [X] Operator CLI design (operator-cli.mdc)
-- [X] README.md restructured (309 lines, 3 audiences)
-- [X] 4 comprehensive guides created (USER-GUIDE, OPERATOR-GUIDE, DEVELOPER-GUIDE, FEDERATION)
-- [X] Technology stack finalized (Rust 1.93+, freenet-stdlib, STARKs)
+- [X] Technology stack finalized (Presage, forked libsignal-service-rs, STARKs)
+- [X] Gastown workspace plan updated
+- [X] Signal bot provisioning tool (Fish script)
 
-### ⏳ Current Phase: Spike Week (Week 0)
-**Objective**: Validate core technologies before full implementation
+### ⏳ Current Phase: Protocol v8 Poll Support (Priority)
+**Objective**: Agent-Signal implements protocol v8 poll support in forked libsignal-service-rs
 
-**Status**: Documentation complete, ready to begin technology validation
+**Why Critical**: Native polls provide anonymous voting (reactions expose voters)
 
-**Next Actions**: See Spike Week section below
+**Timeline**: 1-2 weeks
+
+**Bead**: `.beads/poll-implementation-gastown.bead`
+
+**Status**: Ready for Agent-Signal to begin implementation
+
+### 📋 Next Phase: Spike Week (Week 0)
+**Objective**: Validate core technologies after poll support complete
+
+**Next Actions**: See Spike Week and Phase -1 sections below
 
 ### 📋 Tracked for Implementation (Not Yet Started)
 - [ ] Dockerfile (hardened container wrapping static binary)
@@ -66,20 +81,26 @@
   - [X] Design principles
 
 ### Agent Structure (Gastown Coordination)
-- [ ] Define agent boundaries
-  - [ ] Agent-CLI: Operator interface (bootstrap, run, utils)
-  - [ ] Agent-Signal: Signal protocol integration
-  - [ ] Agent-Freenet: Embedded kernel integration
-  - [ ] Agent-Crypto: STARKs + HMAC + zeroization
-  - [ ] Agent-Gatekeeper: Admission/ejection protocol
-  - [ ] Agent-Matchmaker: Mesh optimization
-  - [ ] Witness-Agent: Security audit (continuous)
+- [X] Define agent boundaries
+  - [X] **Agent-Signal** (Priority): Presage integration, poll support, bot commands
+  - [X] Agent-Freenet: Embedded Freenet kernel integration
+  - [X] Agent-Crypto: STARKs + HMAC + zeroization
+  - [X] Witness-Agent: Security audit (continuous)
   
-- [ ] Create Mayor briefing document
-  - [ ] Technology stack decisions (embedded kernel, CLI, distribution)
-  - [ ] Security constraints (no external freenet-core)
-  - [ ] Implementation roadmap (Spike Week → Phase 0-3)
-  - [ ] Agent coordination strategy (parallel Beads)
+- [X] Create architectural constraint beads (7 total)
+  - [X] bot-deployment-model.bead (1:1 bot-to-group)
+  - [X] group-identity.bead (group names required)
+  - [X] governance-model.bead (bot execute-only)
+  - [X] proposal-system.bead (/propose structure)
+  - [X] technology-stack.bead (Presage layers)
+  - [X] voting-mechanism.bead (native polls)
+  - [X] poll-implementation-gastown.bead (Agent-Signal task)
+  
+- [ ] Launch Agent-Signal for poll implementation
+  - [ ] Agent reads poll-implementation-gastown.bead
+  - [ ] Agent forks libsignal-service-rs
+  - [ ] Agent implements protocol v8 support
+  - [ ] Agent submits PR to upstream
 
 ### Outstanding Questions (MUST NOT LOSE - Critical for Spike Week)
 
@@ -112,11 +133,102 @@
 
 **Status**: All questions documented in Spike Week briefing with test plans
 
+## 🎯 Phase -1: Protocol v8 Poll Support (PRIORITY)
+
+**Duration**: 1-2 weeks  
+**Assigned**: Agent-Signal  
+**Bead**: `.beads/poll-implementation-gastown.bead`  
+**Critical Path**: Blocks proposal system (Phase 2)
+
+### Why Polls Are Critical
+
+**Anonymity** (Non-Negotiable):
+- ✅ Signal Polls: Votes are anonymous (Signal doesn't expose who voted what)
+- ❌ Emoji Reactions: Public (everyone sees who reacted with what emoji)
+- Stroma's philosophy: Privacy-first, non-hierarchical decision-making
+
+**Better Decision Making:**
+- Polls support multiple choice options
+- Reactions are binary only (👍/👎)
+
+### Tasks
+
+- [ ] **Fork libsignal-service-rs**
+  ```fish
+  gh repo fork whisperfish/libsignal-service-rs --clone=true
+  cd libsignal-service-rs
+  git checkout -b feature/protocol-v8-polls
+  ```
+
+- [ ] **Add poll protobuf definitions**
+  - [ ] Copy from Signal-Desktop `protos/SignalService.proto`
+  - [ ] Add to `protobuf/SignalService.proto`:
+    - [ ] `message PollCreate` (field 24)
+    - [ ] `message PollTerminate` (field 25)
+    - [ ] `message PollVote` (field 26)
+    - [ ] `message PinMessage` (field 27)
+    - [ ] `message UnpinMessage` (field 28)
+  - [ ] Update protocol version from v7 to v8
+
+- [ ] **Build and test**
+  ```fish
+  cargo build
+  cargo test
+  ```
+
+- [ ] **Push to fork**
+  ```fish
+  git add protobuf/SignalService.proto
+  git commit -m "feat: Add protocol v8 poll support"
+  git push origin feature/protocol-v8-polls
+  ```
+
+- [ ] **Update Stroma's Cargo.toml**
+  ```toml
+  [patch.crates-io]
+  libsignal-service = {
+      git = "https://github.com/roder/libsignal-service-rs",
+      branch = "feature/protocol-v8-polls"
+  }
+  ```
+
+- [ ] **Test in Stroma**
+  - [ ] cargo build succeeds
+  - [ ] Can create polls
+  - [ ] Can receive poll votes
+  - [ ] Vote anonymity verified
+
+- [ ] **Submit PR to upstream**
+  ```fish
+  gh pr create --repo whisperfish/libsignal-service-rs \
+    --title "feat: Add Signal protocol v8 poll support"
+  ```
+
+**Deliverable**: Poll support available in Stroma via fork (don't wait for upstream merge)
+
 ## 🔬 Spike Week (Week 0 - Validation Phase)
 
 **Objective**: Validate core technologies before committing to architecture
 
-### Day 1-2: Embedded Freenet Kernel & Contract Design
+**Prerequisites**: Protocol v8 poll support implemented (Phase -1)
+
+### Day 1-2: Presage & Poll Support (Signal Integration)
+- [ ] Test Presage (high-level Signal API)
+  - [ ] Add Presage to Cargo.toml
+  - [ ] Add forked libsignal-service-rs with poll support (patch section)
+  - [ ] Test Manager.register() (already validated via provisioning tool)
+  - [ ] Test group creation
+  - [ ] Test add/remove members
+  
+- [ ] Test Poll Support (Protocol v8)
+  - [ ] Create poll with PollCreate
+  - [ ] Send poll to group
+  - [ ] Receive poll votes
+  - [ ] Read aggregated results (approve_count, reject_count)
+  - [ ] Verify vote anonymity (no individual votes exposed)
+  - [ ] Test poll timeout
+  
+### Day 3-4: Embedded Freenet Kernel & Contract Design
 - [ ] Test embedded Freenet kernel (in-process, not external service)
   - [ ] Add `freenet-stdlib = { version = "0.1.30", features = ["full"] }` to Cargo.toml
   - [ ] Initialize FreenetKernel in-process
@@ -163,29 +275,7 @@
   - [ ] Performance: Benchmarks and bottlenecks
   - [ ] Limitations: What we can't do with Freenet contracts
 
-### Day 3: Signal Bot Registration
-- [ ] Register bot account with Signal
-  - [ ] Obtain phone number for bot
-  - [ ] Complete Signal registration process
-  - [ ] Test authentication
-  
-- [ ] Test group management
-  - [ ] Create Signal group via bot
-  - [ ] Add test member to group
-  - [ ] Remove test member from group
-  - [ ] Verify admin capabilities
-  
-- [ ] Test 1-on-1 PM handling
-  - [ ] Send PM to bot
-  - [ ] Receive PM from bot
-  - [ ] Test command parsing
-  
-- [ ] Document findings
-  - [ ] Can we automate admission/ejection?
-  - [ ] What are Signal's rate limits?
-  - [ ] Risk of bot bans?
-
-### Day 4-5: STARK Proof Generation
+### Day 5: STARK Proof Generation
 - [ ] Set up winterfell library
   - [ ] Add dependency to test project
   - [ ] Review winterfell documentation
@@ -235,11 +325,12 @@
   - [ ] `src/freenet/contract.rs` - Wasm contract deployment to embedded kernel
   - [ ] `src/freenet/state_stream.rs` - Real-time state monitoring from embedded kernel
   
-- [ ] Create `src/signal/` directory
+- [ ] Create `src/signal/` directory (Presage-based)
   - [ ] `src/signal/mod.rs`
-  - [ ] `src/signal/bot.rs` - Bot authentication & commands
+  - [ ] `src/signal/bot.rs` - Presage Manager, authentication
   - [ ] `src/signal/group.rs` - Group management (add/remove)
   - [ ] `src/signal/pm.rs` - 1-on-1 PM handling
+  - [ ] `src/signal/polls.rs` - Poll creation/monitoring (protocol v8)
   
 - [ ] Create `src/crypto/` directory
   - [ ] `src/crypto/mod.rs`
@@ -262,6 +353,12 @@
 - [ ] Create `src/config/` directory
   - [ ] `src/config/mod.rs`
   - [ ] `src/config/group_config.rs` - GroupConfig struct
+  
+- [ ] Create `src/proposals/` directory
+  - [ ] `src/proposals/mod.rs`
+  - [ ] `src/proposals/command.rs` - /propose parser
+  - [ ] `src/proposals/poll.rs` - Signal Poll creation/monitoring
+  - [ ] `src/proposals/executor.rs` - Execute approved actions
   
 - [ ] Create `src/federation/` directory (disabled in MVP)
   - [ ] `src/federation/mod.rs`
@@ -659,9 +756,9 @@
 - [ ] All vetting in 1-on-1 PMs (no group chat exposure)
 - [ ] No cleartext Signal IDs stored anywhere
 
-## 🎯 Phase 2: Internal Mesh Optimization (Weeks 5-6)
+## 🎯 Phase 2: Proposals & Mesh Optimization (Weeks 5-6)
 
-**Objective**: Graph analysis, strategic introductions, MST
+**Objective**: Anonymous voting system, graph analysis, strategic introductions, MST
 
 ### Blind Matchmaker
 - [ ] Implement graph topology analysis
@@ -700,31 +797,61 @@
   - [ ] Show ASCII visualization
   
 - [ ] Implement `/mesh config` (configuration view)
+  - [ ] Show `group_name`
   - [ ] Show `config_change_threshold`
-  - [ ] Show `ejection_appeal_threshold`
+  - [ ] Show `default_poll_timeout`
   - [ ] Show `min_intersection_density`
   - [ ] Show `validator_percentile`
   - [ ] Show `min_vouch_threshold`
+  - [ ] Show `min_vouch_threshold`
   
-- [ ] Implement `/propose-config key=value [reason]`
-  - [ ] Parse command
-  - [ ] Validate key is valid config parameter
-  - [ ] Validate value is valid for parameter type
-  - [ ] Create Signal Poll for voting
-  - [ ] Track votes (✅ Approve / ❌ Reject / ⏸️ Abstain)
+### Proposal System (`/propose`)
 
-### Configuration Management
-- [ ] Implement Signal Poll voting
-  - [ ] Create poll with 3 options
-  - [ ] Monitor poll responses
-  - [ ] Calculate approval percentage
-  - [ ] Auto-close after voting period (e.g., 48 hours)
+- [ ] Implement `/propose` command parser
+  - [ ] Parse subcommand: config, stroma, federate
+  - [ ] Parse arguments and options
+  - [ ] Parse `--timeout` flag (optional, uses config default)
+  - [ ] Validate parameters
   
-- [ ] Implement automatic config updates
-  - [ ] Check if approval > `config_change_threshold`
-  - [ ] Update Freenet contract if approved
+- [ ] Implement `config` subcommand (Signal group settings)
+  - [ ] `/propose config name "New Name"`
+  - [ ] `/propose config description "..."`
+  - [ ] `/propose config disappearing_messages 24h`
+  - [ ] Validate Signal setting keys
+  
+- [ ] Implement `stroma` subcommand (Stroma trust config)
+  - [ ] `/propose stroma min_vouch_threshold 3`
+  - [ ] `/propose stroma config_change_threshold 0.80`
+  - [ ] `/propose stroma default_poll_timeout 72h`
+  - [ ] Validate Stroma config keys
+  
+- [ ] Implement `federate` subcommand (Phase 3+ only)
+  - [ ] `/propose federate <group-id> --timeout 96h`
+  - [ ] Validate group ID format
+  - [ ] Placeholder for federation logic
+
+- [ ] Implement proposal creation
+  - [ ] Create Proposal struct in Freenet contract
+  - [ ] Store proposal with timeout, threshold, action
+  - [ ] Create Signal Poll for voting (anonymous)
+  - [ ] Poll options: "👍 Approve", "👎 Reject"
+  
+- [ ] Implement poll monitoring
+  - [ ] Check every 60 seconds for expired proposals
+  - [ ] Fetch aggregated poll results from Signal
+  - [ ] Calculate approval ratio
+  - [ ] Mark proposal as checked (never check again)
+  
+- [ ] Implement automatic execution
+  - [ ] If approved: execute action (update config, etc.)
+  - [ ] Record result in Freenet contract
   - [ ] Announce result to group
-  - [ ] Log change in audit trail
+  - [ ] Log execution in audit trail
+  
+- [ ] Verify anonymity
+  - [ ] Confirm bot receives only vote counts (not individuals)
+  - [ ] Verify no individual votes stored
+  - [ ] Test with multiple voters
 
 ### Operator Audit
 - [ ] Implement `/audit operator` command

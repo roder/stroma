@@ -177,10 +177,10 @@ This document summarizes all rule updates made to clarify user roles, UX flows, 
 ### Old GroupConfig
 ```rust
 pub struct GroupConfig {
-    federation_approval_threshold: f32,    // Removed
+    federation_approval_threshold: f32,    // Removed (2026-01)
     config_change_threshold: f32,          // Used for all decisions
-    ejection_appeal_threshold: f32,
-    min_intersection_density_self: f32,    // Renamed
+    ejection_appeal_threshold: f32,        // Removed (2026-01) - appeals via re-invite
+    min_intersection_density_self: f32,    // Renamed (2026-01)
     validator_percentile: u32,
 }
 ```
@@ -188,8 +188,10 @@ pub struct GroupConfig {
 ### New GroupConfig
 ```rust
 pub struct GroupConfig {
+    group_name: String,                    // Added (2026-01)
     config_change_threshold: f32,          // Used for ALL decisions
-    ejection_appeal_threshold: f32,
+    default_poll_timeout: Duration,        // Added (2026-01)
+    ejection_appeal_threshold: f32,        // Removed (2026-01) - appeals via re-invite
     min_intersection_density: f32,         // Renamed (no "self")
     validator_percentile: u32,
     min_vouch_threshold: usize,            // New - configurable minimum

@@ -1,0 +1,261 @@
+# Bead: Proposal System Design
+
+**Status**: Immutable Architectural Constraint  
+**Created**: 2026-01-28  
+**Context**: Architecture Decision 2.4
+
+---
+
+## Command: `/propose`
+
+**Purpose**: Unified interface for all group decisions via consensus
+
+### Structure
+
+```
+/propose <subcommand> [args] [--timeout <duration>]
+```
+
+### Subcommands
+
+**1. Signal Group Settings (config)**
+```
+/propose config <setting> <value> [--timeout duration]
+
+Examples:
+/propose config name "New Group Name"
+/propose config description "Trust-based activist network"
+/propose config disappearing_messages 24h
+/propose config disappearing_messages 24h --timeout 72h
+```
+
+**2. Stroma Trust Settings (stroma)**
+```
+/propose stroma <setting> <value> [--timeout duration]
+
+Examples:
+/propose stroma min_vouch_threshold 3
+/propose stroma config_change_threshold 0.80
+/propose stroma default_poll_timeout 72h
+```
+
+**3. Federation (federate)**
+```
+/propose federate <group-id> [--timeout duration]
+
+Example:
+/propose federate abc123def456 --timeout 96h
+```
+
+### NO Ejection Appeals
+
+**Explicitly Removed**: No `/propose appeal` command.
+
+**Rationale:**
+- Appeals should NOT be public debates in the group
+- If ejected, member can secure 2 new vouches and get re-invited
+- This prevents contentious discussions
+- Keeps group focused on coordination, not conflict resolution
+
+**Re-Entry Path:**
+1. Member is ejected (Standing < 0 OR vouches < 2)
+2. Member contacts members outside Signal group
+3. Member secures 2 new vouches from independent members
+4. Member gets re-invited (fresh start)
+
+### Proposal Configuration
+
+**Per-Poll Settings:**
+- **Timeout**: Configurable per proposal (default from GroupConfig)
+- **Threshold**: Always from GroupConfig (NOT per-proposal)
+
+**Rationale:**
+- Timeout varies by decision urgency (some need 24h, others 96h)
+- Threshold is governance constant (changing it requires proposal itself)
+
+```rust
+pub struct Proposal {
+    id: ProposalId,
+    proposer: Hash,
+    proposal_type: ProposalType,
+    
+    // Configuration
+    timeout: Duration,              // Configurable per poll
+    threshold: f32,                 // From GroupConfig (fixed)
+    
+    // Execution
+    action: FreenetAction,
+    
+    // Timestamps
+    created_at: Timestamp,
+    expires_at: Timestamp,          // created_at + timeout
+}
+```
+
+### Default Timeouts
+
+```rust
+pub struct GroupConfig {
+    // Default if --timeout not specified
+    default_poll_timeout: Duration,  // e.g., 48h
+    
+    // Threshold for ALL proposals (not configurable per-poll)
+    config_change_threshold: f32,    // e.g., 0.70 (70%)
+}
+```
+
+### User Experience
+
+**With Default Timeout:**
+```
+Member: "/propose config name 'New Name'"
+
+Bot: "📋 Proposal #42
+     Change group name to 'New Name'
+     
+     Vote: 👍 Approve | 👎 Reject
+     Timeout: 48h (default)
+     Threshold: 70%
+     Closes: Thu Jan 30, 10:00 AM"
+```
+
+**With Custom Timeout:**
+```
+Member: "/propose federate abc123 --timeout 96h"
+
+Bot: "📋 Proposal #43
+     Federate with group abc123
+     
+     Vote: 👍 Approve | 👎 Reject
+     Timeout: 96h (custom)
+     Threshold: 70%
+     Closes: Mon Feb 3, 6:00 PM"
+```
+
+**Disagreement with Timeout:**
+If you disagree with the timeout, you can:
+- Vote No
+- Abstain (don't vote)
+- Create counter-proposal with different timeout
+
+Abstention is valid democratic participation.
+
+### Bot Polling Logic
+
+**Stored in Freenet Contract:**
+```rust
+pub struct ActiveProposal {
+    proposal: Proposal,
+    signal_message_id: String,  // Proposal message (for reactions)
+    
+    // Voting state
+    approve_reactions: HashSet<Hash>,
+    reject_reactions: HashSet<Hash>,
+    
+    // Status
+    checked: bool,              // False until timeout expires
+    result: Option<ProposalResult>,
+}
+```
+
+**Bot Event Loop:**
+```rust
+async fn poll_monitoring_loop(
+    signal: &SignalClient,
+    freenet: &FreenetClient,
+) {
+    loop {
+        sleep(Duration::from_secs(60)).await;  // Check every minute
+        
+        let mut contract_state = freenet.get_state().await?;
+        
+        for proposal in contract_state.active_proposals.iter_mut() {
+            if !proposal.checked && proposal.expires_at <= now() {
+                // 1. Fetch reactions from Signal
+                let reactions = signal
+                    .get_message_reactions(proposal.signal_message_id)
+                    .await?;
+                
+                // 2. Update vote counts
+                proposal.update_from_reactions(reactions);
+                
+                // 3. Calculate result
+                let result = proposal.calculate_result();
+                
+                // 4. If approved, execute
+                if result.approved {
+                    execute_action(&proposal.action, signal).await?;
+                }
+                
+                // 5. Record in Freenet
+                freenet.record_proposal_result(proposal.id, result).await?;
+                
+                // 6. Mark as checked (never check again)
+                proposal.checked = true;
+            }
+        }
+    }
+}
+```
+
+**Key Points:**
+- Check every 60 seconds (not too aggressive)
+- Only check proposals that haven't been checked AND are expired
+- After timeout: check ONCE, record result, mark checked
+- Never check same proposal twice
+
+### Code Constraints
+
+**Block These Patterns:**
+```rust
+// ❌ NEVER have per-proposal thresholds
+pub struct Proposal {
+    threshold: f32,  // WRONG - use GroupConfig.config_change_threshold
+}
+
+// ❌ NEVER have urgency levels
+pub enum ProposalUrgency {
+    Normal,
+    Urgent,  // FORBIDDEN - adds complexity
+}
+
+// ❌ NEVER implement ejection appeals
+match subcommand {
+    "appeal" => { /* FORBIDDEN - removed from system */ }
+}
+```
+
+**Enforce These Patterns:**
+```rust
+// ✅ ALWAYS use config threshold
+let threshold = group_config.config_change_threshold;  // Not per-proposal
+
+// ✅ ALWAYS allow custom timeout
+let timeout = args.timeout.unwrap_or(group_config.default_poll_timeout);
+
+// ✅ ALWAYS check Freenet before execution
+if !freenet.is_approved(proposal.id).await? {
+    return Err("Not approved");
+}
+```
+
+### Gastown Agent Instructions
+
+**When implementing `/propose` command:**
+1. Parse subcommand (config, stroma, federate)
+2. Parse timeout from `--timeout` flag or use config default
+3. Use GroupConfig.config_change_threshold (NEVER per-proposal threshold)
+4. NO "appeal" subcommand (explicitly removed)
+
+**When implementing voting:**
+1. Use emoji reactions (👍/👎) for voting
+2. Monitor reactions until timeout
+3. Check proposal ONCE after timeout
+4. Record result in Freenet
+5. Execute if approved
+
+**When implementing bot loop:**
+1. Poll monitoring checks every 60 seconds
+2. Only check expired, unchecked proposals
+3. Mark as checked after first check
+4. Never re-check same proposal

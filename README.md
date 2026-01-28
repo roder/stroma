@@ -73,10 +73,10 @@ The bot acts as a **"Blind Matchmaker"** - it optimizes the trust mesh using gra
 **For non-technical users**: It feels like a helpful bot managing your Signal group. You use simple commands like `/invite @friend` or `/status` in private messages. The bot handles everything automatically - vetting newcomers, monitoring trust standing, suggesting strategic introductions, and keeping the group secure. All technical complexity is hidden. You don't need to understand cryptography any more than you need to understand TCP/IP to use the internet securely. But you can - this project is fully open-source.
  
 **For privacy advocates & security auditors**: **Trust map protection** via three independent defense layers:
-1. **No centralized storage**: Trust map is stored in decentralized Freenet network (distributed across peers, no single seizure point)
-2. **Cryptographic privacy**: All identities hashed (HMAC-SHA256 with group-secret pepper), trust verified with ZK-proofs (STARKs), memory contains only hashes (memory dumps reveal nothing)
-3. **Metadata isolation**: All vetting in 1-on-1 PMs (no Signal group metadata), bot operator has least-privilege (service runner only, can't manually access or export data)
-Together: **Even if adversary compromises the bot or server, they only get hashes of group size and topology, not member identities or relationship details.**
+1. **No centralized storage**: Trust map in decentralized Freenet network (distributed across peers, no single seizure point)
+2. **Cryptographic privacy**: All identities hashed (HMAC-SHA256 with group-secret pepper), trust verified with ZK-proofs (STARKs), memory zeroized, minimal protocol-only store (~100KB encrypted file, NO message history)
+3. **Metadata isolation**: All vetting in 1-on-1 PMs (no Signal group metadata), bot operator least-privilege (service runner only), vetting conversations ephemeral (never persisted to disk)
+Together: **Even if adversary seizes the bot server, they get: small encrypted file (~100KB protocol state), hashes (not identities), topology (not relationship context), NO vetting conversations, NO message history.**
 
 **For developers & contributors**: Built on embedded [freenet-core](https://github.com/freenet/freenet-core) kernel (in-process, not external service). Contracts use ComposableState trait for mergeable state with CRDT-like semantics. Set-based membership (BTreeSet) with on-demand Merkle Tree generation for ZK-proof verification (not stored). Internal matchmaking uses Minimum Spanning Tree algorithm (Union-Find, betweenness centrality) achieving optimal mesh with maximum anonymity. External federation via Private Set Intersection with Cardinality (PSI-CA) and Social Anchor Hashing (emergent discovery, no pre-shared keys). Trust verified via STARKs (winterfell). See [ALGORITHMS.md](docs/ALGORITHMS.md) for MST implementation, [freenet-contract-design.mdc](.cursor/rules/freenet-contract-design.mdc) for patterns.
 
@@ -120,17 +120,20 @@ Stroma serves three audiences. Choose your path:
 Stroma provides three layers that work together seamlessly:
 
 ### 1. Signal Bot Interface
-Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/status`, `/mesh`
+Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/propose`, `/status`, `/mesh`
 
-**What members see**: Natural language responses, trust standing, network health  
-**What's hidden**: All crypto, Freenet state, Merkle trees, ZK-proofs
+**What members see**: Natural language responses, trust standing, network health, anonymous voting  
+**What's hidden**: All crypto, Freenet state, Merkle trees, ZK-proofs, individual votes
 
 → **[Complete User Guide](docs/USER-GUIDE.md)** - Commands, workflows, examples
 
 ### 2. Trust Logic (Rust Bot)
+- **Architecture**: One bot per group (1:1 relationship)
+- **Implementation**: Presage (high-level Rust API wrapping libsignal-service-rs)
 - **Protocol Gatekeeper**: Enforces 2-vouch requirement with ZK-proofs
 - **Blind Matchmaker**: Suggests strategic introductions across clusters  
 - **Health Monitor**: Continuous trust standing checks via Freenet state stream
+- **Consensus Enforcer**: Executes only contract-approved actions (no autonomous decisions)
 - **Diplomat**: Discovers and proposes federation (Phase 4+)
 
 → **[Trust Model Deep Dive](docs/TRUST-MODEL.md)** - Vouching, flagging, ejection math
@@ -222,7 +225,9 @@ _For detailed specifications on Trust Model, Mesh Health, Federation, Technical 
 | **Contracts** | freenet-scaffold v0.2+ | ComposableState, summary-delta sync |
 | **ZK-Proofs** | STARKs (winterfell) | No trusted setup, post-quantum |
 | **Identity** | HMAC-SHA256 (ring) | Group-scoped hashing |
-| **Interface** | Signal (libsignal-service-rs) | Familiar UX, E2E encrypted |
+| **Signal (high-level)** | Presage | High-level Rust API, group management, polls |
+| **Signal (low-level)** | libsignal-service-rs (FORK) | Protocol v8 poll support via our fork |
+| **Voting** | Native Signal Polls | Anonymous voting (protocol v8) |
 | **CLI** | clap 4+ | Operator commands |
 
 → **[Full Technical Stack](docs/DEVELOPER-GUIDE.md)** - Architecture, contracts, performance targets
@@ -273,12 +278,21 @@ cargo build --release --target x86_64-unknown-linux-musl
 
 ## Implementation Roadmap
 
-### Current Phase: Spike Week (Week 0)
-**Validate core technologies before committing to implementation:**
+### Current Phase: Protocol v8 Poll Support (Priority)
+**Agent-Signal implements protocol v8 poll support in forked libsignal-service-rs**
+
+**Why Critical:**
+- Native Signal Polls provide anonymous voting (reactions expose voters)
+- Required for `/propose` system (Phase 3)
+- Blocks proposal system implementation
+
+**Timeline**: 1-2 weeks
+
+**Next Phase: Spike Week (Technology Validation)**
 
 **Key Validations:**
-- freenet-core with ComposableState trait
-- Signal bot automation (add/remove members)  
+- Freenet Dark with ComposableState trait
+- Presage group management and poll support
 - STARK proofs (size, performance)
 - Answer 5 critical architecture questions
 
@@ -287,9 +301,10 @@ cargo build --release --target x86_64-unknown-linux-musl
 → **[Spike Week Briefing](docs/SPIKE-WEEK-BRIEFING.md)** - Day-by-day test plans and questions
 
 ### Development Phases
-- **Phase 0** (Weeks 1-2): Foundation (Kernel, Freenet, Signal, Crypto, Contract)
+- **Phase -1** (Weeks 1-2): Protocol v8 Polls (Agent-Signal priority task)
+- **Phase 0** (Weeks 1-2): Spike Week + Foundation (Kernel, Freenet, Signal, Crypto, Contract)
 - **Phase 1** (Weeks 3-4): Bootstrap & Core Trust (Vetting, admission, ejection)
-- **Phase 2** (Weeks 5-6): Mesh Optimization (Blind Matchmaker, graph analysis)
+- **Phase 2** (Weeks 5-6): Proposals & Mesh (Anonymous voting, graph analysis)
 - **Phase 3** (Week 7): Federation Prep (Validate design, don't broadcast)
 - **Phase 4+** (Future): Federation (Emergent discovery, cross-mesh vouching)
 
@@ -331,6 +346,6 @@ Co-authored-by: Claude <claude@anthropic.com>
 
 ---
 
-**Status**: Early development (Spike Week). Architecture validated through comprehensive documentation. Ready for technology validation phase.
+**Status**: Architectural foundation complete. Gastown landing zone ready. Next: Agent-Signal implements protocol v8 poll support.
 
-**Last Updated**: 2026-01-27
+**Last Updated**: 2026-01-28

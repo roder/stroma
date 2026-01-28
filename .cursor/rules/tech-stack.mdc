@@ -52,16 +52,97 @@ alwaysApply: true
 
 ### Protocol Integration Libraries
 
-#### `libsignal-service-rs`
-- **Purpose**: Signal protocol integration
-- **Usage**: Bot commands, group management, 1-on-1 PMs for non-technical users
-- **Pattern**: 
-  - Listen for group events and PMs
-  - Handle `/vouch @username`, `/status`, `/mesh`, `/flag @username` commands
-  - Support reaction-based vetting (👍 emoji)
-  - Execute `GroupMemberRemove` for immediate ejection
-  - Natural language responses (hide technical complexity)
-- **Constraint**: Never store Signal IDs in cleartext, ephemeral memory (wipe immediately)
+#### Signal Protocol Stack
+
+**Architecture Layers:**
+```
+Signal Protocol (specification)
+        ↓
+libsignal-service-rs (low-level Rust implementation)
+        ↓
+Presage (high-level Rust convenience API)
+        ↓
+Stroma Bot
+```
+
+#### `Presage` (Primary)
+- **Repository**: https://github.com/whisperfish/presage
+- **Purpose**: High-level Signal client library (wraps libsignal-service-rs)
+- **License**: AGPL-3.0
+- **Usage**: 
+  - Bot commands and message handling
+  - Group management (create, add/remove members, settings)
+  - 1-on-1 PMs for vetting
+  - Registration and authentication
+- **Features**:
+  - `Manager` API for high-level operations
+  - SqliteStore for state persistence
+  - Connection lifecycle management
+- **Pattern**:
+  ```rust
+  use presage::Manager;
+  use presage_store_sqlite::SqliteStore;
+  
+  let manager = Manager::register(config_store, options).await?;
+  manager.send_message_to_group(master_key, message, timestamp).await?;
+  ```
+
+#### `libsignal-service-rs` (When Needed)
+- **Repository**: https://github.com/whisperfish/libsignal-service-rs
+- **Purpose**: Low-level Signal protocol primitives
+- **When to Use**: When Presage doesn't expose needed features
+- **Usage**:
+  - Custom protobuf message types
+  - Raw cipher operations
+  - Features not wrapped by Presage
+- **Pattern**:
+  ```rust
+  use presage::libsignal_service::proto::DataMessage;
+  use presage::libsignal_service::content::Reaction;
+  
+  // Access low-level types through Presage's re-exports
+  ```
+
+#### Poll Support (Protocol v8)
+- **Status**: libsignal-service-rs currently on protocol v7 (polls missing)
+- **Solution**: Fork libsignal-service-rs, add protocol v8 poll support
+- **Strategy**: Use our fork until upstream merges
+- **Implementation**: Gastown Agent-Signal task (see `.beads/poll-implementation-gastown.bead`)
+- **Cargo.toml**:
+  ```toml
+  [dependencies]
+  presage = { git = "https://github.com/whisperfish/presage" }
+  
+  [patch.crates-io]
+  libsignal-service = { 
+      git = "https://github.com/roder/libsignal-service-rs",
+      branch = "feature/protocol-v8-polls"
+  }
+  ```
+
+**Why Polls Critical:**
+- Anonymous voting (Signal doesn't expose who voted what)
+- Multiple choice options (better than binary reactions)
+- Native Signal UX (familiar interface)
+- Preserves privacy during sensitive decisions
+
+**Constraints**: 
+- Never store Signal IDs in cleartext, ephemeral memory (wipe immediately)
+- Never persist message history (vetting conversations ephemeral only)
+- Implement custom minimal ProtocolStore (NOT default SqliteStore)
+
+**Server Seizure Protection:**
+
+Default Presage SqliteStore stores ALL messages - this is a critical vulnerability.
+
+**Required:** Custom StromaProtocolStore that stores ONLY Signal protocol state:
+- Sessions (for encryption continuity)
+- Pre-keys (for new conversations)
+- Identity keys (bot's Signal identity)
+
+**Forbidden:** Message history, contact database, conversation content
+
+**See:** `.beads/security-constraints.bead` section 10, `.beads/technology-stack.bead`
 
 #### `freenet-scaffold`
 - **Purpose**: Freenet Wasm contract development with summary-delta synchronization

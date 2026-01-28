@@ -490,13 +490,120 @@ EOF
 
 **See**: `.cursor/rules/git-standards.mdc` for complete git workflow
 
-## Summary: The Five Absolutes
+## 10. Bot Storage Constraints (SERVER SEIZURE THREAT)
+
+### Critical Threat: Server Seizure
+
+**Scenario**: Bot server is physically seized or compromised by adversary
+
+**Current Risk with Default Presage SqliteStore**:
+- Stores complete message history (all vetting conversations)
+- Stores contact database (links to Signal IDs)
+- Stores group metadata and conversation patterns
+- Even encrypted, exposes relationship context and vetting details
+
+### Message Persistence Violations (BLOCK)
+
+- ❌ **NEVER** persist message history to disk
+- ❌ **NEVER** store vetting conversation content
+- ❌ **NEVER** use default Presage SqliteStore (stores ALL messages)
+- ❌ **NEVER** store invitation context or relationship reasons
+- ❌ **NEVER** persist Signal IDs in database (even encrypted)
+- ❌ **NEVER** maintain contact database on disk
+
+### Correct Architecture: Minimal Custom Store
+
+```rust
+// ❌ FORBIDDEN - Default store
+let store = SqliteStore::open_with_passphrase(db_path, passphrase, OnNewIdentity::Trust).await?;
+// Problem: Stores messages, contacts, groups, metadata
+
+// ✅ REQUIRED - Custom minimal store
+pub struct StromaProtocolStore {
+    // In-memory only (ephemeral)
+    sessions: HashMap<ServiceId, Session>,
+    pre_keys_cache: HashMap<u32, PreKey>,
+    
+    // Minimal encrypted file for restart recovery (~100KB)
+    protocol_state_file: EncryptedProtocolState,
+    passphrase: SecureString,
+    
+    // NO message history - vetting conversations never persisted
+    // NO contact database - Signal IDs never on disk
+    // NO conversation content - ephemeral only
+}
+
+impl presage::Store for StromaProtocolStore {
+    // Implement ONLY protocol state requirements
+    // Sessions, pre-keys, identity keys
+    // NO message persistence methods
+}
+```
+
+### What Gets Stored (Minimally)
+
+**On Disk (Encrypted, ~100KB file):**
+- Signal protocol state (sessions for encryption continuity)
+- Pre-keys (for new conversations)
+- Identity keys (bot's Signal identity)
+
+**In Memory Only (Ephemeral):**
+- Current vetting conversations (deleted after admission)
+- Signal IDs (hashed immediately, zeroized)
+- Message content (processed, never stored)
+
+**NEVER Stored:**
+- ❌ Message history
+- ❌ Vetting conversation transcripts
+- ❌ Contact database
+- ❌ Invitation context ("Great activist from...")
+- ❌ Relationship metadata
+
+### Server Seizure Result (With Minimal Store)
+
+**Adversary gets:**
+- Small encrypted file (~100KB) with Signal protocol state
+- Encrypted with operator-provided passphrase
+- Contains only sessions and keys (no content)
+
+**Adversary does NOT get:**
+- ❌ Message content or history
+- ❌ Vetting conversations
+- ❌ Signal IDs (only hashed in Freenet contract)
+- ❌ Relationship context or reasons
+- ❌ Contact names or metadata
+
+**This preserves anonymity even under server compromise.**
+
+### Implementation Requirement
+
+**Agent-Signal Task** (when integrating Presage):
+1. DO NOT use presage-store-sqlite crate
+2. Implement custom StromaProtocolStore
+3. Implement presage::Store trait with minimal persistence
+4. Encrypt protocol state file with operator passphrase
+5. Test: Verify no messages persisted after conversations
+
+**See**: `.beads/technology-stack.bead`, `.beads/poll-implementation-gastown.bead`
+
+### Testing Requirements
+
+**Must verify:**
+- [ ] No message history in database after vetting
+- [ ] No Signal IDs in any persistent storage
+- [ ] Protocol state file is encrypted
+- [ ] File size remains minimal (~100KB, not growing)
+- [ ] Bot restart recovers sessions (encryption continuity)
+- [ ] Server seizure simulation reveals no sensitive data
+
+## Summary: The Six Absolutes
 
 1. **NEVER store Signal IDs in cleartext** - HMAC hash immediately, zeroize buffers
-2. **NEVER bypass ZK-proof verification** - All trust operations use STARKs
-3. **NEVER add grace periods** - Ejection is immediate (no warnings)
-4. **NEVER make Signal source of truth** - Freenet is authoritative
-5. **NEVER restrict vouching to Validators** - ANY Member can vouch
-6. **NEVER commit without Co-authored-by** - All AI-authored commits must attribute Claude
+2. **NEVER persist message history** - Vetting conversations ephemeral only
+3. **NEVER bypass ZK-proof verification** - All trust operations use STARKs
+4. **NEVER add grace periods** - Ejection is immediate (no warnings)
+5. **NEVER make Signal source of truth** - Freenet is authoritative
+6. **NEVER restrict vouching to Validators** - ANY Member can vouch
+7. **NEVER commit without Co-authored-by** - All AI-authored commits must attribute Claude
 
 These constraints are IMMUTABLE and apply to ALL code, ALL agents, ALL phases (including federation in Phase 4+).

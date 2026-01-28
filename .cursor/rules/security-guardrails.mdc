@@ -139,6 +139,38 @@ if alice_flags_bob {
 - ❌ **NEVER** create "waiting room" as separate chat (outside = not in group, binary state)
 - ❌ **NEVER** restrict vouching to only Validators (ANY Member can vouch)
 
+## Bot Deployment Violations (BLOCK)
+
+### Multi-Tenancy Anti-Patterns
+- ❌ **NEVER** design bot to manage multiple Signal groups (1:N)
+- ❌ **NEVER** multiplex messages across groups
+- ❌ **NEVER** share Freenet contracts across groups
+- ❌ **NEVER** use single phone number for multiple groups
+
+### Correct Architecture (1:1)
+- ✅ **DO** deploy one bot instance per group
+- ✅ **DO** use separate phone numbers per group
+- ✅ **DO** isolate state across bot instances
+- ✅ **DO** use systemd service templates for multi-group deployment
+
+**See**: `.beads/bot-deployment-model.bead`
+
+## Bot Governance Violations (BLOCK)
+
+### Bot Decision-Making Anti-Patterns
+- ❌ **NEVER** allow bot to make membership decisions independently
+- ❌ **NEVER** allow bot to change settings without Freenet consensus
+- ❌ **NEVER** allow bot to execute actions without contract approval
+- ❌ **NEVER** bypass Freenet verification before Signal operations
+
+### Correct Architecture (Execute-Only)
+- ✅ **DO** make bot Signal admin (technical requirement)
+- ✅ **DO** enforce: bot executes ONLY contract-approved actions
+- ✅ **DO** require Freenet consensus for all settings changes
+- ✅ **DO** verify contract state before EVERY Signal operation
+
+**See**: `.beads/governance-model.bead`
+
 ## Operator Least Privilege Constraints (BLOCK)
 
 ### Operator Privilege Violations
@@ -167,3 +199,80 @@ if alice_flags_bob {
 - ✅ **DO** verify bot automatically executes only contract-approved actions
 - ✅ **DO** flag any attempt to bypass group consensus
 - ✅ **DO** ensure operator role is limited to service management only
+
+## Voting Mechanism Constraints (BLOCK)
+
+### Vote Privacy Violations
+- ❌ **NEVER** expose who voted what (anonymity required)
+- ❌ **NEVER** track individual votes in Freenet contract
+- ❌ **NEVER** use emoji reactions for voting (exposes voter identity)
+- ❌ **NEVER** log vote patterns or voter behavior
+
+### Correct Architecture (Native Polls)
+- ✅ **DO** use Signal's native poll feature (anonymous voting)
+- ✅ **DO** store only aggregated results (approve count, reject count)
+- ✅ **DO** use protocol v8 poll support via forked libsignal-service-rs
+- ✅ **DO** preserve vote anonymity (only totals, never individuals)
+
+**Why Polls Not Reactions:**
+- Polls preserve voter anonymity (Signal doesn't expose who voted what)
+- Reactions are public (everyone sees who reacted with what emoji)
+- Anonymity is critical for contentious decisions (federation, config changes)
+
+**See**: `.beads/voting-mechanism.bead`, `.beads/poll-implementation-gastown.bead`
+
+## Bot Storage Constraints (BLOCK - Server Seizure Threat)
+
+### Message Persistence Violations
+- ❌ **NEVER** persist message history to disk (exposes vetting conversations)
+- ❌ **NEVER** store vetting conversation content (exposes relationship context)
+- ❌ **NEVER** use default Presage SqliteStore without modification (stores all messages)
+- ❌ **NEVER** store invitation reasons or relationship context
+- ❌ **NEVER** persist Signal IDs in database (even encrypted)
+- ❌ **NEVER** maintain contact database on disk
+
+### Correct Architecture (Minimal Store)
+- ✅ **DO** implement custom minimal ProtocolStore
+- ✅ **DO** store ONLY Signal protocol state (sessions, pre-keys)
+- ✅ **DO** encrypt any persistent state (small protocol state file only)
+- ✅ **DO** prefer in-memory over disk for all non-protocol data
+- ✅ **DO** make vetting conversations ephemeral (never written to disk)
+- ✅ **DO** use Presage Manager API with custom Store implementation
+
+### Server Seizure Threat Model
+
+**If bot server seized, adversary should get:**
+- Small encrypted file (~100KB) with Signal protocol state only
+- NO message history
+- NO Signal IDs (only hashed in Freenet contract)
+- NO vetting conversation transcripts
+- NO relationship context ("Great activist from...")
+- NO contact database or metadata
+
+**Why Default SqliteStore is Forbidden:**
+- Stores complete message history (all vetting conversations)
+- Stores contact database (potentially links to Signal IDs)
+- Stores group metadata
+- Even encrypted, reveals conversation patterns and content
+- Violates ephemeral vetting principle
+
+**Implementation Pattern:**
+```rust
+// ❌ FORBIDDEN
+let store = SqliteStore::open_with_passphrase(db_path, pass, OnNewIdentity::Trust).await?;
+
+// ✅ REQUIRED
+pub struct StromaProtocolStore {
+    // In-memory (ephemeral)
+    sessions: HashMap<ServiceId, Session>,
+    pre_keys: HashMap<u32, PreKey>,
+    
+    // Minimal encrypted file for restart only
+    protocol_state_file: EncryptedProtocolState,  // ~100KB
+}
+
+let store = StromaProtocolStore::new()?;
+let manager = Manager::with_store(store, options).await?;
+```
+
+**See**: `.beads/technology-stack.bead` for implementation guidance

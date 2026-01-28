@@ -267,6 +267,94 @@ pub fn should_eject(&self, member: &MemberHash) -> bool {
 
 ## Bot Architecture
 
+### 1:1 Bot-to-Group Relationship
+
+**Architecture**: One bot process per Stroma group
+
+```rust
+pub struct StromaBot {
+    signal_client: PresageManager,   // One Signal connection
+    freenet_node: FreenetClient,     // One embedded Freenet kernel
+    group_id: GroupId,                // Single group only
+    group_name: String,               // "Mission Control", "Activists-NYC"
+    config: GroupConfig,              // Group-specific configuration
+}
+```
+
+**Deployment Model:**
+- Each Stroma group = separate bot instance
+- Each bot instance = separate systemd service
+- Each bot instance = separate Freenet contract
+- Scale: <100 groups = <100 processes
+
+**Why 1:1:**
+- Simpler state management (each bot owns one contract)
+- Isolation (one group's issues don't cascade to others)
+- Clear identity (bot phone number = group identity)
+- Easier debugging (logs, state, errors per group)
+- Federation clarity (1 bot = 1 mesh)
+
+**See**: `.beads/bot-deployment-model.bead`
+
+### Signal Integration: Presage
+
+**Use Presage (high-level API)** for Signal protocol:
+
+```rust
+use presage::Manager;
+use presage_store_sqlite::SqliteStore;
+
+// Registration (done via provisioning tool)
+let manager = Manager::register(config_store, options).await?;
+
+// Send messages
+manager.send_message(recipient, message, timestamp).await?;
+manager.send_message_to_group(master_key, message, timestamp).await?;
+
+// Receive messages
+let messages = manager.receive_messages().await?;
+```
+
+**When Presage insufficient**, drop to libsignal-service-rs:
+
+```rust
+use presage::libsignal_service::proto::DataMessage;
+use presage::libsignal_service::proto::data_message::PollCreate;
+
+// Custom protobuf messages
+let poll = DataMessage {
+    poll_create: Some(PollCreate {
+        question: Some("Proposal question?".to_string()),
+        options: vec!["Approve".to_string(), "Reject".to_string()],
+        ..Default::default()
+    }),
+    ..Default::default()
+};
+```
+
+**See**: `.beads/technology-stack.bead`
+
+### Poll Support (Protocol v8)
+
+**Fork Strategy:**
+- Use forked libsignal-service-rs with protocol v8 poll support
+- Submit PR to upstream Whisperfish
+- Don't wait for merge - use fork immediately
+
+**Cargo.toml:**
+```toml
+[dependencies]
+presage = { git = "https://github.com/whisperfish/presage" }
+
+[patch.crates-io]
+libsignal-service = {
+    git = "https://github.com/roder/libsignal-service-rs",
+    branch = "feature/protocol-v8-polls"
+}
+```
+
+**See**: `.beads/poll-implementation-gastown.bead`, `.beads/voting-mechanism.bead`
+
 ### Event-Driven Design with Embedded Kernel
 
 ```rust
@@ -358,7 +446,185 @@ async fn poll_state() {
 }
 ```
 
-## Security Model
+### Proposal System & Anonymous Voting
+
+**Governance**: Bot is Signal admin (technical) but execute-only (no decision power)
+
+**All group decisions flow through `/propose` system:**
+
+```rust
+pub struct Proposal {
+    id: ProposalId,
+    proposer: Hash,
+    proposal_type: ProposalType,
+    
+    // Configuration (per-proposal)
+    timeout: Duration,              // Configurable per poll
+    threshold: f32,                 // From GroupConfig (not per-proposal)
+    
+    // Execution
+    action: FreenetAction,
+    
+    // Timestamps
+    created_at: Timestamp,
+    expires_at: Timestamp,
+}
+
+pub enum ProposalType {
+    ConfigChange { key: String, value: String },      // Signal group settings
+    StromaConfig { key: String, value: String },      // Stroma trust settings
+    Federation { group_id: String },                  // Federation proposal
+}
+
+pub enum FreenetAction {
+    UpdateSignalGroupSetting { key: String, value: String },
+    UpdateStromaConfig { key: String, value: String },
+    InitiateFederation { group_id: String },
+}
+```
+
+**Create Proposal with Signal Poll:**
+
+```rust
+use presage::libsignal_service::proto::DataMessage;
+use presage::libsignal_service::proto::data_message::PollCreate;
+
+async fn create_proposal(
+    manager: &Manager,
+    group_master_key: &[u8],
+    proposal: &Proposal,
+) -> Result<String> {
+    // Format proposal as message + poll
+    let poll_message = DataMessage {
+        body: Some(format_proposal_details(proposal)),
+        poll_create: Some(PollCreate {
+            question: Some(format_proposal_question(proposal)),
+            allow_multiple: Some(false),
+            options: vec!["👍 Approve".to_string(), "👎 Reject".to_string()],
+        }),
+        timestamp: Some(now()),
+        ..Default::default()
+    };
+    
+    let message_id = manager.send_message_to_group(
+        group_master_key,
+        poll_message,
+        now(),
+    ).await?;
+    
+    // Store in Freenet contract
+    freenet.record_active_proposal(proposal, message_id).await?;
+    
+    Ok(message_id)
+}
+```
+
+**Monitor Poll Results (After Timeout):**
+
+```rust
+async fn check_proposal_results(
+    manager: &Manager,
+    proposal: &ActiveProposal,
+) -> Result<ProposalResult> {
+    // Fetch aggregated poll results from Signal
+    // NOTE: Signal provides only vote counts, NOT who voted what
+    let poll_data = manager.get_poll_results(
+        proposal.poll_timestamp,
+    ).await?;
+    
+    let approve_count = poll_data.options[0].vote_count;  // 👍
+    let reject_count = poll_data.options[1].vote_count;   // 👎
+    let total_votes = approve_count + reject_count;
+    
+    if total_votes == 0 {
+        return Ok(ProposalResult::NoVotes);
+    }
+    
+    let approval_ratio = approve_count as f32 / total_votes as f32;
+    
+    Ok(ProposalResult {
+        approved: approval_ratio >= proposal.threshold,
+        approve_count,
+        reject_count,
+        approval_ratio,
+        // NO individual votes - preserves anonymity
+    })
+}
+```
+
+**Execute Approved Actions:**
+
+```rust
+async fn execute_proposal(
+    proposal: &Proposal,
+    signal: &SignalClient,
+    freenet: &FreenetClient,
+) -> Result<()> {
+    // ALWAYS verify Freenet approval first
+    if !freenet.is_proposal_approved(proposal.id).await? {
+        return Err("Proposal not approved in Freenet contract");
+    }
+    
+    // Execute action (bot uses Signal admin power here)
+    match &proposal.action {
+        FreenetAction::UpdateSignalGroupSetting { key, value } => {
+            signal.update_group_setting(key, value).await?;
+        },
+        FreenetAction::UpdateStromaConfig { key, value } => {
+            freenet.update_config(key, value).await?;
+        },
+        FreenetAction::InitiateFederation { group_id } => {
+            freenet.establish_federation(group_id).await?;
+        },
+    }
+    
+    // Record execution in contract
+    freenet.record_execution(proposal.id, now()).await?;
+    
+    Ok(())
+}
+```
+
+**Proposal Monitoring Loop:**
+
+```rust
+async fn poll_monitoring_loop(
+    manager: &Manager,
+    freenet: &FreenetClient,
+) {
+    loop {
+        sleep(Duration::from_secs(60)).await;  // Check every minute
+        
+        let contract_state = freenet.get_state().await?;
+        
+        for proposal in contract_state.active_proposals.iter_mut() {
+            // Only check expired, unchecked proposals
+            if !proposal.checked && proposal.expires_at <= now() {
+                // Fetch results
+                let result = check_proposal_results(manager, proposal).await?;
+                
+                // Execute if approved
+                if result.approved {
+                    execute_proposal(&proposal.proposal, manager, freenet).await?;
+                }
+                
+                // Mark as checked (never check again)
+                proposal.checked = true;
+                freenet.update_proposal(proposal).await?;
+            }
+        }
+    }
+}
+```
+
+**Anonymity Guarantee:**
+- Bot sees: Total approve, total reject, approval ratio
+- Bot does NOT see: Who voted, how they voted
+- Members see: Aggregate counts only (Signal's poll UI)
+
+**See**: `.beads/proposal-system.bead`, `.beads/voting-mechanism.bead`
+
+### Event-Driven Design with Embedded Kernel
 
 ### Anonymity-First Design
 
@@ -405,6 +671,80 @@ fn process_sensitive_data(mut data: SensitiveData) -> Hash {
 }
 ```
 
+#### Bot Storage (CRITICAL - Server Seizure Protection)
+
+**Problem**: Default Presage SqliteStore persists ALL messages
+
+**Threat**: Server seizure reveals vetting conversations and relationship context
+
+**Solution**: Custom minimal ProtocolStore
+
+```rust
+use presage::Store;
+
+pub struct StromaProtocolStore {
+    // In-memory only (ephemeral)
+    sessions: HashMap<ServiceId, Session>,
+    pre_keys_cache: HashMap<u32, PreKey>,
+    identity_keys: IdentityKeyPair,
+    
+    // Minimal encrypted file for restart (~100KB)
+    encrypted_protocol_state: PathBuf,
+    passphrase: SecureString,
+    
+    // NO message history
+    // NO contact database
+    // NO conversation content
+}
+
+impl Store for StromaProtocolStore {
+    // Implement ONLY protocol requirements:
+    // - get_session(), save_session()
+    // - get_pre_key(), save_pre_key()
+    // - get_identity_key()
+    
+    // DO NOT implement:
+    // - save_message() ← Not needed
+    // - get_messages() ← Not needed
+    // - save_contact() ← Not needed
+}
+```
+
+**Server Seizure Result:**
+- Adversary gets: ~100KB encrypted file (protocol state only)
+- Adversary does NOT get: Messages, conversations, Signal IDs, context
+
+**Implementation:**
+```rust
+// ❌ FORBIDDEN
+use presage_store_sqlite::SqliteStore;
+let store = SqliteStore::open_with_passphrase(...).await?;
+
+// ✅ REQUIRED
+let store = StromaProtocolStore::new(encrypted_file, passphrase)?;
+let manager = Manager::with_store(store, options).await?;
+```
+
+**Why This Wasn't Caught Earlier:**
+
+Our security-guardrails.mdc focused on:
+- Identity masking (application layer)
+- Zeroization (memory layer)
+- Operator privileges (access control layer)
+
+**But missed:**
+- Signal client's persistence layer
+- Message history storage threat
+- Difference between "protocol state" vs "message content"
+
+**Gap**: Rules said "don't store Signal IDs" but didn't extend to "don't store message content" or specifically address what bot's Signal client persists.
+
+**This gap is now fixed** in:
+- `.beads/security-constraints.bead` section 10
+- `.beads/technology-stack.bead`
+- `.cursor/rules/security-guardrails.mdc`
+- This document
+
 ### Threat Model
 
 **Primary Threat**: Trust map seizure by state-level adversary or compromised operator
@@ -422,19 +762,28 @@ fn process_sensitive_data(mut data: SensitiveData) -> Hash {
 | Layer | Defense Mechanism | Result if Compromised |
 |-------|------------------|----------------------|
 | **No Centralized Storage** | Trust map in Freenet (distributed) | Adversary needs to seize multiple peers |
-| **Cryptographic Privacy** | HMAC-hashed IDs, immediate zeroization | Memory dumps contain only hashes |
-| **Metadata Isolation** | 1-on-1 PMs, operator least-privilege | No Signal metadata, operator can't export |
+| **Cryptographic Privacy** | HMAC-hashed IDs, zeroization, minimal store | Memory/disk contain only hashes + protocol state |
+| **Metadata Isolation** | 1-on-1 PMs, operator least-privilege, no message persistence | No conversations, operator can't export |
 
 **Result**: Even if adversary compromises bot or server, they only get:
+- Small encrypted file (~100KB) with Signal protocol state
 - Hashes (not identities)
 - Group size and topology (not relationship details)
-- Vouch counts (not who vouched for whom in cleartext)
+- NO message history, NO vetting conversations, NO relationship context
 
 **2. Compromised Operator**
    - Defense: Operator least privilege (service runner only)
    - Defense: All actions approved by Freenet contract
    - Defense: No access to cleartext Signal IDs
    - Defense: Cannot manually export or query trust map
+   - Defense: No message history to access (minimal store)
+
+**3. Server Seizure**
+   - Defense: Custom minimal ProtocolStore (protocol state only, ~100KB)
+   - Defense: NO message history persisted
+   - Defense: NO vetting conversations stored
+   - Defense: Encrypted protocol state file
+   - Result: Adversary gets encrypted protocol state, NO conversation content
 
 **3. Signal Metadata Analysis**
    - Defense: All operations in 1-on-1 PMs (no group chat metadata)

@@ -404,6 +404,150 @@ sudo systemctl status stroma
 
 **Note**: Single service (no separate freenet-core service needed - it's embedded)
 
+### Method 3: Multi-Group Deployment
+
+**Architecture**: One bot instance per Stroma group (1:1 relationship)
+
+If you operate multiple Stroma groups, each requires:
+- Separate bot process
+- Separate Signal phone number
+- Separate Freenet contract
+- Separate configuration
+
+**Example: Running 3 Groups**
+
+#### Step 1: Provision 3 Signal Numbers
+
+```fish
+# Use provisioning tool for each
+cd utils/provision-signal-bot
+set -gx SMSPOOL_API_KEY "your_key"
+
+# Group 1
+cargo run -- --provision-number
+cargo run -- --phone +12025551111 --order-id ABC123 --captcha 'signalcaptcha://...'
+
+# Group 2  
+cargo run -- --provision-number
+cargo run -- --phone +12025552222 --order-id DEF456 --captcha 'signalcaptcha://...'
+
+# Group 3
+cargo run -- --provision-number
+cargo run -- --phone +12025553333 --order-id GHI789 --captcha 'signalcaptcha://...'
+```
+
+#### Step 2: Create systemd Service Template
+
+```bash
+# Create template service file
+sudo nano /etc/systemd/system/stroma-bot@.service
+```
+
+```ini
+[Unit]
+Description=Stroma Bot - %i
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=stroma
+Group=stroma
+WorkingDirectory=/var/lib/stroma/%i
+ExecStart=/usr/local/bin/stroma run --config /etc/stroma/groups/%i/config.toml
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/stroma/%i /var/log/stroma
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### Step 3: Create Per-Group Configurations
+
+```bash
+# Create directories
+sudo mkdir -p /etc/stroma/groups/{mission-control,activists-nyc,mutual-aid-sf}
+sudo mkdir -p /var/lib/stroma/{mission-control,activists-nyc,mutual-aid-sf}
+
+# Create config files (one per group)
+sudo nano /etc/stroma/groups/mission-control/config.toml
+sudo nano /etc/stroma/groups/activists-nyc/config.toml
+sudo nano /etc/stroma/groups/mutual-aid-sf/config.toml
+
+# Each config has its own:
+# - signal_phone (different number per group)
+# - pepper_file (different pepper per group)
+# - freenet data_dir (different dir per group)
+# - group_name (different name per group)
+```
+
+#### Step 4: Bootstrap Each Group
+
+```bash
+# Bootstrap each separately
+stroma bootstrap \
+  --config /etc/stroma/groups/mission-control/config.toml \
+  --signal-phone "+12025551111" \
+  --seed-members @Alice,@Bob,@Carol \
+  --group-name "Mission Control"
+
+stroma bootstrap \
+  --config /etc/stroma/groups/activists-nyc/config.toml \
+  --signal-phone "+12025552222" \
+  --seed-members @Dave,@Eve,@Frank \
+  --group-name "Activists-NYC"
+
+stroma bootstrap \
+  --config /etc/stroma/groups/mutual-aid-sf/config.toml \
+  --signal-phone "+12025553333" \
+  --seed-members @Grace,@Heidi,@Ivan \
+  --group-name "Mutual Aid SF"
+```
+
+#### Step 5: Start All Services
+
+```bash
+# Enable and start each service
+sudo systemctl enable --now stroma-bot@mission-control
+sudo systemctl enable --now stroma-bot@activists-nyc
+sudo systemctl enable --now stroma-bot@mutual-aid-sf
+
+# Check status of all
+sudo systemctl status 'stroma-bot@*'
+```
+
+#### Step 6: Monitor All Groups
+
+```bash
+# View logs for specific group
+journalctl -u stroma-bot@mission-control -f
+
+# View logs for all groups
+journalctl -u 'stroma-bot@*' -f
+
+# Check status
+systemctl list-units 'stroma-bot@*'
+```
+
+**Resource Requirements:**
+
+| Groups | RAM | Storage | Network |
+|--------|-----|---------|---------|
+| 1 | ~100MB | ~50MB | Minimal |
+| 10 | ~1GB | ~500MB | Minimal |
+| 100 | ~10GB | ~5GB | Minimal |
+
+**Acceptable for <100 groups on single server.**
+
 ## Monitoring & Maintenance
 
 ### View Logs

@@ -94,12 +94,13 @@ AND: Send_Private_Notification(Member_Hash,
 - `/invite @username [context]` - Invite someone (counts as first vouch)
 - `/vouch @username` - Vouch for invitee or existing member
 - `/flag @username [reason]` - Flag member for trust violation (required reason)
+- `/propose <subcommand> [args]` - Propose group decision (config, federation, etc.)
 - `/status` - View personal trust standing and vouch count
 - `/status @username` - View another member's standing (if visible)
 - `/mesh` - View network health and topology
 - `/mesh strength` - View mesh density histogram
 - `/mesh config` - View group configuration
-- `/propose-config key=value [reason]` - Propose configuration change
+- `/propose <subcommand> [args]` - Propose group decision (unified command)
 - `/audit operator` - View operator action history
 
 **Who Can Use:**
@@ -113,13 +114,49 @@ AND: Send_Private_Notification(Member_Hash,
 - **Metadata Isolation**: All vetting in 1-on-1 PMs (Layer 3 of trust map protection)
 - **Privacy**: All operations use hashed identifiers, no cleartext stored
 
-### Voting Interface: Signal Polls
-- **Structured Voting**: Use Signal Polls for all group decisions (NOT reactions)
-- **Poll Options**: Clear choices (✅ Approve / ❌ Reject / ⏸️ Abstain)
-- **Vote Counting**: Automatic display of vote totals and progress
-- **Expiration**: Polls auto-close after voting period (e.g., 48 hours)
-- **Threshold**: Requires `config_change_threshold` approval (e.g., 70%)
-- **Use Cases**: Configuration changes, federation proposals
+### Voting Interface: Native Signal Polls (Anonymous)
+
+**Implementation**: Protocol v8 polls via forked libsignal-service-rs
+
+**Why Polls (Not Reactions):**
+- ✅ **Anonymous voting** - Signal doesn't expose who voted what
+- ✅ **Privacy** - Only aggregated results visible to bot and members
+- ✅ **Multiple choices** - Enables nuanced decisions
+- ✅ **Native UX** - Familiar Signal mobile/desktop interface
+- ❌ **Reactions expose voters** - Everyone sees who reacted (violates privacy)
+
+**Poll Structure:**
+- **Options**: Binary (✅ Approve / ❌ Reject) or multiple choice (future)
+- **Anonymity**: Bot sees only totals (15 approve, 3 reject), never individuals
+- **Timeout**: Configurable per proposal (e.g., 48h, 72h, 96h)
+- **Threshold**: From GroupConfig.config_change_threshold (e.g., 70%)
+
+**Implementation:**
+```rust
+// Create poll for proposal
+let poll_message = DataMessage {
+    poll_create: Some(PollCreate {
+        question: Some(format_proposal(proposal)),
+        allow_multiple: Some(false),
+        options: vec!["👍 Approve".to_string(), "👎 Reject".to_string()],
+    }),
+    ..Default::default()
+};
+
+manager.send_message_to_group(master_key, poll_message, timestamp).await?;
+```
+
+**Vote Counting (After Timeout):**
+```rust
+// Bot reads aggregated results only
+let results = get_poll_results(poll_timestamp).await?;
+// results.approve_count: 15
+// results.reject_count: 3
+// results.approval_ratio: 0.83 (83%)
+// NO individual votes exposed
+```
+
+**Use Cases**: All group decisions (config changes, federation, settings)
 
 ### User Experience (Abstraction Layer)
 - **Invisible Backend**: Freenet complexity completely hidden from users
@@ -129,47 +166,61 @@ AND: Send_Private_Notification(Member_Hash,
 ### Signal Poll Usage
 Bot sends Signal Polls to validators for all group decisions:
 
-**Federation Proposal Poll:**
+**Federation Proposal:**
 ```
-🔍 Federation Opportunity
+Member: /propose federate abc123def --timeout 72h
 
-Group: Group-B
-Overlap: 15 members (15% of our group)
-Their size: ~100 members
-Intersection density: 15% (above our 10% threshold)
+Bot: "📋 Proposal #5
+     Federate 'Activists-NYC' with 'Mutual Aid SF'
+     
+     Overlap: 12 shared members (15% intersection)
+     Their size: ~80 members
+     Intersection density: 15% (above our 10% threshold)
+     
+     Timeout: 72h (custom)
+     Threshold: 70% approval required
+     Closes: Sun Feb 2, 6:00 PM"
 
-Federation enables:
-- Cross-mesh vouching
-- Shared trust context
-- Increased resilience
+[Signal Poll created - members vote anonymously]
 
-Requires 70% approval.
-Voting closes in 48 hours.
+Bot (after timeout):
+     "✅ Proposal #5 APPROVED
+      Results: 18 Approve, 3 Reject (86% approval)
+      
+      Executing: Federation with 'Mutual Aid SF'"
 
-[Signal Poll]
-✅ Approve Federation (12) - 60%
-❌ Reject Federation (4) - 20%
-⏸️ Abstain (4) - 20%
+[Bot establishes federation on Freenet]
+
+Bot: "✅ Federation established with 'Mutual Aid SF'
+      Cross-mesh vouching now enabled."
 ```
 
-**Configuration Change Poll:**
+**Configuration Change:**
 ```
-📋 Configuration Change Proposed
+Member: /propose stroma min_intersection_density 0.15
 
-Parameter: min_intersection_density
-Current: 0.10 (10%)
-Proposed: 0.15 (15%)
-Proposer: @Member
-Reason: Tighten federation threshold for better security
+Bot: "📋 Proposal #8
+     Change Stroma config: min_intersection_density → 0.15
+     Current: 0.10
+     
+     Timeout: 48h (default)
+     Threshold: 70% approval required
+     Closes: Thu Jan 30, 2:00 PM"
 
-Requires 70% approval (config_change_threshold).
-Voting closes in 48 hours.
+[Signal Poll created - members vote anonymously]
 
-[Signal Poll]
-✅ Approve Change (14) - 70%
-❌ Reject Change (4) - 20%
-⏸️ Abstain (2) - 10%
+Bot (after timeout):
+     "✅ Proposal #8 APPROVED
+      Results: 15 Approve, 3 Reject (83% approval)
+      
+      Executing: min_intersection_density → 0.15"
+
+[Bot updates Freenet contract]
+
+Bot: "✅ Configuration updated: min_intersection_density = 0.15"
 ```
+
+**Key: Votes are anonymous** - Only aggregated counts visible, never individual votes.
 
 - **Status Dashboard**: `/mesh` shows network health, personal standing, role
 - **Progress Indicators**: "You are 1-link away from being fully vetted"

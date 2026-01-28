@@ -1,0 +1,175 @@
+# Bead: Group Identity
+
+**Status**: Immutable Architectural Constraint  
+**Created**: 2026-01-28  
+**Context**: Architecture Decision 2.2
+
+---
+
+## Constraint: Group Name Required
+
+**Principle**: Every Stroma group MUST have a human-readable name specified at seed initialization.
+
+### Seed Group Initialization
+
+```rust
+pub struct SeedGroupConfig {
+    name: String,                // "Mission Control" - REQUIRED
+    seed_members: Vec<Hash>,     // 3 phone numbers (founder members)
+    operator: Hash,              // Bot operator's phone number
+    config: GroupConfig,         // Trust thresholds, defaults
+}
+```
+
+**Group name:**
+- ✅ MUST be provided at initialization
+- ✅ Stored in Freenet contract
+- ✅ Used as Signal group name
+- ✅ Changeable via consensus (`/propose config name "New Name"`)
+
+### Freenet Contract Schema
+
+```rust
+pub struct GroupState {
+    group_name: String,          // Immutable field (changeable via consensus)
+    group_id: GroupId,
+    members: BTreeSet<Hash>,
+    vouch_graph: HashMap<Hash, VouchRecord>,
+    config: GroupConfig,
+    // ...
+}
+```
+
+### Bot Usage
+
+**Initialization:**
+```
+Operator: stroma-bot init --name "Mission Control" \
+    --member1 +12025551111 \
+    --member2 +12025552222 \
+    --member3 +12025553333
+
+Bot: ✅ Created Signal group: "Mission Control"
+Bot: ✅ Freenet contract initialized
+Bot: ✅ Seed members vouched for each other
+```
+
+**Invitations:**
+```
+Bot → Invitee (1-on-1 PM):
+"You've been invited to 'Activists-NYC' on Stroma.
+
+Stroma uses trust-based membership. You need 2 vouches
+from existing members to join.
+
+@alice has vouched for you (1/2).
+
+When you receive a second vouch, I'll add you to the Signal group."
+```
+
+**Admission:**
+```
+Bot → Invitee:
+"✅ You've been vouched for by @bob!
+
+You now have 2 vouches and are admitted to 'Activists-NYC'.
+
+Adding you to the Signal group now..."
+
+Bot (in group):
+"👋 Welcome @charlie to Activists-NYC!"
+```
+
+**Federation:**
+```
+Bot (in group):
+"📋 Proposal #15
+ 
+ Federate 'Activists-NYC' with 'Mutual Aid SF'
+ 
+ Overlap: 12 shared members (15% intersection)
+ 
+ Vote: 👍 Approve | 👎 Reject
+ Timeout: 72h"
+```
+
+### Changing Group Name
+
+**Via Consensus:**
+```
+Member: "/propose config name 'Activists NYC 2026'"
+
+Bot: "📋 Proposal #7
+     Change group name to 'Activists NYC 2026'
+     
+     Vote: 👍 Approve | 👎 Reject
+     Timeout: 48h
+     Threshold: 70%"
+
+[After approval]
+
+Bot: "✅ Proposal #7 approved
+     Group name changed to 'Activists NYC 2026'"
+
+[Signal group name updated]
+```
+
+### Code Constraints
+
+**Block These Patterns:**
+```rust
+// ❌ NEVER initialize without name
+let group = GroupState {
+    group_id,
+    members,
+    // name: missing - INVALID
+};
+
+// ❌ NEVER allow empty name
+pub fn init_group(name: Option<String>) {  // Option is WRONG
+    // name MUST be required parameter
+}
+```
+
+**Enforce These Patterns:**
+```rust
+// ✅ ALWAYS require name
+pub fn init_seed_group(
+    name: String,          // Required, not Option
+    seed_members: Vec<Hash>,
+    operator: Hash,
+) -> Result<GroupState> {
+    if name.is_empty() {
+        return Err("Group name required");
+    }
+    // ...
+}
+
+// ✅ ALWAYS use name in bot messages
+fn format_invitation(group_name: &str, voucher: &str) -> String {
+    format!(
+        "You've been invited to '{}' on Stroma.\n\n\
+         {} has vouched for you (1/2).",
+        group_name, voucher
+    )
+}
+```
+
+### Gastown Agent Instructions
+
+**When implementing seed initialization:**
+1. Group name is REQUIRED parameter (not optional)
+2. Validate name is non-empty
+3. Store in Freenet contract
+4. Use as Signal group name
+5. Include in all bot communications
+
+**When implementing invitations:**
+1. Always mention group name
+2. Format: "You've been invited to '{name}' on Stroma"
+3. Never say "this group" - always use the name
+
+**When implementing proposals:**
+1. Group name in federation proposals
+2. Group name in announcements
+3. Group name changeable via `/propose config name "New Name"`

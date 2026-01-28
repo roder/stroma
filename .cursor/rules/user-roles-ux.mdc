@@ -37,8 +37,8 @@ alwaysApply: false
 - Can invite new people (`/invite`)
 - Can vouch for Invitees and other Members (`/vouch`)
 - Can flag other Members (`/flag`)
-- Can propose configuration changes (`/propose-config`)
-- Can vote on federation and configuration proposals
+- Can propose changes (`/propose config|stroma|federate`)
+- Can vote on proposals (via Signal Polls - anonymous voting)
 - Can query network status (`/mesh`, `/status`)
 
 **Sub-Types:**
@@ -157,9 +157,14 @@ I'm now reaching out to a validator from a different cluster
 for the second vouch. I'll keep you updated."
 
 Bot → Matt (1-on-1 PM):
-"Welcome! You've been invited to join the [GroupName] trust network by Alice.
-You need one more vouch from a different member to be admitted.
-I'm facilitating an introduction now..."
+"Welcome! You've been invited to 'Activists-NYC' on Stroma by Alice.
+
+Stroma uses trust-based membership. You need 2 vouches from
+existing members to join the group.
+
+Alice has vouched for you (1/2).
+
+I'm facilitating an introduction for your second vouch..."
 ```
 
 **Step 2: Strategic Matching (Blind Matchmaker)**
@@ -340,16 +345,20 @@ I'm now reaching out to a validator for the second vouch..."
 [Normal vetting flow proceeds]
 ```
 
-### Flow 4: Configuration Proposals
+### Flow 4: Proposals & Voting
 
 **Propose Configuration Change:**
 ```
-Member: /propose-config min_intersection_density=0.15 "Tighten federation threshold for better security"
+Member: /propose stroma min_intersection_density 0.15
 
 Bot → Stroma Group:
-"📋 Configuration Change Proposed
+"📋 Proposal #7
+Change Stroma config: min_intersection_density → 0.15
 
-Parameter: min_intersection_density
+Vote: 👍 Approve | 👎 Reject
+Timeout: 48h (default)
+Threshold: 70% approval required
+Closes: Thu Jan 30, 10:00 AM"
 Current: 0.10 (10%)
 Proposed: 0.15 (15%)
 Proposer: @Member
@@ -569,7 +578,7 @@ Metadata:
 - Config version: 8
 - Last updated: 2026-01-20 14:23 UTC
 
-To propose changes, use: /propose-config key=value"
+To propose changes, use: /propose stroma <key> <value>"
 ```
 
 **Operator Audit:**
@@ -747,39 +756,101 @@ Consensus Thresholds:
 
 ### Configuration Commands
 
-#### `/propose-config key=value [optional: reason]`
+#### `/propose <subcommand> [args] [--timeout duration]`
 **Who Can Use**: Any Member
 
+**Purpose**: Unified command for all group decisions via consensus
+
+**Subcommands**:
+
+1. **Signal Group Settings**
+   ```
+   /propose config <setting> <value> [--timeout duration]
+   
+   Examples:
+   /propose config name "New Group Name"
+   /propose config description "Trust-based activist network"  
+   /propose config disappearing_messages 24h
+   /propose config disappearing_messages 24h --timeout 72h
+   ```
+
+2. **Stroma Configuration**
+   ```
+   /propose stroma <setting> <value> [--timeout duration]
+   
+   Examples:
+   /propose stroma min_vouch_threshold 3
+   /propose stroma config_change_threshold 0.80
+   /propose stroma default_poll_timeout 72h
+   ```
+
+3. **Federation**
+   ```
+   /propose federate <group-id> [--timeout duration]
+   
+   Example:
+   /propose federate abc123def456 --timeout 96h
+   ```
+
 **Effect**:
-- Creates configuration change proposal
-- Bot sends Signal Poll to group
-- Requires `config_change_threshold` approval (e.g., 70%)
-- If approved → bot updates Freenet contract automatically
+- Creates proposal in Freenet contract
+- Bot creates Signal Poll in group (anonymous voting)
+- Timeout: Configurable per proposal (default from config)
+- Threshold: Always from `config_change_threshold` (e.g., 70%)
+- If approved → bot executes action automatically
 
 **Example**:
 ```
-/propose-config min_intersection_density=0.15 "Tighten federation threshold"
+/propose config name "Activists NYC 2026"
 ```
 
 **Bot Response** (to group):
 ```
-"📋 Configuration Change Proposed
+"📋 Proposal #12
+Change group name to 'Activists NYC 2026'
 
-Parameter: min_intersection_density
-Current: 0.10 (10%)
-Proposed: 0.15 (15%)
-Proposer: @Member
-Reason: Tighten federation threshold
+Timeout: 48h (default)
+Threshold: 70% approval required
+Closes: Thu Jan 30, 2:00 PM
 
-[Signal Poll created]"
+[Signal Poll created with options:]
+✅ Approve
+❌ Reject"
 ```
 
-**Valid Configuration Keys**:
-- `config_change_threshold` (float 0.0-1.0)
-- `ejection_appeal_threshold` (float 0.0-1.0)
-- `min_intersection_density` (float 0.0-1.0)
-- `validator_percentile` (integer 1-100)
-- `min_vouch_threshold` (integer, minimum 2)
+**Voting Mechanism: Signal Polls (Anonymous)**
+
+Bot creates native Signal Poll with voting options. Signal Polls provide:
+- ✅ **Anonymous voting** - Signal doesn't expose who voted what
+- ✅ **Privacy** - Only aggregated results visible
+- ✅ **Native UX** - Familiar Signal mobile/desktop interface
+
+Members vote using Signal's built-in poll UI. Bot receives only aggregate counts, never individual votes.
+
+**After Timeout:**
+```
+Bot: "✅ Proposal #12 APPROVED
+     Results: 18 Approve, 4 Reject (82% approval)
+     
+     Executing: Group name → 'Activists NYC 2026'"
+
+[Bot changes Signal group name]
+
+Bot: "✅ Group name changed to 'Activists NYC 2026'"
+```
+
+**Valid Stroma Configuration Keys**:
+- `config_change_threshold` (float 0.0-1.0) - Approval threshold for all proposals
+- `default_poll_timeout` (duration) - Default timeout if not specified
+- `min_intersection_density` (float 0.0-1.0) - Federation overlap threshold
+- `validator_percentile` (integer 1-100) - Validator threshold percentile
+- `min_vouch_threshold` (integer, minimum 2) - Minimum vouches to stay in group
+
+**Valid Signal Group Settings**:
+- `name` (string) - Group name
+- `description` (string) - Group description
+- `disappearing_messages` (duration) - Disappearing message timer
+- (Any setting Signal exposes via group management API)
 
 ### Audit Commands
 

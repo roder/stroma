@@ -183,11 +183,11 @@ Returns all configurable parameters:
 - All changes logged with timestamps
 
 **Valid configuration keys:**
-- `config_change_threshold` (0.5-1.0)
-- `ejection_appeal_threshold` (0.5-1.0)
-- `min_intersection_density` (0.0-1.0)
-- `validator_percentile` (1-100)
-- `min_vouch_threshold` (≥2)
+- `config_change_threshold` (0.5-1.0) - Approval threshold for all proposals
+- `default_poll_timeout` (duration) - Default poll timeout if not specified
+- `min_intersection_density` (0.0-1.0) - Federation overlap threshold
+- `validator_percentile` (1-100) - Validator threshold percentile
+- `min_vouch_threshold` (≥2) - Minimum vouches to stay in group
 
 **Example:**
 ```

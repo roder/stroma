@@ -61,15 +61,58 @@ Traditional trust networks require revealing the social graph to scale. This cre
 
 ## System Architecture
 
+### Bot-to-Group Relationship: 1:1
+
+**Architecture**: One bot process per Stroma group
+
+**Deployment Model:**
+- 1 Bot Instance = 1 Signal Group = 1 Freenet Contract = 1 Trust Mesh
+- Each group requires separate bot process
+- Scale: <100 groups = <100 processes (acceptable)
+
+**Example:**
+```
+systemd services:
+  stroma-bot@mission-control.service  → Signal Group "Mission Control"
+  stroma-bot@activists-nyc.service    → Signal Group "Activists-NYC"
+  stroma-bot@mutual-aid-sf.service    → Signal Group "Mutual Aid SF"
+```
+
+**Rationale:**
+- Simpler state management (each bot owns one contract)
+- Isolation (one group's issues don't cascade)
+- Clear identity (bot phone number = group identity)
+- Easier debugging (logs per group)
+
+**See**: `.beads/bot-deployment-model.bead`
+
+### Group Identity
+
+**Required**: Every Stroma group MUST have a human-readable name
+
+**Specified at**: Seed group initialization
+
+**Usage:**
+- Signal group name
+- Bot invitations: "You've been invited to '{group_name}' on Stroma"
+- Federation proposals: "Federate '{our_name}' with '{their_name}'"
+- Changeable via consensus: `/propose config name "New Name"`
+
+**See**: `.beads/group-identity.bead`
+
 ### Three-Layer Design
 
 #### 1. User Interface Layer: Signal
+- **Client Library**: Presage (high-level Rust API built on libsignal-service-rs)
 - **Role**: Human-facing interface for trust operations
-- **Features**: Bot commands (`/vouch`, `/status`, `/mesh`, `/flag`)
+- **Features**: Bot commands (`/vouch`, `/status`, `/mesh`, `/flag`, `/propose`)
 - **Privacy**: All vetting/vouching in 1-on-1 PMs (never group chat)
+- **Voting**: Native Signal Polls for anonymous group decisions
 - **Constraint**: Bot never stores Signal IDs in cleartext
 
 #### 2. Trust Logic Layer: Rust Bot
+- **Implementation**: Native Rust using Presage (wraps libsignal-service-rs)
+- **Governance**: Bot is Signal admin (technical) but execute-only (no decision power)
 - **Roles**: 
   - **Relational Concierge**: Facilitates introductions and matches
   - **Protocol Gatekeeper**: Enforces trust thresholds automatically
@@ -80,8 +123,10 @@ Traditional trust networks require revealing the social graph to scale. This cre
   - Trust verification (ZK-proof validation)
   - Ejection protocol (immediate removal when threshold violated)
   - Federation proposals (diplomatic coordination)
+  - Consensus enforcement (execute only contract-approved actions)
   - Ephemeral memory (raw IDs wiped immediately)
 - **Constraint**: Stateless - all state comes from Freenet
+- **Operator Role**: Service runner ONLY (no privileges)
 - **Abstraction**: Freenet complexity completely hidden from users
 
 #### 3. State Layer: Freenet (Dark)
@@ -203,9 +248,12 @@ All group configuration stored in Freenet contract, changeable only via group co
 
 ```rust
 pub struct GroupConfig {
+    // Group identity
+    group_name: String,                    // "Mission Control" - changeable via consensus
+    
     // Consensus thresholds
-    config_change_threshold: f32,          // e.g., 0.70 (70%) - used for all group decisions
-    ejection_appeal_threshold: f32,        // e.g., 0.60 (60%)
+    config_change_threshold: f32,          // e.g., 0.70 (70%) - used for all proposals
+    default_poll_timeout: Duration,        // e.g., 48h - default if not specified
     
     // Federation parameters
     min_intersection_density: f32,         // e.g., 0.10-0.30 (configurable per-group)
@@ -220,19 +268,42 @@ pub struct GroupConfig {
 }
 ```
 
-**Note**: Federation uses `config_change_threshold` (no separate threshold needed).
+**Note**: No `ejection_appeal_threshold` - appeals handled via re-invite path (outside group).
+
+### Proposal System (`/propose`)
+
+**Unified command for all group decisions:**
+
+```
+/propose <subcommand> [args] [--timeout duration]
+```
+
+**Subcommands:**
+- `config <setting> <value>` - Change Signal group settings (name, description, etc.)
+- `stroma <setting> <value>` - Change Stroma config (thresholds, etc.)
+- `federate <group-id>` - Propose federation with another group
+
+**Voting:**
+- Native Signal Polls (anonymous voting)
+- Timeout: Configurable per proposal (default from config)
+- Threshold: Always from `config_change_threshold` (not per-proposal)
+
+**Examples:**
+```
+/propose config name "New Group Name"
+/propose stroma min_vouch_threshold 3
+/propose federate abc123def --timeout 72h
+```
+
+**See**: `.beads/proposal-system.bead`
 
 ### Configuration Discovery & Modification
 - **Query**: Any member can view config via `/mesh config`
-- **Propose**: Any member can propose changes via `/propose-config key=value [reason]`
-- **Vote**: Bot sends Signal Poll to group with structured options:
-  - ✅ Approve Change
-  - ❌ Reject Change
-  - ⏸️ Abstain
-- **Vote Counting**: Signal Poll automatically counts votes and shows progress
-- **Apply**: Bot automatically updates Freenet config if vote exceeds `config_change_threshold`
-- **Audit**: All config changes logged in Freenet contract
-- **Federation**: Federation proposals also use `config_change_threshold`
+- **Propose**: Any member can propose changes via `/propose config <key> <value>`
+- **Vote**: Bot creates Signal Poll (anonymous voting)
+- **Timeout**: Configurable per proposal (default: 48h)
+- **Apply**: Bot automatically executes if threshold met after timeout
+- **Audit**: All proposals and results logged in Freenet contract
 
 ### Operator Least Privilege
 **Critical Principle**: Operator is a service runner, NOT a privileged user. The operator does NOT manually execute commands.
