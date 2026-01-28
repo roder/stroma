@@ -80,7 +80,7 @@ AND: Send_Private_Notification(Member_Hash,
 - No manual intervention required
 
 **Re-Entry Path:**
-- Secure 2 new vouches from validators IN the group
+- Secure 2 new vouches from Members IN the group (ANY Member can vouch, not just Validators)
 - Go through admission protocol again
 - **No Public Shaming**: Uses hashes, not names in notifications
 

@@ -50,7 +50,7 @@ alwaysApply: true
 12. **Bead-12**: Internal cluster detection
 13. **Bead-13**: Strategic introduction suggestions (MST)
 14. **Bead-14**: Configuration management (Signal Polls)
-15. **Bead-15**: Advanced commands (/mesh, /mesh strength, /propose-config)
+15. **Bead-15**: Advanced commands (/mesh, /mesh strength, /propose)
 
 ### Phase 3: Federation Prep (Week 7)
 16. **Bead-16**: Social Anchor hashing (compute locally, don't broadcast)

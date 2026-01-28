@@ -64,7 +64,7 @@ If we design for federation from the start (but implement single-group first):
 ✅ **Bot Commands**
 - `/invite`, `/vouch`, `/flag`
 - `/status`, `/mesh`, `/mesh strength`, `/mesh config`
-- `/propose-config`, `/audit operator`
+- `/propose config|stroma|federate`, `/audit operator`
 
 ### What's NOT Implemented in MVP
 ❌ **Federation Discovery**

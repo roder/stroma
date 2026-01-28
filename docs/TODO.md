@@ -652,7 +652,7 @@
 **If Phase 2 Gate Opens (YES, need configurability)**:
 - [ ] Implement configurable `min_vouch_threshold`
   - [ ] Add to GroupConfig (range 2-4)
-  - [ ] Add `/propose-config min_vouch_threshold` command
+  - [ ] Add `/propose stroma min_vouch_threshold` command
   - [ ] Require config_change_threshold consensus
   - [ ] Cannot retroactively eject (new threshold only)
 
@@ -702,8 +702,9 @@
 - [ ] Implement flagging
   - [ ] Member sends `/flag @username [reason]`
   - [ ] Bot records flag in Freenet
-  - [ ] Bot recalculates: `Standing = Vouches - Flags`
-  - [ ] Bot checks ejection triggers
+  - [ ] Bot recalculates: `Standing = Effective_Vouches - Regular_Flags`
+  - [ ] If voucher flags: their vouch is invalidated (excluded from BOTH counts)
+  - [ ] Bot checks ejection triggers (Standing < 0 OR Effective_Vouches < 2)
 
 ### Ejection Protocol
 - [ ] Implement ejection triggers
@@ -892,7 +893,7 @@
 **If Phase 4 Gate Opens (YES, need percentage-based validators)**:
 - [ ] Implement percentage-based `validator_percentile`
   - [ ] Add to GroupConfig (formula: `max(3, group_size * validator_percentile / 100)`)
-  - [ ] Add `/propose-config validator_percentile` command
+  - [ ] Add `/propose stroma validator_percentile` command
   - [ ] Require elevated consensus (85%+ threshold)
   - [ ] Limit changes to once per quarter
   - [ ] Cannot retroactively change existing validators
@@ -1128,8 +1129,9 @@ These updates conflict - which wins?
 **Question**: Does freenet-core support custom validation logic beyond the `verify()` method?
 
 **Use Case**: Complex invariants like:
-- "Every member must have ≥2 vouches from different Members"
-- "Standing = Vouches - Flags must be ≥ 0"
+- "Every member must have ≥2 effective vouches from different Members"
+- "Standing = Effective_Vouches - Regular_Flags must be ≥ 0"
+- "Voucher-flaggers excluded from both counts (no 2-point swings)"
 - "Config changes require version increment"
 
 **Why This Matters**:

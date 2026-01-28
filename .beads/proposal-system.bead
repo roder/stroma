@@ -140,17 +140,18 @@ If you disagree with the timeout, you can:
 
 Abstention is valid democratic participation.
 
-### Bot Polling Logic
+### Bot Real-Time Monitoring (NOT Polling)
 
 **Stored in Freenet Contract:**
 ```rust
 pub struct ActiveProposal {
     proposal: Proposal,
-    signal_message_id: String,  // Proposal message (for reactions)
+    poll_creator_aci: Uuid,     // Bot's ACI for poll lookup
+    poll_timestamp: u64,        // Poll creation timestamp
     
-    // Voting state
-    approve_reactions: HashSet<Hash>,
-    reject_reactions: HashSet<Hash>,
+    // Voting state (aggregates only - never individual votes)
+    approve_count: u32,         // Signal provides only counts
+    reject_count: u32,          // Signal provides only counts
     
     // Status
     checked: bool,              // False until timeout expires
@@ -158,29 +159,32 @@ pub struct ActiveProposal {
 }
 ```
 
-**Bot Event Loop:**
+**Bot Event Loop (Real-Time Stream - NOT Polling):**
 ```rust
-async fn poll_monitoring_loop(
+// ✅ REQUIRED: Real-time state stream monitoring
+async fn proposal_monitoring_stream(
     signal: &SignalClient,
     freenet: &FreenetClient,
 ) {
-    loop {
-        sleep(Duration::from_secs(60)).await;  // Check every minute
-        
-        let mut contract_state = freenet.get_state().await?;
-        
-        for proposal in contract_state.active_proposals.iter_mut() {
-            if !proposal.checked && proposal.expires_at <= now() {
-                // 1. Fetch reactions from Signal
-                let reactions = signal
-                    .get_message_reactions(proposal.signal_message_id)
+    // Subscribe to state changes (NOT polling with sleep loops)
+    let mut state_stream = freenet.subscribe_to_state_changes().await.unwrap();
+    
+    while let Some(change) = state_stream.next().await {
+        match change {
+            StateChange::ProposalExpired(proposal_id) => {
+                let proposal = freenet.get_proposal(proposal_id).await?;
+                
+                // 1. Fetch poll results from Signal (anonymous - only counts)
+                let poll_results = signal
+                    .get_poll_results(proposal.poll_creator_aci, proposal.poll_timestamp)
                     .await?;
                 
-                // 2. Update vote counts
-                proposal.update_from_reactions(reactions);
+                // 2. Update vote counts (aggregates only)
+                let approve_count = poll_results.option_counts[0];  // "Approve" option
+                let reject_count = poll_results.option_counts[1];   // "Reject" option
                 
                 // 3. Calculate result
-                let result = proposal.calculate_result();
+                let result = calculate_proposal_result(approve_count, reject_count, &config);
                 
                 // 4. If approved, execute
                 if result.approved {
@@ -248,14 +252,15 @@ if !freenet.is_approved(proposal.id).await? {
 4. NO "appeal" subcommand (explicitly removed)
 
 **When implementing voting:**
-1. Use emoji reactions (👍/👎) for voting
-2. Monitor reactions until timeout
-3. Check proposal ONCE after timeout
-4. Record result in Freenet
+1. Use Signal Polls for voting (anonymous - Signal doesn't expose who voted)
+2. ❌ DO NOT use emoji reactions (exposes voter identity)
+3. Check poll results ONCE after timeout expires
+4. Record aggregated result in Freenet (counts only, never individuals)
 5. Execute if approved
 
 **When implementing bot loop:**
-1. Poll monitoring checks every 60 seconds
-2. Only check expired, unchecked proposals
-3. Mark as checked after first check
-4. Never re-check same proposal
+1. ✅ Use real-time state stream (subscribe to state changes)
+2. ❌ DO NOT use polling with sleep loops
+3. Only check expired, unchecked proposals
+4. Mark as checked after first check
+5. Never re-check same proposal

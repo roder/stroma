@@ -20,10 +20,11 @@ Build a **Minimum Spanning Tree of Trust** within the group using the least numb
 
 ### Dynamic Thresholds (Configurable)
 
-**Default (Fixed Numbers):**
-- **Leaf**: Exactly MIN_VOUCH_THRESHOLD vouches (default: 2)
-- **Bridge**: MIN_VOUCH_THRESHOLD + 1 vouches (default: 3)
-- **Validator**: > MIN_VOUCH_THRESHOLD + 1 vouches (default: 4+)
+**Node Types (Members IN the Signal group):**
+- **Bridge**: MIN_VOUCH_THRESHOLD vouches (default: 2) - minimum membership, vulnerable
+- **Validator**: >= MIN_VOUCH_THRESHOLD + 1 vouches (default: 3+) - resilient
+
+**Note**: "Invitees" (Leaf Nodes) are OUTSIDE the Signal group with 1 vouch (being vetted). They are NOT part of the internal trust graph analysis.
 
 **Alternative (Percentage-Based):**
 ```rust
@@ -62,15 +63,15 @@ impl TrustGraph {
         self.vouches.get(member).map(|v| v.len()).unwrap_or(0)
     }
     
+    /// Classify members IN the Signal group
+    /// Note: Invitees (1 vouch, OUTSIDE group) are not represented in this graph
     fn classify_node(&self, member: &Hash, thresholds: &Thresholds) -> NodeType {
         let count = self.vouch_count(member);
         
         if count == thresholds.min_vouch {
-            NodeType::Leaf
-        } else if count == thresholds.min_vouch + 1 {
-            NodeType::Bridge
+            NodeType::Bridge  // 2 vouches, minimum membership, vulnerable
         } else {
-            NodeType::Validator
+            NodeType::Validator  // 3+ vouches, resilient
         }
     }
 }
@@ -102,7 +103,7 @@ fn identify_internal_clusters(graph: &TrustGraph) -> Vec<Cluster> {
 Achieve fully intersectional mesh with **least new interactions**.
 
 **Success Criteria:**
-- [ ] No Leaf Nodes (everyone has ≥ MIN_VOUCH_THRESHOLD)
+- [ ] No vulnerable Bridges (everyone has ≥ 3 vouches for resilience)
 - [ ] No disconnected islands (all clusters connected)
 - [ ] Every member seen by 2+ perspectives from different clusters
 
@@ -114,28 +115,29 @@ fn generate_strategic_introductions(
 ) -> Vec<IntroductionPair> {
     let mut introductions = Vec::new();
     
-    // Priority 1: Connect Leaves to Validators from different clusters
-    for leaf in graph.get_leaves() {
-        let leaf_cluster = clusters.find_cluster_for(leaf);
+    // Priority 1: Strengthen vulnerable Bridges (only 2 vouches) via cross-cluster vouches
+    // Note: "Invitees" (1 vouch) are OUTSIDE the group and not in this graph
+    for bridge in graph.get_vulnerable_bridges() {  // Members with exactly 2 vouches
+        let bridge_cluster = clusters.find_cluster_for(bridge);
         
         // Find validator from DIFFERENT cluster
-        let validator = graph.get_validators()
+        let validator = graph.get_validators()  // Members with 3+ vouches
             .filter(|v| {
                 let v_cluster = clusters.find_cluster_for(v);
-                v_cluster != leaf_cluster  // Different cluster
+                v_cluster != bridge_cluster  // Different cluster
             })
             .max_by_key(|v| graph.vouch_count(v))  // Highest entropy
             .expect("No validators in other clusters");
         
         introductions.push(IntroductionPair {
-            person_a: leaf,
+            person_a: bridge,
             person_b: validator,
-            reason: "Leaf needs second vouch from different cluster",
+            reason: "Bridge needs third vouch from different cluster for resilience",
             priority: 1,
         });
     }
     
-    // Priority 2: Bridge disconnected islands
+    // Priority 2: Link disconnected islands
     if clusters.len() > 1 {
         // Connect top validators from each island
         for (island_a, island_b) in disconnected_island_pairs(clusters) {
@@ -170,12 +172,14 @@ N(Leaves) + I(Disconnected_Islands) = Total
 
 ### Proactive Suggestions
 ```
-Bot → Leaf Member (via PM):
+Bot → Bridge Member (2 vouches, via PM):
 "💡 Network Strengthening: You currently have 2 vouches (minimum required).
  I can introduce you to a Validator from a different part of the network
  to broaden your connections and make you more resilient.
  
- Would you like this introduction? React with ✅"
+ Would you like this introduction?"
+
+[Bot creates Signal Poll: "Accept introduction?" with options: Accept, Decline]
 ```
 
 ### Strategic Pairing Notification
@@ -193,7 +197,7 @@ Bot → Validator (via PM):
 ### What Bot Knows (Internal)
 - ✅ How many vouches each member has
 - ✅ Which members are in which internal clusters
-- ✅ Graph topology (who is Leaf, Bridge, Validator)
+- ✅ Graph topology (who is Bridge vs Validator)
 - ✅ Optimal pairings for MST
 
 ### What Bot Does NOT Know

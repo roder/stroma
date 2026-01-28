@@ -66,10 +66,20 @@ alwaysApply: true
 ## Trust Model
 
 ### Trust Standing Formula
-- **Calculation**: `Standing = Vouches - Flags`
+- **Calculation**: `Standing = Effective_Vouches - Regular_Flags`
+- **Vouch Invalidation**: If a voucher flags, their vouch is invalidated (logical inconsistency)
+- **Voucher-Flaggers**: Excluded from BOTH vouch count AND flag count (no 2-point swings)
 - **Threshold**: Standing must remain positive (>= 0)
 - **Evaluation**: Continuous, real-time monitoring
-- **Enforcement**: Immediate ejection when `Standing < 0`
+- **Enforcement**: Immediate ejection when `Standing < 0` OR `Effective_Vouches < 2`
+
+**Formula Details** (see `.beads/security-constraints.bead`):
+```
+Voucher_Flaggers = All_Vouchers ∩ All_Flaggers
+Effective_Vouches = |All_Vouchers| - |Voucher_Flaggers|
+Regular_Flags = |All_Flaggers| - |Voucher_Flaggers|
+Standing = Effective_Vouches - Regular_Flags
+```
 
 ### Network Topology
 - **Leaf Nodes**: 1 trust link (needs "Second Witness")

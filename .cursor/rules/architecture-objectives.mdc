@@ -165,9 +165,10 @@ systemd services:
 #### C. The Gatekeeper (Signal Admin Bot)
 - **Purpose**: Enforce trust-based membership
 - **Admission**: Only after Freenet contract confirms "Vetted" status (≥2 vouches)
-- **Trust Standing**: `Standing = Vouches - Flags` (must remain positive)
-- **Ejection**: Immediate removal when `Standing < 0` OR `Vouches < 2` (no grace period)
-- **Continuous Monitoring**: State stream monitored in real-time
+- **Trust Standing**: `Standing = Effective_Vouches - Regular_Flags` (must remain positive)
+- **Vouch Invalidation**: If voucher flags, their vouch is invalidated (excluded from BOTH counts)
+- **Ejection**: Immediate removal when `Standing < 0` OR `Effective_Vouches < 2` (no grace period)
+- **Continuous Monitoring**: State stream monitored in real-time (NOT polling)
 - **UX**: All vetting operations in 1-on-1 PMs (never group chat)
 - **Waiting Room**: State of being OUTSIDE Signal group during vetting (not a separate chat)
 

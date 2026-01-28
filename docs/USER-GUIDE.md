@@ -174,24 +174,34 @@ Returns all configurable parameters:
 
 ### Configuration
 
-#### `/propose-config key=value [reason]`
-**Proposes a configuration change**
+#### `/propose` - Unified Proposal System
+**Proposes any group decision (config changes, federation)**
 
-- Creates Signal Poll for group vote
+- Creates Signal Poll for group vote (anonymous voting)
 - Requires `config_change_threshold` approval (e.g., 70%)
 - Bot applies change automatically if approved
 - All changes logged with timestamps
 
-**Valid configuration keys:**
+**Subcommands:**
+
+**`/propose config <setting> <value>`** - Signal group settings:
+- `name` - Group name
+- `description` - Group description
+- `disappearing_messages` - Message retention (e.g., 24h)
+
+**`/propose stroma <setting> <value>`** - Stroma trust settings:
 - `config_change_threshold` (0.5-1.0) - Approval threshold for all proposals
 - `default_poll_timeout` (duration) - Default poll timeout if not specified
 - `min_intersection_density` (0.0-1.0) - Federation overlap threshold
 - `validator_percentile` (1-100) - Validator threshold percentile
-- `min_vouch_threshold` (≥2) - Minimum vouches to stay in group
+- `min_vouch_threshold` (≥2) - Minimum effective vouches to stay in group
+
+**`/propose federate <group-id>`** - Federation:
+- Proposes federation with another Stroma group
 
 **Example:**
 ```
-/propose-config min_intersection_density=0.15 "Tighten federation threshold for security"
+/propose stroma min_intersection_density 0.15
 ```
 
 ### Audit

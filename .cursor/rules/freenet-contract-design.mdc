@@ -754,7 +754,7 @@ async fn monitor_state_stream(freenet: &FreenetClient) -> Result<(), Error> {
 ### Question 5: Custom Validation Beyond ComposableState
 **Question**: Can we add custom validation logic beyond ComposableState trait?
 
-**Use Case**: Complex invariants like "every member must have >= 2 vouches from different validators"
+**Use Case**: Complex invariants like "every member must have >= 2 effective vouches from different Members" (ANY Member can vouch, not just Validators)
 
 **Test in Spike Week**:
 - Review freenet-core contract API

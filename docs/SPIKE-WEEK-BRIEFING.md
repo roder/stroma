@@ -136,8 +136,9 @@ These updates are incompatible - how does Freenet resolve this?
 **Question**: Can we enforce complex invariants beyond the `verify()` method in ComposableState?
 
 **Complex Invariants We Need**:
-- "Every member must have ≥2 vouches from different Members"
-- "Standing = Vouches - Flags must be ≥ 0 for all active members"
+- "Every member must have ≥2 effective vouches from different Members"
+- "Standing = Effective_Vouches - Regular_Flags must be ≥ 0 for all active members"
+- "Voucher-flaggers excluded from both counts (no 2-point swings)"
 - "Config changes require version increment"
 - "Vouchers must be active members (not removed)"
 

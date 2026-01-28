@@ -40,10 +40,15 @@ Stroma Bot (our implementation)
 
 ```rust
 use presage::Manager;
-use presage_store_sqlite::SqliteStore;
+// ❌ DO NOT USE: use presage_store_sqlite::SqliteStore;
+// SqliteStore stores ALL messages - server seizure risk!
+// See: security-constraints.bead § 10 for custom minimal store requirement
+
+use stroma::store::StromaProtocolStore;  // ✅ Custom minimal store
 
 // High-level operations
-let manager = Manager::register(config_store, options).await?;
+let store = StromaProtocolStore::new()?;
+let manager = Manager::with_store(store, options).await?;
 let messages = manager.receive_messages().await?;
 manager.send_message_to_group(master_key, message, timestamp).await?;
 ```
@@ -52,7 +57,8 @@ manager.send_message_to_group(master_key, message, timestamp).await?;
 
 ```rust
 use libsignal_service::proto::DataMessage;
-use libsignal_service::content::Reaction;
+use libsignal_service::proto::data_message::Poll;
+// ❌ DO NOT USE Reaction for voting (exposes voter identity)
 
 // Low-level protobuf access
 let reaction = DataMessage {

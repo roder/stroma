@@ -52,11 +52,11 @@ Member proposes action
         ↓
 Freenet contract records proposal
         ↓
-Group votes (via Signal reactions)
+Group votes (via Signal Polls - anonymous voting)
         ↓
 Timeout expires
         ↓
-Bot checks: threshold met?
+Bot checks: threshold met? (aggregated counts only)
         ↓ YES
 Freenet contract records approval
         ↓
@@ -142,14 +142,14 @@ Member: "/propose config disappearing_messages 24h"
 Bot: "📋 Proposal #8
      Enable disappearing messages: 24h
      
-     Vote: 👍 Approve | 👎 Reject
      Timeout: 48h
      Threshold: 70%"
 
-[Group votes via reactions]
+[Bot creates Signal Poll with options: "Approve", "Reject"]
+[Group votes via Signal Poll - anonymous, bot sees only aggregate counts]
 
 Bot (after timeout, if approved):
-     "✅ Proposal #8 approved (18 👍, 4 👎 = 82%)
+     "✅ Proposal #8 approved (18 Approve, 4 Reject = 82%)
      
      Enabling disappearing messages: 24h"
 

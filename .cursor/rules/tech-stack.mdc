@@ -76,14 +76,18 @@ Stroma Bot
   - Registration and authentication
 - **Features**:
   - `Manager` API for high-level operations
-  - SqliteStore for state persistence
+  - **Custom Store Required** (NOT SqliteStore - server seizure risk)
   - Connection lifecycle management
 - **Pattern**:
   ```rust
   use presage::Manager;
-  use presage_store_sqlite::SqliteStore;
+  // ❌ DO NOT USE: use presage_store_sqlite::SqliteStore;
+  // SqliteStore stores ALL messages - violates server seizure protection!
   
-  let manager = Manager::register(config_store, options).await?;
+  use stroma::store::StromaProtocolStore;  // ✅ Custom minimal store
+  
+  let store = StromaProtocolStore::new()?;
+  let manager = Manager::with_store(store, options).await?;
   manager.send_message_to_group(master_key, message, timestamp).await?;
   ```
 
@@ -98,8 +102,10 @@ Stroma Bot
 - **Pattern**:
   ```rust
   use presage::libsignal_service::proto::DataMessage;
-  use presage::libsignal_service::content::Reaction;
+  use presage::libsignal_service::proto::data_message::Poll;
   
+  // ❌ DO NOT USE Reaction for voting (exposes voter identity)
+  // ✅ Use Signal Polls for anonymous voting
   // Access low-level types through Presage's re-exports
   ```
 

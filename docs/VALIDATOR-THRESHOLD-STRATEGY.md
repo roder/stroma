@@ -54,7 +54,7 @@ Validator thresholds will evolve from **fixed (MVP)** → **configurable safegua
 - When first groups approach 30-50 members
 
 **Scope**:
-- Allow `/propose-config min_vouch_threshold` votes
+- Allow `/propose stroma min_vouch_threshold` votes
 - Configurable range: 2-4 (must be ≥2)
 - Requires `config_change_threshold` consensus
 

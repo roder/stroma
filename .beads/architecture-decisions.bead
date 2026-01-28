@@ -521,7 +521,7 @@ impl TrustNetworkState {
 pub struct GroupConfig {
     // Consensus thresholds
     config_change_threshold: f32,      // e.g., 0.70 (70%) - used for ALL decisions
-    ejection_appeal_threshold: f32,    // e.g., 0.60 (60%)
+    // NOTE: No ejection_appeal_threshold - appeals handled via re-invite path (outside group)
     
     // Federation parameters (configured but not used in MVP)
     min_intersection_density: f32,     // e.g., 0.10-0.30 (configurable per-group)

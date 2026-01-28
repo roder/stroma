@@ -58,7 +58,7 @@ The core principle: **You can only join if two independent members vouch for you
 
 4. **You're admitted**: The bot adds you to the Signal group
    - You're now a Bridge (2 effective vouches from independent members)
-   - Your trust standing is positive (Standing = Vouches - Flags >= 0)
+   - Your trust standing is positive (Standing = Effective_Vouches - Regular_Flags >= 0)
    - Bot welcomes you and immediately deletes all vetting session data (ephemeral)
 
 5. **You stay connected**: Keep building relationships in the group

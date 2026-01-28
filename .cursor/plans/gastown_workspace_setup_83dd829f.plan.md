@@ -396,10 +396,11 @@ src/
 **Features:**
 - Bootstrap seed group (3 members, group name required)
 - Invitation & vetting flow
-- Admission (after 2 vouches, ZK-proof verified)
-- Ejection (two triggers: Standing < 0 OR Vouches < 2)
+- Admission (after 2 effective vouches, ZK-proof verified)
+- Ejection (two triggers: Standing < 0 OR Effective_Vouches < 2)
+- Vouch invalidation: voucher-flaggers excluded from both counts
 - Basic commands: `/invite`, `/vouch`, `/flag`, `/status`
-- Health monitoring (continuous state stream)
+- Health monitoring (real-time state stream, NOT polling)
 
 **Bead Issues**:
 - Bead-06-Bootstrap: Seed group initialization
@@ -567,7 +568,8 @@ touch src/proposals/mod.rs
 [dependencies]
 # Presage (high-level Signal)
 presage = { git = "https://github.com/whisperfish/presage" }
-presage-store-sqlite = { git = "https://github.com/whisperfish/presage" }
+# ❌ DO NOT ADD: presage-store-sqlite (stores message history - server seizure risk)
+# Implement custom StromaProtocolStore instead (see security-constraints.bead § 10)
 
 # Freenet
 freenet-scaffold = "0.2"

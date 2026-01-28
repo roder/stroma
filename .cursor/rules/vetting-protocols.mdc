@@ -281,23 +281,38 @@ Bot: "Network Health: Fully Vetted ✅
 
 ## Continuous Health Monitoring
 
-### Heartbeat Auditor
+### Real-Time State Stream (NOT Polling)
 ```rust
-async fn membership_health_check() {
-    loop {
-        sleep(Duration::minutes(60)).await;
-        
-        for member in signal.get_group_members() {
-            let vouch_count = freenet.get_vouch_count(member).await;
-            
-            // Immediate ejection if below minimum
-            if vouch_count < MIN_VOUCH_THRESHOLD {
-                signal.remove_member(member).await;
-                signal.send_pm(member, 
-                    "Your vouch count dropped below minimum. 
-                     You have been removed from the group. 
-                     To rejoin, secure 2 new vouches via /invite.");
-            }
+// ✅ REQUIRED: Real-time state stream monitoring
+// See: .cursor/rules/security-guardrails.mdc "State Management Violations"
+async fn membership_health_monitor() {
+    // Subscribe to real-time state changes (NOT polling with sleep loops)
+    let mut state_stream = freenet.subscribe_to_state_changes().await.unwrap();
+    
+    while let Some(change) = state_stream.next().await {
+        match change {
+            StateChange::VouchRemoved { member, voucher } => {
+                // Voucher left group or flagged member - check if ejection needed
+                let effective_vouches = freenet.get_effective_vouch_count(member).await;
+                
+                if effective_vouches < MIN_VOUCH_THRESHOLD {
+                    signal.remove_member(member).await;
+                    signal.send_pm(member, 
+                        "Your effective vouch count dropped below minimum. 
+                         You have been removed from the group. 
+                         To rejoin, secure 2 new vouches via /invite.");
+                }
+            },
+            StateChange::StandingChanged { member, new_standing } => {
+                // Check if standing dropped below zero
+                if new_standing < 0 {
+                    signal.remove_member(member).await;
+                    signal.send_pm(member,
+                        "Your trust standing dropped below zero.
+                         You have been removed from the group.");
+                }
+            },
+            _ => {}
         }
     }
 }

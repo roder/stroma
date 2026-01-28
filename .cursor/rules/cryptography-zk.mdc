@@ -67,13 +67,22 @@ if (density_in_a >= threshold_a) && (density_in_b >= threshold_b) {
 ## Merkle Tree Implementation
 
 ### State Storage Pattern
-- **Never store member lists directly**
-- Store **Merkle Tree of Proofs** on Freenet
+- **Never store member lists directly** - use hashed identifiers only
+- **Generate Merkle Trees on-demand** from member sets for ZK-proof verification
+- **Do NOT store Merkle Trees** in contract state (they're not mergeable)
+- Store membership in BTreeSet (naturally mergeable), generate Merkle Tree when needed
 - Contract accepts ZK-SNARK as input for verification
 
+### On-Demand Merkle Tree Generation
+- Generate Merkle Tree from BTreeSet<MemberHash> when ZK-proof verification needed
+- Merkle root serves as compact commitment to membership state
+- Tree is ephemeral - generated, used for verification, then discarded
+- This pattern ensures mergeable state while enabling ZK verification
+
 ### Tree Updates
-- Rotate group-secret pepper via Merkle-root update
-- Ensure all updates are verifiable through the tree structure
+- Membership changes update BTreeSet (automatically merged via ComposableState)
+- Merkle Tree regenerated on-demand for next verification
+- Rotate group-secret pepper via configuration change proposal
 
 ## Key Management
 

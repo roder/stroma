@@ -41,7 +41,7 @@ alwaysApply: true
 - ❌ **NEVER** allow `Standing < 0` to persist (immediate ejection required)
 - ❌ **NEVER** allow vouch count < MIN_VOUCH_THRESHOLD (immediate ejection required)
 - ❌ **NEVER** use polling for state monitoring (must use real-time stream)
-- ❌ **NEVER** admit members with < 2 vouches from independent validators
+- ❌ **NEVER** admit members with < 2 vouches from independent Members (ANY Member can vouch)
 
 ### Vouch Invalidation Violations (BLOCK - NO UNILATERAL 2-POINT SWINGS)
 - ❌ **NEVER** allow a single member's action to cause 2-point standing swing

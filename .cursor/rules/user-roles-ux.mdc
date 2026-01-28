@@ -29,8 +29,9 @@ alwaysApply: false
 **Definition**: Fully vetted, trusted nodes in the mesh network who are IN the Stroma Signal group.
 
 **Requirements:**
-- Minimum 2 vouches from independent Members
-- Trust Standing ≥ 0 (Vouches - Flags)
+- Minimum 2 effective vouches from independent Members
+- Trust Standing ≥ 0 (Effective_Vouches - Regular_Flags)
+- Vouch Invalidation: If a voucher flags you, their vouch is invalidated
 - Currently in the Signal group
 
 **Privileges:**
@@ -565,14 +566,14 @@ Bot → Member (1-on-1 PM):
 
 Consensus Thresholds:
 - config_change_threshold: 70%
-- ejection_appeal_threshold: 60%
+(Note: No ejection_appeal_threshold - appeals handled via re-invite path)
 
 Federation Parameters:
 - min_intersection_density: 10%
 - validator_percentile: 20% (top 20%)
 
 Trust Parameters:
-- min_vouch_threshold: 2
+- min_vouch_threshold: 2 (effective vouches)
 
 Metadata:
 - Config version: 8
@@ -656,8 +657,9 @@ They're being admitted to the group now."
 
 **Effect**:
 - Records flag against member
-- Recalculates Standing = Vouches - Flags
-- If Standing < 0 → immediate automatic ejection
+- Recalculates Standing = Effective_Vouches - Regular_Flags
+- If voucher flags: their vouch is invalidated (excluded from BOTH counts - no 2-point swing)
+- If Standing < 0 OR Effective_Vouches < 2 → immediate automatic ejection
 - Bot notifies member and group (uses hashes, not names)
 
 **Example**:

@@ -70,15 +70,15 @@ Based on **in-degree** (number of incoming vouch edges):
 
 ```
 NodeType(m) = 
-  | Leaf       if in_degree(m) = MIN_VOUCH_THRESHOLD (default: 2)
-  | Bridge     if in_degree(m) = MIN_VOUCH_THRESHOLD + 1 (default: 3)
-  | Validator  if in_degree(m) > MIN_VOUCH_THRESHOLD + 1 (default: 4+)
+  | Bridge     if in_degree(m) = MIN_VOUCH_THRESHOLD (default: 2)
+  | Validator  if in_degree(m) >= MIN_VOUCH_THRESHOLD + 1 (default: 3+)
 ```
 
 **Semantic Meaning:**
-- **Leaf**: Minimum-trust member (vulnerable to single voucher departure)
-- **Bridge**: Connectors between clusters (moderate resilience)
-- **Validator**: High-trust hubs (resilient, good for verification)
+- **Bridge**: Minimum-membership member (2 vouches, vulnerable to single voucher departure)
+- **Validator**: High-trust member (3+ vouches, resilient, good for verification)
+
+**Note**: "Invitees" (sometimes called Leaf Nodes) are OUTSIDE the Signal group with only 1 vouch (being vetted). They are NOT represented in the internal trust graph since they're not yet members. The graph analysis operates only on admitted members (Bridges and Validators).
 
 ### Cluster Detection
 
@@ -128,13 +128,13 @@ where:
 ### Problem Statement
 
 **Given:**
-- Trust graph G = (V, E) with N members
-- K clusters (disconnected components)
-- L leaf nodes (in_degree = MIN_VOUCH_THRESHOLD)
+- Trust graph G = (V, E) with N members (all IN the Signal group)
+- K clusters (disconnected components within the group)
+- B vulnerable Bridges (in_degree = MIN_VOUCH_THRESHOLD, only 2 vouches)
 
 **Goal:**
 - Connect all clusters into single component
-- Upgrade all leaf nodes to bridges (in_degree >= MIN_VOUCH_THRESHOLD + 1)
+- Strengthen vulnerable Bridges to Validators (in_degree >= MIN_VOUCH_THRESHOLD + 1, 3+ vouches)
 - Minimize total new introductions needed
 
 **Constraint:**
@@ -148,10 +148,10 @@ Algorithm: BUILD_MINIMUM_SPANNING_TRUST_TREE(G)
 Input: Trust graph G = (V, E)
 Output: List of strategic introduction pairs
 
-1. Classify nodes:
-   leaves = {v ∈ V | in_degree(v) = MIN_VOUCH_THRESHOLD}
-   bridges = {v ∈ V | in_degree(v) = MIN_VOUCH_THRESHOLD + 1}
-   validators = {v ∈ V | in_degree(v) > MIN_VOUCH_THRESHOLD + 1}
+1. Classify nodes (members IN the Signal group):
+   // Note: "Invitees" (1 vouch, OUTSIDE group) are not in this graph
+   bridges = {v ∈ V | in_degree(v) = MIN_VOUCH_THRESHOLD}        // 2 vouches (minimum, vulnerable)
+   validators = {v ∈ V | in_degree(v) >= MIN_VOUCH_THRESHOLD + 1} // 3+ vouches (resilient)
 
 2. Detect clusters:
    clusters = FIND_CLUSTERS(G)
@@ -159,21 +159,22 @@ Output: List of strategic introduction pairs
 3. Initialize introduction list:
    introductions = []
 
-4. PHASE 1: Strengthen Leaves (Priority 1)
-   for each leaf in leaves:
-       leaf_cluster = find_cluster(leaf, clusters)
+4. PHASE 1: Strengthen Bridges (Priority 1)
+   // Bridges have only 2 vouches - vulnerable to single voucher departure
+   for each bridge in bridges:
+       bridge_cluster = find_cluster(bridge, clusters)
        
        // Find validator from DIFFERENT cluster with highest centrality
        target_validator = argmax_{v ∈ validators} (
            centrality(v) 
-           WHERE find_cluster(v) ≠ leaf_cluster
+           WHERE find_cluster(v) ≠ bridge_cluster
        )
        
        if target_validator exists:
            introductions.append({
-               person_a: leaf,
+               person_a: bridge,
                person_b: target_validator,
-               reason: "Upgrade leaf to bridge via cross-cluster vouch",
+               reason: "Strengthen Bridge via cross-cluster vouch (upgrade to 3+ vouches)",
                priority: 1
            })
 
@@ -208,20 +209,20 @@ Output: List of strategic introduction pairs
 
 **Proof Sketch:**
 
-1. **Phase 1 Correctness** (Leaf Strengthening):
-   - Each leaf needs exactly 1 additional vouch to become a bridge
+1. **Phase 1 Correctness** (Bridge Strengthening):
+   - Each Bridge (2 vouches) needs exactly 1 additional vouch to become more resilient
    - Cross-cluster vouching maximizes intersectional diversity
-   - Total introductions needed: L (number of leaves)
+   - Total introductions needed: B (number of Bridges with only 2 vouches)
 
-2. **Phase 2 Correctness** (Cluster Bridging):
-   - K disconnected clusters require exactly K-1 bridges to connect
+2. **Phase 2 Correctness** (Cluster Linking):
+   - K disconnected clusters require exactly K-1 connections to connect
    - Connecting sequentially (largest to smallest) minimizes disruption
    - Total introductions needed: K-1 (number of clusters minus 1)
 
 3. **Optimality**:
-   - Total introductions: L + (K-1)
+   - Total introductions: B + (K-1)
    - This is minimal because:
-     * Each leaf MUST get one more vouch (no way to reduce L)
+     * Each vulnerable Bridge MUST get one more vouch (no way to reduce B)
      * K clusters MUST be connected via K-1 edges (MST property)
    - QED
 
@@ -230,7 +231,7 @@ Output: List of strategic introduction pairs
 ### Anonymity Preservation
 
 **What Bot Knows:**
-- Node classification (leaf, bridge, validator) based on vouch count
+- Node classification (Bridge vs Validator) based on vouch count
 - Cluster membership (which nodes are connected)
 - Centrality scores (who is structurally important)
 
@@ -331,19 +332,23 @@ Algorithm: PSI_CA_HANDSHAKE(group_a, group_b)
 Phase 1: Group A Setup
   1. Bot A generates ephemeral key pair (sk_a, pk_a)
   2. For each member m in A:
-       encrypted_m = E(pk_a, cleartext_signal_id(m))  // DANGER: Cleartext temporarily
+       // CRITICAL: Cleartext access is ONLY for PSI-CA ephemeral encryption
+       // This is the ONE exception where cleartext is accessed - immediately zeroized
+       // In ALL other code paths, Signal IDs are hashed immediately upon receipt
+       encrypted_m = E(pk_a, cleartext_signal_id(m))  // Encrypt immediately
   3. Send {encrypted_m} to Bot B
-  4. Zeroize cleartext_signal_id immediately after encryption
+  4. Zeroize cleartext_signal_id IMMEDIATELY after encryption (MANDATORY)
 
 Phase 2: Group B Double-Blind
   5. Bot B generates ephemeral key pair (sk_b, pk_b)
   6. For each encrypted_a in received set:
        double_blind_a = E(pk_b, encrypted_a)  // Encrypt already-encrypted data
   7. For each member n in B:
-       encrypted_n = E(pk_b, cleartext_signal_id(n))
+       // CRITICAL: Same exception - cleartext for PSI-CA only, immediately zeroized
+       encrypted_n = E(pk_b, cleartext_signal_id(n))  // Encrypt immediately
        double_blind_b = E(pk_a, encrypted_n)  // Use A's public key
   8. Send {double_blind_a} and {double_blind_b} to Bot A
-  9. Zeroize cleartext_signal_id immediately
+  9. Zeroize cleartext_signal_id IMMEDIATELY (MANDATORY)
 
 Phase 3: Group A Intersection Calculation
   10. Bot A completes double-blinding on its own set:
@@ -449,8 +454,8 @@ Output: Federation contract (if both groups vote yes)
 | Node classification | O(N) | Single pass over vertices |
 | Cluster detection (Union-Find) | O(N × α(N)) | α(N) ≈ 4 for practical N |
 | Centrality calculation | O(N × E) | Betweenness centrality (Brandes) |
-| Leaf strengthening | O(L × V) | L = leaves, V = validators |
-| Cluster bridging | O(K²) | K = clusters (usually K << N) |
+| Bridge strengthening | O(B × V) | B = Bridges (2 vouches), V = Validators |
+| Cluster linking | O(K²) | K = clusters (usually K << N) |
 | **Total** | **O(N × E)** | Dominated by centrality calculation |
 
 **Space Complexity**: O(N + E) for graph storage
@@ -561,37 +566,38 @@ impl StrategicMatcher {
     pub fn generate_introductions(&self) -> Vec<IntroductionPair> {
         let mut pairs = Vec::new();
         
-        // Step 1: Classify nodes
-        let leaves = self.find_leaves();
-        let validators = self.find_validators();
+        // Step 1: Classify nodes (members IN the group)
+        // Note: Invitees (1 vouch, OUTSIDE group) are not in this graph
+        let vulnerable_bridges = self.find_vulnerable_bridges();  // 2 vouches, need strengthening
+        let validators = self.find_validators();  // 3+ vouches
         let clusters = self.detect_clusters();
         
         // Step 2: Calculate centrality for all validators
         let centrality = self.compute_betweenness_centrality(&validators);
         
-        // Step 3: PHASE 1 - Strengthen leaves
-        for leaf in leaves {
-            let leaf_cluster = self.find_cluster_id(leaf, &clusters);
+        // Step 3: PHASE 1 - Strengthen vulnerable Bridges (only 2 vouches)
+        for bridge in vulnerable_bridges {
+            let bridge_cluster = self.find_cluster_id(bridge, &clusters);
             
             // Find best validator from different cluster
             let target = validators.iter()
-                .filter(|v| self.find_cluster_id(**v, &clusters) != leaf_cluster)
+                .filter(|v| self.find_cluster_id(**v, &clusters) != bridge_cluster)
                 .max_by_key(|v| centrality[v])
                 .cloned();
             
             if let Some(validator) = target {
                 pairs.push(IntroductionPair {
-                    person_a: leaf,
+                    person_a: bridge,
                     person_b: validator,
-                    reason: "Cross-cluster vouch to upgrade leaf".to_string(),
+                    reason: "Cross-cluster vouch to strengthen Bridge (2→3+ vouches)".to_string(),
                     priority: 1,
                 });
             }
         }
         
-        // Step 4: PHASE 2 - Bridge clusters
+        // Step 4: PHASE 2 - Link clusters
         if clusters.len() > 1 {
-            pairs.extend(self.bridge_clusters(&clusters, &validators, &centrality));
+            pairs.extend(self.link_clusters(&clusters, &validators, &centrality));
         }
         
         // Step 5: Sort by priority
@@ -599,11 +605,12 @@ impl StrategicMatcher {
         pairs
     }
     
-    fn find_leaves(&self) -> Vec<MemberHash> {
+    /// Find Bridges with only MIN_VOUCH_THRESHOLD vouches (vulnerable to single departure)
+    fn find_vulnerable_bridges(&self) -> Vec<MemberHash> {
         self.graph.node_indices()
             .filter(|&n| {
                 self.graph.edges_directed(n, petgraph::Incoming).count() 
-                    == self.thresholds.min_vouch
+                    == self.thresholds.min_vouch  // Exactly 2 vouches
             })
             .map(|n| self.graph[n])
             .collect()
@@ -757,9 +764,14 @@ pub struct PSIProtocol {
 
 impl PSIProtocol {
     /// Phase 1: Encrypt own members with ephemeral key
+    /// 
+    /// CRITICAL: This is the ONE exception where cleartext Signal IDs are accessed.
+    /// This is ONLY for PSI-CA federation discovery. In ALL other code paths,
+    /// Signal IDs are HMAC-hashed immediately upon receipt and never stored.
+    /// See: security-constraints.bead § 1 (Anonymity-First Design)
     pub fn phase1_encrypt_members(
         &self,
-        members: &[String],  // Cleartext Signal IDs (DANGER: temporary)
+        members: &[String],  // Cleartext Signal IDs (PSI-CA exception - immediately zeroized)
     ) -> (EphemeralKey, Vec<Vec<u8>>) {
         let rng = rand::SystemRandom::new();
         
@@ -775,8 +787,8 @@ impl PSIProtocol {
             let ciphertext = self.encrypt(&public_key, member.as_bytes());
             encrypted.push(ciphertext);
             
-            // CRITICAL: Zeroize cleartext immediately
-            // (In real impl, use ZeroizeOnDrop for member strings)
+            // CRITICAL: Zeroize cleartext IMMEDIATELY after encryption (MANDATORY)
+            // Use ZeroizeOnDrop derive macro for member strings in actual implementation
         }
         
         (EphemeralKey { private_key, public_key: public_key.as_ref().to_vec() }, encrypted)
@@ -887,43 +899,44 @@ async fn discover_and_federate() {
 #### Initial State
 
 ```
-Group: 20 members
+Group: 20 members (all IN the Signal group)
 Clusters: 3 (Artist, Engineer, Activist)
-Leaves: 5 (need second vouch)
+Vulnerable Bridges: 5 (only 2 vouches - need strengthening)
+
+Note: "Invitees" (1 vouch) are OUTSIDE the group and not shown here.
 
 Cluster 1 (Artist): 8 members
-  - Alice (2 vouches) ← Leaf
+  - Alice (2 vouches) ← Bridge (vulnerable)
   - Bob (4 vouches) ← Validator
-  - Carol (3 vouches) ← Bridge
-  - David (2 vouches) ← Leaf
+  - Carol (3 vouches) ← Validator
+  - David (2 vouches) ← Bridge (vulnerable)
   - Eve (5 vouches) ← Validator
-  - Frank (3 vouches) ← Bridge
-  - Grace (2 vouches) ← Leaf
+  - Frank (3 vouches) ← Validator
+  - Grace (2 vouches) ← Bridge (vulnerable)
   - Henry (4 vouches) ← Validator
 
 Cluster 2 (Engineer): 7 members
-  - Ivy (3 vouches) ← Bridge
-  - Jack (2 vouches) ← Leaf
+  - Ivy (3 vouches) ← Validator
+  - Jack (2 vouches) ← Bridge (vulnerable)
   - Kim (4 vouches) ← Validator
-  - Leo (3 vouches) ← Bridge
+  - Leo (3 vouches) ← Validator
   - Mia (5 vouches) ← Validator
-  - Nina (3 vouches) ← Bridge
-  - Oscar (2 vouches) ← Leaf
+  - Nina (3 vouches) ← Validator
+  - Oscar (2 vouches) ← Bridge (vulnerable)
 
 Cluster 3 (Activist): 5 members
-  - Paul (3 vouches) ← Bridge
+  - Paul (3 vouches) ← Validator
   - Quinn (4 vouches) ← Validator
-  - Rita (3 vouches) ← Bridge
-  - Sam (2 vouches) ← Leaf (disconnected - needs bridge)
-  - Tina (3 vouches) ← Bridge
+  - Rita (3 vouches) ← Validator
+  - Sam (2 vouches) ← Bridge (vulnerable, disconnected - needs cross-cluster connection)
+  - Tina (3 vouches) ← Validator
 ```
 
 #### Algorithm Execution
 
-**Step 1**: Classify nodes
-- Leaves: Alice, David, Grace, Jack, Oscar (5 total)
-- Bridges: Carol, Frank, Ivy, Leo, Nina, Paul, Rita, Tina (8 total)
-- Validators: Bob, Eve, Henry, Kim, Mia, Quinn (6 total)
+**Step 1**: Classify nodes (members IN the group)
+- Bridges (2 vouches, vulnerable): Alice, David, Grace, Jack, Oscar, Sam (6 total)
+- Validators (3+ vouches): Bob, Carol, Eve, Frank, Henry, Ivy, Kim, Leo, Mia, Nina, Paul, Quinn, Rita, Tina (14 total)
 
 **Step 2**: Detect clusters
 - Cluster 1 (Artist): 8 members
@@ -935,17 +948,18 @@ Cluster 3 (Activist): 5 members
 - Mia: 0.79 (high betweenness - central in Engineer cluster)
 - Quinn: 0.71 (high betweenness - central in Activist cluster)
 
-**Step 4**: PHASE 1 - Strengthen Leaves
+**Step 4**: PHASE 1 - Strengthen Vulnerable Bridges (2 vouches → 3+ vouches)
 
-| Leaf | Current Cluster | Target Validator | Target Cluster | Priority |
-|------|----------------|------------------|----------------|----------|
+| Bridge (vulnerable) | Current Cluster | Target Validator | Target Cluster | Priority |
+|---------------------|----------------|------------------|----------------|----------|
 | Alice | Artist | Mia | Engineer | 1 |
 | David | Artist | Quinn | Activist | 1 |
 | Grace | Artist | Mia | Engineer | 1 |
 | Jack | Engineer | Eve | Artist | 1 |
 | Oscar | Engineer | Quinn | Activist | 1 |
+| Sam | Activist | Eve | Artist | 1 |
 
-**Step 5**: PHASE 2 - Bridge Clusters
+**Step 5**: PHASE 2 - Link Clusters
 
 Since all clusters are already connected via existing cross-cluster vouches, no additional bridges needed.
 
@@ -959,17 +973,18 @@ Additional bridge needed:
 **Step 6**: Final Introduction List
 
 ```
-Total introductions needed: 6
+Total introductions needed: 7
 
-Priority 1 (Strengthen Leaves):
-  1. Alice ↔ Mia (Artist leaf → Engineer validator)
-  2. David ↔ Quinn (Artist leaf → Activist validator)
-  3. Grace ↔ Mia (Artist leaf → Engineer validator)
-  4. Jack ↔ Eve (Engineer leaf → Artist validator)
-  5. Oscar ↔ Quinn (Engineer leaf → Activist validator)
+Priority 1 (Strengthen Vulnerable Bridges):
+  1. Alice ↔ Mia (Artist Bridge → Engineer Validator)
+  2. David ↔ Quinn (Artist Bridge → Activist Validator)
+  3. Grace ↔ Mia (Artist Bridge → Engineer Validator)
+  4. Jack ↔ Eve (Engineer Bridge → Artist Validator)
+  5. Oscar ↔ Quinn (Engineer Bridge → Activist Validator)
+  6. Sam ↔ Eve (Activist Bridge → Artist Validator)
 
-Priority 2 (Bridge Clusters):
-  6. Quinn ↔ Eve (Activist validator → Artist validator)
+Priority 2 (Link Clusters):
+  7. Quinn ↔ Eve (Activist Validator → Artist Validator)
 ```
 
 #### Result After Implementation
@@ -1140,7 +1155,7 @@ Federated Network:
 ### Internal Matchmaking
 
 1. **Adaptive Thresholds**: Dynamic validator threshold based on group growth
-2. **Proactive Pairing**: Suggest introductions before members become leaves
+2. **Proactive Pairing**: Suggest introductions before Bridges become vulnerable (single voucher departure)
 3. **Quality Metrics**: Use vouch success rate to refine centrality scores
 4. **Parallel Processing**: Calculate centrality in background (async)
 

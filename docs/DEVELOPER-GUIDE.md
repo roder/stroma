@@ -302,10 +302,14 @@ pub struct StromaBot {
 
 ```rust
 use presage::Manager;
-use presage_store_sqlite::SqliteStore;
+// ❌ DO NOT USE: use presage_store_sqlite::SqliteStore;
+// Default SqliteStore stores ALL messages - server seizure risk!
+
+use stroma::store::StromaProtocolStore;  // ✅ Custom minimal store
 
 // Registration (done via provisioning tool)
-let manager = Manager::register(config_store, options).await?;
+let store = StromaProtocolStore::new()?;
+let manager = Manager::with_store(store, options).await?;
 
 // Send messages
 manager.send_message(recipient, message, timestamp).await?;
@@ -314,6 +318,19 @@ manager.send_message_to_group(master_key, message, timestamp).await?;
 // Receive messages
 let messages = manager.receive_messages().await?;
 ```
+
+**CRITICAL SECURITY REQUIREMENT:**
+
+Never use `presage_store_sqlite::SqliteStore` - it persists ALL messages to disk. If the bot server is seized, the adversary would get:
+- ❌ Complete vetting conversation history
+- ❌ Relationship context ("Great activist from...")
+- ❌ Contact database linking to Signal IDs
+
+**Required:** Implement custom `StromaProtocolStore` that stores ONLY:
+- ✅ Signal protocol state (sessions, pre-keys) - ~100KB encrypted file
+- ✅ In-memory ephemeral message processing (never written to disk)
+
+See "Bot Storage (CRITICAL)" section below for implementation.
 
 **When Presage insufficient**, drop to libsignal-service-rs:
 
@@ -332,7 +349,7 @@ let poll = DataMessage {
 };
 ```
 
-**See**: `.beads/technology-stack.bead`
+**See**: `.beads/technology-stack.bead`, `.beads/security-constraints.bead` § 10
 
 ### Poll Support (Protocol v8)
 
@@ -346,12 +363,17 @@ let poll = DataMessage {
 [dependencies]
 presage = { git = "https://github.com/whisperfish/presage" }
 
+# ❌ DO NOT ADD: presage-store-sqlite (server seizure risk)
+# Use custom StromaProtocolStore instead
+
 [patch.crates-io]
 libsignal-service = {
     git = "https://github.com/roder/libsignal-service-rs",
     branch = "feature/protocol-v8-polls"
 }
 ```
+
+**IMPORTANT:** Never add `presage-store-sqlite` as a dependency. It stores complete message history, violating our server seizure protection model.
 
 **See**: `.beads/poll-implementation-gastown.bead`, `.beads/voting-mechanism.bead`
 
@@ -585,36 +607,48 @@ async fn execute_proposal(
 }
 ```
 
-**Proposal Monitoring Loop:**
+**Proposal Monitoring (Real-Time Stream - NOT Polling):**
 
 ```rust
-async fn poll_monitoring_loop(
+// ✅ REQUIRED PATTERN: Real-time state stream
+// See: .cursor/rules/security-guardrails.mdc "State Management Violations"
+async fn proposal_monitoring_stream(
     manager: &Manager,
     freenet: &FreenetClient,
 ) {
-    loop {
-        sleep(Duration::from_secs(60)).await;  // Check every minute
-        
-        let contract_state = freenet.get_state().await?;
-        
-        for proposal in contract_state.active_proposals.iter_mut() {
-            // Only check expired, unchecked proposals
-            if !proposal.checked && proposal.expires_at <= now() {
-                // Fetch results
-                let result = check_proposal_results(manager, proposal).await?;
+    // Subscribe to real-time state changes (NOT polling)
+    let mut state_stream = freenet.subscribe_to_state_changes().await.unwrap();
+    
+    while let Some(change) = state_stream.next().await {
+        match change {
+            StateChange::ProposalExpired(proposal_id) => {
+                // Fetch proposal details
+                let proposal = freenet.get_proposal(proposal_id).await?;
+                
+                // Fetch poll results (anonymous)
+                let result = check_proposal_results(manager, &proposal).await?;
                 
                 // Execute if approved
                 if result.approved {
                     execute_proposal(&proposal.proposal, manager, freenet).await?;
                 }
                 
-                // Mark as checked (never check again)
-                proposal.checked = true;
-                freenet.update_proposal(proposal).await?;
-            }
+                // Mark as checked
+                freenet.mark_proposal_checked(proposal_id).await?;
+            },
+            // Handle other state changes...
+            _ => {}
         }
     }
 }
+
+// ❌ FORBIDDEN PATTERN: Polling
+// async fn poll_monitoring_loop(...) {
+//     loop {
+//         sleep(Duration::from_secs(60)).await;  // ❌ NEVER USE POLLING
+//         let state = freenet.get_state().await?; // ❌ NEVER POLL
+//     }
+// }
 ```
 
 **Anonymity Guarantee:**

@@ -392,7 +392,7 @@ pub struct GroupConfig {
 
 ### Configurable vs Fixed
 
-**Configurable (via `/propose-config`):**
+**Configurable (via `/propose stroma <setting> <value>`):**
 - `config_change_threshold`: Consensus required for changes (0.5-1.0)
 - `min_vouch_threshold`: Minimum effective vouches to stay in group (≥2)
 - `min_intersection_density`: Federation threshold (0.0-1.0)

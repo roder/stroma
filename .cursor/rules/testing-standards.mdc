@@ -272,9 +272,14 @@ fn test_immediate_ejection_when_standing_negative() {
     let member = create_test_member();
     let mut state = create_test_state();
     
-    // Add flags to exceed vouches (Standing = Vouches - Flags)
-    state.add_vouch(&member, 2);
-    state.add_flag(&member, 3);  // Standing = 2 - 3 = -1
+    // Add flags to exceed vouches (Standing = Effective_Vouches - Regular_Flags)
+    // Voucher-flaggers are excluded from BOTH counts (no 2-point swings)
+    state.add_vouch(&member, &voucher_a);
+    state.add_vouch(&member, &voucher_b);
+    state.add_flag(&member, &non_voucher_1);
+    state.add_flag(&member, &non_voucher_2);
+    state.add_flag(&member, &non_voucher_3);  // 3 regular flags
+    // Standing = 2 effective vouches - 3 regular flags = -1
     
     // Check standing - should be negative
     let standing = calculate_trust_standing(&member, &state);

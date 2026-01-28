@@ -149,7 +149,8 @@ git push origin feature/protocol-v8-polls
 ```toml
 [dependencies]
 presage = { git = "https://github.com/whisperfish/presage" }
-presage-store-sqlite = { git = "https://github.com/whisperfish/presage" }
+# ❌ DO NOT ADD: presage-store-sqlite (stores message history - server seizure risk)
+# Implement custom StromaProtocolStore instead (see security-constraints.bead § 10)
 
 [patch.crates-io]
 # Use our fork with poll support

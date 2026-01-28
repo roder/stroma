@@ -284,18 +284,40 @@ async fn compute_proof_bad(data: Data) -> Result<Proof, Error> {
 - Use `tokio::time::timeout` for operation timeouts
 
 ```rust
-// ✅ GOOD: Async sleep
+// ✅ GOOD: Async sleep (for testing or one-time delays)
 async fn wait_for_confirmation() {
     tokio::time::sleep(Duration::from_secs(5)).await;
 }
 
-// ✅ GOOD: Periodic heartbeat
-async fn heartbeat_monitor() {
+// ⚠️ CAUTION: Periodic intervals
+// For Stroma trust monitoring, use real-time state streams instead!
+// See: .cursor/rules/security-guardrails.mdc "State Management Violations"
+// This pattern is only acceptable for non-critical background tasks
+// ❌ DO NOT use for trust standing monitoring (must use state streams)
+async fn non_critical_background_task() {
     let mut interval = tokio::time::interval(Duration::from_secs(60));
     
     loop {
         interval.tick().await;
-        check_member_standing().await;
+        // Only for non-critical tasks like metrics collection
+        collect_metrics().await;
+    }
+}
+
+// ✅ REQUIRED for trust monitoring: Real-time state stream
+async fn trust_health_monitor() {
+    let mut stream = freenet.subscribe_to_state_changes().await.unwrap();
+    
+    while let Some(change) = stream.next().await {
+        match change {
+            StateChange::StandingChanged { member, standing } => {
+                if standing < 0 {
+                    // Immediate ejection
+                    signal.remove_member(member).await;
+                }
+            }
+            _ => {}
+        }
     }
 }
 ```
