@@ -5,6 +5,8 @@ alwaysApply: true
 
 # Security & Quality Guardrails
 
+**Philosophical Grounding**: Security guardrails embody the "protect irreversible harms first" principle. Anonymity leaks, trust map seizure, and power centralization cannot be undone — they take priority over recoverable concerns like ease of use or faster onboarding. See `.beads/philosophical-foundations.bead` for the full decision framework.
+
 ## Threat Model: Trust Map Seizure
 
 **Primary Threat**: State-level adversary or compromised operator attempts to seize trust map to identify group members and relationships.

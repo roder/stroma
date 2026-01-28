@@ -22,6 +22,10 @@ Build a **scalable trust network** that leverages Signal for its user interface 
 
 ## Design Philosophy
 
+**Foundation**: See `.beads/philosophical-foundations.bead` for core principles, dualities, and decision framework.
+
+**Key Insight**: Stroma embodies **paradoxical unity** — the system holds space for ongoing reconciliation of opposing truths rather than resolving tensions by eliminating one pole. The dualities are generative tension, not bugs.
+
 ### Trust as Emergent Property
 - Trust **mutually arises** across the network through social relationships
 - No central authority controls access or membership

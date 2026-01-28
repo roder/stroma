@@ -29,6 +29,22 @@ alwaysApply: true
 
 **Design Test**: When implementing, ask: "Does this maintain tension between both poles, or collapse toward one?" Always maintain the generative tension.
 
+### When Principles Conflict (Decision Framework)
+
+When dualities conflict with *each other*, apply this hierarchy:
+
+1. **Protect irreversible harms first**: Anonymity leaks, power centralization, trust map seizure cannot be undone. Slower onboarding, missed connections can be recovered. Sacrifice the recoverable.
+
+2. **Default toward security, make tradeoffs configurable**: Secure defaults, but groups can adjust via consensus for their context.
+
+3. **Align with feature's threat model**: The feature's primary defensive purpose guides which pole gets priority in that context.
+
+4. **Document tradeoffs explicitly**: Note what was sacrificed, why, and how it could be revisited.
+
+**Escalate to human review when**: Two irreversible harms conflict, threat model is ambiguous, no configurable middle ground exists, or decision sets significant precedent.
+
+**See**: `.beads/philosophical-foundations.bead` § "Decision Framework" for full guidance and worked examples.
+
 ## Core Architectural Principles
 
 ### Anonymity-First Design
