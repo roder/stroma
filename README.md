@@ -334,7 +334,7 @@ This project uses:
 
 **All commits by Claude agents must include:**
 ```
-Co-authored-by: Claude <claude@anthropic.com>
+Co-authored-by: Claude <noreply@anthropic.com>
 ```
 
 → **[AGENTS.md](AGENTS.md)** - Agent coordination model  

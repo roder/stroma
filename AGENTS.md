@@ -51,7 +51,7 @@ Commit message title
 
 Detailed description of changes...
 
-Co-authored-by: Claude <claude@anthropic.com>
+Co-authored-by: Claude <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -59,7 +59,7 @@ EOF
 **Format Requirements**:
 - Co-authored-by line at the END of commit message
 - Blank line before Co-authored-by
-- Exact format: `Co-authored-by: Claude <claude@anthropic.com>`
+- Exact format: `Co-authored-by: Claude <noreply@anthropic.com>`
 - Use HEREDOC for multi-line commit messages
 
 **Example**:
@@ -71,7 +71,7 @@ Add HMAC identity masking with zeroization
 - Add immediate zeroization of sensitive buffers
 - Add unit tests with fixed test pepper
 
-Co-authored-by: Claude <claude@anthropic.com>
+Co-authored-by: Claude <noreply@anthropic.com>
 EOF
 )"
 ```
