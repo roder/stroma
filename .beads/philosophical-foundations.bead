@@ -184,6 +184,107 @@ When adding new beads or modifying architecture:
 
 ---
 
+## Decision Framework: When Principles Conflict
+
+When dualities are in tension *with each other* (not just internally), agents need guidance on how to navigate tradeoffs.
+
+### The Tradeoff Hierarchy
+
+**1. Protect Against Irreversible Harms First**
+
+Some harms cannot be undone:
+- Anonymity leaks (once exposed, identity cannot be re-hidden)
+- Centralization of power (once concentrated, hard to redistribute)
+- Trust map seizure (once captured, relationships are known)
+
+Some harms are recoverable:
+- Slower onboarding (can adjust thresholds later)
+- Missed federation opportunity (can reconnect later)
+- Overly strict barriers (can loosen via consensus)
+
+**Principle**: When forced to choose, sacrifice the recoverable to protect against the irreversible.
+
+**2. Default Toward Security, Make Tradeoffs Configurable**
+
+- Choose secure defaults that protect against the primary threat model
+- But ensure groups can adjust via consensus if their context differs
+- The system provides protective primitives; groups negotiate their own balance
+
+**Example**:
+- Default `min_vouch_threshold = 2` (secure baseline)
+- But configurable to 3 or 4 for high-threat groups
+- Or theoretically lower if a group explicitly accepts that risk (floor of 2)
+
+**3. Align With Feature's Threat Model**
+
+Ask: "What threat is this feature primarily defending against?"
+
+| Feature | Primary Threat | Optimize For |
+|---------|---------------|--------------|
+| Identity masking | Trust map seizure | Anonymity |
+| Vouch verification | Sybil attack | Protection |
+| Re-entry path | Permanent exclusion | Forgiveness |
+| Federation discovery | Isolation | Connection |
+| Ejection protocol | Bad actor persistence | Accountability |
+
+The feature's purpose should guide which pole gets priority *in that context*.
+
+**4. Document Tradeoffs Explicitly**
+
+When a tradeoff is made:
+- Note what was sacrificed
+- Note why (which threat model justified it)
+- Note how it could be revisited (configurability, future work)
+- This allows future decisions to reconsider with new information
+
+### Decision Checklist for Agents
+
+When principles pull in different directions:
+
+```
+□ Identify the conflicting dualities
+□ Assess reversibility of each option's harms
+□ Determine the primary threat this feature addresses
+□ Choose the option that:
+  - Protects against irreversible harms
+  - Aligns with the feature's threat model
+  - Remains configurable where reasonable
+□ Document the tradeoff and rationale
+□ Flag for human review if genuinely uncertain
+```
+
+### Examples of Tradeoff Resolution
+
+**Example 1: Federation Discovery**
+- Conflict: Anonymity (minimal metadata) vs Connection (easier discovery)
+- Threat model: Federation discovery's purpose is enabling connection
+- Irreversibility: Anonymity leaks are irreversible; missed connections are not
+- Resolution: Lean toward anonymity in the protocol (PSI-CA, no graph exposure), but make discovery thresholds configurable so groups can be more or less "visible"
+
+**Example 2: Re-Entry After Ejection**
+- Conflict: Forgiveness (easy return) vs Protection (prevent bad actor cycling)
+- Threat model: Re-entry exists to prevent permanent exclusion (forgiveness)
+- Irreversibility: Permanent bans are irreversible; a cycling bad actor can be re-ejected
+- Resolution: Allow immediate re-entry (no cooldown), but require fresh vouches from Members who weren't previous vouchers (prevents rubber-stamping)
+
+**Example 3: Scaling Vouch Permissions**
+- Conflict: Individual Agency (everyone can vouch) vs Collective Integrity (higher quality vouches)
+- Threat model: At scale, Sybil attacks become more viable
+- Irreversibility: Neither is fully irreversible
+- Resolution: Maintain "ANY Member can vouch" but make `min_vouch_threshold` configurable; large groups can require 3+ vouches without restricting *who* can provide them
+
+### When To Escalate
+
+Flag for human review when:
+- Two irreversible harms are in direct conflict
+- The threat model is ambiguous or contested
+- No configurable middle ground exists
+- The decision would set precedent for multiple features
+
+**Principle**: Agents should make clear tradeoffs confidently, but recognize when a decision requires human judgment about values the system can't encode.
+
+---
+
 ## Grounding Quote
 
 > "Creating balance between opposing truths is what decentralizing power is about... and ultimately this project."
