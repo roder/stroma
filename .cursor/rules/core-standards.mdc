@@ -12,6 +12,23 @@ alwaysApply: true
 - **Philosophy**: Trust as emergent property, not centralized database
 - **Core Values**: Mutual arising, fluid selfhood, non-hierarchical organization
 
+## Foundational Philosophy
+
+**See**: `.beads/philosophical-foundations.bead` for complete principles.
+
+**Central Principle**: Stroma embodies **paradoxical unity** — opposing truths coexist, and the system holds space for their ongoing reconciliation rather than resolving tensions by eliminating one pole.
+
+**Core Dualities** (maintain both poles, never collapse):
+- **Trust vs Anonymity**: ZK-proofs verify trust without revealing relationships
+- **Inclusion vs Protection**: Configurable thresholds let groups find their balance
+- **Individual Agency vs Collective Integrity**: Any member can act, but outcomes require consensus
+- **Accountability vs Forgiveness**: Immediate ejection + immediate re-entry path
+- **Fluidity vs Stability**: Membership is earned continuously, but the network persists
+
+**Power Philosophy**: "Power with" > "Power over" — distribute decision-making across relationships, never concentrate in singular actors.
+
+**Design Test**: When implementing, ask: "Does this maintain tension between both poles, or collapse toward one?" Always maintain the generative tension.
+
 ## Core Architectural Principles
 
 ### Anonymity-First Design

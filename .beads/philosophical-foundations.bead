@@ -1,0 +1,201 @@
+# Bead: Philosophical Foundations
+
+**Status**: Immutable Architectural Constraint  
+**Created**: 2026-01-28  
+**Context**: Core Design Philosophy
+
+---
+
+## Central Principle: Paradoxical Unity
+
+Stroma is built on the recognition that opposing truths coexist. The system does not resolve tensions between dualities — it **holds space for their ongoing reconciliation**. Balance between opposing forces is what decentralizing power means in practice.
+
+**Key Insight**: The dualities aren't bugs to be eliminated — they're the generative tension that makes the system adaptive.
+
+---
+
+## Core Dualities
+
+### 1. Trust vs Anonymity
+
+**The Tension**:
+- Trust requires knowing *who* to trust (relationships are specific)
+- Anonymity requires hiding *who* trusts whom (relationships are obscured)
+
+**How Stroma Holds Both**:
+- ZK-proofs: "I can prove trust exists without revealing the relationship"
+- HMAC hashing: Identities are recognizable to the system but not recoverable
+- Members know their vouchers; external observers see only topology
+
+**Implementation Principle**: Never sacrifice anonymity to make trust "easier." Never sacrifice trust verification to maximize anonymity. The tension is productive.
+
+---
+
+### 2. Inclusion vs Protection
+
+**The Tension**:
+- Low barriers → easier joining → faster growth → more accessible
+- High barriers → harder infiltration → slower growth → more secure
+
+**How Stroma Holds Both**:
+- Configurable `min_vouch_threshold`: groups choose their own equilibrium
+- Default of 2 provides baseline security without excessive gatekeeping
+- Groups with higher threat models can increase to 3 or 4
+- Federation allows different groups to maintain different thresholds
+
+**Implementation Principle**: Never hardcode a position on this spectrum. Provide the mechanism for groups to negotiate their own balance via consensus (`/propose stroma min_vouch_threshold`).
+
+---
+
+### 3. Individual Agency vs Collective Integrity
+
+**The Tension**:
+- Individual power: any member can vouch, invite, flag
+- Collective validation: no single member can unilaterally admit or eject
+
+**How Stroma Holds Both**:
+- ANY Member can vouch (Bridges and Validators alike) — individual agency
+- 2+ independent vouches required — collective validation
+- Standing = Effective_Vouches - Regular_Flags — continuous negotiation
+- No single action causes 2-point swing — prevents unilateral power
+
+**Implementation Principle**: Individual actions matter, but outcomes emerge from relationships. Never let one member's action determine another's fate alone.
+
+---
+
+### 4. Accountability vs Forgiveness
+
+**The Tension**:
+- Accountability: violations must have consequences (ejection)
+- Forgiveness: people can change, re-entry must be possible
+
+**How Stroma Holds Both**:
+- Immediate ejection: no grace periods, consequences are real
+- Immediate re-entry path: no cooldowns, no permanent bans
+- Fresh start available: secure 2 new vouches from independent Members
+- History doesn't permanently define you (TBD: flags may not carry over)
+
+**Implementation Principle**: Never add "warnings" or "probation" that soften accountability. Never add "permanent bans" or "cooldowns" that eliminate forgiveness. Hold both: swift consequences AND available redemption.
+
+---
+
+### 5. Fluidity vs Stability
+
+**The Tension**:
+- Fluid selfhood: membership is temporary permission, continuously earned
+- Stable identity: the network persists, relationships have continuity
+
+**How Stroma Holds Both**:
+- Trust is relational and dynamic, not fixed credentials
+- But the mesh structure provides stability as individuals flow through
+- The network's "Self" persists even as members come and go
+- Vouch relationships can transform (trust ↔ distrust via invalidation)
+
+**Implementation Principle**: Never treat membership as permanent entitlement. Never treat the network as merely the sum of current members. The whole exceeds and outlasts its parts.
+
+---
+
+### 6. Autonomy vs Connection
+
+**The Tension**:
+- Group autonomy: each Stroma group controls its own parameters
+- Federation: groups benefit from connection to wider networks
+
+**How Stroma Holds Both**:
+- Each group = separate bot, separate contract, separate thresholds
+- Federation is opt-in via consensus (`/propose federate`)
+- BidirectionalMin: each group applies its *own* threshold to decide
+- Federation can dissolve if shared members leave (emergent, not permanent)
+
+**Implementation Principle**: Never force federation. Never prevent it. Groups discover each other organically and choose connection — or don't.
+
+---
+
+## "Power With" vs "Power Over"
+
+Stroma redistributes power laterally across relationships rather than concentrating it in administrators, platforms, or authorities.
+
+**What This Means Architecturally**:
+
+| "Power Over" (Rejected) | "Power With" (Embraced) |
+|------------------------|------------------------|
+| Admin can unilaterally add/remove | Consensus required for all changes |
+| Platform controls trust database | Trust emerges from relationships |
+| Authority grants credentials | Standing continuously negotiated |
+| Central server holds truth | Freenet distributes state |
+| Operator has special privileges | Operator is service runner only |
+
+**Implementation Principle**: When facing a design decision, ask: "Does this concentrate power in a single actor, or distribute it across relationships?" Always choose distribution.
+
+---
+
+## Design Test: Maintaining Tension
+
+When implementing any feature, verify it doesn't collapse toward one pole:
+
+**Red Flags (Collapsing Tension)**:
+- ❌ "Only Validators can vouch" (collapses toward hierarchy)
+- ❌ "Permanent bans for repeated violations" (collapses toward punishment)
+- ❌ "Grace period before ejection" (collapses toward permissiveness)
+- ❌ "Admin can override consensus" (collapses toward centralization)
+- ❌ "Store identities for accountability" (collapses toward surveillance)
+- ❌ "Anonymous voting means no consequences" (collapses toward unaccountability)
+
+**Green Flags (Maintaining Tension)**:
+- ✅ Configurable thresholds via group consensus
+- ✅ Immediate ejection + immediate re-entry path
+- ✅ Bot executes consensus, doesn't make decisions
+- ✅ ZK-proofs verify trust without revealing relationships
+- ✅ Standing continuously recalculated (not cached credentials)
+- ✅ Federation opt-in via BidirectionalMin (mutual consent)
+
+---
+
+## Application to Implementation
+
+### For Agents
+
+When implementing features, internalize these questions:
+
+1. **Does this maintain both poles of the relevant duality?**
+   - If it resolves tension by eliminating one pole, reconsider
+
+2. **Does this distribute power or concentrate it?**
+   - "Power with" means the answer emerges from relationships, not authority
+
+3. **Is this configurable via consensus?**
+   - If reasonable groups might want different values, make it configurable
+
+4. **Does this allow transformation?**
+   - Relationships should be able to change (vouch → flag, ejection → re-entry)
+
+5. **Does this hold accountability AND forgiveness?**
+   - Swift consequences, but redemption available
+
+### For Architecture Decisions
+
+When adding new beads or modifying architecture:
+
+1. Identify which duality the decision touches
+2. Verify the design holds both poles
+3. Check that the mechanism allows ongoing negotiation (not fixed resolution)
+4. Ensure groups can adjust parameters to find their own balance
+5. Document which tension is being maintained
+
+---
+
+## Grounding Quote
+
+> "Creating balance between opposing truths is what decentralizing power is about... and ultimately this project."
+
+The system accepts both poles and creates space for their ongoing reconciliation. That's the foundation everything else builds on.
+
+---
+
+## Related Constraints
+
+- `architecture-objectives.mdc`: Technical architecture embodying these principles
+- `security-guardrails.mdc`: Specific constraints that maintain tensions
+- `core-standards.mdc`: Terminology and formulas reflecting these principles
+- `governance-model.bead`: Bot as execute-only (power distribution)
+- `proposal-system.bead`: Consensus mechanism for ongoing negotiation
