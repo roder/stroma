@@ -37,7 +37,10 @@
 ### 📋 Next Phase: Spike Week (Week 0)
 **Objective**: Validate core technologies after poll support complete
 
-**Next Actions**: See Spike Week and Phase -1 sections below
+**Next Actions**: 
+1. Complete Spike Week validation (see section below)
+2. Run Pre-Gastown Audit (see PRE-GASTOWN-AUDIT.md)
+3. Proceed to Phase 0 if audit passes (GO decision)
 
 ### 📋 Tracked for Implementation (Not Yet Started)
 - [ ] Dockerfile (hardened container wrapping static binary)
@@ -290,7 +293,72 @@ Poll end-to-end testing belongs in Phase 2.5 validation (when we have Stroma bot
   - [ ] Recommendation: Proceed or adjust architecture
   - [ ] Identified risks and mitigations
 
+→ **See [SPIKE-WEEK-BRIEFING.md](SPIKE-WEEK-BRIEFING.md)** for full test plans and outstanding questions
+
+---
+
+## 🔍 Pre-Gastown Audit (Final Human Review)
+
+**Objective**: Systematic human audit before turning project over to Gastown agents
+
+**Why Critical**: Gastown agents follow guidance literally. Any inconsistencies, ambiguities, or contradictions will cause incorrect implementations or require human intervention. This audit ensures clean handoff.
+
+**Timing**: After Spike Week completes, before Phase 0 implementation begins
+
+→ **[PRE-GASTOWN-AUDIT.md](PRE-GASTOWN-AUDIT.md)** - Complete audit checklist (6-9 hours estimated)
+
+### Audit Phases
+- [ ] **Phase 1**: Terminology sweep (1-2h)
+  - [ ] Search all files for "cluster" vs "friend circles"
+  - [ ] Categorize by audience (user-facing vs technical)
+  - [ ] Decide on Option A, B, or C (see audit doc)
+  - [ ] Update inconsistent files
+
+- [ ] **Phase 2**: Architectural consistency (2-3h)
+  - [ ] Review each bead against checklist
+  - [ ] Cross-reference with rules and docs
+  - [ ] Flag contradictions for resolution
+  - [ ] Document decisions
+
+- [ ] **Phase 3**: Security constraint verification (1-2h)
+  - [ ] Review all "NEVER" rules in security-guardrails.mdc
+  - [ ] Verify enforcement in contract design and bot architecture
+  - [ ] Check that docs reflect security model
+  - [ ] Test threat model against architecture
+
+- [ ] **Phase 4**: Spike Week alignment (1h)
+  - [ ] Review Q1-Q6 in SPIKE-WEEK-BRIEFING.md
+  - [ ] Verify beads note dependencies
+  - [ ] Check fallback strategies documented
+  - [ ] Confirm no architectural decisions bypass Spike Week
+
+- [ ] **Phase 5**: Final review (1h)
+  - [ ] Read through all beads in sequence
+  - [ ] Imagine you're a Gastown agent — is everything clear?
+  - [ ] Flag any ambiguities or missing context
+  - [ ] Update audit checklist with findings
+
+### Go/No-Go Decision
+- [ ] **GO Decision**: All audit criteria met, ready for agent handoff
+  - [ ] Terminology consistent within each audience
+  - [ ] No contradictions between beads, rules, and docs
+  - [ ] Security constraints consistently enforced
+  - [ ] Spike Week dependencies noted and fallbacks provided
+  - [ ] Agent handoff feels confident
+
+- [ ] **NO-GO Decision**: Critical issues identified, must fix before handoff
+  - [ ] Document specific issues in PRE-GASTOWN-AUDIT.md
+  - [ ] Create fix action items
+  - [ ] Re-audit after fixes
+
+---
+
 ## 📦 Phase 0: Foundation (Weeks 1-2)
+
+**Prerequisites**: 
+- ✅ Spike Week complete (Q1-Q6 answered)
+- ✅ Pre-Gastown Audit passed (GO decision)
+- ✅ All architectural guidance consistent and ready for agents
 
 **Objective**: Core infrastructure with federation-ready design
 
