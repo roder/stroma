@@ -105,7 +105,10 @@
         - patch libsignal-service → our fork (feature/protocol-v8-polls-fixed)
         - patch curve25519-dalek → Signal's fork (per libsignal-service-rs README)
   - [X] Build verified: Stroma + presage + freenet all build successfully
-  - [ ] Agent submits PR to upstream whisperfish/libsignal-service-rs
+  - [X] Unit tests verify poll protobuf serialization
+  - [ ] Create example binary for poll lifecycle testing (create/vote/terminate)
+  - [ ] Validate polls work end-to-end with Stroma bot (BLOCKS PR submission)
+  - [ ] Submit PR to upstream whisperfish/libsignal-service-rs (DEPENDS ON validation)
 
 ### Outstanding Questions (MUST NOT LOSE - Critical for Spike Week)
 

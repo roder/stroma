@@ -173,7 +173,36 @@ cargo build
 # Should use our forked libsignal-service-rs with polls
 ```
 
-### Phase 3: Submit Upstream PR (Week 3)
+### Phase 2.5: Validate Poll Lifecycle (Week 2-3)
+
+**CRITICAL**: Protobuf tests verify wire format, but end-to-end validation required before upstream PR.
+
+**Task 2.5.1: Create Poll Example Binary**
+- Location: `examples/poll_test.rs` in Stroma
+- Accepts Signal credentials at runtime (no hardcoded test data)
+- Lifecycle: Create poll → Vote on poll → Terminate poll
+- Logs: Verification of each step
+- Rationale: Validates our fork works with presage without modifying Presage code
+
+**Task 2.5.2: Test Against Real Signal Group**
+- Requires: Test Signal account and group
+- Steps:
+  1. Create poll with example binary
+  2. Verify poll appears in Signal mobile/desktop
+  3. Vote programmatically
+  4. Terminate poll
+  5. Confirm Signal clients handle gracefully
+- Success Criteria: All lifecycle steps work as expected
+
+**Task 2.5.3: Document Results**
+- Add validation notes to PR description
+- Include example output from test run
+
+---
+
+### Phase 3: Submit Upstream PR (Week 3+, AFTER validation)
+
+**BLOCKING**: Do NOT submit PR until Phase 2.5 validation complete.
 
 **Task 3.1: Create PR**
 ```fish
@@ -188,17 +217,12 @@ gh pr create \
 - Update protocol version from v7 (PAYMENTS) to v8 (POLLS)
 - Add DataMessage fields 24-28
 
-## Motivation
-Enable Rust Signal clients to support polls for group decision-making. Polls provide:
-- Anonymous voting (votes not exposed to clients)
-- Multiple choice options
-- Native Signal UX
-
-## Testing
-- ✅ Builds successfully
-- ✅ Protobuf generation works
+## Validation
+- ✅ Builds successfully (Stroma + presage + freenet)
+- ✅ Protobuf serialization unit tests pass
+- ✅ Poll lifecycle tested end-to-end (create/vote/terminate)
+- ✅ Signal clients handle polls correctly
 - ✅ No breaking changes to existing API
-- ✅ Tested against Signal staging servers
 
 ## Source
 Protobuf definitions copied from Signal-Desktop:
