@@ -267,6 +267,55 @@ pub fn should_eject(&self, member: &MemberHash) -> bool {
 }
 ```
 
+### Blind Matchmaker: DVR-Optimized Algorithm
+
+The bot suggests strategic introductions using a **hybrid algorithm**:
+
+**Phase 0: DVR Optimization** (Priority)
+- Tracks vouchers already used by existing distinct Validators
+- Suggests vouchers NOT in any distinct Validator's voucher set
+- Goal: Maximize Distinct Validator Ratio (independent verification)
+
+**Phase 1: MST Fallback**
+- If no DVR-optimal voucher available, use any cross-cluster Validator
+- Still valid, just not optimal for network health
+
+```rust
+pub fn suggest_introduction(&self, bridge: Hash) -> Option<Introduction> {
+    // Phase 0: Try DVR-optimal first
+    if let Some(intro) = self.suggest_dvr_optimal(bridge) {
+        return Some(intro);
+    }
+    
+    // Phase 1: Fall back to MST
+    self.suggest_mst_fallback(bridge)
+}
+
+fn suggest_dvr_optimal(&self, bridge: Hash) -> Option<Introduction> {
+    let used_vouchers = self.collect_distinct_validator_vouchers();
+    let bridge_cluster = self.find_cluster(bridge);
+    
+    // Find voucher that:
+    // 1. Is in different cluster
+    // 2. Hasn't been used by another distinct Validator
+    self.validators()
+        .filter(|v| self.find_cluster(*v) != bridge_cluster)
+        .filter(|v| !used_vouchers.contains(v))
+        .max_by_key(|v| self.centrality(*v))
+        .map(|voucher| Introduction {
+            person_a: bridge,
+            person_b: voucher,
+            reason: "Create distinct Validator (DVR optimization)",
+            dvr_optimal: true,
+        })
+}
+```
+
+**See**: 
+- `.beads/blind-matchmaker-dvr.bead` for full algorithm
+- `.beads/mesh-health-metric.bead` for DVR metric
+- `docs/ALGORITHMS.md` for mathematical details
+
 ## Bot Architecture
 
 ### 1:1 Bot-to-Group Relationship

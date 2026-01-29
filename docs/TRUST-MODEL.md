@@ -464,13 +464,30 @@ pub struct GroupConfig {
 
 **NOT restricted to Validators** - this is a critical design principle for non-hierarchical organization.
 
-### Blind Matchmaker Optimization
-Bot **prefers** Validators for strategic introductions because:
-- They have more connections (better mesh topology)
-- They're more resilient (less likely to leave soon)
-- They create cross-cluster diversity
+### Blind Matchmaker Optimization (DVR-Aware)
 
-**But**: ANY Member can still vouch if they choose to.
+The bot uses a **hybrid algorithm** with DVR optimization and MST fallback:
+
+**Phase 0: DVR Optimization (Priority)**
+Bot prioritizes vouchers that would create **distinct Validators** (non-overlapping voucher sets):
+- Tracks which vouchers are already used by existing distinct Validators
+- Prefers vouchers NOT in any distinct Validator's voucher set
+- Goal: Maximize Distinct Validator Ratio (DVR)
+
+**Phase 1: MST Fallback**
+If no DVR-optimal voucher available, falls back to any cross-cluster Validator:
+- Still strengthens the Bridge (valid admission)
+- Creates connectivity (MST property)
+- Just not optimal for DVR
+
+**Why DVR Matters**:
+- Distinct Validators have non-overlapping voucher sets
+- Compromising one voucher set doesn't cascade to others
+- Higher DVR = better resistance to coordinated attacks
+
+**See**: `.beads/blind-matchmaker-dvr.bead` for full algorithm
+
+**But**: ANY Member can still vouch if they choose to. The bot only *suggests* optimal vouchers.
 
 ### First Vouch = Invitation
 Invitation itself counts as first vouch (no token exchange system).

@@ -370,6 +370,8 @@ Standing = Effective_Vouches - Regular_Flags
 
 **Decision Required**: If Union-Find cluster detection is too complex for edge cases, document the fallback approach in `.beads/cross-cluster-requirement.bead`
 
+**DVR Optimization Dependency**: The Blind Matchmaker DVR optimization (`.beads/blind-matchmaker-dvr.bead`) also depends on Q6. If cluster detection works, DVR optimization works. If cluster detection has issues, DVR falls back to MST algorithm (still valid, just not optimal). No additional risk introduced by DVR optimization — it has a safe fallback.
+
 ## Integration with Main Roadmap
 
 After Spike Week completes:

@@ -97,17 +97,20 @@ fn identify_internal_clusters(graph: &TrustGraph) -> Vec<Cluster> {
 }
 ```
 
-## Strategic Introduction Matching (Blind Matchmaker)
+## Strategic Introduction Matching (Blind Matchmaker - DVR Optimized)
 
 ### Goal
-Achieve fully intersectional mesh with **least new interactions**.
+Achieve fully intersectional mesh with **maximum distinct Validators**.
 
 **Success Criteria:**
+- [ ] High DVR (Distinct Validator Ratio) — prioritize non-overlapping voucher sets
 - [ ] No vulnerable Bridges (everyone has ≥ 3 vouches for resilience)
 - [ ] No disconnected islands (all clusters connected)
 - [ ] Every member seen by 2+ perspectives from different clusters
 
-### Priority Algorithm
+**See**: `.beads/blind-matchmaker-dvr.bead` for full algorithm
+
+### DVR-Optimized Algorithm (Hybrid)
 ```rust
 fn generate_strategic_introductions(
     graph: &TrustGraph,
@@ -115,26 +118,67 @@ fn generate_strategic_introductions(
 ) -> Vec<IntroductionPair> {
     let mut introductions = Vec::new();
     
-    // Priority 1: Strengthen vulnerable Bridges (only 2 vouches) via cross-cluster vouches
-    // Note: "Invitees" (1 vouch) are OUTSIDE the group and not in this graph
-    for bridge in graph.get_vulnerable_bridges() {  // Members with exactly 2 vouches
+    // Track vouchers used by existing distinct Validators
+    let mut used_vouchers: HashSet<Hash> = HashSet::new();
+    for dv in graph.get_distinct_validators() {
+        used_vouchers.extend(graph.get_vouchers(dv));
+    }
+    
+    let mut remaining_bridges: Vec<_> = graph.get_vulnerable_bridges().collect();
+    
+    // Priority 0 (NEW): DVR Optimization — create DISTINCT Validators
+    for bridge in &remaining_bridges.clone() {
         let bridge_cluster = clusters.find_cluster_for(bridge);
         
-        // Find validator from DIFFERENT cluster
-        let validator = graph.get_validators()  // Members with 3+ vouches
+        // Find validator that:
+        // 1. Is in different cluster
+        // 2. NOT already used by another distinct Validator
+        let dvr_optimal = graph.get_validators()
             .filter(|v| {
                 let v_cluster = clusters.find_cluster_for(v);
                 v_cluster != bridge_cluster  // Different cluster
+                && !used_vouchers.contains(v)  // Not used by another distinct Validator
             })
-            .max_by_key(|v| graph.vouch_count(v))  // Highest entropy
-            .expect("No validators in other clusters");
+            .max_by_key(|v| graph.centrality(v));
         
-        introductions.push(IntroductionPair {
-            person_a: bridge,
-            person_b: validator,
-            reason: "Bridge needs third vouch from different cluster for resilience",
-            priority: 1,
-        });
+        if let Some(voucher) = dvr_optimal {
+            introductions.push(IntroductionPair {
+                person_a: *bridge,
+                person_b: voucher,
+                reason: "Create distinct Validator (DVR optimization)",
+                priority: 0,  // Highest priority
+                dvr_optimal: true,
+            });
+            
+            // Reserve this voucher and bridge's voucher set
+            used_vouchers.extend(graph.get_vouchers(*bridge));
+            used_vouchers.insert(voucher);
+            
+            remaining_bridges.retain(|b| b != bridge);  // Handled
+        }
+    }
+    
+    // Priority 1: MST Fallback — strengthen remaining Bridges (any cross-cluster)
+    for bridge in &remaining_bridges {
+        let bridge_cluster = clusters.find_cluster_for(bridge);
+        
+        // Find ANY validator from DIFFERENT cluster (no used_vouchers constraint)
+        let mst_fallback = graph.get_validators()
+            .filter(|v| {
+                let v_cluster = clusters.find_cluster_for(v);
+                v_cluster != bridge_cluster
+            })
+            .max_by_key(|v| graph.vouch_count(v));
+        
+        if let Some(voucher) = mst_fallback {
+            introductions.push(IntroductionPair {
+                person_a: *bridge,
+                person_b: voucher,
+                reason: "Strengthen Bridge (MST fallback)",
+                priority: 1,
+                dvr_optimal: false,
+            });
+        }
     }
     
     // Priority 2: Link disconnected islands

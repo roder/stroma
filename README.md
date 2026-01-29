@@ -1,6 +1,6 @@
 # Stroma
 
-**Secure group messaging where trust is earned, not granted.**
+**Signal groups where trust is verified by many, exposed to none.**
 
 ## Mission
 
@@ -30,14 +30,14 @@ Traditional solutions create new problems:
 
 Stroma resolves the tension between verification and anonymity through **distributed trust verification with cryptographic privacy**. 
 
-The core principle: **You can only join if two members from DIFFERENT CLUSTERS vouch for you, and the trust map is protected so it can never expose the group structure to an adversary.**
+**The core principle**: You can only join if two members from **different parts of the network** vouch for you, while ensuring member identities are protected even if an adversary seizes the server.
 
 ### What This Means:
 - **No strangers**: Every member is personally vouched for by at least 2 people already in the group
 - **No gatekeepers**: No single person controls entry - trust is distributed across the network
-- **No cliques**: The bot ensures vouches come from different parts of your network (cross-cluster)
+- **No cliques**: Vouches must come from different friend circles (not your buddy vouching for your other buddy)
 - **No hierarchy**: Trust emerges from relationships, not authority or admin power
-- **No identity exposure**: All identifiers cryptographically hashed - bot sees network topology, not people
+- **No identity exposure**: Even if the bot server is compromised, the adversary only gets cryptographic hashes — not real identities
 
 ### How It Works (Simple):
 
@@ -47,18 +47,18 @@ The core principle: **You can only join if two members from DIFFERENT CLUSTERS v
    - Vetting process begins
 
 2. **You get vetted**: The bot suggests you chat with a second member from a different part of the network
-   - Bot facilitates introduction (suggests validator from different cluster)
+   - Bot facilitates introduction (suggests a well-connected member from a different friend circle)
    - You have a brief conversation to establish trust
    - Bot doesn't participate - just makes strategic matchmaking suggestion
 
 3. **Second vouch**: After your conversation, the member vouches for you
    - They send `/vouch @YourName` to the bot (private message)
-   - Bot verifies: (a) voucher is a member, (b) voucher is in a DIFFERENT CLUSTER than inviter
-   - Same-cluster vouches are rejected — cross-cluster is mandatory to prevent infiltration
-   - **Bootstrap exception**: For small groups (3-5 members) with only 1 cluster, cross-cluster not yet required
+   - Bot verifies: (a) voucher is a member, (b) voucher is from a **different friend circle** than the inviter
+   - Same friend circle vouches are rejected — diversity is mandatory to prevent coordinated infiltration
+   - **Bootstrap exception**: For small groups (3-5 members) where everyone knows each other, diversity requirement is suspended
 
 4. **You're admitted**: The bot adds you to the Signal group
-   - You're now a Bridge (2 effective vouches from members in different clusters)
+   - You're now a Bridge (2 effective vouches from members in different friend circles)
    - Your trust standing is positive (Standing = Effective_Vouches - Regular_Flags >= 0)
    - Bot welcomes you and immediately deletes all vetting session data (ephemeral)
 

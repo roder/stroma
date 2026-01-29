@@ -1,0 +1,297 @@
+# Blind Matchmaker: DVR-Optimized Algorithm (IMMUTABLE)
+
+**Status**: Pinned - Cannot be modified without explicit unpinning ceremony
+**Created**: 2026-01-28
+**Depends On**: Q6 (Cluster Detection) validation in Spike Week
+
+## Architectural Decision
+
+**Decision**: Enhance Blind Matchmaker to prioritize **Distinct Validator Ratio (DVR)** optimization with MST fallback.
+
+**Rationale**: The current MST (Minimum Spanning Tree) algorithm optimizes for fewest introductions, but doesn't maximize network resilience. DVR optimization creates Validators with non-overlapping voucher sets — directly improving attack resistance.
+
+## The Hybrid Approach
+
+### Algorithm Phases
+
+```
+Phase 0 (NEW): DVR Optimization
+  - Prioritize introductions that create DISTINCT Validators
+  - Use vouchers not already in other distinct Validator voucher sets
+  - Goal: Maximize DVR (independently-verified members)
+
+Phase 1 (EXISTING): MST Fallback
+  - If no DVR-optimal voucher available, accept any cross-cluster vouch
+  - Still valid admission, just not optimal for DVR
+
+Phase 2 (EXISTING): Connect Clusters
+  - Bridge disconnected clusters
+  - Unchanged from original algorithm
+```
+
+### Phase 0: DVR Optimization (NEW)
+
+```rust
+/// Phase 0: Suggest introductions that maximize Distinct Validator Ratio
+fn suggest_dvr_optimal_introductions(graph: &TrustGraph) -> Vec<Introduction> {
+    let mut introductions = Vec::new();
+    let mut used_vouchers: HashSet<Hash> = HashSet::new();
+    
+    // Collect voucher sets of existing distinct Validators
+    let existing_distinct = get_distinct_validators(graph);
+    for validator in &existing_distinct {
+        used_vouchers.extend(graph.get_vouchers(validator));
+    }
+    
+    // Find Bridges that could become distinct Validators
+    let bridges: Vec<_> = graph.members()
+        .filter(|m| m.effective_vouches() == 2)
+        .collect();
+    
+    for bridge in bridges {
+        let bridge_vouchers = graph.get_vouchers(bridge);
+        let bridge_cluster = find_cluster(bridge, graph);
+        
+        // Check if bridge's vouchers are already "used"
+        let vouchers_used = bridge_vouchers.iter()
+            .any(|v| used_vouchers.contains(v));
+        
+        if vouchers_used {
+            // Bridge can't become distinct with current vouchers
+            // Find a third voucher that ISN'T used by other distinct Validators
+            let candidate = find_unused_cross_cluster_voucher(
+                bridge,
+                bridge_cluster,
+                &used_vouchers,
+                graph
+            );
+            
+            if let Some(voucher) = candidate {
+                introductions.push(Introduction {
+                    person_a: bridge,
+                    person_b: voucher,
+                    reason: "Create distinct Validator (DVR optimization)",
+                    priority: 0,  // Highest priority
+                    dvr_optimal: true,
+                });
+                
+                // Reserve this voucher
+                used_vouchers.insert(voucher);
+            }
+        } else {
+            // Bridge's vouchers are unused — it CAN become distinct
+            // Just needs one more cross-cluster vouch from unused voucher
+            let candidate = find_unused_cross_cluster_voucher(
+                bridge,
+                bridge_cluster,
+                &used_vouchers,
+                graph
+            );
+            
+            if let Some(voucher) = candidate {
+                introductions.push(Introduction {
+                    person_a: bridge,
+                    person_b: voucher,
+                    reason: "Upgrade to distinct Validator (DVR optimization)",
+                    priority: 0,
+                    dvr_optimal: true,
+                });
+                
+                // Reserve bridge's entire voucher set + new voucher
+                used_vouchers.extend(bridge_vouchers);
+                used_vouchers.insert(voucher);
+            }
+        }
+    }
+    
+    introductions
+}
+
+/// Find a voucher that:
+/// 1. Is in a different cluster from the target
+/// 2. Hasn't been used by another distinct Validator
+fn find_unused_cross_cluster_voucher(
+    target: Hash,
+    target_cluster: ClusterId,
+    used_vouchers: &HashSet<Hash>,
+    graph: &TrustGraph
+) -> Option<Hash> {
+    // Get all potential vouchers (Validators in different clusters)
+    let candidates: Vec<_> = graph.members()
+        .filter(|m| {
+            m.effective_vouches() >= 3  // Must be a Validator
+            && find_cluster(m, graph) != target_cluster  // Different cluster
+            && !used_vouchers.contains(m)  // Not used by another distinct Validator
+        })
+        .collect();
+    
+    // Sort by centrality (prefer well-connected vouchers)
+    candidates.sort_by_key(|c| std::cmp::Reverse(centrality(c, graph)));
+    
+    candidates.first().cloned()
+}
+```
+
+### Phase 1: MST Fallback (EXISTING, unchanged)
+
+If Phase 0 doesn't find a DVR-optimal voucher, fall back to original MST algorithm:
+
+```rust
+fn suggest_mst_fallback(bridge: Hash, graph: &TrustGraph) -> Option<Introduction> {
+    let bridge_cluster = find_cluster(bridge, graph);
+    
+    // Find ANY Validator from different cluster
+    let candidate = graph.members()
+        .filter(|m| {
+            m.effective_vouches() >= 3
+            && find_cluster(m, graph) != bridge_cluster
+        })
+        .max_by_key(|c| centrality(c, graph));
+    
+    candidate.map(|voucher| Introduction {
+        person_a: bridge,
+        person_b: voucher,
+        reason: "Strengthen Bridge (MST optimization)",
+        priority: 1,
+        dvr_optimal: false,  // Valid, but not DVR-optimal
+    })
+}
+```
+
+## Tradeoffs
+
+| Dimension | DVR Optimization | MST Fallback |
+|-----------|------------------|--------------|
+| **Goal** | Maximize distinct Validators | Minimize introductions |
+| **Complexity** | O(V² × E) | O(N log N + E) |
+| **Choice constraint** | Must use "unused" vouchers | Any cross-cluster Validator |
+| **Attack resistance** | High (non-overlapping sets) | Moderate (connected mesh) |
+| **User experience** | More specific suggestions | More flexible suggestions |
+
+## When to Use Each Phase
+
+```rust
+fn suggest_introduction(bridge: Hash, graph: &TrustGraph) -> Option<Introduction> {
+    // Phase 0: Try DVR-optimal first
+    if let Some(intro) = suggest_dvr_optimal(bridge, graph) {
+        return Some(intro);
+    }
+    
+    // Phase 1: Fall back to MST
+    if let Some(intro) = suggest_mst_fallback(bridge, graph) {
+        return Some(intro);
+    }
+    
+    // No suggestions available
+    None
+}
+```
+
+## Bot Behavior by Health Status
+
+| Health Status | DVR Range | Bot Behavior |
+|---------------|-----------|--------------|
+| 🔴 Unhealthy | 0-33% | **Aggressively** suggest DVR-optimal introductions |
+| 🟡 Developing | 33-66% | Suggest DVR-optimal when convenient |
+| 🟢 Healthy | 66-100% | Suggest MST (maintenance mode) |
+
+### UX Messages
+
+**DVR-optimal suggestion:**
+```
+"🔗 Strategic Introduction: I've identified [MemberHash_42] as an ideal
+connection for you. Vouching for them would strengthen the network's
+distributed trust (they'd become independently verified).
+
+Would you like me to facilitate an introduction?"
+```
+
+**MST fallback suggestion:**
+```
+"🔗 Suggestion: Consider connecting with [MemberHash_42] from a different
+part of the network. This would strengthen your position and improve
+network connectivity."
+```
+
+## Dependencies
+
+### Q6 (Cluster Detection) - REQUIRED
+
+DVR optimization depends on reliable cluster detection:
+- Must correctly identify which members are in which cluster
+- Must handle bootstrap exception (1 cluster → no enforcement)
+- Must handle edge cases (bridge members, cluster merges)
+
+**If Q6 fails**: DVR optimization falls back entirely to MST. The hybrid approach ensures no breaking changes.
+
+### Relationship to DVR Metric
+
+DVR optimization directly targets the DVR metric:
+
+```
+DVR = Distinct_Validators / (N / 4)
+
+DVR Optimization Goal: Maximize numerator (distinct Validators)
+MST Optimization Goal: Maximize connectivity (doesn't track distinctness)
+```
+
+## Security Properties
+
+### What DVR Optimization Adds
+
+1. **No shared voucher vulnerabilities**: Distinct Validators have disjoint voucher sets
+2. **Coordinated attack resistance**: Compromising one voucher set doesn't cascade
+3. **Distributed trust verification**: Each distinct Validator verified by unique group
+
+### Attack Scenario Comparison
+
+**Without DVR optimization (MST only):**
+```
+V1 vouched by: {A, B, C}
+V2 vouched by: {A, D, E}  ← Shares A with V1
+
+If A is compromised: Both V1 and V2 are affected
+```
+
+**With DVR optimization:**
+```
+V1 vouched by: {A, B, C}
+V2 vouched by: {D, E, F}  ← Completely disjoint
+
+If A is compromised: Only V1 affected, V2 unaffected
+```
+
+## Implementation Notes
+
+### Performance
+
+- **Phase 0 (DVR)**: O(V² × E) — must check voucher set overlap
+- **Phase 1 (MST)**: O(N log N + E) — simple greedy
+- **Total**: Dominated by Phase 0, but still sub-second for typical networks (<1000)
+
+### State Tracking
+
+DVR optimization requires tracking "used" vouchers across the suggestion process:
+
+```rust
+struct IntroductionGenerator {
+    used_vouchers: HashSet<Hash>,
+    existing_distinct: Vec<Hash>,
+}
+```
+
+This state is ephemeral (per-suggestion-batch) and doesn't need persistence.
+
+### Fallback Guarantee
+
+The hybrid approach guarantees:
+- **Always produces valid suggestions** (MST fallback)
+- **Prioritizes optimal suggestions** (DVR first)
+- **Never blocks admission** (any valid vouch accepted)
+
+## Related Documents
+
+- `.beads/mesh-health-metric.bead` - DVR metric definition
+- `.beads/cross-cluster-requirement.bead` - Cross-cluster rules
+- `docs/ALGORITHMS.md` - Full algorithm details
+- `docs/SPIKE-WEEK-BRIEFING.md` - Q6 dependency

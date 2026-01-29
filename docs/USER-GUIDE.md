@@ -265,13 +265,15 @@ Confirms operator has no special privileges for membership or configuration.
 ### Validators
 **Status**: IN Signal group, high trust
 
-- Have 3+ effective vouches
+- Have 3+ effective vouches from 3+ clusters (when available)
 - Same privileges as Bridges (no special powers)
 - More resilient to voucher changes
 - Preferred by Blind Matchmaker for strategic introductions
-- Bot uses them for mesh optimization
+- Bot prioritizes creating **distinct Validators** (non-overlapping voucher sets)
 
-**Note**: Validators don't have extra permissions - just higher resilience
+**Why "distinct" matters**: The bot suggests vouchers that would create Validators whose voucher sets don't overlap with others. This maximizes network resilience — if one voucher is compromised, it only affects one Validator, not multiple.
+
+**Note**: Validators don't have extra permissions - just higher resilience and better network health contribution
 
 ## Understanding Trust Standing
 

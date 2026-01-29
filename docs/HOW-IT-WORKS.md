@@ -179,10 +179,21 @@ Instead of one person tracking vouches, the group can maintain a **shared, anony
 - Strategic introductions can be suggested based on the gaps
 - No need to explain *why* you trust someone — the protocol just looks for the **existence** of the link
 
+### Smart Introductions (DVR Optimization)
+
+When suggesting who should vouch for whom, the system prioritizes creating **distinct Validators** — members whose voucher sets don't overlap:
+
+- **Why this matters**: If two Validators share the same vouchers, compromising those vouchers affects both. Distinct Validators are independently verified.
+- **How it works**: The system tracks which vouchers are already "used" by distinct Validators, and suggests vouchers that aren't yet used.
+- **Fallback**: If no optimal voucher is available, any cross-cluster vouch is still valid.
+
+This "smart matchmaking" helps the network become more resilient without requiring anyone to understand the underlying math.
+
 This distributed approach means:
 - No "in-crowd" forms (cross-cluster links prevent cliques)
 - Power shifts naturally (whoever is available helps the process)
 - Privacy is maintained (you don't have to justify your relationships)
+- Network health improves naturally (DVR optimization happens automatically)
 
 ---
 

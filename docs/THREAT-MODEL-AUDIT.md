@@ -66,6 +66,13 @@
 3. **Vouch Bombing**: Attacker vouches then flags to manipulate
    - **Defense**: Vouch invalidation (flag invalidates vouch)
 
+4. **Coordinated Infiltration**: Group of attackers vouch for each other
+   - **Defense**: Cross-cluster requirement (prevents same-cluster rubber-stamping)
+   - **Defense**: Distinct Validator Ratio (DVR) optimization
+   - **How DVR helps**: Bot prioritizes creating Validators with non-overlapping voucher sets
+   - **Result**: Compromising one voucher set doesn't cascade to multiple Validators
+   - **See**: `.beads/blind-matchmaker-dvr.bead`, `.beads/mesh-health-metric.bead`
+
 ## Files Requiring Updates
 
 ### Priority 1: Core Security Documents ✅ COMPLETE

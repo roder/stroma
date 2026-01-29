@@ -153,13 +153,20 @@ where:
 **Constraint:**
 - Bot knows only topology (vouch counts), not relationship content
 
-### Algorithm: Greedy MST Construction
+### Algorithm: DVR-Optimized Blind Matchmaker (Hybrid)
+
+The algorithm has three phases:
+- **Phase 0 (NEW)**: DVR Optimization — prioritize distinct Validators
+- **Phase 1**: MST Fallback — strengthen remaining Bridges
+- **Phase 2**: Connect Clusters — bridge disconnected components
+
+**See**: `.beads/blind-matchmaker-dvr.bead` for full rationale
 
 ```
-Algorithm: BUILD_MINIMUM_SPANNING_TRUST_TREE(G)
+Algorithm: BUILD_DVR_OPTIMIZED_TRUST_TREE(G)
 
 Input: Trust graph G = (V, E)
-Output: List of strategic introduction pairs
+Output: List of strategic introduction pairs (DVR-optimal where possible)
 
 1. Classify nodes (members IN the Signal group):
    // Note: "Invitees" (1 vouch, OUTSIDE group) are not in this graph
@@ -169,15 +176,53 @@ Output: List of strategic introduction pairs
 2. Detect clusters:
    clusters = FIND_CLUSTERS(G)
 
-3. Initialize introduction list:
+3. Initialize:
    introductions = []
+   used_vouchers = {}  // Track vouchers used by distinct Validators
+   
+   // Collect voucher sets of existing distinct Validators
+   for each distinct_validator in GET_DISTINCT_VALIDATORS(G):
+       used_vouchers = used_vouchers ∪ vouchers_of(distinct_validator)
 
-4. PHASE 1: Strengthen Bridges (Priority 1)
-   // Bridges have only 2 vouches - vulnerable to single voucher departure
+4. PHASE 0: DVR Optimization (Priority 0 — NEW)
+   // Prioritize introductions that create DISTINCT Validators
    for each bridge in bridges:
+       bridge_vouchers = vouchers_of(bridge)
        bridge_cluster = find_cluster(bridge, clusters)
        
-       // Find validator from DIFFERENT cluster with highest centrality
+       // Check if bridge's vouchers are already "used" by other distinct Validators
+       vouchers_overlap = bridge_vouchers ∩ used_vouchers
+       
+       // Find voucher that is:
+       // (a) In different cluster from bridge
+       // (b) NOT already used by another distinct Validator
+       candidate = argmax_{v ∈ validators} (
+           centrality(v)
+           WHERE find_cluster(v) ≠ bridge_cluster
+           AND v ∉ used_vouchers
+       )
+       
+       if candidate exists:
+           introductions.append({
+               person_a: bridge,
+               person_b: candidate,
+               reason: "Create distinct Validator (DVR optimization)",
+               priority: 0,
+               dvr_optimal: true
+           })
+           
+           // Reserve this voucher and bridge's voucher set
+           used_vouchers = used_vouchers ∪ bridge_vouchers ∪ {candidate}
+           
+           // Mark bridge as handled (don't process in Phase 1)
+           bridges.remove(bridge)
+
+5. PHASE 1: MST Fallback (Priority 1)
+   // For bridges not handled in Phase 0, use any cross-cluster Validator
+   for each bridge in bridges:  // Remaining bridges only
+       bridge_cluster = find_cluster(bridge, clusters)
+       
+       // Find ANY validator from DIFFERENT cluster (no used_vouchers constraint)
        target_validator = argmax_{v ∈ validators} (
            centrality(v) 
            WHERE find_cluster(v) ≠ bridge_cluster
@@ -187,8 +232,9 @@ Output: List of strategic introduction pairs
            introductions.append({
                person_a: bridge,
                person_b: target_validator,
-               reason: "Strengthen Bridge via cross-cluster vouch (upgrade to 3+ vouches)",
-               priority: 1
+               reason: "Strengthen Bridge via cross-cluster vouch (MST fallback)",
+               priority: 1,
+               dvr_optimal: false
            })
 
 5. PHASE 2: Bridge Disconnected Clusters (Priority 2)
