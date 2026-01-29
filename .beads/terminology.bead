@@ -39,11 +39,13 @@ This bead is the **single source of truth** for Stroma terminology. All document
 
 ### Member Roles
 
-| Term | Definition | Vouch Count | Status |
-|------|------------|-------------|--------|
-| **Invitee** | Person being vetted | 1 vouch | OUTSIDE group |
-| **Bridge** | Minimum-requirement member | 2 vouches | IN group |
-| **Validator** | Well-connected member | 3+ vouches | IN group |
+| Term | Definition | Vouch Count | Cluster Requirement | Status |
+|------|------------|-------------|---------------------|--------|
+| **Invitee** | Person being vetted | 1 vouch | — | OUTSIDE group |
+| **Bridge** | Minimum-requirement member | 2 vouches | 2 clusters | IN group |
+| **Validator** | Well-connected member | 3+ vouches | 3+ clusters* | IN group |
+
+*****Cluster requirement scales with vouch count**: Validators need vouches from as many distinct clusters as their vouch count (up to available clusters). If only 2 clusters exist, a 3-vouch Validator needs both clusters represented.
 
 **Note**: Validators have NO special permissions — only higher resilience and bot optimization preferences.
 
@@ -62,9 +64,11 @@ This bead is the **single source of truth** for Stroma terminology. All document
 
 | Term | Definition | Default |
 |------|------------|---------|
-| **Cross-cluster minimum** | Must maintain vouches from ≥2 different clusters | 2 clusters |
+| **Cross-cluster minimum** | Must maintain vouches from as many clusters as vouch count (up to available) | min(vouches, clusters) |
 | **Min vouch threshold** | Minimum effective vouches to stay in group | 2 vouches |
 | **Standing threshold** | Minimum standing to stay in group | ≥ 0 |
+
+**Scaling rule**: A member with N vouches should have vouches from min(N, available_clusters) distinct clusters.
 
 ### Ejection Triggers
 

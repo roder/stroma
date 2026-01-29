@@ -10,13 +10,18 @@ alwaysApply: false
 
 **Signal Group = Fully Vetted Members Only**
 
-**Cross-Cluster Requirement** (CONTINUOUS): Every member MUST maintain ≥2 vouches from members in DIFFERENT CLUSTERS at all times. Same-cluster vouches don't count toward this minimum.
+**Cross-Cluster Requirement** (CONTINUOUS, SCALING): Members MUST maintain vouches from as many distinct clusters as their vouch count (up to available clusters).
 
-**Vouch Tracking**: All vouches are recorded and count toward standing calculation. Same-cluster vouches strengthen resilience but don't satisfy the cross-cluster minimum.
+| Role | Requirement |
+|------|-------------|
+| Bridge (2 vouches) | 2 clusters |
+| Validator (3+ vouches) | min(vouch_count, available_clusters) |
+
+**Vouch Tracking**: All vouches are recorded and count toward standing calculation. Same-cluster vouches strengthen resilience but don't satisfy cluster diversity requirements.
 
 **Bootstrap Exception**: When only 1 cluster exists, cross-cluster is not enforced. Once 2+ clusters exist, enforcement begins.
 
-The group is always in a "fully vetted" state — everyone maintains cross-cluster vouches.
+The group is always in a "fully vetted" state — everyone maintains appropriate cluster diversity.
 
 **Critical Terminology:**
 - **Invitees (Leaf Nodes)**: People OUTSIDE the group being vetted (1 vouch)

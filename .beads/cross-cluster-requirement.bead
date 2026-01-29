@@ -12,11 +12,19 @@
 
 ## The Requirement
 
-**INVARIANT**: Every new member MUST have vouches from at least 2 different clusters.
+**INVARIANT**: Every member MUST have vouches from as many distinct clusters as their vouch count (up to available clusters).
+
+| Role | Vouch Count | Cluster Requirement |
+|------|-------------|---------------------|
+| Bridge | 2 | 2 clusters |
+| Validator (3 vouches) | 3 | 3 clusters (or all available if < 3) |
+| Validator (4+ vouches) | 4+ | As many as vouch count (up to available) |
+
+**Formula**: `required_clusters = min(vouch_count, available_clusters)`
 
 **Definition**: Two vouchers are "cross-cluster" if they are NOT in the same connected component of the trust graph when considering only strong relationships (mutual vouches or 2+ degree separation).
 
-**Enforcement**: The bot (or in human protocol, the group) MUST reject admission if both vouchers are from the same cluster.
+**Enforcement**: The bot (or in human protocol, the group) MUST verify cluster diversity matches vouch count.
 
 ## Bootstrap Exception
 
@@ -89,27 +97,35 @@ When someone is being vetted:
 
 ## Continuous Cross-Cluster Requirement
 
-**IMPORTANT**: Cross-cluster is a CONTINUOUS requirement, not just an entry gate.
+**IMPORTANT**: Cross-cluster is a CONTINUOUS requirement that scales with vouch count.
 
-| Requirement | When | What |
-|-------------|------|------|
-| Cross-cluster vouches | ALWAYS | Must maintain ≥2 vouches from different clusters |
-| All vouches tracked | ALWAYS | All vouches count toward standing calculation |
-| Bootstrap exception | SINGLE CLUSTER | If only 1 cluster exists, cross-cluster not enforced |
+| Role | Vouch Count | Cluster Requirement | When |
+|------|-------------|---------------------|------|
+| Bridge | 2 | 2 clusters | ALWAYS |
+| Validator | 3+ | min(vouches, available_clusters) | ALWAYS |
+| Bootstrap | Any | None (only 1 cluster exists) | SINGLE CLUSTER |
 
 **Ongoing membership**:
-- You must maintain at least 2 vouches from DIFFERENT CLUSTERS at all times
+- Your cluster requirement = min(your_vouch_count, available_clusters)
 - All vouches count toward your standing (effective vouches - regular flags)
-- If you drop below 2 cross-cluster vouches, you need a replacement from a different cluster
-- Same-cluster vouches still count toward standing, but don't satisfy the cross-cluster minimum
+- If you lose cluster diversity, you need a replacement from a missing cluster
+- Same-cluster vouches still count toward standing, but don't satisfy cluster diversity
 
-**Example**:
-- You have vouches from Alice (Cluster A), Bob (Cluster B), and Carol (Cluster A)
-- Alice leaves → You still have Bob (Cluster B) and Carol (Cluster A) = cross-cluster ✓
-- Bob leaves → You only have Carol (Cluster A) = NOT cross-cluster ✗
-- You need a new vouch from someone NOT in Cluster A to stay
+**Example (3-cluster network)**:
+- You have vouches from Alice (Cluster A), Bob (Cluster B), Carol (Cluster C), Dave (Cluster A)
+- You're a Validator with 4 vouches from 3 clusters ✓
+- Carol leaves → You have 3 vouches from 2 clusters (A, B)
+- For 3 vouches, you need 3 clusters → You need a vouch from Cluster C (or new cluster) to stay Validator
+- If you can't get one, you're still a Bridge (2+ vouches from 2 clusters)
 
-**Why continuous cross-cluster**: The objective is to maintain a resilient, distributed web of trust. Cross-cluster vouching decentralizes trust across the network, ensuring no single cluster can dominate or be a single point of failure. This protects anonymity by distributing knowledge of relationships across independent social contexts.
+**Example (2-cluster network)**:
+- Only 2 clusters exist (A and B)
+- You're a Validator with 4 vouches: Alice (A), Bob (B), Carol (A), Dave (A)
+- Required clusters = min(4, 2) = 2 clusters ✓
+- Bob leaves → You have 3 vouches all from Cluster A
+- Required clusters = min(3, 2) = 2, but you only have 1 → Need vouch from Cluster B
+
+**Why scaling cross-cluster**: Higher trust (more vouches) should mean more distributed verification. A Validator known by 5 people all in the same cluster isn't truly "well-connected across the network" — they're well-connected within ONE cluster.
 
 ## What This Means for Users
 

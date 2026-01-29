@@ -22,7 +22,7 @@ For general concepts, see [How It Works](HOW-IT-WORKS.md). For bot commands, see
 
 **Trust Standing must remain ≥ 0 AND Effective Vouches must stay ≥ 2 for membership.**
 
-**Cross-Cluster Requirement**: Vouches MUST come from members in DIFFERENT clusters. Same-cluster vouching does not count toward admission threshold. This prevents coordinated infiltration attacks where bad actors rubber-stamp confederates.
+**Cross-Cluster Requirement**: Vouches MUST come from as many distinct clusters as the member's vouch count (up to available clusters). Bridges (2 vouches) need 2 clusters; Validators (3+ vouches) need 3+ clusters. This prevents coordinated infiltration and ensures higher trust = more distributed verification.
 
 **See**: `.beads/cross-cluster-requirement.bead` for full rationale
 
@@ -39,7 +39,7 @@ For general concepts, see [How It Works](HOW-IT-WORKS.md). For bot commands, see
 ### Bridges
 **Status**: IN Signal group (minimum requirement)
 
-- Exactly 2 effective vouches
+- Exactly 2 effective vouches from 2 different clusters
 - Full member privileges
 - At risk if voucher leaves OR flags
 - Should build more connections for resilience
@@ -47,10 +47,11 @@ For general concepts, see [How It Works](HOW-IT-WORKS.md). For bot commands, see
 ### Validators
 **Status**: IN Signal group (high trust)
 
-- 3+ effective vouches
+- 3+ effective vouches from 3+ different clusters (when available)
 - Same privileges as Bridges
 - More resilient to voucher changes
 - Preferred by Blind Matchmaker for strategic introductions
+- If only 2 clusters exist, must have vouches from both
 
 **Note**: Validators have NO special permissions - only higher resilience and bot optimization preferences.
 

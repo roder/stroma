@@ -16,11 +16,11 @@ Before diving in, here are the terms you'll need:
 | **Flag** | The opposite of a vouch — indicates you no longer trust someone |
 | **Cluster** | A friend circle within the network — people who know each other from the same social context |
 | **Cross-cluster** | From *different* friend circles — required for admission and ongoing membership |
-| **Bridge** | A member with exactly 2 vouches — the minimum to be in the group |
-| **Validator** | A member with 3+ vouches — well-connected, more resilient |
+| **Bridge** | A member with 2 vouches from 2 clusters* — the minimum to be in the group |
+| **Validator** | A member with 3+ vouches from 3+ clusters* — well-connected across the network |
 | **Standing** | Your trust score: effective vouches minus regular flags (must stay positive) |
 
-**Cross-cluster requirement**: You must always maintain vouches from at least 2 different clusters. This ensures trust is distributed across independent social contexts, not concentrated in one friend circle.
+*****Cross-cluster requirement**: Vouches must come from as many distinct clusters as your vouch count (up to available clusters). Bridges need 2 clusters; Validators need 3+ clusters. When only 1 cluster exists, the requirement is suspended.
 
 For detailed explanations, see [How It Works](HOW-IT-WORKS.md).
 
