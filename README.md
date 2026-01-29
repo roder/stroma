@@ -30,7 +30,7 @@ Traditional solutions create new problems:
 
 Stroma resolves the tension between verification and anonymity through **distributed trust verification with cryptographic privacy**. 
 
-The core principle: **You can only join if two independent members vouch for you, and the trust map is protected so it can never expose the group structure to an adversary.**
+The core principle: **You can only join if two members from DIFFERENT CLUSTERS vouch for you, and the trust map is protected so it can never expose the group structure to an adversary.**
 
 ### What This Means:
 - **No strangers**: Every member is personally vouched for by at least 2 people already in the group
@@ -53,11 +53,12 @@ The core principle: **You can only join if two independent members vouch for you
 
 3. **Second vouch**: After your conversation, the member vouches for you
    - They send `/vouch @YourName` to the bot (private message)
-   - Bot verifies the second vouch with zero-knowledge cryptographic proof
-   - Two independent vouches confirmed from different network clusters
+   - Bot verifies: (a) voucher is a member, (b) voucher is in a DIFFERENT CLUSTER than inviter
+   - Same-cluster vouches are rejected — cross-cluster is mandatory to prevent infiltration
+   - **Bootstrap exception**: For small groups (3-5 members) with only 1 cluster, cross-cluster not yet required
 
 4. **You're admitted**: The bot adds you to the Signal group
-   - You're now a Bridge (2 effective vouches from independent members)
+   - You're now a Bridge (2 effective vouches from members in different clusters)
    - Your trust standing is positive (Standing = Effective_Vouches - Regular_Flags >= 0)
    - Bot welcomes you and immediately deletes all vetting session data (ephemeral)
 
@@ -93,6 +94,7 @@ Stroma serves three audiences. Choose your path:
 ### 👥 For End Users (Group Members)
 **You want to use Stroma in your Signal group.**
 
+- **[How It Works](docs/HOW-IT-WORKS.md)** - **Start here:** Plain-language explanation of the trust protocol
 - **[User Guide](docs/USER-GUIDE.md)** - Bot commands, daily workflows, trust management
 - **[Trust Model Explained](docs/TRUST-MODEL.md)** - How vouching, flagging, and standing work
 - **Quick Start**: Install Signal → Get invited by a member → Chat with validator → Join group
@@ -152,7 +154,8 @@ Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/propose`, 
 ## Core Concepts
 
 ### Trust Model
-- **Requirement**: 2 vouches from independent Members to join
+- **Requirement**: 2 vouches from members in DIFFERENT CLUSTERS to join (cross-cluster mandatory)
+- **Bootstrap Exception**: Small groups (3-5 members) have only 1 cluster; cross-cluster enforced once 2+ clusters exist
 - **Standing**: `Effective_Vouches - Regular_Flags` (must stay ≥ 0)
 - **Vouch Invalidation**: If voucher flags you, their vouch is invalidated
 - **Ejection**: Immediate when Standing < 0 OR Effective_Vouches < 2
@@ -294,7 +297,8 @@ cargo build --release --target x86_64-unknown-linux-musl
 - Freenet Dark with ComposableState trait
 - Presage group management and poll support
 - STARK proofs (size, performance)
-- Answer 5 critical architecture questions
+- Cluster detection for cross-cluster vouching (bootstrap exception)
+- Answer 6 critical architecture questions
 
 **Deliverable**: Go/No-Go decision report
 

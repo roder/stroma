@@ -6,10 +6,12 @@ This guide explains how to use Stroma as a member of a trust network. You intera
 
 ## Quick Start
 
-1. **Get invited** by an existing member
-2. **Chat with a validator** (10-15 min introduction)
-3. **Get vouched** by the validator
-4. **Join the group** automatically when you reach 2 vouches
+1. **Get invited** by an existing member (counts as first vouch)
+2. **Chat with a member from a different cluster** (10-15 min introduction)
+3. **Get vouched** by that member (must be from different cluster than inviter)
+4. **Join the group** automatically when you reach 2 cross-cluster vouches
+
+**Note**: For small groups (3-5 members) that only have one cluster, the cross-cluster requirement is not yet enforced. Once the group grows and develops 2+ distinct clusters (typically 6+ members), cross-cluster vouching becomes mandatory.
 
 ## Daily Interaction
 
@@ -22,8 +24,11 @@ You → Bot (1-on-1 PM): /invite @Friend "Great organizer from local community"
 
 Bot → You:
 "Your invitation for @Friend has been recorded as the first vouch.
-I'm now reaching out to a member from a different part of the network 
-for the second vouch. I'll keep you updated."
+I'm now reaching out to a member from a different cluster for the 
+cross-cluster vouch. Same-cluster vouches don't count — we need 
+independent perspectives for security. I'll keep you updated."
+
+(Note: In small groups with only one cluster, the bot will find any available member for the second vouch. Cross-cluster enforcement activates once the group develops 2+ distinct clusters.)
 ```
 
 ### Checking Your Status
@@ -82,8 +87,10 @@ creating excessive interdependence."
 
 - Your invitation counts as their first vouch
 - Bot starts vetting process immediately
-- Bot selects second validator for introduction
-- Context helps validator understand who they're meeting
+- Bot selects second member from a DIFFERENT CLUSTER for introduction
+- Same-cluster vouches don't count (cross-cluster required)
+- **Bootstrap exception**: Small groups (3-5 members) with only 1 cluster are exempt until 2+ clusters exist
+- Context helps the second member understand who they're meeting
 
 **Example:**
 ```
@@ -396,6 +403,9 @@ Yes, the `/status` command shows your vouchers (as hashes, not full identities f
 
 ### How do I build more trust?
 Ask for strategic introductions via `/mesh` suggestions, or ask members to vouch for you (`/vouch @You`).
+
+### Why isn't cross-cluster required in my small group?
+Cross-cluster vouching is enforced once your group has 2+ distinct clusters (typically 6+ members). During bootstrap phase (3-5 members), everyone is in the same cluster, so cross-cluster isn't possible yet. As your group grows and develops separate "friend circles," the bot will start enforcing cross-cluster vouches to prevent infiltration.
 
 ### What does "Mesh Health 100/100" mean?
 Your network is in the optimal balance range (30-60% density). This is the goal - not 100% mesh density!

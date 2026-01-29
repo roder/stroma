@@ -18,6 +18,28 @@ alwaysApply: true
 
 **Result**: Even if adversary compromises bot/server, they only get hashes and topology, not identities or relationship details.
 
+## Threat Model: Coordinated Infiltration
+
+**Secondary Threat**: Coordinated bad actors attempt to infiltrate by exploiting same-cluster vouching.
+
+**Attack Vector**:
+1. Bad actor Alice joins legitimately (meets cross-cluster requirement)
+2. Alice invites confederate Bob, vouches for Bob
+3. Alice's friend Carol (same cluster) vouches for Bob
+4. If same-cluster vouching allowed: Bob admitted with 2 same-cluster vouches
+5. Repeat: Alice, Bob, Carol form infiltration cluster that self-amplifies
+6. **Result**: Group compromised from within
+
+**Defense: Cross-Cluster Vouching Requirement** (MANDATORY):
+- Every new member MUST have vouches from 2+ DIFFERENT clusters
+- Same-cluster vouching does NOT count toward admission
+- Prevents self-amplification of infiltration clusters
+- Forces bad actors to deceive multiple independent social contexts
+
+**Result**: Even if one cluster is compromised, they cannot unilaterally expand. Infiltration requires building genuine trust across multiple independent parts of the network — which doesn't scale for attackers.
+
+**See**: `.beads/cross-cluster-requirement.bead` for full rationale and implementation
+
 ## Critical Security Constraints
 
 ### Trust Map Protection Violations (BLOCK)
@@ -43,7 +65,20 @@ alwaysApply: true
 - ❌ **NEVER** allow `Standing < 0` to persist (immediate ejection required)
 - ❌ **NEVER** allow vouch count < MIN_VOUCH_THRESHOLD (immediate ejection required)
 - ❌ **NEVER** use polling for state monitoring (must use real-time stream)
-- ❌ **NEVER** admit members with < 2 vouches from independent Members (ANY Member can vouch)
+- ❌ **NEVER** admit members with < 2 vouches from different clusters (cross-cluster REQUIRED)
+- ❌ **NEVER** accept same-cluster vouches toward admission threshold (infiltration vector)
+
+### Cross-Cluster Vouching Violations (BLOCK - Infiltration Prevention)
+- ❌ **NEVER** admit member if both vouchers are from the same cluster
+- ❌ **NEVER** allow same-cluster vouching to count toward admission
+- ❌ **NEVER** bypass cluster detection for admission decisions
+- ✅ **ALWAYS** verify vouchers are from different clusters before admission
+- ✅ **ALWAYS** reject admission if cross-cluster requirement not met
+- ✅ **ALWAYS** enforce cross-cluster after bootstrap phase (2+ clusters exist)
+
+**Bootstrap Exception**: First 3-5 members (single cluster) exempt until multiple clusters form.
+
+**See**: `.beads/cross-cluster-requirement.bead`
 
 ### Vouch Invalidation Violations (BLOCK - NO UNILATERAL 2-POINT SWINGS)
 - ❌ **NEVER** allow a single member's action to cause 2-point standing swing

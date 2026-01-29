@@ -16,7 +16,7 @@ alwaysApply: false
 
 ### Gatekeeper Pattern (Admission Protocol)
 - Presence in Signal group is **binary** and strictly tied to Freenet state
-- **Core Invariant**: Every member in Signal group has ≥2 vouches from independent Members
+- **Core Invariant**: Every member in Signal group has ≥2 vouches from members in DIFFERENT CLUSTERS
 - **Invitees (Leaf Nodes)**: OUTSIDE Signal group (1 vouch, being vetted)
 - **Bridges**: IN Signal group (2 vouches, minimum requirement)
 - **Validators**: IN Signal group (3+ vouches, used for optimization)
@@ -307,7 +307,7 @@ React with ✅ to accept introduction."
 3. **Cross-Mesh**: Member from federated Group-B can vouch for Group-A invitee
 
 ### Vouch Validity
-- Vouches must be from independent Members (not the same person)
+- Vouches must be from members in DIFFERENT CLUSTERS (cross-cluster mandatory)
 - Bot verifies via Freenet that voucher is current Member
 - ZK-proof confirms voucher is in Merkle Tree
 - First vouch = invitation itself (no separate token)

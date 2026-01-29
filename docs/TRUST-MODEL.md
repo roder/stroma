@@ -8,6 +8,10 @@ This document explains how trust works in Stroma, including the vouch invalidati
 
 **Trust Standing must remain ≥ 0 AND Effective Vouches must stay ≥ 2 for membership.**
 
+**Cross-Cluster Requirement**: Vouches MUST come from members in DIFFERENT clusters. Same-cluster vouching does not count toward admission threshold. This prevents coordinated infiltration attacks where bad actors rubber-stamp confederates.
+
+**See**: `.beads/cross-cluster-requirement.bead` for full rationale
+
 ## Roles & Requirements
 
 ### Invitees (Leaf Nodes)
@@ -273,12 +277,12 @@ Reason: BOTH triggers violated (worst case)
 ### Process
 1. Member invites you again (`/invite @You`)
 2. Invitation counts as first vouch
-3. Bot facilitates vetting with second member
-4. Second member vouches
-5. Automatic admission when 2 vouches confirmed
+3. Bot facilitates vetting with second member FROM A DIFFERENT CLUSTER
+4. Second member vouches (must be cross-cluster from inviter)
+5. Automatic admission when 2 cross-cluster vouches confirmed
 
 ### No Cooldown Period
-You can re-enter immediately after securing 2 new vouches.
+You can re-enter immediately after securing 2 new vouches from different clusters.
 
 ### Previous History
 **Question**: Do previous flags carry over?
@@ -521,8 +525,13 @@ For admission, bot proves:
 Voucher_A ∈ Active_Members AND
 Voucher_B ∈ Active_Members AND
 Voucher_A ≠ Voucher_B AND
+Cluster(Voucher_A) ≠ Cluster(Voucher_B) AND    // Cross-cluster requirement
 Invitee ∉ Active_Members
 ```
+
+**Cross-Cluster Enforcement**: The bot verifies that vouchers are from different clusters before admission. Same-cluster vouches are rejected with: "Second vouch must come from a different cluster than the inviter."
+
+**Bootstrap Exception**: First 3-5 members exempt (only one cluster exists).
 
 **Without revealing** (even if server seized):
 - Who Voucher_A actually is (only hash)
@@ -653,12 +662,12 @@ Flags: 0 (or previous flags persist - TBD)
 **Attack**: Attacker creates many fake identities to gain control
 
 **Defense**:
-- 2-vouch requirement from independent Members
-- Blind Matchmaker ensures cross-cluster vouching
+- 2-vouch requirement from DIFFERENT CLUSTERS (cross-cluster enforced)
+- Same-cluster vouches do NOT count toward admission
 - Each vouch requires human interaction (vetting interview)
 - STARKs verify vouchers are in Merkle Tree
 
-**Difficulty**: Attacker must convince multiple real humans to vouch for fake identities
+**Difficulty**: Attacker must convince humans from multiple independent social contexts to vouch for fake identities — doesn't scale.
 
 ### Attack 4: Voucher Leaves After Admission
 **Scenario**: Member has 2 vouches, one voucher leaves group
@@ -670,6 +679,27 @@ Flags: 0 (or previous flags persist - TBD)
 **Defense**: This is **intended behavior** - members must maintain 2 vouches at all times
 
 **Mitigation**: Bot proactively suggests building 3+ connections (become Validator)
+
+### Attack 5: Coordinated Infiltration
+**Attack**: Bad actors rubber-stamp confederates to build an infiltration cluster
+
+**Scenario**:
+1. Alice (bad actor) joins legitimately with cross-cluster vouches
+2. Alice invites confederate Bob, vouches for Bob
+3. Alice's friend Carol (same cluster as Alice) tries to vouch for Bob
+
+**Without Cross-Cluster Enforcement**:
+- Bob admitted with 2 same-cluster vouches
+- Repeat: infiltration cluster self-amplifies
+- **Result**: Group compromised from within
+
+**With Cross-Cluster Enforcement (CURRENT DESIGN)**:
+- Carol's vouch REJECTED (same cluster as Alice)
+- Bob needs vouch from member in DIFFERENT cluster
+- That member has independent perspective on Bob
+- **Result**: Infiltration requires deceiving multiple independent social contexts — doesn't scale
+
+**See**: `.beads/cross-cluster-requirement.bead`
 
 ## Performance Characteristics
 

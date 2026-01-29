@@ -60,7 +60,7 @@ Example:
 **Re-Entry Path:**
 1. Member is ejected (Standing < 0 OR vouches < 2)
 2. Member contacts members outside Signal group
-3. Member secures 2 new vouches from independent members
+3. Member secures 2 new vouches from members in different clusters
 4. Member gets re-invited (fresh start)
 
 ### Proposal Configuration

@@ -254,8 +254,8 @@ rustflags = ["-C", "target-feature=+crt-static"]
 
 5. **Sybil Attacks**
    - Attack: Create many fake identities to infiltrate
-   - Defense: 2-vouch from independent members, cross-cluster requirement
-   - Outcome: Attacker must convince real humans (difficult to scale)
+   - Defense: 2-vouch from members in DIFFERENT CLUSTERS (cross-cluster mandatory)
+   - Outcome: Attacker must convince humans from multiple independent social contexts (doesn't scale)
 
 6. **State-Level Adversaries**
    - Attack: Government attempts mass surveillance

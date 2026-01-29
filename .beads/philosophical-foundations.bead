@@ -55,7 +55,7 @@ Stroma is built on the recognition that opposing truths coexist. The system does
 
 **How Stroma Holds Both**:
 - ANY Member can vouch (Bridges and Validators alike) — individual agency
-- 2+ independent vouches required — collective validation
+- 2+ vouches from DIFFERENT CLUSTERS required — collective validation (cross-cluster mandatory)
 - Standing = Effective_Vouches - Regular_Flags — continuous negotiation
 - No single action causes 2-point swing — prevents unilateral power
 
@@ -72,7 +72,7 @@ Stroma is built on the recognition that opposing truths coexist. The system does
 **How Stroma Holds Both**:
 - Immediate ejection: no grace periods, consequences are real
 - Immediate re-entry path: no cooldowns, no permanent bans
-- Fresh start available: secure 2 new vouches from independent Members
+- Fresh start available: secure 2 new vouches from members in different clusters
 - History doesn't permanently define you (TBD: flags may not carry over)
 
 **Implementation Principle**: Never add "warnings" or "probation" that soften accountability. Never add "permanent bans" or "cooldowns" that eliminate forgiveness. Hold both: swift consequences AND available redemption.

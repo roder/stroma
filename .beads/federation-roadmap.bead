@@ -45,8 +45,8 @@ If we design for federation from the start (but implement single-group first):
 
 ✅ **Core Trust Mechanics (Phase 1)**
 - Invitation (first vouch)
-- Vetting with second Member
-- Admission (2 vouches + ZK-proof)
+- Vetting with member from DIFFERENT cluster
+- Admission (2 cross-cluster vouches + ZK-proof)
 - Ejection (two independent triggers)
 - Flagging system
 

@@ -836,8 +836,8 @@ Our security-guardrails.mdc focused on:
    - Defense: Three-layer defense prevents useful seizure
 
 **6. Sybil Attacks**
-   - Defense: 2-vouch requirement from independent Members
-   - Defense: Cross-cluster vouching (Blind Matchmaker optimization)
+   - Defense: 2-vouch requirement from members in DIFFERENT CLUSTERS (cross-cluster mandatory)
+   - Defense: Same-cluster vouches rejected (not optimization, hard requirement)
    - Defense: Immediate ejection if flagged
 
 #### Out of Scope (Assumed Secure)

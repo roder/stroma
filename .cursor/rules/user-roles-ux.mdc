@@ -29,7 +29,7 @@ alwaysApply: false
 **Definition**: Fully vetted, trusted nodes in the mesh network who are IN the Stroma Signal group.
 
 **Requirements:**
-- Minimum 2 effective vouches from independent Members
+- Minimum 2 effective vouches from members in DIFFERENT CLUSTERS (cross-cluster mandatory)
 - Trust Standing ≥ 0 (Effective_Vouches - Regular_Flags)
 - Vouch Invalidation: If a voucher flags you, their vouch is invalidated
 - Currently in the Signal group
@@ -70,7 +70,7 @@ alwaysApply: false
 - CAN chat with bot and validators during vetting
 
 **Transition to Member:**
-- When ≥2 vouches from independent Members confirmed by Freenet
+- When ≥2 vouches from members in DIFFERENT CLUSTERS confirmed by Freenet
 - Bot automatically adds to Signal group
 - Becomes a Bridge (2 vouches)
 
@@ -114,7 +114,7 @@ alwaysApply: false
 **Definition**: A Signal group chat containing ONLY fully vetted Members.
 
 **Core Invariant:**
-- Every Member has ≥2 vouches from independent Members at all times
+- Every Member has ≥2 vouches from members in DIFFERENT CLUSTERS at all times (cross-cluster mandatory)
 - No Invitees or partially vetted people in the group
 - No "waiting room" within the group (you're either in or out)
 
@@ -205,7 +205,7 @@ a different part of the network. Please have a brief chat.
 Carol: /vouch @Matt
 
 Bot → Carol (PM):
-"Vouch recorded. @Matt now has 2 vouches from independent members."
+"Vouch recorded. @Matt now has 2 cross-cluster vouches."
 ```
 
 **Step 4: Admission**
@@ -646,7 +646,7 @@ for the second vouch. I'll keep you updated."
 
 **Bot Response** (1-on-1 PM):
 ```
-"Vouch recorded. @Matt now has 2 vouches from independent members.
+"Vouch recorded. @Matt now has 2 cross-cluster vouches.
 They're being admitted to the group now."
 ```
 

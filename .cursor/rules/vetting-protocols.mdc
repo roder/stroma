@@ -10,7 +10,7 @@ alwaysApply: false
 
 **Signal Group = Fully Vetted Members Only**
 
-Every member in the Stroma Signal group MUST have ≥2 vouches from independent Members at all times. The group is always in a "fully vetted" state.
+Every member in the Stroma Signal group MUST have ≥2 vouches from members in DIFFERENT CLUSTERS at all times. Same-cluster vouches don't count. The group is always in a "fully vetted" state.
 
 **Critical Terminology:**
 - **Invitees (Leaf Nodes)**: People OUTSIDE the group being vetted (1 vouch)
@@ -139,7 +139,7 @@ Bot: "This is a vetting introduction. @Validator is a member from
 **After second vouch received:**
 ```rust
 fn process_admission(invitee_hash: Hash) {
-    // Verify 2 vouches from independent Members
+    // Verify 2 vouches from members in DIFFERENT CLUSTERS
     let vouches = freenet.get_vouches(invitee_hash);
     
     assert!(vouches.len() >= 2);

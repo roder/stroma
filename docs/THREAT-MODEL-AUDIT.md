@@ -56,8 +56,8 @@
 ### Secondary Threats
 
 1. **Sybil Attack**: Attacker creates many fake identities
-   - **Defense**: 2-vouch requirement from independent members
-   - **Defense**: Cross-cluster vouching requirement
+   - **Defense**: 2-vouch requirement from members in DIFFERENT CLUSTERS (cross-cluster mandatory)
+   - **Defense**: Same-cluster vouches rejected (prevents coordinated infiltration)
 
 2. **Infiltration**: Adversary gets admitted as member
    - **Defense**: Distributed vetting (no single gatekeeper)

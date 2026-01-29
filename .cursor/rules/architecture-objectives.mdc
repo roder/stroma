@@ -18,7 +18,9 @@ Build a **scalable trust network** that leverages Signal for its user interface 
 
 **Fundamental Principle**: Trust is an **emergent property** of the mesh, not a centralized database.
 
-**Core Invariant**: The Stroma Signal group contains ONLY fully vetted members. Every member has ≥2 vouches from independent Members at all times.
+**Core Invariant**: The Stroma Signal group contains ONLY fully vetted members. Every member has ≥2 vouches from members in DIFFERENT CLUSTERS at all times.
+
+**Cross-Cluster Requirement**: Vouches MUST come from different clusters to prevent coordinated infiltration. Same-cluster vouching does NOT count toward admission. See `.beads/cross-cluster-requirement.bead`.
 
 ## Design Philosophy
 
@@ -187,11 +189,15 @@ systemd services:
 ## Trust Model
 
 ### Vouching System
-- **Requirement**: Two distinct Members must vouch for new member
+- **Requirement**: Two Members from DIFFERENT CLUSTERS must vouch for new member
+- **Cross-Cluster**: Vouchers MUST be from different clusters (hard requirement, not optimization)
 - **Who Can Vouch**: ANY Member (Bridges and Validators), not restricted to Validators
-- **Verification**: `zk-Proof(Voucher_A IN Tree AND Voucher_B IN Tree AND Voucher_A != Voucher_B AND Invitee NOT_IN Tree)`
+- **Verification**: `zk-Proof(Voucher_A IN Tree AND Voucher_B IN Tree AND Voucher_A != Voucher_B AND Cluster(A) != Cluster(B) AND Invitee NOT_IN Tree)`
 - **Privacy**: Vouchers remain anonymous (ZK-proof)
 - **First Vouch**: Invitation itself counts as first vouch
+- **Bootstrap Exception**: First 3-5 members exempt (single cluster exists)
+
+**Why Cross-Cluster Required**: Prevents coordinated infiltration. If same-cluster vouching were allowed, a compromised cluster could self-amplify by rubber-stamping confederates. Cross-cluster forces verification from independent social contexts.
 
 ### Trust Standing
 - **Calculation**: `Standing = Effective_Vouches - Regular_Flags`
@@ -203,7 +209,7 @@ systemd services:
   2. `Effective_Vouches < 2` (voucher left group OR voucher flagged you)
 - **No Grace Period**: Ejection is instant when either trigger activated
 - **Continuous Evaluation**: Trust monitored in real-time via Freenet state stream
-- **Re-Entry Path**: Secure 2 new vouches from independent Members (reset, not permanent ban)
+- **Re-Entry Path**: Secure 2 new vouches from members in different clusters (reset, not permanent ban)
 - **No Cooldown**: Can re-enter immediately after securing new vouches
 
 **Why Vouch Invalidation**: Prevents logical inconsistency where someone both trusts and distrusts you. Aligns with "fluid identity" philosophy - trust is current state, not fixed history.

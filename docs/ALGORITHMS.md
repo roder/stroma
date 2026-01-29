@@ -41,9 +41,20 @@ All algorithms must respect these invariants:
 
 ```
 INVARIANT 1: Every member MUST have >= MIN_VOUCH_THRESHOLD vouches (default: 2)
-INVARIANT 2: Vouches MUST come from independent members (different clusters)
+INVARIANT 2: Vouches MUST come from members in DIFFERENT CLUSTERS (hard requirement)
 INVARIANT 3: Bot MUST NOT know relationship content (only topology)
 ```
+
+**INVARIANT 2 Enforcement** (Coordinated Infiltration Prevention):
+- Same-cluster vouches do NOT count toward admission threshold
+- Bot MUST verify `Cluster(Voucher_A) != Cluster(Voucher_B)` before admission
+- Rejection message: "Second vouch must come from a different cluster than the inviter"
+- **Bootstrap Exception**: First 3-5 members exempt (only one cluster exists)
+- **Transition**: Cross-cluster enforced once cluster detection identifies 2+ distinct clusters
+
+**Why This Is Required**: Without cross-cluster enforcement, a compromised cluster can self-amplify by rubber-stamping confederates. Cross-cluster forces verification from independent social contexts, making coordinated infiltration require deceiving multiple unrelated groups — which doesn't scale for attackers.
+
+**See**: `.beads/cross-cluster-requirement.bead` for full threat model
 
 ---
 
@@ -1179,8 +1190,16 @@ Federated Network:
    - **Mitigation**: Members can reject introductions
 
 2. **Sybil Attack**: Attacker creates many fake accounts
-   - **Mitigation**: 2-vouch requirement from independent members
-   - **Mitigation**: Cross-cluster vouching requirement
+   - **Mitigation**: 2-vouch requirement from different clusters (INVARIANT 2)
+   - **Mitigation**: Cross-cluster vouching is enforced, not optional
+
+3. **Coordinated Infiltration**: Bad actors rubber-stamp confederates
+   - **Attack**: Alice joins legitimately, then vouches for confederate Bob
+   - **Attack**: Alice's friend Carol (same cluster) vouches for Bob
+   - **Without defense**: Bob admitted with 2 same-cluster vouches → infiltration cluster forms
+   - **Mitigation**: Cross-cluster vouching REQUIRED (INVARIANT 2)
+   - **Mitigation**: Same-cluster vouches do NOT count toward admission
+   - **Result**: Bob needs vouch from someone in a DIFFERENT cluster — independent verification
 
 #### External
 
