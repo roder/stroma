@@ -96,11 +96,16 @@
   - [X] voting-mechanism.bead (native polls)
   - [X] poll-implementation-gastown.bead (Agent-Signal task)
   
-- [ ] Launch Agent-Signal for poll implementation
-  - [ ] Agent reads poll-implementation-gastown.bead
-  - [ ] Agent forks libsignal-service-rs
-  - [ ] Agent implements protocol v8 support
-  - [ ] Agent submits PR to upstream
+- [X] Launch Agent-Signal for poll implementation
+  - [X] Agent reads poll-implementation-gastown.bead
+  - [X] Agent forks libsignal-service-rs
+  - [X] Agent implements protocol v8 support (PollCreate, PollVote, PollTerminate, PinMessage, UnpinMessage)
+  - [X] Agent rebases onto whisperfork branch (presage's base)
+  - [X] Agent configures Stroma Cargo.toml with patch
+  - [ ] Agent submits PR to upstream whisperfish/libsignal-service-rs
+  - [ ] BLOCKED: presage has upstream curve25519-dalek version conflict (zkgroup vs libsignal-core)
+        This affects any project using presage from git, not specific to our changes.
+        Monitor: https://github.com/whisperfish/presage for resolution
 
 ### Outstanding Questions (MUST NOT LOSE - Critical for Spike Week)
 

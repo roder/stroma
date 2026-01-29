@@ -9,17 +9,32 @@ name = "stroma"
 path = "src/main.rs"
 
 [dependencies]
-# Embedded Freenet kernel (in-process, not external service)
-freenet-stdlib = { version = "0.1.30", features = ["full"] }
-freenet-scaffold = "0.2.1"
+# Freenet dependencies temporarily commented out due to curve25519-dalek version conflict
+# with Signal libraries. Signal uses a forked curve25519-dalek, freenet-stdlib uses crates.io.
+# TODO: Resolve by either:
+# 1. Patching freenet-stdlib to use Signal's fork
+# 2. Waiting for upstream to align
+# 3. Building freenet integration as separate binary
+# freenet-stdlib = { version = "0.1.30", features = ["contract", "net"] }
+# freenet-scaffold = "0.2.1"
+
+# Signal integration (uses forked libsignal-service-rs with poll support)
+# ❌ DO NOT USE: presage-store-sqlite (stores ALL messages - server seizure risk!)
+# See: .beads/security-constraints.bead § 10, .cursor/rules/security-guardrails.mdc
+presage = { git = "https://github.com/whisperfish/presage" }
 
 # TODO: Add remaining dependencies during implementation
-# - Signal integration (libsignal-service-rs)
 # - ZK-proofs (winterfell)
 # - Crypto (ring, zeroize)
 # - Async (tokio)
 # - CLI (clap)
 # - Serialization (serde, ciborium)
+
+# Protocol v8 poll support via our fork of libsignal-service-rs
+# Fork rebased on whisperfork branch (which presage uses)
+# See: .beads/poll-implementation-gastown.bead
+[patch."https://github.com/whisperfish/libsignal-service-rs"]
+libsignal-service = { git = "https://github.com/roder/libsignal-service-rs", branch = "feature/protocol-v8-polls" }
 
 [profile.release]
 lto = true              # Link-time optimization
