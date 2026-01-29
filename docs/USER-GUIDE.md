@@ -77,25 +77,23 @@ leaves the group OR flags you, you'll need immediate replacement vouches."
 You → Bot: /mesh strength
 
 Bot → You:
-"📈 Mesh Health: 100/100 ✅
+"📈 Network Health: 🟢 Healthy (75%)
 
-Network Balance: 🟢 OPTIMAL
-Mesh Density: 38% (target range: 30-60%)
+Distinct Validators: 9 / 12 possible
+Network Size: 47 members
+Clusters: 4 detected
 
 Vouch Distribution:
-  2 vouches (Bridges):    ████████░░░░ 22 members (47%)
-  3-5 vouches:            █████░░░░░░░ 15 members (32%)
-  6-10 vouches:           ███░░░░░░░░░  8 members (17%)
-  11+ vouches (Validators): ██░░░░░░░░░░  2 members (4%)
+  2 vouches (Bridges):     ████████░░░░ 22 members (47%)
+  3+ vouches (Validators): ███████░░░░░ 25 members (53%)
 
-Total: 47 members
-Actual vouches: 820
-Max possible: 2,162 (full mesh)
+💡 Your network has strong distributed trust!
+Distinct Validators represent members verified by
+completely independent voucher sets — the key to
+resilience against coordinated attacks.
 
-💡 Your network is in the optimal balance range!
-This provides strong resilience without over-connection.
-A 100% mesh would actually reduce network health by
-creating excessive interdependence."
+To improve: Build cross-cluster relationships to create
+3 more distinct Validators with unique voucher sets."
 ```
 
 ## Bot Commands Reference
@@ -181,14 +179,14 @@ Returns:
 - Network health summary
 
 #### `/mesh strength`
-**Shows detailed mesh health with histogram**
+**Shows detailed network health metrics**
 
 Returns:
-- Mesh Health Score (0-100)
-- Network Balance status (🔴🟡🟢)
-- Raw mesh density percentage
+- Distinct Validator Ratio (DVR) percentage
+- Health status (🔴 Unhealthy / 🟡 Developing / 🟢 Healthy)
+- Distinct Validators count vs maximum possible
 - Vouch distribution histogram
-- Interpretation guidance
+- Improvement suggestions
 
 #### `/mesh config`
 **Shows current group configuration**
@@ -428,11 +426,16 @@ Ask for strategic introductions via `/mesh` suggestions, or ask members to vouch
 ### Why isn't cross-cluster required in my small group?
 Cross-cluster vouching is enforced once your group has 2+ distinct clusters (typically 6+ members). During bootstrap phase (3-5 members), everyone is in the same cluster, so cross-cluster isn't possible yet. As your group grows and develops separate "friend circles," the bot will start enforcing cross-cluster vouches to prevent infiltration.
 
-### What does "Mesh Health 100/100" mean?
-Your network is in the optimal balance range (30-60% density). This is the goal - not 100% mesh density!
+### What does "Network Health: 🟢 Healthy (75%)" mean?
+The percentage shows your **Distinct Validator Ratio (DVR)** — what fraction of maximum possible distinct Validators your network has achieved. "Distinct" means Validators whose voucher sets don't overlap. Higher DVR = more independent verification = better resilience.
 
-### Why is 100% mesh density bad?
-If everyone vouches for everyone, the network becomes over-connected. Members lose individual trust signals and the network can't grow. 30-60% density provides better balance.
+### What are the health levels?
+- 🔴 **Unhealthy (0-33%)**: Trust is concentrated — bot actively suggests cross-cluster introductions
+- 🟡 **Developing (33-66%)**: Growing toward optimal — bot suggests improvements opportunistically
+- 🟢 **Healthy (66-100%)**: Strong distributed trust — maintenance mode
+
+### Why does DVR matter more than "density"?
+A network can have high connection density but low resilience if all connections are within one cluster. DVR measures what actually matters: how many members are verified by completely independent sets of vouchers. This directly measures resistance to coordinated infiltration attacks.
 
 ---
 

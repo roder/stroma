@@ -163,13 +163,15 @@ Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/propose`, 
 
 → **[Full Trust Model](docs/TRUST-MODEL.md)** with examples and edge cases
 
-### Mesh Health Score
-Rather than raw density %, we show **Mesh Health** (0-100) that peaks at optimal 30-60% density:
-- 🔴 **Fragile** (0-10%): Minimal connections
-- 🟡 **Building** (10-30%): Developing
-- 🟢 **Optimal** (30-60%): **THE GOAL** - balanced resilience
-- 🟡 **Dense** (60-90%): Over-connected  
-- 🔴 **Saturated** (90-100%): Excessive interdependence
+### Network Health: Distinct Validator Ratio (DVR)
+Network health is measured by **Distinct Validator Ratio** — the fraction of maximum possible Validators with non-overlapping voucher sets. This graph-theory-grounded metric directly measures resilience against coordinated attacks.
+
+**Formula**: `DVR = Distinct_Validators / (N / 4)` where N = network size
+
+**Three-tier health status (thirds)**:
+- 🔴 **Unhealthy** (0-33%): Trust concentrated — actively suggest improvements
+- 🟡 **Developing** (33-66%): Growing toward optimal
+- 🟢 **Healthy** (66-100%): **THE GOAL** - strong distributed trust
 
 ### Federation (Phase 4+ - Future)
 - **Emergent discovery**: Bots find each other via shared validators

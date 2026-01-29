@@ -337,51 +337,85 @@ Total introductions needed = N + I
 
 ## Mesh Health Metrics
 
-### Raw Mesh Density
+### Primary Metric: Distinct Validator Ratio (DVR)
+
+Network health is measured by the **Distinct Validator Ratio** — a graph-theory-grounded metric that directly measures resilience against coordinated attacks.
+
+**See**: `.beads/mesh-health-metric.bead` for full rationale.
+
+### DVR Formula
 
 ```
-Mesh Density % = (Actual Vouches / Max Possible Vouches) × 100
+DVR = Distinct_Validators / Max_Possible_Distinct_Validators
 
 Where:
-- Max Possible Vouches = n × (n - 1) for n members (full mesh)
+- Distinct_Validators = Validators with non-overlapping voucher sets
+- Max_Possible = floor(N / 4)
+- N = Total network members
 ```
 
-### Mesh Health Score
+**Why N/4?** Each distinct Validator requires ~4 members: themselves + 3 unique vouchers.
 
-Normalized score (0-100) that **peaks at optimal 30-60% density**:
+### DVR Calculation
 
 ```rust
-fn calculate_mesh_health_score(density: f32) -> u8 {
-    match density {
-        d if d < 0.10 => (d * 300.0) as u8,                    // 0-30: Building
-        d if d >= 0.10 && d < 0.30 => (d * 266.0 + 20.0) as u8, // 30-100: Developing
-        d if d >= 0.30 && d <= 0.60 => 100,                    // 100: OPTIMAL
-        d if d > 0.60 && d <= 0.90 => (130.0 - d * 50.0) as u8, // 100-40: Over-connected
-        d if d > 0.90 => 30,                                   // 30: Saturated
-        _ => 50,
+fn calculate_distinct_validator_ratio(graph: &TrustGraph) -> f32 {
+    let n = graph.member_count();
+    if n < 4 { return 1.0; } // Bootstrap: too small to measure
+    
+    let max_possible = n / 4;
+    let distinct_count = count_distinct_validators(graph);
+    
+    (distinct_count as f32 / max_possible as f32).min(1.0)
+}
+
+fn count_distinct_validators(graph: &TrustGraph) -> usize {
+    // Greedy: select Validators whose voucher sets don't overlap
+    let mut distinct = Vec::new();
+    let mut used_vouchers = HashSet::new();
+    
+    for validator in validators_sorted_by_vouch_count_desc() {
+        let vouchers = validator.voucher_set();
+        if vouchers.is_disjoint(&used_vouchers) {
+            distinct.push(validator);
+            used_vouchers.extend(vouchers);
+        }
     }
+    distinct.len()
 }
 ```
 
-### Why Not Show Raw Density?
+### Why DVR Instead of Density?
 
-**Problem**: Showing "38% density (100% is everyone trusting everyone)" creates pull toward over-connection.
+**Problem with density**: Arbitrary thresholds (30-60%) don't capture structure. A network can have high density but low resilience if all connections are within one cluster.
 
-**Solution**: Show "Mesh Health: 100/100 ✅" when density is in optimal range.
+**DVR captures what matters**: How many members are verified by completely independent sets of vouchers? This directly measures resistance to coordinated infiltration.
 
-**User Perception**:
-- 38% density → "Mesh Health: 100/100" (feels like achievement)
-- 100% density → "Mesh Health: 30/100" (feels like problem)
+| Metric | What It Measures | Limitation |
+|--------|------------------|------------|
+| **Density** | Total edges / possible edges | Structure-blind |
+| **DVR** | Independent verification depth | Meaningful for security |
 
-**The Insight**: A 100% mesh isn't healthier - it creates excessive interdependence and limits growth.
+### Three-Tier Health Status (Thirds)
 
-### Health Status Bands
+| Color | DVR Range | Status | Bot Behavior |
+|-------|-----------|--------|--------------|
+| 🔴 Red | 0% - 33% | **Unhealthy** | Actively suggest cross-cluster introductions |
+| 🟡 Yellow | 33% - 66% | **Developing** | Suggest improvements opportunistically |
+| 🟢 Green | 66% - 100% | **Healthy** | Maintenance mode |
 
-- 🔴 **Fragile** (0-10%): Minimal connections, high risk
-- 🟡 **Building** (10-30%): Developing toward optimal
-- 🟢 **Optimal** (30-60%): **Balanced resilience - THE GOAL**
-- 🟡 **Dense** (60-90%): Over-connected, may limit growth
-- 🔴 **Saturated** (90-100%): Excessive interdependence
+### Example: 20-Member Network
+
+```
+Max possible distinct Validators: 20 / 4 = 5
+Actual distinct Validators: 3
+
+DVR = 3/5 = 60% → 🟡 Developing
+
+Bot suggests: "Network health is developing. Consider
+introducing [Bridge X] to [Validator Y from different cluster]
+to build toward a fourth distinct Validator."
+```
 
 ## Configuration Parameters
 

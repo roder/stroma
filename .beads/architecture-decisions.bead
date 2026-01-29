@@ -198,8 +198,10 @@ rustflags = ["-C", "target-feature=+crt-static"]
 ### Network Capacity
 - **Per Group**: Up to Signal's limit (~1000 members)
 - **Federated Network**: Unlimited (via federation)
-- **Mesh Health**: Optimal at 30-60% density (balanced resilience without over-connection)
-- **UX Note**: Health score peaks at 100/100 in optimal range (not at 100% density)
+- **Mesh Health**: Measured by Distinct Validator Ratio (DVR) — graph-theory-grounded metric
+- **DVR Formula**: `Distinct_Validators / (N / 4)` where "distinct" = non-overlapping voucher sets
+- **Health Tiers**: 🔴 Unhealthy (0-33%) / 🟡 Developing (33-66%) / 🟢 Healthy (66-100%)
+- **See**: `.beads/mesh-health-metric.bead` for full rationale
 
 ## Threat Model
 
@@ -285,7 +287,7 @@ rustflags = ["-C", "target-feature=+crt-static"]
 ✅ Internal mesh optimization (Blind Matchmaker)
 ✅ Configuration management (Signal Polls)
 ✅ All bot commands
-✅ Mesh health metrics (normalized score peaking at optimal 30-60% density)
+✅ Mesh health metrics (DVR-based, three-tier color system)
 ✅ Operator least privilege
 
 ### What's NOT In MVP (Phase 4+)

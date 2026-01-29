@@ -70,6 +70,24 @@ This bead is the **single source of truth** for Stroma terminology. All document
 
 **Scaling rule**: A member with N vouches should have vouches from min(N, available_clusters) distinct clusters.
 
+### Network Health Metrics
+
+| Term | Definition | Formula |
+|------|------------|---------|
+| **Distinct Validator** | Validator whose voucher set doesn't overlap with other selected Validators | Greedy selection |
+| **DVR (Distinct Validator Ratio)** | Primary health metric — fraction of max possible distinct Validators | Distinct_Validators / (N / 4) |
+| **Max Possible Distinct** | Maximum distinct Validators for network size N | floor(N / 4) |
+
+### Health Status (Three-Tier)
+
+| Status | DVR Range | Color | Bot Behavior |
+|--------|-----------|-------|--------------|
+| **Unhealthy** | 0% - 33% | 🔴 | Actively suggest cross-cluster introductions |
+| **Developing** | 33% - 66% | 🟡 | Suggest improvements opportunistically |
+| **Healthy** | 66% - 100% | 🟢 | Maintenance mode |
+
+**See**: `.beads/mesh-health-metric.bead` for full rationale
+
 ### Ejection Triggers
 
 | Trigger | Condition | Result |

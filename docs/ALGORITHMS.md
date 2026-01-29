@@ -1222,6 +1222,123 @@ Future work: Formal verification of privacy guarantees using tools like:
 
 ---
 
+## Network Health Metrics: Distinct Validator Ratio (DVR)
+
+### Problem Statement
+
+**Given:**
+- A trust network with N members
+- Some members are Validators (3+ vouches from 3+ clusters)
+- Need to measure network resilience against coordinated attacks
+
+**Goal:**
+- Define a metric that captures "independent verification depth"
+- Provide actionable feedback for network improvement
+- Ground the metric in graph theory (not arbitrary percentages)
+
+### Distinct Validator Ratio (DVR)
+
+**Definition**: The fraction of maximum possible Validators with non-overlapping voucher sets.
+
+**Formula:**
+```
+DVR = Distinct_Validators / Max_Possible_Distinct_Validators
+
+Where:
+  Distinct_Validators = |{V : V is a Validator with voucher set disjoint from all other selected Validators}|
+  Max_Possible = floor(N / 4)
+```
+
+**Why N/4?** Each distinct Validator requires approximately 4 members:
+- 1 member: The Validator themselves
+- 3 members: Unique vouchers (from 3 different clusters)
+- Total: ~4 members per distinct Validator
+
+### Distinct Validator Selection Algorithm
+
+```
+Algorithm: COUNT_DISTINCT_VALIDATORS(graph)
+
+Input: Trust graph with members and vouch relationships
+Output: Count of Validators with non-overlapping voucher sets
+
+1. Identify all Validators (members with >= 3 vouches from >= 3 clusters)
+2. Sort Validators by vouch count (descending)
+3. Initialize:
+   distinct = []
+   used_vouchers = {}
+
+4. For each validator V in sorted order:
+   voucher_set = get_vouchers(V)
+   
+   if voucher_set ∩ used_vouchers = ∅:
+       distinct.append(V)
+       used_vouchers = used_vouchers ∪ voucher_set
+
+5. Return |distinct|
+```
+
+**Complexity**: O(V log V + V × E) where V = Validators, E = vouch edges
+
+### Three-Tier Health Classification
+
+| DVR Range | Status | Color | Bot Behavior |
+|-----------|--------|-------|--------------|
+| 0% - 33% | Unhealthy | 🔴 | Actively suggest cross-cluster introductions |
+| 33% - 66% | Developing | 🟡 | Suggest improvements opportunistically |
+| 66% - 100% | Healthy | 🟢 | Maintenance mode |
+
+**Why Thirds?**
+- Cognitively simple (three states)
+- Equal ranges (no arbitrary "optimal zone")
+- Each state has clear action implications
+
+### Example Calculation
+
+**20-member network with 4 clusters:**
+
+```
+Members: M1-M20
+Validators: V1 (4 vouches), V2 (3 vouches), V3 (4 vouches), V4 (3 vouches)
+
+V1 vouched by: {M5, M8, M12, M15}  (4 vouchers from 4 clusters)
+V2 vouched by: {M6, M9, M13}       (3 vouchers from 3 clusters)
+V3 vouched by: {M5, M10, M14, M16} (4 vouchers, but shares M5 with V1)
+V4 vouched by: {M7, M11, M17}      (3 vouchers from 3 clusters)
+
+Selection (greedy by vouch count):
+1. V1: Add to distinct, used_vouchers = {M5, M8, M12, M15}
+2. V3: {M5, M10, M14, M16} ∩ {M5, M8, M12, M15} = {M5} ≠ ∅ → SKIP
+3. V2: {M6, M9, M13} ∩ {M5, M8, M12, M15} = ∅ → ADD
+   used_vouchers = {M5, M6, M8, M9, M12, M13, M15}
+4. V4: {M7, M11, M17} ∩ {...} = ∅ → ADD
+
+Distinct_Validators = 3 (V1, V2, V4)
+Max_Possible = 20 / 4 = 5
+
+DVR = 3 / 5 = 60% → 🟡 Developing
+```
+
+### DVR vs Density Comparison
+
+| Metric | Measures | Limitation |
+|--------|----------|------------|
+| Density (edges/max_edges) | Raw connectivity | Structure-blind — high density can mask clustered vulnerabilities |
+| DVR | Independent verification depth | Directly tied to security model |
+
+**Key Insight**: A network with 50% density could have 0% DVR if all Validators share vouchers. DVR captures what density misses: **redundancy of independent verification**.
+
+### Security Properties
+
+**High DVR implies:**
+1. **No shared voucher vulnerabilities**: Compromising one voucher set doesn't cascade
+2. **Distributed trust**: Multiple independent clusters have verified different members
+3. **Infiltration resistance**: Attackers can't create "hub" Validators through shared vouches
+
+**See**: `.beads/mesh-health-metric.bead` for full architectural decision
+
+---
+
 ## References
 
 ### Graph Theory

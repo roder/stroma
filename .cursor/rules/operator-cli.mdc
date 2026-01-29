@@ -165,7 +165,8 @@ Contract State: Synced
 Group: My Trust Network
 Contract: 0x123abc...
 Members: 47
-Mesh Health: 100/100 ✅ (38% density)
+Network Health: 🟢 Healthy (75% DVR)
+Distinct Validators: 9 / 12 possible
 
 Last Health Check: 2 minutes ago
 Uptime: 3 days, 5 hours, 23 minutes
@@ -551,7 +552,8 @@ println!();
 println!("Group: {}", group_name);
 println!("Contract: {}", contract_key);
 println!("Members: {}", member_count);
-println!("Mesh Health: {}/100 {} ({}% density)", health_score, emoji, density);
+println!("Network Health: {} {} ({}% DVR)", emoji, health_status, dvr_percentage);
+println!("Distinct Validators: {} / {} possible", distinct_validators, max_possible);
 ```
 
 ## Configuration File Handling
