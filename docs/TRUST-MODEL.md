@@ -4,6 +4,20 @@
 
 This document explains how trust works in Stroma, including the vouch invalidation logic, ejection triggers, and role transitions.
 
+## Key Terms
+
+| Term | Meaning |
+|------|---------|
+| **Vouch** | A personal endorsement — you stake your reputation on someone |
+| **Flag** | The opposite of a vouch — indicates you no longer trust someone |
+| **Cluster** | A friend circle — people who know each other from the same social context |
+| **Cross-cluster** | From *different* friend circles — required for admission and ongoing membership |
+| **Effective Vouches** | Total vouches minus voucher-flaggers (vouchers who also flagged you) |
+| **Regular Flags** | Flags from people who didn't vouch for you |
+| **Standing** | Effective vouches minus regular flags (must stay ≥ 0) |
+
+For general concepts, see [How It Works](HOW-IT-WORKS.md). For bot commands, see [User Guide](USER-GUIDE.md).
+
 ## Core Principle
 
 **Trust Standing must remain ≥ 0 AND Effective Vouches must stay ≥ 2 for membership.**
@@ -429,9 +443,11 @@ Invitation itself counts as first vouch (no token exchange system).
 **Flow**:
 1. Member: `/invite @Friend "Context"`
 2. Bot: "Invitation recorded as first vouch"
-3. Bot selects second member for vetting
+3. Bot selects second member from a DIFFERENT CLUSTER for vetting
 4. Second member: `/vouch @Friend`
-5. Automatic admission when 2 vouches confirmed
+5. Automatic admission when 2 cross-cluster vouches confirmed
+
+**Cross-Cluster Requirement** (CONTINUOUS): Members must maintain ≥2 vouches from different clusters at all times. Same-cluster vouches don't count toward this minimum but do count toward standing. See "Why Cross-Cluster Matters" in HOW-IT-WORKS.md.
 
 ## Flagging Rules
 

@@ -21,17 +21,65 @@ Stroma resolves this by distributing trust across relationships rather than conc
 
 ---
 
-## The Core Principle
+## Key Concepts
 
-**You can only join if two different people who are already members personally vouch for you.**
+Before diving in, here are the terms you'll need:
 
-Not one person. Two. From different parts of the network. And that trust must be maintained — it's not a one-time badge.
+| Term | Meaning |
+|------|---------|
+| **Group** | Your Signal group — the chat where members communicate |
+| **Network** | The web of trust relationships — who vouches for whom |
+| **Vouch** | A personal endorsement — you stake your reputation on someone |
+| **Flag** | The opposite of a vouch — indicates you no longer trust someone |
+| **Cluster** | A friend circle within the network — people who know each other from the same context |
+| **Cross-cluster** | From *different* friend circles — the key security requirement |
+| **Bridge** | A member with exactly 2 vouches — the minimum to be in the group |
+| **Validator** | A member with 3+ vouches — well-connected, more resilient |
+| **Standing** | Your trust score: vouches minus flags (must stay positive) |
 
-Think of it like this: one person might be fooled, but it's much harder to deceive two independent people who know you from different contexts.
+**The relationship**: You join the **group** (Signal chat) once you're vouched into the **network** (trust structure). The group is where you interact; the network is why you're trusted.
 
 ---
 
-## How It Would Work Without Technology
+## The Core Principle
+
+**You can only join if two people from different clusters personally vouch for you.**
+
+Not one person. Two. And from different parts of the network — not the same friend circle.
+
+Why? One person might be fooled, but it's much harder to deceive two independent people who know you from different contexts. And if both vouchers are close friends, they might share the same blind spots.
+
+---
+
+## Why Cross-Cluster Matters
+
+The cross-cluster requirement is the core security mechanism. Here's why:
+
+**The threat**: A coordinated group of bad actors could infiltrate by vouching for each other. If Alice invites Bob, and Carol (Alice's close friend) vouches for Bob, Bob gets in — but both vouches came from the same friend circle. Repeat this, and an infiltration cluster forms.
+
+**The solution**: Your two vouches must come from **different clusters** (different friend circles). This forces every new member to be verified by multiple independent perspectives.
+
+### How to Verify Cross-Cluster
+
+**Ask the two vouchers**: "How do you two know each other?"
+
+| Answer | Result |
+|--------|--------|
+| "We're close friends / hang out all the time" | ❌ Same cluster — find someone else |
+| "We organize together every week" | ❌ Same cluster — find someone else |
+| "I just met them, but after talking with them and others about them, I think we can trust them" | ✅ Cross-cluster — valid |
+
+**The key question**: Would these two vouchers know each other even if the invitee didn't exist? If yes, and they're from different social contexts, it's cross-cluster.
+
+### Bootstrap Exception
+
+When a group is just starting (3-5 members), there's often only one cluster — everyone knows each other from the same place. Cross-cluster can't be enforced yet.
+
+Once the group grows and develops multiple friend circles (typically 6+ members), cross-cluster vouching becomes mandatory.
+
+---
+
+## How To Fully Trust a Group Without Stroma
 
 Imagine implementing this protocol using only Signal (the app you already use) and peer-to-peer coordination — no central coordinator, no designated "admin."
 
@@ -48,8 +96,8 @@ Before we get to the joining process, it helps to understand where people stand 
 **Invitees (Outside the Group)**
 - Have **one vouch** from the person who invited them
 - NOT in the Signal group yet — they're being vetted
-- Need one more vouch from a different member to join
-- Once they get 2 vouches, they're admitted automatically
+- Need one more vouch from a member **in a different cluster** to join
+- Once they get 2 cross-cluster vouches, they're admitted automatically
 
 **Bridges (Minimum Members)**
 - Have **two vouches** — the minimum to be in the group
@@ -65,38 +113,19 @@ Before we get to the joining process, it helps to understand where people stand 
 
 **Key distinction**: You're either IN the group (2+ vouches) or OUTSIDE (0-1 vouches). There's no "at risk inside member with 1 vouch" — if you drop below 2 vouches while inside, you're removed immediately.
 
-**Why this matters for joining**: Your second vouch MUST come from a **different cluster** than your inviter — same-cluster vouches don't count. This is a hard requirement, not a preference. Any member (Bridge or Validator) from a different cluster CAN be your second voucher. Validators are often good choices because:
-- They're well-connected across the network (multiple independent relationships)
-- They often bridge different friend circles themselves
-- Their vouch carries implicit confidence from the group
-
-**Why cross-cluster is mandatory**: Without this requirement, coordinated bad actors could infiltrate by rubber-stamping each other. If Alice invites Bob and Carol (Alice's close friend in the same cluster) vouches for Bob, Bob gets in with two same-cluster vouches. Repeat this pattern and an infiltration cluster forms. Cross-cluster enforcement prevents this attack by requiring independent verification from different social contexts.
-
-**Bootstrap exception**: For small groups (3-5 members) that are just getting started, there's often only one cluster — everyone knows each other from the same context. In this case, cross-cluster enforcement isn't possible yet, so any two members can vouch. Once the group grows and develops 2+ distinct clusters (typically around 6+ members), cross-cluster vouching becomes mandatory. The group naturally transitions from "everyone vouches for everyone" to "vouches must come from different social circles."
-
 ### The Joining Process (Peer-to-Peer)
 
 **Step 1: Someone Invites You**
 
 Alice, who is already in the group, wants you to join. She reaches out to you directly:
 
-> "Hey Jordan, I'd like to invite you to join our network. I'll vouch for you — that's your first vouch. But you'll need a second vouch from someone else in the group who knows you from a different context than me."
+> "Hey Jordan, I'd like to invite you to join our group. I'll vouch for you — that's your first vouch. But you'll need a second vouch from someone else in the group who knows you from a different context than me."
 
 Alice's invitation counts as your **first vouch**.
 
-**Step 2: Cross-Cluster Vetting (The Key to Network Health)**
+**Step 2: Finding a Cross-Cluster Voucher**
 
-This is where Stroma differs from casual "friend of a friend" trust. The goal isn't just to get *any* second vouch — it's to get a vouch from a **different part of the network** than Alice.
-
-**Why cross-cluster matters:**
-- If Alice and Bob are from the same friend cluster, they might both be fooled by the same social dynamics
-- Cross-cluster vouching creates **intersecting perspectives** — harder to deceive
-- It builds bridges across the network, preventing isolated cliques
-- A stronger mesh means individual members are more resilient
-
-**The optimal path: Alice initiates the cross-cluster introduction**
-
-Alice should proactively look for someone from a different part of the network — ideally a well-connected member (a "Validator") who runs in different circles than her:
+Your second vouch must come from a different cluster than Alice (see "Why Cross-Cluster Matters" above). Alice should proactively introduce you to someone from a different part of the network:
 
 > "Jordan, I want to introduce you to Bob. He's connected to the housing rights folks — different crowd than how I know you from the garden project. Let me set up a conversation."
 
@@ -104,9 +133,7 @@ Alice makes the introduction, then steps back. You and Bob have a brief conversa
 
 **What about if Jordan already knows someone?**
 
-If Jordan already has an independent relationship with another member (Carol), that can work — *but only if Carol is from a different cluster than Alice*. Same-cluster vouches simply don't count toward admission.
-
-If Carol and Alice are in the same cluster, Carol's vouch would be **rejected**. Alice must find someone from a different cluster for the second vouch. This isn't optional — the protocol enforces it because same-cluster vouching is an infiltration vector.
+If Jordan already has an independent relationship with another member (Carol), that can work — *but only if Carol is from a different cluster than Alice*. If they're in the same cluster, Carol's vouch won't count.
 
 **Step 3: The Second Witness Handshake**
 
@@ -117,6 +144,8 @@ If Bob vouches, you now have **two cross-cluster vouches** from members in diffe
 **Step 4: You're In**
 
 With two cross-cluster vouches confirmed, any member can add you to the Signal group. There's no special "admin" required — the rule is simply: two vouches from members in different clusters, and you're in.
+
+**Ongoing Requirement**: Cross-cluster is continuous, not just an entry gate. You must maintain at least 2 vouches from different clusters at all times. If a voucher leaves and your remaining vouches are all from one cluster, you'll need a new vouch from a different cluster to stay. Additional vouches from any cluster strengthen your standing, but the cross-cluster minimum is always enforced.
 
 ### Why No Central Coordinator?
 

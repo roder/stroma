@@ -4,6 +4,26 @@
 
 This guide explains how to use Stroma as a member of a trust network. You interact with Stroma through a bot in Signal - the messaging app you already use.
 
+## Key Concepts
+
+Before diving in, here are the terms you'll need:
+
+| Term | Meaning |
+|------|---------|
+| **Group** | Your Signal group — the chat where members communicate |
+| **Network** | The web of trust relationships — who vouches for whom |
+| **Vouch** | A personal endorsement — you stake your reputation on someone |
+| **Flag** | The opposite of a vouch — indicates you no longer trust someone |
+| **Cluster** | A friend circle within the network — people who know each other from the same social context |
+| **Cross-cluster** | From *different* friend circles — required for admission and ongoing membership |
+| **Bridge** | A member with exactly 2 vouches — the minimum to be in the group |
+| **Validator** | A member with 3+ vouches — well-connected, more resilient |
+| **Standing** | Your trust score: effective vouches minus regular flags (must stay positive) |
+
+**Cross-cluster requirement**: You must always maintain vouches from at least 2 different clusters. This ensures trust is distributed across independent social contexts, not concentrated in one friend circle.
+
+For detailed explanations, see [How It Works](HOW-IT-WORKS.md).
+
 ## Quick Start
 
 1. **Get invited** by an existing member (counts as first vouch)
@@ -226,12 +246,13 @@ Confirms operator has no special privileges for membership or configuration.
 **Status**: OUTSIDE Signal group, being vetted
 
 - Have 1 vouch from the member who invited them
-- Need 1 more vouch from a different member
+- Need 1 more vouch from a member in a DIFFERENT CLUSTER
+- Same-cluster vouches don't count toward the cross-cluster minimum, unless there are is only 1 cluster (small group)
 - Receive 1-on-1 PMs from bot during vetting
 - Can chat with validators during introduction
 - Cannot vouch, flag, or vote
 
-**Transition**: When 2 vouches confirmed → automatically added to group as Bridge
+**Transition**: When 2 cross-cluster vouches confirmed → automatically added to group as Bridge
 
 ### Bridges
 **Status**: IN Signal group, minimum trust

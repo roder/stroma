@@ -4,6 +4,8 @@
 
 This guide explains Stroma's architecture, technical stack, and development workflow.
 
+**Terminology**: See `.beads/terminology.bead` for canonical definitions of all terms used in this document.
+
 ## Architecture Overview
 
 ### Three-Layer Design

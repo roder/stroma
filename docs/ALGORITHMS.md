@@ -4,6 +4,8 @@
 
 This document provides the mathematical foundations and algorithmic details for Stroma's trust network optimization. It covers both **internal matchmaking** (Blind Matchmaker) and **external federation** (Blind Rendezvous).
 
+**Terminology**: See `.beads/terminology.bead` for canonical definitions of all terms used in this document.
+
 ## Table of Contents
 
 1. [Core Principles](#core-principles)

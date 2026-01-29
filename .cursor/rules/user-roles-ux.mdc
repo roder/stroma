@@ -29,7 +29,8 @@ alwaysApply: false
 **Definition**: Fully vetted, trusted nodes in the mesh network who are IN the Stroma Signal group.
 
 **Requirements:**
-- Minimum 2 effective vouches from members in DIFFERENT CLUSTERS (cross-cluster mandatory)
+- Must maintain ≥2 vouches from members in DIFFERENT CLUSTERS at all times (continuous cross-cluster)
+- All vouches count toward standing, but must have cross-cluster minimum to stay
 - Trust Standing ≥ 0 (Effective_Vouches - Regular_Flags)
 - Vouch Invalidation: If a voucher flags you, their vouch is invalidated
 - Currently in the Signal group

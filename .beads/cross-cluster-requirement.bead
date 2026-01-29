@@ -87,16 +87,43 @@ When someone is being vetted:
 
 **Disputed Cluster Membership**: Cluster detection uses graph algorithms (Union-Find). In ambiguous cases, err toward requiring cross-cluster.
 
+## Continuous Cross-Cluster Requirement
+
+**IMPORTANT**: Cross-cluster is a CONTINUOUS requirement, not just an entry gate.
+
+| Requirement | When | What |
+|-------------|------|------|
+| Cross-cluster vouches | ALWAYS | Must maintain ≥2 vouches from different clusters |
+| All vouches tracked | ALWAYS | All vouches count toward standing calculation |
+| Bootstrap exception | SINGLE CLUSTER | If only 1 cluster exists, cross-cluster not enforced |
+
+**Ongoing membership**:
+- You must maintain at least 2 vouches from DIFFERENT CLUSTERS at all times
+- All vouches count toward your standing (effective vouches - regular flags)
+- If you drop below 2 cross-cluster vouches, you need a replacement from a different cluster
+- Same-cluster vouches still count toward standing, but don't satisfy the cross-cluster minimum
+
+**Example**:
+- You have vouches from Alice (Cluster A), Bob (Cluster B), and Carol (Cluster A)
+- Alice leaves → You still have Bob (Cluster B) and Carol (Cluster A) = cross-cluster ✓
+- Bob leaves → You only have Carol (Cluster A) = NOT cross-cluster ✗
+- You need a new vouch from someone NOT in Cluster A to stay
+
+**Why continuous cross-cluster**: The objective is to maintain a resilient, distributed web of trust. Cross-cluster vouching decentralizes trust across the network, ensuring no single cluster can dominate or be a single point of failure. This protects anonymity by distributing knowledge of relationships across independent social contexts.
+
 ## What This Means for Users
 
 ### For Inviters
 Your invitation counts as the first vouch. You MUST introduce the invitee to someone from a different part of the network for their second vouch. You cannot just ask your close friends to vouch — that won't count.
 
 ### For Potential Members
-You need vouches from two people who know you from different contexts. If you only know people in one friend circle, you'll need to meet someone from another part of the network before you can join.
+You need vouches from two people who know you from different contexts to join. If you only know people in one friend circle, you'll need to meet someone from another part of the network.
+
+### For Existing Members
+You must maintain vouches from at least 2 different clusters at all times. Additional vouches from any cluster strengthen your standing, but if you ever drop to vouches from only 1 cluster, you'll need a cross-cluster replacement to stay.
 
 ### For the Network
-This requirement ensures the trust mesh is genuinely distributed, not a collection of isolated cliques that rubber-stamp their own members.
+This continuous requirement ensures the trust mesh remains genuinely distributed, preventing any single cluster from becoming a single point of failure or control.
 
 ## Philosophical Alignment
 

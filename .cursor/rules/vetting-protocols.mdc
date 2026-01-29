@@ -10,7 +10,13 @@ alwaysApply: false
 
 **Signal Group = Fully Vetted Members Only**
 
-Every member in the Stroma Signal group MUST have ≥2 vouches from members in DIFFERENT CLUSTERS at all times. Same-cluster vouches don't count. The group is always in a "fully vetted" state.
+**Cross-Cluster Requirement** (CONTINUOUS): Every member MUST maintain ≥2 vouches from members in DIFFERENT CLUSTERS at all times. Same-cluster vouches don't count toward this minimum.
+
+**Vouch Tracking**: All vouches are recorded and count toward standing calculation. Same-cluster vouches strengthen resilience but don't satisfy the cross-cluster minimum.
+
+**Bootstrap Exception**: When only 1 cluster exists, cross-cluster is not enforced. Once 2+ clusters exist, enforcement begins.
+
+The group is always in a "fully vetted" state — everyone maintains cross-cluster vouches.
 
 **Critical Terminology:**
 - **Invitees (Leaf Nodes)**: People OUTSIDE the group being vetted (1 vouch)

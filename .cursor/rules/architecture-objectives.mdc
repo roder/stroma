@@ -18,7 +18,7 @@ Build a **scalable trust network** that leverages Signal for its user interface 
 
 **Fundamental Principle**: Trust is an **emergent property** of the mesh, not a centralized database.
 
-**Core Invariant**: The Stroma Signal group contains ONLY fully vetted members. Every member has ≥2 vouches from members in DIFFERENT CLUSTERS at all times.
+**Core Invariant**: The Stroma Signal group contains ONLY fully vetted members. Every member must maintain ≥2 vouches from members in DIFFERENT CLUSTERS at all times (continuous cross-cluster requirement).
 
 **Cross-Cluster Requirement**: Vouches MUST come from different clusters to prevent coordinated infiltration. Same-cluster vouching does NOT count toward admission. See `.beads/cross-cluster-requirement.bead`.
 

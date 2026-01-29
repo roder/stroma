@@ -16,7 +16,7 @@ alwaysApply: false
 
 ### Gatekeeper Pattern (Admission Protocol)
 - Presence in Signal group is **binary** and strictly tied to Freenet state
-- **Core Invariant**: Every member in Signal group has ≥2 vouches from members in DIFFERENT CLUSTERS
+- **Core Invariant**: Every member in Signal group must maintain ≥2 vouches from DIFFERENT CLUSTERS at all times (continuous cross-cluster)
 - **Invitees (Leaf Nodes)**: OUTSIDE Signal group (1 vouch, being vetted)
 - **Bridges**: IN Signal group (2 vouches, minimum requirement)
 - **Validators**: IN Signal group (3+ vouches, used for optimization)
