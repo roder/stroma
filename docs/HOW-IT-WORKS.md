@@ -98,20 +98,24 @@ Before we get to the joining process, it helps to understand where people stand 
 **Invitees (Outside the Group)**
 - Have **one vouch** from the person who invited them
 - NOT in the Signal group yet — they're being vetted
-- Need one more vouch from a member **in a different cluster** to join
-- Once they get 2 cross-cluster vouches, they're admitted automatically
+- Need one more vouch from a member **in a different cluster** (different from the inviter) to join
+- Once they get 2 cross-cluster vouches (vouches from 2 different clusters), they're admitted automatically
+- Bootstrap exception: if the group only has one cluster, they can join with 2 vouches from that cluster
 
 **Bridges (Minimum Members)**
-- Have **two vouches** — the minimum to be in the group
+- Have **two vouches from two different clusters** — the minimum to be in the group (when more than one cluster exist)
 - Full members with all privileges (can invite, vouch, flag, vote)
-- At risk: if either voucher leaves the group OR flags them, they need a replacement vouch immediately or they're removed
+- At risk: if either voucher leaves the group OR flags them, they need a replacement vouch from a different cluster immediately or they're removed
 - The glue that connects different friend clusters together
+- Must maintain cluster diversity: if both vouchers are from the same cluster, they don't count
 
 **Validators (Well-Connected Members)**
-- Have **three or more vouches**
+- Have **three or more vouches from three or more different clusters** (when 3+ clusters exist)
 - Same privileges as Bridges (no special powers)
 - More resilient — if one voucher leaves or flags, they still have enough
 - The group has strong confidence in them through multiple independent relationships
+- Higher trust = more distributed verification: the more vouches you have, the more clusters they should come from
+- Example: If only 2 clusters exist, a Validator with 3 vouches needs vouches from both clusters
 
 **Key distinction**: You're either IN the group (2+ vouches) or OUTSIDE (0-1 vouches). There's no "at risk inside member with 1 vouch" — if you drop below 2 vouches while inside, you're removed immediately.
 
