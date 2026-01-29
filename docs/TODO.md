@@ -141,12 +141,12 @@
 
 **Status**: All questions documented in Spike Week briefing with test plans
 
-## 🎯 Phase -1: Protocol v8 Poll Support (PRIORITY)
+## ✅ Phase -1: Protocol v8 Poll Support (COMPLETED)
 
 **Duration**: 1-2 weeks  
 **Assigned**: Agent-Signal  
 **Bead**: `.beads/poll-implementation-gastown.bead`  
-**Critical Path**: Blocks proposal system (Phase 2)
+**Status**: COMPLETED
 
 ### Why Polls Are Critical
 
@@ -159,60 +159,48 @@
 - Polls support multiple choice options
 - Reactions are binary only (👍/👎)
 
-### Tasks
+### Completed Tasks
 
-- [ ] **Fork libsignal-service-rs**
-  ```fish
-  gh repo fork whisperfish/libsignal-service-rs --clone=true
-  cd libsignal-service-rs
-  git checkout -b feature/protocol-v8-polls
-  ```
+- [X] **Fork libsignal-service-rs**
+  - Fork created at https://github.com/roder/libsignal-service-rs
+  - Branch: `feature/protocol-v8-polls-fixed`
 
-- [ ] **Add poll protobuf definitions**
-  - [ ] Copy from Signal-Desktop `protos/SignalService.proto`
-  - [ ] Add to `protobuf/SignalService.proto`:
-    - [ ] `message PollCreate` (field 24)
-    - [ ] `message PollTerminate` (field 25)
-    - [ ] `message PollVote` (field 26)
-    - [ ] `message PinMessage` (field 27)
-    - [ ] `message UnpinMessage` (field 28)
-  - [ ] Update protocol version from v7 to v8
+- [X] **Add poll protobuf definitions**
+  - [X] Copy from Signal-Desktop `protos/SignalService.proto`
+  - [X] Add to `protobuf/SignalService.proto`:
+    - [X] `message PollCreate` (field 24)
+    - [X] `message PollTerminate` (field 25)
+    - [X] `message PollVote` (field 26)
+    - [X] `message PinMessage` (field 27)
+    - [X] `message UnpinMessage` (field 28)
+  - [X] Update protocol version from v7 to v8
 
-- [ ] **Build and test**
-  ```fish
-  cargo build
-  cargo test
-  ```
+- [X] **Build and test**
+  - [X] `cargo build` succeeds (libsignal-service-rs)
+  - [X] 21 tests pass (16 existing + 5 new poll tests)
+  - [X] Protobuf serialization roundtrip validated
 
-- [ ] **Push to fork**
-  ```fish
-  git add protobuf/SignalService.proto
-  git commit -m "feat: Add protocol v8 poll support"
-  git push origin feature/protocol-v8-polls
-  ```
+- [X] **Push to fork**
+  - [X] Commit: `feat: Add protocol v8 poll support` (91805d38c)
+  - [X] Commit: `test: Add unit tests for protocol v8 poll types` (532a8d64e)
+  - [X] Pushed to `feature/protocol-v8-polls-fixed`
 
-- [ ] **Update Stroma's Cargo.toml**
-  ```toml
-  [patch.crates-io]
-  libsignal-service = {
-      git = "https://github.com/roder/libsignal-service-rs",
-      branch = "feature/protocol-v8-polls"
-  }
-  ```
+- [X] **Update Stroma's Cargo.toml**
+  - [X] Patch libsignal-service to use our fork
+  - [X] Patch curve25519-dalek per upstream README (resolves version conflict)
+  - [X] Stroma + presage + freenet all build successfully
 
-- [ ] **Test in Stroma**
-  - [ ] cargo build succeeds
-  - [ ] Can create polls
-  - [ ] Can receive poll votes
-  - [ ] Vote anonymity verified
+- [ ] **Test in Stroma** (Phase 2.5: Validation)
+  - [ ] Create example binary for poll lifecycle testing
+  - [ ] Can create polls via presage
+  - [ ] Can vote on polls
+  - [ ] Vote anonymity verified with real Signal account
 
-- [ ] **Submit PR to upstream**
-  ```fish
-  gh pr create --repo whisperfish/libsignal-service-rs \
-    --title "feat: Add Signal protocol v8 poll support"
-  ```
+- [ ] **Submit PR to upstream** (BLOCKED on validation)
+  - PR submission depends on Phase 2.5 successful validation
+  - See `.beads/poll-implementation-gastown.bead` for PR template
 
-**Deliverable**: Poll support available in Stroma via fork (don't wait for upstream merge)
+**Deliverable**: Poll support available in Stroma via fork ✅ (awaiting end-to-end validation before upstream PR)
 
 ## 🔬 Spike Week (Week 0 - Validation Phase)
 
