@@ -100,12 +100,12 @@
   - [X] Agent reads poll-implementation-gastown.bead
   - [X] Agent forks libsignal-service-rs
   - [X] Agent implements protocol v8 support (PollCreate, PollVote, PollTerminate, PinMessage, UnpinMessage)
-  - [X] Agent rebases onto whisperfork branch (presage's base)
-  - [X] Agent configures Stroma Cargo.toml with patch
+  - [X] Agent bases branch on b48b42fbc (commit presage pins to)
+  - [X] Agent configures Stroma Cargo.toml with patches:
+        - patch libsignal-service → our fork (feature/protocol-v8-polls-fixed)
+        - patch curve25519-dalek → Signal's fork (per libsignal-service-rs README)
+  - [X] Build verified: Stroma + presage + freenet all build successfully
   - [ ] Agent submits PR to upstream whisperfish/libsignal-service-rs
-  - [ ] BLOCKED: presage has upstream curve25519-dalek version conflict (zkgroup vs libsignal-core)
-        This affects any project using presage from git, not specific to our changes.
-        Monitor: https://github.com/whisperfish/presage for resolution
 
 ### Outstanding Questions (MUST NOT LOSE - Critical for Spike Week)
 
