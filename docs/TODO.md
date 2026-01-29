@@ -106,9 +106,12 @@
         - patch curve25519-dalek → Signal's fork (per libsignal-service-rs README)
   - [X] Build verified: Stroma + presage + freenet all build successfully
   - [X] Unit tests verify poll protobuf serialization
-  - [ ] Create example binary for poll lifecycle testing (create/vote/terminate)
-  - [ ] Validate polls work end-to-end with Stroma bot (BLOCKS PR submission)
+  - [ ] Validate polls work end-to-end with Stroma bot (during bot implementation, not Spike Week)
   - [ ] Submit PR to upstream whisperfish/libsignal-service-rs (DEPENDS ON validation)
+  
+  **Note**: Poll end-to-end testing deferred to Phase 1 (bot implementation). Not a Spike Week priority
+  because: (1) protobuf definitions from official Signal-Desktop, (2) unit tests pass, (3) architectural
+  risk is low. Spike Week focuses on Freenet/STARK unknowns.
 
 ### Outstanding Questions (MUST NOT LOSE - Critical for Spike Week)
 
@@ -204,35 +207,22 @@
 
 ## 🔬 Spike Week (Week 0 - Validation Phase)
 
-**Objective**: Validate core technologies before committing to architecture
+**Objective**: Validate *risky technical unknowns* before committing to architecture
 
-**Prerequisites**: Protocol v8 poll support implemented (Phase -1)
+**Focus**: Freenet contracts, STARK proofs, ComposableState — NOT Signal integration
 
-### Day 1-2: Presage & Poll Support (Signal Integration)
-- [ ] Test Presage (high-level Signal API)
-  - [ ] Add Presage to Cargo.toml
-  - [ ] Add forked libsignal-service-rs with poll support (patch section)
-  - [ ] Test Manager.register() (already validated via provisioning tool)
-  - [ ] Test group creation
-  - [ ] Test add/remove members
-  
-- [ ] Test Poll Support (Protocol v8)
-  - [ ] Create poll with PollCreate
-  - [ ] Send poll to group
-  - [ ] Receive poll votes
-  - [ ] Read aggregated results (approve_count, reject_count)
-  - [ ] Verify vote anonymity (no individual votes exposed)
-  - [ ] Test poll timeout
-  
-### Day 3-4: Embedded Freenet Kernel & Contract Design
+**Rationale**: Signal/Presage integration is low-risk (protobuf from official client, unit tests pass).
+Poll end-to-end testing belongs in Phase 2.5 validation (when we have Stroma bot), not Spike Week.
+
+### Day 1-2: Embedded Freenet Kernel & Contract Design
 - [ ] Test embedded Freenet kernel (in-process, not external service)
-  - [ ] Add `freenet-stdlib = { version = "0.1.30", features = ["full"] }` to Cargo.toml
+  - [ ] Add `freenet-stdlib = { version = "0.1.30", features = ["contract", "net"] }` to Cargo.toml
   - [ ] Initialize FreenetKernel in-process
   - [ ] Test kernel starts in dark mode (anonymous routing)
   - [ ] Verify no external freenet-core service needed
   - [ ] Test kernel data persistence and recovery
   
-- [ ] Test ComposableState trait (CRITICAL)
+- [ ] Test ComposableState trait (CRITICAL - architectural risk)
   - [ ] Install freenet-scaffold: Add to test Cargo.toml
   - [ ] Implement simple ComposableState (e.g., counter)
   - [ ] Test merge semantics (create two states, merge them)
@@ -250,14 +240,15 @@
   - [ ] Benchmark with 10, 100, 500, 1000 members
   - [ ] Measure tree generation time (target: < 100ms)
   - [ ] Test Merkle proof generation for ZK-proof verification
-  
+
+### Day 3-4: State Monitoring & Outstanding Questions
 - [ ] Test state stream monitoring
   - [ ] Deploy contract to freenet-core
   - [ ] Subscribe to state changes (real-time, not polling)
   - [ ] Submit state update from one node
   - [ ] Verify other node receives update via stream
   
-- [ ] **Answer Outstanding Questions** (CRITICAL)
+- [ ] **Answer Outstanding Questions** (CRITICAL - these determine architecture)
   - [ ] **Q1**: Can we verify STARK proofs in contract verify()? (Wasm performance test)
   - [ ] **Q2**: Should we store proofs or just outcomes? (Storage strategy decision)
   - [ ] **Q3**: How expensive is on-demand Merkle Tree generation? (Performance benchmark)
@@ -271,7 +262,7 @@
   - [ ] Performance: Benchmarks and bottlenecks
   - [ ] Limitations: What we can't do with Freenet contracts
 
-### Day 5: STARK Proof Generation
+### Day 5: STARK Proof Generation (Architectural Risk)
 - [ ] Set up winterfell library
   - [ ] Add dependency to test project
   - [ ] Review winterfell documentation
