@@ -24,7 +24,7 @@ Traditional solutions create new problems:
 - **Invite links**: Anyone with the link can join - no vetting, no trust verification
 - **Admin gatekeepers**: One person controls who gets in - single point of failure, creates hierarchy
 - **Trusting strangers**: Members join without vetting - how do you know they won't leak the group or infiltrate it?
-- **Large groups become cliques**: Trust clusters form, newcomers isolated on the periphery
+- **Large groups become cliques**: Friend circles form, newcomers isolated on the periphery
 
 ## How Stroma Solves This
 
@@ -133,7 +133,7 @@ Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/propose`, 
 - **Architecture**: One bot per group (1:1 relationship)
 - **Implementation**: Presage (high-level Rust API wrapping libsignal-service-rs)
 - **Protocol Gatekeeper**: Enforces 2-vouch requirement with ZK-proofs
-- **Blind Matchmaker**: Suggests strategic introductions across clusters  
+- **Blind Matchmaker**: Suggests strategic introductions across different friend circles  
 - **Health Monitor**: Continuous trust standing checks via Freenet state stream
 - **Consensus Enforcer**: Executes only contract-approved actions (no autonomous decisions)
 - **Diplomat**: Discovers and proposes federation (Phase 4+)
@@ -154,8 +154,8 @@ Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/propose`, 
 ## Core Concepts
 
 ### Trust Model
-- **Requirement**: 2 vouches from members in DIFFERENT CLUSTERS to join (cross-cluster mandatory)
-- **Bootstrap Exception**: Small groups (3-5 members) have only 1 cluster; cross-cluster enforced once 2+ clusters exist
+- **Requirement**: 2 vouches from members in **different friend circles** to join (diversity mandatory to prevent coordinated infiltration)
+- **Bootstrap Exception**: Small groups (3-5 members) where everyone knows each other; diversity enforced once multiple friend circles exist
 - **Standing**: `Effective_Vouches - Regular_Flags` (must stay ≥ 0)
 - **Vouch Invalidation**: If voucher flags you, their vouch is invalidated
 - **Ejection**: Immediate when Standing < 0 OR Effective_Vouches < 2
@@ -299,7 +299,7 @@ cargo build --release --target x86_64-unknown-linux-musl
 - Freenet Dark with ComposableState trait
 - Presage group management and poll support
 - STARK proofs (size, performance)
-- Cluster detection for cross-cluster vouching (bootstrap exception)
+- Friend circle detection for diversity requirement (bootstrap exception)
 - Answer 6 critical architecture questions
 
 **Deliverable**: Go/No-Go decision report
