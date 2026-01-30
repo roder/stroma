@@ -2,7 +2,7 @@
 
 ## 📊 Project Status Overview
 
-**Last Updated**: 2026-01-28
+**Last Updated**: 2026-01-30
 
 ### ✅ Completed (Architectural Foundation)
 - [X] Git repository initialized (6 commits on signal-bot branch)
@@ -116,36 +116,44 @@
   because: (1) protobuf definitions from official Signal-Desktop, (2) unit tests pass, (3) architectural
   risk is low. Spike Week focuses on Freenet/STARK unknowns.
 
-### Outstanding Questions (MUST NOT LOSE - Critical for Spike Week)
+### Outstanding Questions (Spike Week Progress)
 
 **Track in Multiple Locations** (docs/todo/TODO.md, docs/spike/SPIKE-WEEK-BRIEFING.md, README.md):
 
-1. **Q1: STARK Verification in Wasm**
+1. ✅ **Q1: Freenet Conflict Resolution** — COMPLETE (GO)
+   - Freenet applies deltas via commutative set union
+   - Contract's responsibility to ensure commutativity
+   - Use set-based state with tombstones (remove-wins)
+   - See: `docs/spike/q1/RESULTS.md`
+
+2. ✅ **Q2: Contract Validation** — COMPLETE (GO)
+   - Can contracts reject invalid state transitions? **YES**
+   - `update_state()` returns `Err(ContractError::InvalidUpdate)` to reject delta
+   - `validate_state()` returns `ValidateResult::Invalid` to reject merged state
+   - **Trustless model viable** — contract enforces invariants
+   - See: `docs/spike/q2/RESULTS.md`
+
+3. ⏳ **Q3: Cluster Detection** — PENDING
+   - Does Union-Find distinguish tight clusters connected by bridges?
+   - Cross-cluster vouching is mandatory
+   - Impact: If detection fails, admission breaks
+
+4. ⏳ **Q4: STARK Verification in Wasm** — PENDING
    - Can we verify STARK proofs in contract verify() method?
    - Target: < 100ms per proof
    - Decision impacts: Client-side vs contract-side verification
 
-2. **Q2: Proof Storage Strategy**
-   - Should we store STARK proofs in contract state or just outcomes?
-   - Options: Temporary, permanent, no storage
-   - Impact: Storage costs, trustlessness, audit trail
-
-3. **Q3: On-Demand Merkle Tree Performance**
+5. ⏳ **Q5: On-Demand Merkle Tree Performance** — PENDING
    - How expensive is generating Merkle Tree from BTreeSet?
    - Target: < 100ms for 1000 members
    - Decision: On-demand vs caching Merkle root
 
-4. **Q4: Freenet Conflict Resolution**
-   - How does Freenet handle merge conflicts?
-   - May need vector clocks or causal ordering
-   - Impact: Ejection timing, concurrent updates
+6. ⏳ **Q6: Proof Storage Strategy** — PENDING (depends on Q4)
+   - Should we store STARK proofs in contract state or just outcomes?
+   - Options: Temporary, permanent, no storage
+   - Impact: Storage costs, trustlessness, audit trail
 
-5. **Q5: Custom Validation Beyond ComposableState**
-   - Can we enforce complex invariants in verify()?
-   - Example: "every member >= 2 effective vouches"
-   - Decision: Contract-enforced vs bot-enforced
-
-**Status**: All questions documented in Spike Week briefing with test plans
+**Status**: Q1 and Q2 complete, Q3-Q6 pending
 
 ## ✅ Phase -1: Protocol v8 Poll Support (COMPLETED)
 
@@ -293,7 +301,7 @@ Poll end-to-end testing belongs in Phase 2.5 validation (when we have Stroma bot
   - [ ] Recommendation: Proceed or adjust architecture
   - [ ] Identified risks and mitigations
 
-→ **See [SPIKE-WEEK-BRIEFING.md](SPIKE-WEEK-BRIEFING.md)** for full test plans and outstanding questions
+→ **See [SPIKE-WEEK-BRIEFING.md](../spike/SPIKE-WEEK-BRIEFING.md)** for full test plans and outstanding questions
 
 ---
 
@@ -305,7 +313,7 @@ Poll end-to-end testing belongs in Phase 2.5 validation (when we have Stroma bot
 
 **Timing**: After Spike Week completes, before Phase 0 implementation begins
 
-→ **[PRE-GASTOWN-AUDIT.md](PRE-GASTOWN-AUDIT.md)** - Complete audit checklist (6-9 hours estimated)
+→ **[PRE-GASTOWN-AUDIT.md](../todo/PRE-GASTOWN-AUDIT.md)** - Complete audit checklist (6-9 hours estimated)
 
 ### Audit Phases
 - [ ] **Phase 1**: Terminology sweep (1-2h)
@@ -1091,129 +1099,17 @@ Poll end-to-end testing belongs in Phase 2.5 validation (when we have Stroma bot
 - [ ] API documentation complete
 - [ ] Federation roadmap documented
 
-## 🚨 Outstanding Questions (MUST RESOLVE)
-
-**Critical**: These questions MUST be answered during Spike Week (Day 1-2). They fundamentally affect contract architecture.
-
-### Q1: STARK Proof Verification Performance in Wasm
-**Question**: Can we verify STARK proofs in contract `verify()` method without performance issues?
-
-**Why This Matters**:
-- Determines client-side vs contract-side verification strategy
-- Affects trustlessness (contract verification is more trustless)
-- Impacts Wasm bundle size and execution time
-
-**Test Plan**:
-- [ ] Attempt to compile winterfell to Wasm (may not be possible/practical)
-- [ ] If possible, measure verification time in Wasm context
-- [ ] Target: < 100ms per proof verification
-- [ ] If too slow or not possible, use client-side verification (Approach 1)
-
-**Decision Criteria**:
-- ✅ If verification < 100ms: Use Approach 2 (contract-side verification)
-- ❌ If verification > 100ms OR can't compile to Wasm: Use Approach 1 (client-side)
-
-### Q2: Proof Storage Strategy
-**Question**: Should we store STARK proofs in contract state, or just store outcomes?
-
-**Options**:
-- **A**: Store proofs temporarily (verified once in verify(), then removed in apply_delta)
-- **B**: Store proofs permanently (complete audit trail)
-- **C**: Don't store proofs at all (bot verifies client-side, contract trusts outcome)
-
-**Why This Matters**:
-- Storage costs (STARKs can be large)
-- Audit trail (can we verify historical vouches?)
-- Trustlessness (contract verification vs bot verification)
-
-**Recommendation**:
-- MVP: Use Option C (simplest, smallest contract state)
-- Phase 4: Evaluate Options A/B for federated trust verification
-
-**Decision**:
-- [ ] Decide in Spike Week based on Q1 answer
-- [ ] If Q1 = contract-side verification, consider Option A
-- [ ] If Q1 = client-side verification, use Option C
-
-### Q3: On-Demand Merkle Tree Performance
-**Question**: How expensive is generating Merkle Tree from BTreeSet on every ZK-proof verification?
-
-**Why This Matters**:
-- Determines if we cache Merkle root or regenerate on demand
-- Affects bot performance (proof generation speed)
-- May require contract state changes if caching needed
-
-**Test Plan**:
-- [ ] Benchmark Merkle Tree generation from BTreeSet
-- [ ] Test with 10, 100, 500, 1000 members
-- [ ] Measure generation time on modern CPU
-- [ ] Target: < 100ms for 1000 members
-
-**Decision Criteria**:
-- ✅ If generation < 100ms for 1000 members: Generate on demand (no caching)
-- ⚠️ If generation 100-500ms: Cache Merkle root, invalidate on member changes
-- ❌ If generation > 500ms: Need optimized Merkle Tree implementation
-
-### Q4: Freenet Conflict Resolution Semantics
-**Question**: How does Freenet handle conflicts when two nodes submit incompatible updates?
-
-**Example Conflict**:
-```
-Node A submits: Add member X with vouches (A, B)
-Node B submits: Remove member A (X's voucher is being removed)
-
-These updates conflict - which wins?
-```
-
-**Why This Matters**:
-- Determines if we need causal ordering or vector clocks
-- Affects ejection timing (can ejection and admission race?)
-- May require additional conflict resolution logic
-
-**Test Plan**:
-- [ ] Create two separate freenet-core nodes
-- [ ] Submit conflicting state updates from each node
-- [ ] Observe which update wins (last-write? first-write? merge both?)
-- [ ] Document Freenet's conflict resolution behavior
-
-**Decision**:
-- [ ] If Freenet handles conflicts well: Use default behavior
-- [ ] If conflicts cause issues: Add vector clocks or causal ordering
-
-### Q5: Custom Validation Beyond ComposableState
-**Question**: Does freenet-core support custom validation logic beyond the `verify()` method?
-
-**Use Case**: Complex invariants like:
-- "Every member must have ≥2 effective vouches from different Members"
-- "Standing = Effective_Vouches - Regular_Flags must be ≥ 0"
-- "Voucher-flaggers excluded from both counts (no 2-point swings)"
-- "Config changes require version increment"
-
-**Why This Matters**:
-- Determines if contract can enforce all trust invariants
-- May need bot-side validation if contract can't express complex logic
-- Affects trustlessness (contract enforcement is more trustless)
-
-**Test Plan**:
-- [ ] Review freenet-core contract API documentation
-- [ ] Check if there's a separate validation hook beyond verify()
-- [ ] Test complex validation logic in verify() method
-- [ ] Determine if verify() is sufficient for our invariants
-
-**Decision**:
-- [ ] If verify() is sufficient: Enforce all invariants in contract
-- [ ] If verify() is limited: Use hybrid (basic invariants in contract, complex in bot)
-
 ---
 
 ## 📋 Outstanding Questions Status Tracking
 
 | Question | Status | Decision | Date Resolved |
 |----------|--------|----------|---------------|
-| Q1: STARK verification in Wasm | ⏳ Pending | TBD | - |
-| Q2: Proof storage strategy | ⏳ Pending | TBD | - |
-| Q3: Merkle Tree performance | ⏳ Pending | TBD | - |
-| Q4: Conflict resolution | ⏳ Pending | TBD | - |
-| Q5: Custom validation | ⏳ Pending | TBD | - |
+| Q1: Freenet Conflict Resolution | ✅ Complete | GO — commutative deltas with set-based state + tombstones | 2026-01-29 |
+| Q2: Contract Validation | ✅ Complete | GO — trustless model viable (update_state + validate_state) | 2026-01-30 |
+| Q3: Cluster Detection | ⏳ Pending | TBD | - |
+| Q4: STARK verification in Wasm | ⏳ Pending | TBD | - |
+| Q5: Merkle Tree performance | ⏳ Pending | TBD | - |
+| Q6: Proof storage strategy | ⏳ Pending | TBD | - |
 
 **Update this table as questions are resolved during Spike Week!**
