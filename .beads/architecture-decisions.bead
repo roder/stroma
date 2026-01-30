@@ -37,7 +37,20 @@ fn apply_delta(&mut self, delta: &Delta) {
     }
 }
 ```
-**See**: `spike/q1/RESULTS.md` for full analysis.
+**See**: `docs/spike/q1/RESULTS.md` for full analysis.
+
+**Contract Validation (Q2 Spike Finding):**
+Freenet contracts CAN enforce trust invariants through two validation hooks:
+- **`update_state()`** — Returns `Err(ContractError::InvalidUpdate)` to reject delta BEFORE application
+- **`validate_state()`** — Returns `ValidateResult::Invalid` to reject merged state
+
+**Key Implications**:
+- Trustless model viable: Contract enforces invariants (>= 2 vouches, tombstones, etc.)
+- Two-layer defense: `update_state()` for delta validation, `validate_state()` for post-merge
+- Bot pre-validation optional (for better UX/error messages, not required for security)
+- Defense in depth: Even if bot compromised, contract still rejects invalid deltas
+
+**See**: `docs/spike/q2/RESULTS.md` for full analysis.
 
 **Installation:**
 ```bash

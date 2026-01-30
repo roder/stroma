@@ -1021,7 +1021,7 @@ You can see the Signal group members in the Signal app, but the bot only stores/
 
 - **Issues**: [GitHub Issues](https://github.com/roder/stroma/issues)
 - **Docs**: [Documentation](../README.md)
-- **Roadmap**: [TODO.md](TODO.md)
+- **Roadmap**: [TODO.md](todo/TODO.md)
 
 ---
 
@@ -1261,7 +1261,7 @@ curl -L https://github.com/roder/stroma/releases/download/v1.0.0/stroma-x86_64-m
 **See Also:**
 - [User Guide](USER-GUIDE.md) - For group members
 - [Developer Guide](DEVELOPER-GUIDE.md) - For contributors
-- [Spike Week Briefing](SPIKE-WEEK-BRIEFING.md) - Technology validation
+- [Spike Week Briefing](spike/SPIKE-WEEK-BRIEFING.md) - Technology validation
 
 ---
 

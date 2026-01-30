@@ -32,6 +32,7 @@ This guide explains Stroma's architecture, technical stack, and development work
 - **STARKs** (winterfell) - No trusted setup, post-quantum secure
 - **On-Demand Merkle Trees** - Generated from BTreeSet for ZK-proofs (not stored)
 - **Commutative Deltas** - Contract's responsibility (Q1 validated) - set-based state with tombstones
+- **Contract Validation** - Trustless model (Q2 validated) - `update_state()` and `validate_state()` can reject invalid deltas/state
 - **Vouch Invalidation** - Logical consistency (can't both trust and distrust)
 - **Minimum Spanning Tree** - Optimal mesh topology with maximum anonymity (see [ALGORITHMS.md](ALGORITHMS.md))
 
@@ -1143,9 +1144,32 @@ jobs:
 
 ## Outstanding Questions (Spike Week)
 
-These 5 questions MUST be answered before Phase 0:
+These questions MUST be answered before Phase 0:
 
-### Q1: STARK Verification in Wasm
+### Q1: Freenet Conflict Resolution — ✅ COMPLETE (GO)
+**Question**: How does Freenet handle merge conflicts?
+
+**Answer**: Freenet applies all deltas via commutative set union. Contract's responsibility to ensure delta commutativity. Use set-based state (BTreeSet) with tombstones for remove-wins semantics.
+
+**See**: [spike/q1/RESULTS.md](spike/q1/RESULTS.md)
+
+### Q2: Contract Validation — ✅ COMPLETE (GO)
+**Question**: Can contracts reject invalid state transitions?
+
+**Answer**: YES — Freenet contracts CAN enforce trust invariants through two validation hooks:
+- `update_state()` — Returns `Err(ContractError::InvalidUpdate)` to reject delta BEFORE application
+- `validate_state()` — Returns `ValidateResult::Invalid` to reject merged state
+
+**Decision**: Trustless model is achievable. Contract enforces invariants; bot pre-validation optional for UX.
+
+**See**: [spike/q2/RESULTS.md](spike/q2/RESULTS.md)
+
+### Q3: Cluster Detection — ⏳ PENDING
+**Question**: Does Union-Find distinguish tight clusters connected by bridges?
+
+**Impact**: Cross-cluster vouching is mandatory. If detection fails, admission breaks.
+
+### Q4: STARK Verification in Wasm — ⏳ PENDING
 **Question**: Can we verify STARK proofs in contract `verify()` without performance issues?
 
 **Test Plan**:
@@ -1155,7 +1179,16 @@ These 5 questions MUST be answered before Phase 0:
 
 **Decision**: Client-side vs contract-side verification
 
-### Q2: Proof Storage Strategy
+### Q5: Merkle Tree Performance — ⏳ PENDING
+**Question**: How expensive is on-demand Merkle Tree generation?
+
+**Test Plan**:
+- Benchmark with 10, 100, 500, 1000 members
+- Target: < 100ms for 1000 members
+
+**Decision**: On-demand vs caching Merkle root
+
+### Q6: Proof Storage Strategy — ⏳ PENDING (depends on Q4)
 **Question**: Should we store STARK proofs in contract state or just outcomes?
 
 **Options**:
@@ -1165,35 +1198,7 @@ These 5 questions MUST be answered before Phase 0:
 
 **Impact**: Storage costs, trustlessness, audit trail
 
-### Q3: Merkle Tree Performance
-**Question**: How expensive is on-demand Merkle Tree generation?
-
-**Test Plan**:
-- Benchmark with 10, 100, 500, 1000 members
-- Target: < 100ms for 1000 members
-
-**Decision**: On-demand vs caching Merkle root
-
-### Q4: Conflict Resolution
-**Question**: How does Freenet handle merge conflicts?
-
-**Test Plan**:
-- Create divergent states on two nodes
-- Observe merge behavior
-- Document conflict resolution semantics
-
-**Impact**: May need vector clocks or causal ordering
-
-### Q5: Custom Validation
-**Question**: Can we enforce complex invariants in `verify()`?
-
-**Test Plan**:
-- Implement complex validation ("every member >= 2 vouches")
-- Test if verify() can reject invalid states
-
-**Decision**: Contract-enforced vs bot-enforced invariants
-
-**See**: [Spike Week Briefing](SPIKE-WEEK-BRIEFING.md) for complete test plans
+**See**: [Spike Week Briefing](spike/SPIKE-WEEK-BRIEFING.md) for complete test plans
 
 ## Development Standards
 
@@ -1299,7 +1304,7 @@ This project uses **Gastown** - multi-agent coordination with specialized roles:
 
 ### Before Contributing
 
-1. Read [TODO.md](TODO.md) for current tasks
+1. Read [TODO.md](todo/TODO.md) for current tasks
 2. Check Spike Week status (are Outstanding Questions answered?)
 3. Review `.beads/` for immutable constraints
 4. Review `.cursor/rules/` for development standards
@@ -1330,8 +1335,8 @@ This project uses **Gastown** - multi-agent coordination with specialized roles:
 - [Operator Guide](OPERATOR-GUIDE.md) - For bot administrators
 - [Trust Model](TRUST-MODEL.md) - Mathematical details
 - [Federation Roadmap](FEDERATION.md) - Phase 4+ vision
-- [Spike Week Briefing](SPIKE-WEEK-BRIEFING.md) - Technology validation
-- [TODO Checklist](TODO.md) - Implementation tasks
+- [Spike Week Briefing](spike/SPIKE-WEEK-BRIEFING.md) - Technology validation
+- [TODO Checklist](todo/TODO.md) - Implementation tasks
 
 ### Constraint Beads (Immutable)
 - [Security Constraints](../.beads/security-constraints.bead)

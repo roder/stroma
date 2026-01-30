@@ -1,7 +1,7 @@
 # Q1: Freenet Conflict Resolution - Spike Results
 
 **Date**: 2026-01-30
-**Branch**: spike/q1/freenet_conflict_resolution
+**Branch**: freenet_conflict_resolution
 **Status**: ✅ COMPLETE - GO DECISION
 
 ## Executive Summary
@@ -199,8 +199,8 @@ let node: Node = config.build(clients).await?;
 
 ## Files Modified
 
-- `spike/q1/main.rs` - Updated to test delta commutativity directly
-- `spike/q1/contract.rs` - Simplified to pure Rust state with apply_delta
-- `spike/q1/RESULTS.md` - This file (complete results)
-- `spike/q1/README.md` - Updated execution instructions
+- `main.rs` - Updated to test delta commutativity directly
+- `contract.rs` - Simplified to pure Rust state with apply_delta
+- `RESULTS.md` - This file (complete results)
+- `README.md` - Updated execution instructions
 - `Cargo.toml` - Added `freenet` crate dependency

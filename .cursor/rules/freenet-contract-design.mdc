@@ -753,7 +753,7 @@ async fn monitor_state_stream(freenet: &FreenetClient) -> Result<(), Error> {
 
 **Question**: How does Freenet handle conflicts when two nodes submit incompatible updates?
 
-**Answer (from spike/q1/RESULTS.md)**:
+**Answer (from docs/spike/q1/RESULTS.md)**:
 - Freenet applies all deltas via commutative set union
 - **Contract's responsibility** to ensure delta commutativity
 - Use set-based state (BTreeSet) with tombstones for remove-wins semantics
@@ -780,11 +780,44 @@ fn apply_delta(&mut self, delta: &Delta) {
 
 ---
 
-### Q2: Contract Validation — ⏳ PENDING
+### Q2: Contract Validation — ✅ ANSWERED (GO)
 
-**Question**: Can `verify()` reject invalid state transitions?
+**Question**: Can contracts reject invalid state transitions?
 
-**Impact**: Determines if contract enforces invariants (trustless) or bot validates (less trustless)
+**Answer (from spike/q2/RESULTS.md)**:
+- YES — Freenet contracts CAN enforce trust invariants
+- Two validation hooks: `update_state()` and `validate_state()`
+- `update_state()` returns `Err(ContractError::InvalidUpdate)` to reject delta BEFORE application
+- `validate_state()` returns `ValidateResult::Invalid` to reject merged state
+- **Trustless model viable**: Contract enforces invariants
+- Bot pre-validation optional (for better UX/error messages)
+
+**Validated Pattern**:
+```rust
+fn update_state(...) -> Result<UpdateModification<'static>, ContractError> {
+    // Layer 1: Pre-check delta validity
+    for addition in &delta.additions {
+        if vouch_count < 2 {
+            return Err(ContractError::InvalidUpdate(...));  // Reject!
+        }
+    }
+    // Apply delta, then post-validate
+    state.apply_delta(&delta);
+    Ok(UpdateModification::valid(state))
+}
+
+fn validate_state(...) -> Result<ValidateResult, ContractError> {
+    // Layer 2: Post-merge state validation
+    for member in &state.active {
+        if vouch_count(member) < 2 {
+            return Ok(ValidateResult::Invalid);  // Reject!
+        }
+    }
+    Ok(ValidateResult::Valid)
+}
+```
+
+**Decision**: GO — contract validation works for Stroma (trustless model achievable)
 
 ---
 
@@ -869,7 +902,7 @@ fn test_delta_commutativity() {
 }
 ```
 
-**See**: `spike/q1/contract.rs` for validated implementation with full test suite.
+**See**: `docs/spike/q1/contract.rs` for validated implementation with full test suite.
 
 ## Integration with Bot Logic
 
@@ -892,11 +925,14 @@ fn test_delta_commutativity() {
 2. **ContractInterface trait** (freenet-stdlib) is the contract API
 3. **Set-based structures** (BTreeSet, HashMap) are naturally mergeable
 4. **Delta commutativity** is CONTRACT's responsibility (Q1 validated)
-5. **Merkle Trees** generated on demand, not stored as primary state
-6. **ZK-Proofs** validate transitions, not stored permanently (in MVP)
-7. **Summary-delta sync** minimizes bandwidth and enables efficient eventual consistency
-8. **Test commutativity** — same result regardless of delta order
-9. **Q1 ANSWERED**: Use set-based state with tombstones (remove-wins)
+5. **Contract validation works** — both `update_state()` and `validate_state()` can reject (Q2 validated)
+6. **Trustless model achievable** — contract enforces invariants, bot pre-validates for UX (Q2 validated)
+7. **Merkle Trees** generated on demand, not stored as primary state
+8. **ZK-Proofs** validate transitions, not stored permanently (in MVP)
+9. **Summary-delta sync** minimizes bandwidth and enables efficient eventual consistency
+10. **Test commutativity** — same result regardless of delta order
+11. **Q1 ANSWERED**: Use set-based state with tombstones (remove-wins)
+12. **Q2 ANSWERED**: Contract CAN enforce invariants (trustless model viable)
 
 ## References
 

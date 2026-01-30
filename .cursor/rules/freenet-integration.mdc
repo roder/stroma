@@ -13,7 +13,7 @@ alwaysApply: false
 
 **References:**
 - [docs.rs/freenet](https://docs.rs/freenet/latest/freenet/) — Node embedding API
-- `spike/q1/RESULTS.md` — Q1 Spike validation results
+- `docs/spike/q1/RESULTS.md` — Q1 Spike validation results
 - `.beads/architecture-decisions.bead` — Decision #9
 
 **Q1 Spike Finding: Crate Clarification**
@@ -195,7 +195,10 @@ impl ContractInterface for TrustNetworkContract {
 ```
 
 **Key Q1 Finding**: Delta operations MUST be commutative. Use set-based state with tombstones.
-See `spike/q1/RESULTS.md` for validated patterns.
+See `docs/spike/q1/RESULTS.md` for validated patterns.
+
+**Key Q2 Finding**: Contracts CAN enforce invariants via `update_state()` and `validate_state()`.
+See `docs/spike/q2/RESULTS.md` for trustless validation patterns.
 
 ## Contract Architecture (Eventual Consistency)
 
@@ -207,12 +210,19 @@ See `spike/q1/RESULTS.md` for validated patterns.
 - **Mergeable Structures**: Use CRDT-like patterns (BTreeSet, HashMap, Last-Write-Wins)
 - **ContractInterface Trait**: Contracts implement validate_state, update_state, summarize_state, get_state_delta
 - **Commutative Deltas**: Q1 validated — contract's responsibility to ensure order-independence
+- **Contract Validation**: Q2 validated — `update_state()` rejects invalid deltas, `validate_state()` rejects invalid state
+- **Trustless Model**: Q2 validated — contract CAN enforce invariants (bot pre-validation optional for UX)
 - **Merkle Trees**: Generated on-demand for ZK-proof verification (not stored in contract)
 - **Ephemeral Relationship Data**: Deleted after vetting threshold met
 - **State Survives**: Trust state persists even if bot crashes (node syncs from network)
 
 **Q1 Spike Finding**: Freenet requires delta commutativity but doesn't enforce it.
-Use set-based state with tombstones for remove-wins semantics. See `spike/q1/RESULTS.md`.
+Use set-based state with tombstones for remove-wins semantics. See `docs/spike/q1/RESULTS.md`.
+
+**Q2 Spike Finding**: Freenet contracts CAN enforce invariants through two validation hooks:
+- `update_state()` — Returns `Err(ContractError::InvalidUpdate)` to reject delta
+- `validate_state()` — Returns `ValidateResult::Invalid` to reject merged state
+Trustless model is achievable. See `docs/spike/q2/RESULTS.md`.
 
 ### Group Configuration (Last-Write-Wins)
 ```rust

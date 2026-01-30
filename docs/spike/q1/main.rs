@@ -202,5 +202,5 @@ async fn main() {
     // Print summary
     print_summary();
 
-    println!("See spike/q1/RESULTS.md for detailed analysis template.");
+    println!("See RESULTS.md for detailed analysis template.");
 }

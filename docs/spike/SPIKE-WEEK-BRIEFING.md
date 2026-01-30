@@ -14,7 +14,7 @@ Freenet contracts use **ComposableState** trait with summary-delta synchronizati
 | Question | Risk Level | Status | Fallback Strategy |
 |----------|-----------|--------|-------------------|
 | Q1: Freenet Conflict Resolution | 🔴 BLOCKING | ✅ COMPLETE (GO) | IPFS/iroh, custom P2P, or wait for maturity |
-| Q2: verify() Validation | 🔴 BLOCKING | ⏳ Pending | Hybrid bot/contract validation |
+| Q2: Contract Validation | 🔴 BLOCKING | ✅ COMPLETE (GO) | Hybrid bot/contract validation |
 | Q3: Cluster Detection | 🟡 RECOVERABLE | ⏳ Pending | Proxy: "vouchers can't vouch for each other" |
 | Q4: STARK in Wasm | 🟡 RECOVERABLE | ⏳ Pending | Client-side verification |
 | Q5: Merkle Tree Performance | 🟢 RECOVERABLE | ⏳ Pending | Cache in bot |
@@ -71,7 +71,7 @@ fn apply_delta(&mut self, delta: &Delta) {
 - Bot must recalculate trust standing after every state change
 - Tombstones are permanent (re-entry requires new identity hash)
 
-**See**: `spike/q1/RESULTS.md` for full analysis.
+**See**: `q1/RESULTS.md` for full analysis.
 
 **Entry Points Clarified**:
 | Use Case | Entry Point |
@@ -84,34 +84,61 @@ fn apply_delta(&mut self, delta: &Delta) {
 
 ---
 
-## Q2: Contract Validation (🔴 BLOCKING)
+## Q2: Contract Validation (🔴 BLOCKING) — ✅ COMPLETE
 
-**Question**: Can `verify()` reject invalid state transitions?
+**Question**: Can contracts reject invalid state transitions?
 
 **Why Critical**: Determines if contract can enforce trust invariants (trustless) or if bot must validate (less trustless).
 
-**Test**:
-```rust
-fn verify(&self, delta: &Self::Delta) -> bool {
-    if let Delta::AddMember { hash, vouches } = delta {
-        return vouches.len() >= 2;  // Reject if < 2
-    }
-    true
-}
+### ✅ RESULT: GO
+
+**Finding**: Freenet contracts CAN enforce trust invariants through two validation hooks:
+
+1. **`update_state()`** - Returns `Err(ContractError::InvalidUpdate)` to reject delta BEFORE application
+2. **`validate_state()`** - Returns `ValidateResult::Invalid` to reject merged state
+
+**Observed Behavior**:
+```
+Test: Add member with 1 vouch (invalid)
+✅ REJECTED by update_state(): Member Dave has only 1 valid vouches (need >= 2)
+   Dave NOT in active: true
+
+Test: Tombstoned member re-addition
+✅ REJECTED: Cannot add tombstoned member: Alice
+
+Test: Post-removal validation
+✅ INVALID detected by validate_state(): Member Bob has only 1 vouches (need >= 2)
 ```
 
-**Test Steps**:
-1. Implement contract with validation rule
-2. Submit delta with 1 vouch (invalid)
-3. Check: Does network reject it?
+**Two-Layer Validation Architecture**:
+```
+┌─────────────────────────────────────────────────────┐
+│  Bot: Creates deltas, handles Signal, UX           │
+│       Pre-validates for better error messages      │
+└───────────────────┬─────────────────────────────────┘
+                    │ submit delta
+                    ▼
+┌─────────────────────────────────────────────────────┐
+│  Contract update_state(): (Layer 1)                │
+│  • Validates delta (>= 2 vouches, not tombstoned)  │
+│  • Returns Err(InvalidUpdate) if invalid           │
+└───────────────────┬─────────────────────────────────┘
+                    │ if valid
+                    ▼
+┌─────────────────────────────────────────────────────┐
+│  Contract validate_state(): (Layer 2)              │
+│  • Validates final merged state                    │
+│  • Returns Invalid if invariants violated          │
+└─────────────────────────────────────────────────────┘
+```
 
-**Decision Criteria**:
-| Result | Action |
-|--------|--------|
-| verify() or network rejects | ✅ Contract enforces invariants |
-| Invalid delta applied | ❌ Hybrid: bot validates, contract stores |
+**Architectural Implications**:
+- **Trustless model viable**: Contract enforces invariants
+- Both `update_state()` and `validate_state()` can reject
+- Bot pre-validation optional (for better UX/error messages)
+- Defense in depth: compromised bot → contract still rejects
 
-**Fallback**: Bot-side validation. Less trustless but functional.
+**See**: `q2/RESULTS.md` for full analysis.
 
 ---
 
@@ -213,20 +240,24 @@ println!("1000 members: {:?}", start.elapsed());
 - ~~Test conflict resolution~~
 - **RESULT**: GO — commutative merges work with set-based state
 
-**Deliverable**: Q1 answer ✅ (see `spike/q1/RESULTS.md`)
+**Deliverable**: Q1 answer ✅ (see `q1/RESULTS.md`)
 
-### Day 2: Q2 + Q3
-Morning: Q2 (BLOCKING)
-- Implement validation contract
-- Test invalid delta rejection
-- Document verify() capabilities
+### Day 2: Q2 (BLOCKING) — ✅ COMPLETE
+- ~~Implement validation contract with MemberState + VouchGraph~~
+- ~~Test invalid delta rejection (1 vouch → rejected)~~
+- ~~Test post-removal validation (vouch count drop → detected)~~
+- ~~Test tombstone enforcement (re-add blocked)~~
+- **RESULT**: GO — contract can enforce invariants (trustless model viable)
 
-Afternoon: Q3 (RECOVERABLE)
+**Deliverable**: Q2 answer ✅ (see `q2/RESULTS.md`)
+
+### Day 2 (continued): Q3 (RECOVERABLE)
+Afternoon: Q3
 - Implement Union-Find in pure Rust
 - Test 7-member bridge scenario
 - If fails: implement fallback
 
-**Deliverable**: Q2 and Q3 answers (6-8 hours)
+**Deliverable**: Q3 answer (4-6 hours)
 
 ### Day 3: Q5 + Q4
 Morning: Q5
@@ -314,7 +345,7 @@ These adjustments are **acceptable** — document and proceed.
 After spike completion:
 1. Update `.beads/architecture-decisions.bead` with Q1-Q6 answers
 2. Update contract schema based on findings
-3. Complete **Pre-Gastown Audit** ([checklist](PRE-GASTOWN-AUDIT.md))
+3. Complete **Pre-Gastown Audit** ([checklist](../todo/PRE-GASTOWN-AUDIT.md))
 4. Proceed to Phase 0 implementation
 
 **Expected Outcome**: Phase 0 with adjustments (hybrid validation, simpler cluster detection, client-side STARK). Architecture remains sound.

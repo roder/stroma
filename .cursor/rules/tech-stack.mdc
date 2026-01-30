@@ -164,7 +164,7 @@ Default Presage SqliteStore stores ALL messages - this is a critical vulnerabili
 - **Q1 Finding**: Delta operations MUST be commutative (contract's responsibility)
 - **Pattern**: Set-based state (BTreeSet) with tombstones for remove-wins
 - **Merkle Trees**: Generate on-demand from sets (not stored in contract)
-- **See**: `spike/q1/RESULTS.md` for validated patterns
+- **See**: `docs/spike/q1/RESULTS.md` for validated patterns
 
 ### Storage & Caching
 
@@ -252,7 +252,7 @@ Default Presage SqliteStore stores ALL messages - this is a critical vulnerabili
   - Emergent discovery via Social Anchor Hashing
 - **Q1 Finding**: Delta commutativity is contract's responsibility
 - **Security**: All operations preserve anonymity
-- **See**: `spike/q1/RESULTS.md`
+- **See**: `docs/spike/q1/RESULTS.md`
 
 ### ZK-Proof Integration
 - **Library**: `arkworks`

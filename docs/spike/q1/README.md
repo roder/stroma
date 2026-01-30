@@ -1,6 +1,6 @@
 # Q1: Freenet Conflict Resolution Spike
 
-**Branch**: `spike/q1/freenet_conflict_resolution`
+**Branch**: `freenet_conflict_resolution`
 **Status**: ✅ Complete - GO Decision
 **Decision**: GO - Freenet's merge model works for Stroma
 
