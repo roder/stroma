@@ -116,7 +116,7 @@
   because: (1) protobuf definitions from official Signal-Desktop, (2) unit tests pass, (3) architectural
   risk is low. Spike Week focuses on Freenet/STARK unknowns.
 
-### Outstanding Questions (Spike Week Progress)
+### Outstanding Questions (Spike Week Progress) — ✅ ALL COMPLETE
 
 **Track in Multiple Locations** (docs/todo/TODO.md, docs/spike/SPIKE-WEEK-BRIEFING.md, README.md):
 
@@ -133,27 +133,31 @@
    - **Trustless model viable** — contract enforces invariants
    - See: `docs/spike/q2/RESULTS.md`
 
-3. ⏳ **Q3: Cluster Detection** — PENDING
-   - Does Union-Find distinguish tight clusters connected by bridges?
-   - Cross-cluster vouching is mandatory
-   - Impact: If detection fails, admission breaks
+3. ✅ **Q3: Cluster Detection** — COMPLETE (GO)
+   - Bridge Removal algorithm (Tarjan's) distinguishes tight clusters
+   - Standard Union-Find fails (sees 1 cluster), Bridge Removal works
+   - Charlie becomes isolated bridge node; A and B are distinct clusters
+   - See: `docs/spike/q3/RESULTS.md`
 
-4. ⏳ **Q4: STARK Verification in Wasm** — PENDING
-   - Can we verify STARK proofs in contract verify() method?
-   - Target: < 100ms per proof
-   - Decision impacts: Client-side vs contract-side verification
+4. ✅ **Q4: STARK Verification in Wasm** — COMPLETE (PARTIAL)
+   - winterfell Wasm support is experimental
+   - **Bot-side verification** for Phase 0 (native winterfell)
+   - Can migrate to contract-side when Wasm improves
+   - See: `docs/spike/q4/RESULTS.md`
 
-5. ⏳ **Q5: On-Demand Merkle Tree Performance** — PENDING
-   - How expensive is generating Merkle Tree from BTreeSet?
-   - Target: < 100ms for 1000 members
-   - Decision: On-demand vs caching Merkle root
+5. ✅ **Q5: On-Demand Merkle Tree Performance** — COMPLETE (GO)
+   - 1000 members: 0.09ms (1000x faster than threshold)
+   - **Generate on demand** (no caching needed)
+   - 5000 members: 0.45ms (still sub-millisecond)
+   - See: `docs/spike/q5/RESULTS.md`
 
-6. ⏳ **Q6: Proof Storage Strategy** — PENDING (depends on Q4)
-   - Should we store STARK proofs in contract state or just outcomes?
-   - Options: Temporary, permanent, no storage
-   - Impact: Storage costs, trustlessness, audit trail
+6. ✅ **Q6: Proof Storage Strategy** — COMPLETE
+   - **Store outcomes only** (not proofs)
+   - Proofs are ephemeral (10-100KB each)
+   - Contract stores "Alice vouched for Bob", not the proof
+   - See: `docs/spike/q6/RESULTS.md`
 
-**Status**: Q1 and Q2 complete, Q3-Q6 pending
+**Status**: ✅ ALL QUESTIONS COMPLETE — Proceed to Phase 0
 
 ## ✅ Phase -1: Protocol v8 Poll Support (COMPLETED)
 
@@ -1107,9 +1111,16 @@ Poll end-to-end testing belongs in Phase 2.5 validation (when we have Stroma bot
 |----------|--------|----------|---------------|
 | Q1: Freenet Conflict Resolution | ✅ Complete | GO — commutative deltas with set-based state + tombstones | 2026-01-29 |
 | Q2: Contract Validation | ✅ Complete | GO — trustless model viable (update_state + validate_state) | 2026-01-30 |
-| Q3: Cluster Detection | ⏳ Pending | TBD | - |
-| Q4: STARK verification in Wasm | ⏳ Pending | TBD | - |
-| Q5: Merkle Tree performance | ⏳ Pending | TBD | - |
-| Q6: Proof storage strategy | ⏳ Pending | TBD | - |
+| Q3: Cluster Detection | ✅ Complete | GO — Bridge Removal algorithm distinguishes tight clusters | 2026-01-30 |
+| Q4: STARK verification in Wasm | ✅ Complete | PARTIAL — Bot-side verification for Phase 0 (Wasm experimental) | 2026-01-30 |
+| Q5: Merkle Tree performance | ✅ Complete | GO — 0.09ms for 1000 members (on-demand OK) | 2026-01-30 |
+| Q6: Proof storage strategy | ✅ Complete | Store outcomes only (not proofs) | 2026-01-30 |
 
-**Update this table as questions are resolved during Spike Week!**
+**✅ SPIKE WEEK COMPLETE — ALL QUESTIONS ANSWERED**
+
+Proceed to Phase 0 implementation with:
+- Trustless contract validation (Q2)
+- Bridge Removal for cluster detection (Q3)
+- Bot-side STARK verification (Q4, upgrade later)
+- On-demand Merkle generation (Q5)
+- Store outcomes only (Q6)

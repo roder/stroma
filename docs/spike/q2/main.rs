@@ -1,7 +1,7 @@
 //! Q2 Spike: Contract Validation
 //!
 //! Tests whether Freenet contracts can reject invalid state transitions.
-//! 
+//!
 //! Key question: Can `validate_state()` or `update_state()` reject invalid deltas?
 //!
 //! Test scenarios:
@@ -19,7 +19,8 @@ fn test_valid_delta_accepted() {
 
     let mut state = MemberState::with_seed_members(vec!["Alice", "Bob", "Carol"]);
     println!("Initial state: {:?}", state.active);
-    println!("Vouch counts: Alice={}, Bob={}, Carol={}", 
+    println!(
+        "Vouch counts: Alice={}, Bob={}, Carol={}",
         state.vouch_count("Alice"),
         state.vouch_count("Bob"),
         state.vouch_count("Carol")
@@ -60,7 +61,7 @@ fn test_invalid_delta_rejected() {
     let delta = MemberDelta {
         additions: vec![MemberAddition {
             member: "Dave".to_string(),
-            vouchers: vec!["Alice".to_string()],  // Only 1 vouch!
+            vouchers: vec!["Alice".to_string()], // Only 1 vouch!
         }],
         removals: vec![],
         new_version: 2,
@@ -89,7 +90,7 @@ fn test_post_removal_validation() {
     println!("\n=== Test 3: Post-Removal Validation ===\n");
 
     let mut state = MemberState::with_seed_members(vec!["Alice", "Bob", "Carol"]);
-    
+
     // Add Dave with vouches from Alice and Bob
     let add_dave = MemberDelta {
         additions: vec![MemberAddition {
@@ -99,24 +100,29 @@ fn test_post_removal_validation() {
         removals: vec![],
         new_version: 2,
     };
-    state.update_state(&add_dave).expect("Dave addition should succeed");
+    state
+        .update_state(&add_dave)
+        .expect("Dave addition should succeed");
     println!("After adding Dave: {:?}", state.active);
     println!("Dave's vouch count: {}", state.vouch_count("Dave"));
 
     // Now simulate: Alice is removed (one of Dave's vouchers)
     // This is done via unchecked to simulate a merge scenario
     println!("\nScenario: Alice is removed (Dave's voucher)");
-    
+
     let remove_alice = MemberDelta {
         additions: vec![],
         removals: vec!["Alice".to_string()],
         new_version: 3,
     };
     state.apply_delta_unchecked(&remove_alice);
-    
+
     println!("After removing Alice:");
     println!("   Active: {:?}", state.active);
-    println!("   Dave's vouch count: {} (was 2, now should be 1)", state.vouch_count("Dave"));
+    println!(
+        "   Dave's vouch count: {} (was 2, now should be 1)",
+        state.vouch_count("Dave")
+    );
 
     // Now validate the state
     println!("\nCalling validate_state() on merged state...");
@@ -136,7 +142,7 @@ fn test_tombstone_rejection() {
     println!("\n=== Test 4: Tombstone Rejection ===\n");
 
     let mut state = MemberState::with_seed_members(vec!["Alice", "Bob", "Carol"]);
-    
+
     // Remove Alice
     let remove_alice = MemberDelta {
         additions: vec![],
@@ -203,7 +209,7 @@ fn test_voucher_removal_in_same_delta() {
             println!("\n✅ Delta ACCEPTED");
             println!("   Active: {:?}", state.active);
             println!("   Dave's vouch count: {}", state.vouch_count("Dave"));
-            
+
             // Check resulting state validity
             match state.validate_state() {
                 ValidationResult::Valid => {

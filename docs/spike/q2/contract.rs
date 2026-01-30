@@ -73,12 +73,12 @@ impl MemberState {
     /// Create initial state with seed members (bootstrap - they vouch for each other)
     pub fn with_seed_members(members: Vec<&str>) -> Self {
         let mut state = Self::new();
-        
+
         // Add all seed members
         for member in &members {
             state.active.insert(member.to_string());
         }
-        
+
         // Create triangle vouching (each member vouches for all others)
         for member in &members {
             let vouchers: BTreeSet<String> = members
@@ -88,7 +88,7 @@ impl MemberState {
                 .collect();
             state.vouches.insert(member.to_string(), vouchers);
         }
-        
+
         state.version = 1;
         state
     }
@@ -97,17 +97,12 @@ impl MemberState {
     pub fn vouch_count(&self, member: &str) -> usize {
         self.vouches
             .get(member)
-            .map(|vouchers| {
-                vouchers
-                    .iter()
-                    .filter(|v| self.active.contains(*v))
-                    .count()
-            })
+            .map(|vouchers| vouchers.iter().filter(|v| self.active.contains(*v)).count())
             .unwrap_or(0)
     }
 
     /// Validate state invariants - mirrors Freenet's validate_state()
-    /// 
+    ///
     /// INVARIANT: Every active member must have >= 2 vouches from active members
     /// (except during bootstrap with < 3 members)
     pub fn validate_state(&self) -> ValidationResult {
@@ -141,11 +136,11 @@ impl MemberState {
     }
 
     /// Update state with delta - mirrors Freenet's update_state()
-    /// 
+    ///
     /// Can reject invalid deltas by returning Err(ContractError::InvalidUpdate)
     pub fn update_state(&mut self, delta: &MemberDelta) -> Result<(), ContractError> {
         // === PRE-VALIDATION: Check if delta would create invalid state ===
-        
+
         // Check additions: each new member needs >= 2 vouches from active members
         for addition in &delta.additions {
             // Skip if member is tombstoned
@@ -175,7 +170,7 @@ impl MemberState {
         }
 
         // === APPLY DELTA (order matters for commutativity) ===
-        
+
         // 1. Apply removals first (tombstone)
         for member in &delta.removals {
             self.active.remove(member);
@@ -248,12 +243,12 @@ mod tests {
     #[test]
     fn test_seed_members_valid() {
         let state = MemberState::with_seed_members(vec!["Alice", "Bob", "Carol"]);
-        
+
         // Each member should have 2 vouches (from the other two)
         assert_eq!(state.vouch_count("Alice"), 2);
         assert_eq!(state.vouch_count("Bob"), 2);
         assert_eq!(state.vouch_count("Carol"), 2);
-        
+
         // State should be valid
         assert_eq!(state.validate_state(), ValidationResult::Valid);
     }
@@ -261,7 +256,7 @@ mod tests {
     #[test]
     fn test_valid_addition_accepted() {
         let mut state = MemberState::with_seed_members(vec!["Alice", "Bob", "Carol"]);
-        
+
         // Add Dave with 2 vouches from active members
         let delta = MemberDelta {
             additions: vec![MemberAddition {
@@ -271,7 +266,7 @@ mod tests {
             removals: vec![],
             new_version: 2,
         };
-        
+
         // Should succeed
         let result = state.update_state(&delta);
         assert!(result.is_ok(), "Valid addition should be accepted");
@@ -281,22 +276,22 @@ mod tests {
     #[test]
     fn test_invalid_addition_rejected() {
         let mut state = MemberState::with_seed_members(vec!["Alice", "Bob", "Carol"]);
-        
+
         // Try to add Dave with only 1 vouch
         let delta = MemberDelta {
             additions: vec![MemberAddition {
                 member: "Dave".to_string(),
-                vouchers: vec!["Alice".to_string()],  // Only 1 vouch!
+                vouchers: vec!["Alice".to_string()], // Only 1 vouch!
             }],
             removals: vec![],
             new_version: 2,
         };
-        
+
         // Should be rejected
         let result = state.update_state(&delta);
         assert!(result.is_err(), "Invalid addition should be rejected");
         assert!(!state.active.contains("Dave"));
-        
+
         // Check error type
         match result {
             Err(ContractError::InvalidUpdate(msg)) => {
@@ -309,7 +304,7 @@ mod tests {
     #[test]
     fn test_tombstoned_member_rejected() {
         let mut state = MemberState::with_seed_members(vec!["Alice", "Bob", "Carol"]);
-        
+
         // Remove Alice
         let remove_delta = MemberDelta {
             additions: vec![],
@@ -317,7 +312,7 @@ mod tests {
             new_version: 2,
         };
         state.apply_delta_unchecked(&remove_delta);
-        
+
         // Try to re-add Alice
         let readd_delta = MemberDelta {
             additions: vec![MemberAddition {
@@ -327,11 +322,14 @@ mod tests {
             removals: vec![],
             new_version: 3,
         };
-        
+
         // Should be rejected (tombstoned)
         let result = state.update_state(&readd_delta);
-        assert!(result.is_err(), "Tombstoned member re-add should be rejected");
-        
+        assert!(
+            result.is_err(),
+            "Tombstoned member re-add should be rejected"
+        );
+
         match result {
             Err(ContractError::InvalidUpdate(msg)) => {
                 assert!(msg.contains("tombstoned"));
@@ -343,7 +341,7 @@ mod tests {
     #[test]
     fn test_vouch_invalidation_scenario() {
         let mut state = MemberState::with_seed_members(vec!["Alice", "Bob", "Carol"]);
-        
+
         // Add Dave with vouches from Alice and Bob
         let add_dave = MemberDelta {
             additions: vec![MemberAddition {
@@ -354,21 +352,21 @@ mod tests {
             new_version: 2,
         };
         assert!(state.update_state(&add_dave).is_ok());
-        
+
         // Now remove Alice (Dave's voucher)
         let remove_alice = MemberDelta {
             additions: vec![],
             removals: vec!["Alice".to_string()],
             new_version: 3,
         };
-        
+
         // This should succeed (removal is allowed)
         // But it DOES affect Dave's vouch count
         state.apply_delta_unchecked(&remove_alice);
-        
+
         // Dave now has only 1 active voucher (Bob)
         assert_eq!(state.vouch_count("Dave"), 1);
-        
+
         // State validation should FAIL
         let validation = state.validate_state();
         assert!(
@@ -383,12 +381,18 @@ mod tests {
         state.active.insert("Alice".to_string());
         state.active.insert("Bob".to_string());
         state.active.insert("Carol".to_string());
-        
+
         // Alice has no vouches
-        state.vouches.insert("Bob".to_string(), ["Alice", "Carol"].iter().map(|s| s.to_string()).collect());
-        state.vouches.insert("Carol".to_string(), ["Alice", "Bob"].iter().map(|s| s.to_string()).collect());
+        state.vouches.insert(
+            "Bob".to_string(),
+            ["Alice", "Carol"].iter().map(|s| s.to_string()).collect(),
+        );
+        state.vouches.insert(
+            "Carol".to_string(),
+            ["Alice", "Bob"].iter().map(|s| s.to_string()).collect(),
+        );
         // Alice missing vouches!
-        
+
         let validation = state.validate_state();
         match validation {
             ValidationResult::Invalid(msg) => {

@@ -44,7 +44,10 @@ impl SimpleMemberSet {
     }
 
     /// Generate delta from old summary to current state.
-    pub fn delta(&self, old: &(BTreeSet<String>, BTreeSet<String>, u64)) -> Option<SimpleMemberSetDelta> {
+    pub fn delta(
+        &self,
+        old: &(BTreeSet<String>, BTreeSet<String>, u64),
+    ) -> Option<SimpleMemberSetDelta> {
         let added: Vec<_> = self.active.difference(&old.0).cloned().collect();
         let removed: Vec<_> = self.removed.difference(&old.1).cloned().collect();
 
@@ -60,7 +63,7 @@ impl SimpleMemberSet {
     }
 
     /// Apply a delta to the state.
-    /// 
+    ///
     /// CRITICAL: This must be COMMUTATIVE - same result regardless of delta order.
     /// We use "remove-wins" semantics: tombstones block additions.
     pub fn apply_delta(&mut self, delta: &SimpleMemberSetDelta) {
@@ -177,7 +180,10 @@ mod tests {
         state.apply_delta(&delta_add);
 
         // A should NOT be in active (tombstone wins)
-        assert!(!state.active.contains("A"), "Tombstone should block late add");
+        assert!(
+            !state.active.contains("A"),
+            "Tombstone should block late add"
+        );
         assert!(state.removed.contains("A"), "A should remain tombstoned");
     }
 
@@ -188,6 +194,9 @@ mod tests {
         // Artificially create invalid state (shouldn't happen with apply_delta)
         state.removed.insert("A".to_string());
 
-        assert!(state.verify().is_err(), "verify() should catch invalid state");
+        assert!(
+            state.verify().is_err(),
+            "verify() should catch invalid state"
+        );
     }
 }

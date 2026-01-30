@@ -23,7 +23,10 @@ fn test_commutativity() {
     let mut initial = SimpleMemberSet::new();
     initial.add_member("A".to_string());
     initial.add_member("B".to_string());
-    println!("Initial state: active={:?}, removed={:?}", initial.active, initial.removed);
+    println!(
+        "Initial state: active={:?}, removed={:?}",
+        initial.active, initial.removed
+    );
 
     // Concurrent delta 1: Add member X (vouched by A)
     let delta_add_x = SimpleMemberSetDelta {
@@ -46,13 +49,19 @@ fn test_commutativity() {
     let mut state1 = initial.clone();
     state1.apply_delta(&delta_add_x);
     state1.apply_delta(&delta_remove_a);
-    println!("Order Add→Remove: active={:?}, removed={:?}", state1.active, state1.removed);
+    println!(
+        "Order Add→Remove: active={:?}, removed={:?}",
+        state1.active, state1.removed
+    );
 
     // Order 2: Delta Remove → Delta Add
     let mut state2 = initial.clone();
     state2.apply_delta(&delta_remove_a);
     state2.apply_delta(&delta_add_x);
-    println!("Order Remove→Add: active={:?}, removed={:?}", state2.active, state2.removed);
+    println!(
+        "Order Remove→Add: active={:?}, removed={:?}",
+        state2.active, state2.removed
+    );
 
     // Check commutativity
     let commutative = state1 == state2;
@@ -94,7 +103,10 @@ fn test_vouch_invalidation_scenario() {
     state.apply_delta(&delta_add_x);
     state.apply_delta(&delta_remove_a);
 
-    println!("Final state: active={:?}, removed={:?}", state.active, state.removed);
+    println!(
+        "Final state: active={:?}, removed={:?}",
+        state.active, state.removed
+    );
 
     // Analysis
     let x_admitted = state.active.contains("X");
@@ -134,7 +146,10 @@ fn test_tombstone_permanence() {
         new_version: 2,
     };
     state.apply_delta(&delta_remove);
-    println!("After remove: active={:?}, removed={:?}", state.active, state.removed);
+    println!(
+        "After remove: active={:?}, removed={:?}",
+        state.active, state.removed
+    );
 
     // Try to re-add A
     let delta_readd = SimpleMemberSetDelta {
@@ -143,7 +158,10 @@ fn test_tombstone_permanence() {
         new_version: 3,
     };
     state.apply_delta(&delta_readd);
-    println!("After re-add attempt: active={:?}, removed={:?}", state.active, state.removed);
+    println!(
+        "After re-add attempt: active={:?}, removed={:?}",
+        state.active, state.removed
+    );
 
     if state.active.contains("A") {
         println!("\n⚠️  Tombstones are NOT permanent - members can be re-added");

@@ -1142,63 +1142,58 @@ jobs:
       - run: cargo llvm-cov nextest --html
 ```
 
-## Outstanding Questions (Spike Week)
+## Outstanding Questions (Spike Week) — ✅ ALL COMPLETE
 
-These questions MUST be answered before Phase 0:
+All questions answered. Ready for Phase 0 implementation.
 
 ### Q1: Freenet Conflict Resolution — ✅ COMPLETE (GO)
-**Question**: How does Freenet handle merge conflicts?
-
-**Answer**: Freenet applies all deltas via commutative set union. Contract's responsibility to ensure delta commutativity. Use set-based state (BTreeSet) with tombstones for remove-wins semantics.
+**Answer**: Freenet applies all deltas via commutative set union. Use set-based state (BTreeSet) with tombstones.
 
 **See**: [spike/q1/RESULTS.md](spike/q1/RESULTS.md)
 
 ### Q2: Contract Validation — ✅ COMPLETE (GO)
-**Question**: Can contracts reject invalid state transitions?
-
-**Answer**: YES — Freenet contracts CAN enforce trust invariants through two validation hooks:
-- `update_state()` — Returns `Err(ContractError::InvalidUpdate)` to reject delta BEFORE application
-- `validate_state()` — Returns `ValidateResult::Invalid` to reject merged state
-
-**Decision**: Trustless model is achievable. Contract enforces invariants; bot pre-validation optional for UX.
+**Answer**: Contracts CAN enforce trust invariants via `update_state()` and `validate_state()`. Trustless model viable.
 
 **See**: [spike/q2/RESULTS.md](spike/q2/RESULTS.md)
 
-### Q3: Cluster Detection — ⏳ PENDING
-**Question**: Does Union-Find distinguish tight clusters connected by bridges?
+### Q3: Cluster Detection — ✅ COMPLETE (GO)
+**Answer**: Bridge Removal algorithm (Tarjan's) distinguishes tight clusters. Standard Union-Find fails (1 cluster), Bridge Removal correctly separates A, B, and bridge Charlie.
 
-**Impact**: Cross-cluster vouching is mandatory. If detection fails, admission breaks.
+**See**: [spike/q3/RESULTS.md](spike/q3/RESULTS.md)
 
-### Q4: STARK Verification in Wasm — ⏳ PENDING
-**Question**: Can we verify STARK proofs in contract `verify()` without performance issues?
+### Q4: STARK Verification in Wasm — ✅ COMPLETE (PARTIAL)
+**Answer**: winterfell Wasm is experimental. **Bot-side verification** for Phase 0 (native winterfell). Can migrate to contract-side when Wasm improves.
 
-**Test Plan**:
-- Compile winterfell to wasm32-unknown-unknown
-- Measure verification time in Wasm context
-- Target: < 100ms per proof
+**See**: [spike/q4/RESULTS.md](spike/q4/RESULTS.md)
 
-**Decision**: Client-side vs contract-side verification
+### Q5: Merkle Tree Performance — ✅ COMPLETE (GO)
+**Answer**: 1000 members = **0.09ms** (1000x faster than threshold). **Generate on demand** — no caching needed.
 
-### Q5: Merkle Tree Performance — ⏳ PENDING
-**Question**: How expensive is on-demand Merkle Tree generation?
+| Members | Root (ms) |
+|---------|-----------|
+| 100 | 0.01 |
+| 1000 | 0.09 |
+| 5000 | 0.45 |
 
-**Test Plan**:
-- Benchmark with 10, 100, 500, 1000 members
-- Target: < 100ms for 1000 members
+**See**: [spike/q5/RESULTS.md](spike/q5/RESULTS.md)
 
-**Decision**: On-demand vs caching Merkle root
+### Q6: Proof Storage Strategy — ✅ COMPLETE
+**Answer**: **Store outcomes only** (not proofs). Proofs are ephemeral (10-100KB). Contract stores "Alice vouched for Bob", not the proof.
 
-### Q6: Proof Storage Strategy — ⏳ PENDING (depends on Q4)
-**Question**: Should we store STARK proofs in contract state or just outcomes?
+**See**: [spike/q6/RESULTS.md](spike/q6/RESULTS.md)
 
-**Options**:
-- A: Temporary storage (removed after verification)
-- B: Permanent storage (audit trail)
-- C: No storage (trust bot verification)
+### Summary: Proceed to Phase 0
 
-**Impact**: Storage costs, trustlessness, audit trail
+| Question | Decision | Implementation |
+|----------|----------|----------------|
+| Q1: Conflict | GO | Set-based CRDT |
+| Q2: Validation | GO | Trustless contract |
+| Q3: Clusters | GO | Bridge Removal |
+| Q4: STARK | PARTIAL | Bot-side |
+| Q5: Merkle | GO | On-demand |
+| Q6: Storage | Outcomes | No proof storage |
 
-**See**: [Spike Week Briefing](spike/SPIKE-WEEK-BRIEFING.md) for complete test plans
+**See**: [Spike Week Briefing](spike/SPIKE-WEEK-BRIEFING.md) for complete analysis
 
 ## Development Standards
 

@@ -52,6 +52,40 @@ Freenet contracts CAN enforce trust invariants through two validation hooks:
 
 **See**: `docs/spike/q2/RESULTS.md` for full analysis.
 
+**Cluster Detection (Q3 Spike Finding):**
+Standard Union-Find fails to distinguish tight clusters connected by bridges (sees 1 cluster).
+**Bridge Removal** (Tarjan's algorithm) successfully separates tight clusters:
+- Identifies articulation edges (bridges)
+- Removes bridges to find tight components
+- Bridge members can vouch but don't form tight cluster with either side
+
+**See**: `docs/spike/q3/RESULTS.md` for full analysis.
+
+**STARK Verification (Q4 Spike Finding):**
+winterfell Wasm support is experimental. **Bot-side verification** recommended for Phase 0:
+- Bot verifies proofs natively (fast, reliable)
+- Bot submits verified outcomes to Freenet
+- Contract trusts bot's verification
+- Can migrate to contract-side when Wasm improves
+
+**See**: `docs/spike/q4/RESULTS.md` for full analysis.
+
+**Merkle Tree Performance (Q5 Spike Finding):**
+On-demand Merkle tree generation is extremely fast:
+- 1000 members: 0.09ms (1000x faster than 100ms threshold)
+- 5000 members: 0.45ms
+- **Decision**: Generate on demand (no caching needed)
+
+**See**: `docs/spike/q5/RESULTS.md` for full analysis.
+
+**Proof Storage (Q6 Decision):**
+Since Q4 chose bot-side verification: **Store outcomes only** (not proofs)
+- Proofs are ephemeral (10-100KB each)
+- Contract stores "Alice vouched for Bob", not the proof itself
+- Simplifies contract state and merging
+
+**See**: `docs/spike/q6/RESULTS.md` for full analysis.
+
 **Installation:**
 ```bash
 git clone https://github.com/freenet/freenet-core.git

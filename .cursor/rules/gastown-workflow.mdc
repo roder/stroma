@@ -24,13 +24,13 @@ alwaysApply: true
 ### Spike Week (Week 0 - Validation)
 **CRITICAL**: Validate freenet-core ComposableState, Signal bot, STARK proofs before full implementation
 
-**Outstanding Questions** (Spike Week Status):
+**Outstanding Questions** (Spike Week Status — ALL COMPLETE):
 1. ✅ **Q1 ANSWERED (GO)**: Freenet merge conflicts — use commutative deltas with set-based state + tombstones
 2. ✅ **Q2 ANSWERED (GO)**: Contract validation — `update_state()` and `validate_state()` can reject invalid deltas/state (trustless model viable)
-3. ⏳ Q3: Cluster detection — Union-Find for cross-cluster vouching
-4. ⏳ Q4: STARK verification in Wasm — performance test
-5. ⏳ Q5: Merkle Tree performance — on-demand generation benchmark
-6. ⏳ Q6: Proof storage strategy — depends on Q4
+3. ✅ **Q3 ANSWERED (GO)**: Cluster detection — Bridge Removal algorithm distinguishes tight clusters
+4. ✅ **Q4 ANSWERED (PARTIAL)**: STARK verification — bot-side verification for Phase 0 (Wasm experimental)
+5. ✅ **Q5 ANSWERED (GO)**: Merkle Tree performance — 0.09ms for 1000 members (on-demand OK)
+6. ✅ **Q6 ANSWERED**: Proof storage — store outcomes only (not proofs)
 
 ### Phase 0: Foundation (Weeks 1-2)
 1. **Bead-01**: HMAC identity masking with zeroization
