@@ -743,39 +743,55 @@ async fn test_bootstrap_command() {
 }
 ```
 
-## Embedded Kernel Lifecycle
+## Embedded Node Lifecycle (Q1 Validated)
+
+### Entry Points (from Q1 Spike)
+| Use Case | Entry Point |
+|----------|-------------|
+| Testing | `freenet::dev_tool::SimNetwork` |
+| Unit tests | `freenet::local_node::Executor::new_mock_in_memory()` |
+| Production | `freenet::local_node::NodeConfig::build()` |
 
 ### Startup Sequence
 
 ```rust
-async fn start_embedded_kernel(config: &FreenetConfig) -> Result<FreenetKernel, Error> {
-    println!("🔍 Initializing embedded Freenet kernel...");
+async fn start_embedded_node(config: &FreenetConfig) -> Result<Node, Error> {
+    println!("🔍 Initializing embedded Freenet node...");
     
-    let kernel = FreenetKernel::builder()
-        .mode(NetworkMode::Dark)  // Anonymous routing
-        .data_dir(&config.data_dir)
-        .build()
-        .await
-        .map_err(|e| format!("Failed to start embedded kernel: {}", e))?;
+    let mut node_config = freenet::local_node::NodeConfig {
+        should_connect: true,
+        is_gateway: false,
+        key_pair: load_or_generate_keypair(config)?,
+        network_listener_ip: "0.0.0.0".parse()?,
+        network_listener_port: 0,
+        ..Default::default()
+    };
+    node_config.add_gateway(config.gateway.clone());
     
-    println!("✅ Embedded Freenet kernel initialized (dark mode)");
+    let node = node_config.build([client_proxy]).await
+        .map_err(|e| format!("Failed to start embedded node: {}", e))?;
     
-    Ok(kernel)
+    println!("✅ Embedded Freenet node initialized");
+    
+    Ok(node)
 }
 ```
 
 ### Shutdown Sequence
 
 ```rust
-async fn shutdown_gracefully(kernel: FreenetKernel, signal: SignalBot) -> Result<(), Error> {
+async fn shutdown_gracefully(node: Node, signal: SignalBot) -> Result<(), Error> {
     println!("\n🔍 Shutting down gracefully...");
+    
+    // Get shutdown handle
+    let shutdown = node.shutdown_handle();
     
     // Stop monitoring state stream
     println!("  Stopping state stream monitoring...");
     
-    // Flush kernel state
-    println!("  Flushing embedded Freenet kernel state...");
-    kernel.flush().await?;
+    // Trigger graceful shutdown
+    println!("  Triggering Freenet node shutdown...");
+    shutdown.shutdown();
     
     // Disconnect Signal
     println!("  Disconnecting from Signal...");

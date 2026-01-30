@@ -482,8 +482,8 @@ Result: EJECTED (Trigger 1: too many flags)
 7. ✅ `.cursor/rules/signal-integration.mdc` - Updated ejection protocol
 8. ✅ `.cursor/rules/user-roles-ux.mdc` - Updated bot messages and examples
 9. ✅ `.cursor/rules/vetting-protocols.mdc` - Added effective vouches terminology
-10. ✅ `docs/TODO.md` - Updated Phase 1 success criteria
-11. ✅ `docs/SPIKE-WEEK-BRIEFING.md` - Added trust model refinement
+10. ✅ `docs/todo/TODO.md` - Updated Phase 1 success criteria
+11. ✅ `docs/spike/SPIKE-WEEK-BRIEFING.md` - Added trust model refinement
 12. ✅ `docs/VOUCH-INVALIDATION-LOGIC.md` - This document (comprehensive explanation)
 
 ### Terminology Updates

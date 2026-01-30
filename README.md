@@ -103,7 +103,7 @@ Stroma serves three audiences. Choose your path:
 **You want to run a Stroma bot for your community.**
 
 - **[Operator Guide](docs/OPERATOR-GUIDE.md)** - Installation, configuration, maintenance
-- **[Spike Week Briefing](docs/SPIKE-WEEK-BRIEFING.md)** - Technology validation checklist
+- **[Spike Week Briefing](docs/spike/SPIKE-WEEK-BRIEFING.md)** - Technology validation checklist
 - **Prerequisites**: Linux server, Signal account, Rust 1.93+, freenet-core
 
 ### 💻 For Developers (Contributors)
@@ -113,7 +113,7 @@ Stroma serves three audiences. Choose your path:
 - **[Algorithms](docs/ALGORITHMS.md)** - **MST matchmaking, PSI-CA federation, complexity analysis**
 - **[Trust Model Technical](docs/TRUST-MODEL.md)** - Vouch invalidation, ejection triggers, mesh health
 - **[Federation Roadmap](docs/FEDERATION.md)** - Phase 4+ vision and design
-- **[TODO Checklist](docs/TODO.md)** - Implementation roadmap and task tracking
+- **[TODO Checklist](docs/todo/TODO.md)** - Implementation roadmap and task tracking
 
 ---
 
@@ -197,7 +197,7 @@ Even though federation isn't in MVP, **every design decision optimizes for it**:
 
 **Goal**: Connect as many people as possible anonymously via trust
 
-→ **[Implementation Roadmap](docs/TODO.md)** - Phased development plan
+→ **[Implementation Roadmap](docs/todo/TODO.md)** - Phased development plan
 
 ## Technical Architecture
 
@@ -279,7 +279,7 @@ cargo build --release --target x86_64-unknown-linux-musl
 ```
 
 → **[Developer Guide](docs/DEVELOPER-GUIDE.md)** - Architecture, testing, contributing  
-→ **[Spike Week](docs/SPIKE-WEEK-BRIEFING.md)** - Technology validation checklist
+→ **[Spike Week](docs/spike/SPIKE-WEEK-BRIEFING.md)** - Technology validation checklist
 
 ## Implementation Roadmap
 
@@ -304,7 +304,7 @@ cargo build --release --target x86_64-unknown-linux-musl
 
 **Deliverable**: Go/No-Go decision report
 
-→ **[Spike Week Briefing](docs/SPIKE-WEEK-BRIEFING.md)** - Day-by-day test plans and questions
+→ **[Spike Week Briefing](docs/spike/SPIKE-WEEK-BRIEFING.md)** - Day-by-day test plans and questions
 
 ### Development Phases
 - **Phase -1** (Weeks 1-2): Protocol v8 Polls (Agent-Signal priority task)
@@ -314,7 +314,7 @@ cargo build --release --target x86_64-unknown-linux-musl
 - **Phase 3** (Week 7): Federation Prep (Validate design, don't broadcast)
 - **Phase 4+** (Future): Federation (Emergent discovery, cross-mesh vouching)
 
-→ **[Complete TODO Checklist](docs/TODO.md)** - 390+ implementation tasks
+→ **[Complete TODO Checklist](docs/todo/TODO.md)** - 390+ implementation tasks
 
 ## Design Philosophy
 
@@ -344,7 +344,7 @@ Co-authored-by: Claude <noreply@anthropic.com>
 ```
 
 → **[AGENTS.md](AGENTS.md)** - Agent coordination model  
-→ **[TODO.md](docs/TODO.md)** - Current tasks and progress
+→ **[TODO.md](docs/todo/TODO.md)** - Current tasks and progress
 
 ## License
 

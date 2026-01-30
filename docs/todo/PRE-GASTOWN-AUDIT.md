@@ -91,7 +91,7 @@ Gastown agents will follow beads, rules, and documentation **literally**. Any in
 - [ ] `docs/DEVELOPER-GUIDE.md` - Technical implementation
 - [ ] `docs/ALGORITHMS.md` - Graph algorithms
 - [ ] `docs/THREAT-MODEL-AUDIT.md` - Security analysis
-- [ ] `docs/SPIKE-WEEK-BRIEFING.md` - Validation questions
+- [ ] `docs/spike/SPIKE-WEEK-BRIEFING.md` - Validation questions
 - [ ] `docs/FEDERATION.md` - Future federation
 - [ ] `docs/OPERATOR-GUIDE.md` - Running the bot
 
@@ -252,7 +252,7 @@ Gastown agents will follow beads, rules, and documentation **literally**. Any in
 **Question**: Do beads and rules reflect Spike Week Q1-Q6?
 
 **Where to Check**:
-- [ ] `docs/SPIKE-WEEK-BRIEFING.md` - 6 outstanding questions
+- [ ] `docs/spike/SPIKE-WEEK-BRIEFING.md` - 6 outstanding questions
 - [ ] Relevant beads for each question
 - [ ] Rules that depend on Q6 (cluster detection)
 

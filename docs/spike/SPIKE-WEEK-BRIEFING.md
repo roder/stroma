@@ -11,20 +11,20 @@ Freenet contracts use **ComposableState** trait with summary-delta synchronizati
 
 ## Risk Classification
 
-| Question | Risk Level | Fallback Strategy |
-|----------|-----------|-------------------|
-| Q1: Freenet Conflict Resolution | 🔴 BLOCKING | IPFS/iroh, custom P2P, or wait for maturity |
-| Q2: verify() Validation | 🔴 BLOCKING | Hybrid bot/contract validation |
-| Q3: Cluster Detection | 🟡 RECOVERABLE | Proxy: "vouchers can't vouch for each other" |
-| Q4: STARK in Wasm | 🟡 RECOVERABLE | Client-side verification |
-| Q5: Merkle Tree Performance | 🟢 RECOVERABLE | Cache in bot |
-| Q6: Proof Storage | ⚪ DECISION | Depends on Q4 answer |
+| Question | Risk Level | Status | Fallback Strategy |
+|----------|-----------|--------|-------------------|
+| Q1: Freenet Conflict Resolution | 🔴 BLOCKING | ✅ COMPLETE (GO) | IPFS/iroh, custom P2P, or wait for maturity |
+| Q2: verify() Validation | 🔴 BLOCKING | ⏳ Pending | Hybrid bot/contract validation |
+| Q3: Cluster Detection | 🟡 RECOVERABLE | ⏳ Pending | Proxy: "vouchers can't vouch for each other" |
+| Q4: STARK in Wasm | 🟡 RECOVERABLE | ⏳ Pending | Client-side verification |
+| Q5: Merkle Tree Performance | 🟢 RECOVERABLE | ⏳ Pending | Cache in bot |
+| Q6: Proof Storage | ⚪ DECISION | ⏳ Pending | Depends on Q4 answer |
 
 **Test Priority**: BLOCKING questions first. If they fail, architecture changes fundamentally.
 
 ---
 
-## Q1: Freenet Conflict Resolution (🔴 BLOCKING)
+## Q1: Freenet Conflict Resolution (🔴 BLOCKING) — ✅ COMPLETE
 
 **Question**: How does Freenet merge conflicting state updates?
 
@@ -39,17 +39,46 @@ Simultaneous updates:
 Result: Does merge produce valid state?
 ```
 
-**Test Steps**:
-1. Deploy simple contract with `add_member` and `remove_member`
-2. Submit conflicting updates from two clients
-3. Observe merge behavior
+### ✅ RESULT: GO
 
-**Decision Criteria**:
-| Behavior | Action |
-|----------|--------|
-| Deterministic + valid state | ✅ Design around behavior |
-| Invalid state, no detection | ⚠️ Add vector clocks |
-| Unpredictable/random | ❌ Evaluate alternatives |
+**Finding**: Freenet requires commutativity, but it's the **contract's responsibility** to implement it.
+
+**Observed Behavior** (Scenario 1: Both Applied):
+- X was added AND A was removed (set union of deltas)
+- States are identical regardless of delta application order
+- This is correct CRDT behavior
+
+**Design Pattern** (set-based state with tombstones):
+```rust
+fn apply_delta(&mut self, delta: &Delta) {
+    // 1. Apply removals first (tombstone)
+    for hash in &delta.removed {
+        self.active.remove(hash);
+        self.removed.insert(hash.clone());
+    }
+    // 2. Apply additions (only if not tombstoned)
+    for hash in &delta.added {
+        if !self.removed.contains(hash) {
+            self.active.insert(hash.clone());
+        }
+    }
+}
+```
+
+**Architectural Implications**:
+- Freenet merge = commutative set union (correct)
+- Trust semantics (vouch invalidation) = Stroma's responsibility
+- Bot must recalculate trust standing after every state change
+- Tombstones are permanent (re-entry requires new identity hash)
+
+**See**: `spike/q1/RESULTS.md` for full analysis.
+
+**Entry Points Clarified**:
+| Use Case | Entry Point |
+|----------|-------------|
+| Spike testing | `freenet::dev_tool::SimNetwork` |
+| Unit testing | `freenet::local_node::Executor::new_mock_in_memory()` |
+| Production | `freenet::local_node::NodeConfig::build()` |
 
 **Alternatives if NO-GO**: IPFS (rust-ipfs/iroh), custom P2P solution, or wait for Freenet maturity.
 
@@ -178,13 +207,13 @@ println!("1000 members: {:?}", start.elapsed());
 
 ## Execution Plan
 
-### Day 1: Q1 (BLOCKING)
-- Install and run freenet-core
-- Deploy simple contract
-- Test conflict resolution
-- **STOP if unpredictable** — evaluate alternatives
+### Day 1: Q1 (BLOCKING) — ✅ COMPLETE
+- ~~Install and run freenet-core~~
+- ~~Deploy simple contract~~
+- ~~Test conflict resolution~~
+- **RESULT**: GO — commutative merges work with set-based state
 
-**Deliverable**: Q1 answer (4-6 hours)
+**Deliverable**: Q1 answer ✅ (see `spike/q1/RESULTS.md`)
 
 ### Day 2: Q2 + Q3
 Morning: Q2 (BLOCKING)

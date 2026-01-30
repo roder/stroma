@@ -14,10 +14,30 @@
 
 **Key Features:**
 - Decentralized state storage (no central authority)
-- Wasm contracts with ComposableState trait (summary-delta synchronization)
+- Wasm contracts with ContractInterface trait (summary-delta synchronization)
 - Anonymous network routing (dark mode)
 - State stream monitoring (real-time, not polling)
-- Eventual consistency via deterministic merging (no consensus algorithms)
+- Eventual consistency via commutative merging (no consensus algorithms)
+
+**Delta Commutativity (Q1 Spike Finding):**
+Freenet requires delta operations to be COMMUTATIVE — same result regardless of order.
+This is the contract's responsibility (not Freenet's). Use set-based state with tombstones:
+```rust
+fn apply_delta(&mut self, delta: &Delta) {
+    // 1. Apply removals first (tombstone)
+    for hash in &delta.removed {
+        self.active.remove(hash);
+        self.removed.insert(hash.clone());
+    }
+    // 2. Apply additions (only if not tombstoned - remove-wins)
+    for hash in &delta.added {
+        if !self.removed.contains(hash) {
+            self.active.insert(hash.clone());
+        }
+    }
+}
+```
+**See**: `spike/q1/RESULTS.md` for full analysis.
 
 **Installation:**
 ```bash
@@ -126,8 +146,8 @@ rustflags = ["-C", "target-feature=+crt-static"]
 
 ## Node Architecture
 
-### Embedded Freenet Kernel (Architectural Decision #9)
-**Decision**: Embed Freenet kernel directly into Stroma binary (not external service)
+### Embedded Freenet Node (Architectural Decision #9)
+**Decision**: Embed Freenet node directly into Stroma binary (not external service)
 
 **Rationale:**
 - Simpler deployment (single binary, single service)
@@ -136,14 +156,22 @@ rustflags = ["-C", "target-feature=+crt-static"]
 - Easier for operators (fewer moving parts)
 - Self-contained (all dependencies embedded)
 
-**Implementation:**
-- Use `freenet-stdlib` crate with "full" features
-- Freenet kernel runs in-process within Stroma
-- No separate freenet-core service to manage
+**Implementation (Q1 Spike Validated):**
+- **Node embedding**: Use `freenet` crate (NOT `freenet-stdlib`)
+- **Contract writing**: Use `freenet-stdlib` crate for Wasm contracts
+- **Production**: `freenet::local_node::NodeConfig::build()` → `Node`
+- **Testing**: `freenet::dev_tool::SimNetwork` (deterministic, multi-node, in-memory)
 - Single event loop handles both Freenet and Signal
 
+**Key API Entry Points (from Q1 Spike):**
+| Use Case | Entry Point |
+|----------|-------------|
+| Spike/integration testing | `freenet::dev_tool::SimNetwork` |
+| Unit testing | `freenet::local_node::Executor::new_mock_in_memory()` |
+| Production | `freenet::local_node::NodeConfig::build()` |
+
 **Implications:**
-- Binary size: ~50-80MB (includes embedded kernel)
+- Binary size: ~50-80MB (includes embedded node)
 - Memory: ~100-500MB total (depending on group size)
 - Single systemd service (not two)
 - Bot can recover state after offline (Freenet persistence embedded)
@@ -328,10 +356,10 @@ src/
 │   ├── mod.rs
 │   ├── hmac.rs                      # HMAC-based hashing
 │   └── zeroize_helpers.rs           # Immediate buffer purging
-├── freenet/                         # Embedded Freenet Kernel
+├── freenet/                         # Freenet Node Integration
 │   ├── mod.rs
-│   ├── embedded_kernel.rs           # In-process Freenet kernel (freenet-stdlib)
-│   ├── contract.rs                  # Wasm contract deployment
+│   ├── node.rs                      # In-process node (freenet crate)
+│   ├── contract.rs                  # Wasm contract deployment (freenet-stdlib)
 │   └── state_stream.rs              # Real-time state monitoring
 ├── signal/                          # Signal Integration
 │   ├── mod.rs
@@ -363,12 +391,14 @@ src/
     └── diplomat.rs                  # Federation proposals (Phase 4+)
 ```
 
-**Key Changes from External Node Approach:**
+**Key Design Notes:**
 - Added `cli/` module for operator interface
-- `freenet/node.rs` → `freenet/embedded_kernel.rs` (in-process)
+- `freenet/node.rs` uses `freenet` crate (NodeConfig::build())
+- `freenet/contract.rs` uses `freenet-stdlib` (ContractInterface trait)
 - No separate freenet-core service management
 - Single event loop handles both Freenet and Signal
 - `federation/` module exists but disabled via feature flag in MVP
+- Q1 Spike validated: delta commutativity is contract's responsibility
 
 ## Freenet Contract Schema (Mergeable & Federation-Ready)
 

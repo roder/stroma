@@ -294,4 +294,4 @@ The hybrid approach guarantees:
 - `.beads/mesh-health-metric.bead` - DVR metric definition
 - `.beads/cross-cluster-requirement.bead` - Cross-cluster rules
 - `docs/ALGORITHMS.md` - Full algorithm details
-- `docs/SPIKE-WEEK-BRIEFING.md` - Q6 dependency
+- `docs/spike/SPIKE-WEEK-BRIEFING.md` - Q6 dependency

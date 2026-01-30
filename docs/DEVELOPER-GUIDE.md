@@ -27,10 +27,11 @@ This guide explains Stroma's architecture, technical stack, and development work
 **Solution**: Zero-knowledge proofs verify trust without revealing who vouched
 
 **Technologies:**
-- **Embedded Freenet Kernel** (freenet-stdlib) - In-process, not external service
+- **Embedded Freenet Node** (`freenet` crate) - In-process, not external service
+- **Contract Development** (`freenet-stdlib`) - ContractInterface trait for Wasm contracts
 - **STARKs** (winterfell) - No trusted setup, post-quantum secure
 - **On-Demand Merkle Trees** - Generated from BTreeSet for ZK-proofs (not stored)
-- **ComposableState** - Freenet trait for mergeable state with summary-delta sync
+- **Commutative Deltas** - Contract's responsibility (Q1 validated) - set-based state with tombstones
 - **Vouch Invalidation** - Logical consistency (can't both trust and distrust)
 - **Minimum Spanning Tree** - Optimal mesh topology with maximum anonymity (see [ALGORITHMS.md](ALGORITHMS.md))
 
@@ -452,12 +453,21 @@ async fn main() -> Result<(), Error> {
 async fn run_bot_service(config_path: PathBuf) -> Result<(), Error> {
     let config = load_config(&config_path)?;
     
-    // Initialize embedded Freenet kernel (in-process, not external service)
-    let kernel = FreenetKernel::builder()
-        .mode(NetworkMode::Dark)  // Anonymous routing
-        .data_dir(&config.freenet.data_dir)
-        .build()
-        .await?;
+    // Initialize embedded Freenet node (Q1 validated: use freenet crate)
+    // See: spike/q1/RESULTS.md for entry point documentation
+    let mut node_config = freenet::local_node::NodeConfig {
+        should_connect: true,
+        is_gateway: false,
+        key_pair: load_or_generate_keypair(&config)?,
+        network_listener_ip: "0.0.0.0".parse()?,
+        network_listener_port: 0,  // OS assigns port
+        ..Default::default()
+    };
+    node_config.add_gateway(config.freenet.gateway.clone());
+    
+    // Build node with client proxy for programmatic interaction
+    let node = node_config.build([client_proxy]).await?;
+    let shutdown = node.shutdown_handle();
     
     // Load existing contract
     let contract_key = config.freenet.contract_key;
@@ -465,28 +475,32 @@ async fn run_bot_service(config_path: PathBuf) -> Result<(), Error> {
     // Initialize Signal bot
     let signal = SignalBot::authenticate(&config.signal).await?;
     
-    // Subscribe to contract state stream from embedded kernel
-    let mut state_stream = kernel.subscribe_to_contract(contract_key).await?;
-    
     // Event loop (single process handles both Freenet and Signal)
     loop {
         tokio::select! {
-            // Freenet state changes (from embedded kernel)
+            // Freenet state changes (via client proxy)
             Some(state_change) = state_stream.next() => {
                 handle_state_change(state_change, &signal).await?;
             }
             
             // Signal messages
             Some(message) = signal.recv_message() => {
-                handle_signal_command(message, &kernel, contract_key).await?;
+                handle_signal_command(message, &node).await?;
             }
             
             // Periodic health check
             _ = health_check_interval.tick() => {
-                check_all_trust_standings(&kernel, &signal, contract_key).await?;
+                check_all_trust_standings(&node, &signal, contract_key).await?;
+            }
+            
+            // Graceful shutdown
+            _ = shutdown_signal() => {
+                shutdown.shutdown();
+                break;
             }
         }
     }
+    Ok(())
 }
 ```
 

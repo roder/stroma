@@ -35,22 +35,42 @@ Freenet contracts are **WebAssembly (Wasm) code that defines how to merge confli
 - No heavy coordination required
 - Eventually consistent across all nodes
 
-### ComposableState Trait
-All contract state must implement the `ComposableState` trait:
+### ContractInterface Trait (freenet-stdlib)
+All Freenet contracts must implement the `ContractInterface` trait:
 
 ```rust
-pub trait ComposableState {
-    type ParentState;
-    type Summary;
-    type Delta;
-    type Parameters;
+pub trait ContractInterface {
+    fn validate_state(
+        parameters: Parameters<'static>,
+        state: State<'static>,
+        related: RelatedContracts<'static>,
+    ) -> Result<ValidateResult, ContractError>;
     
-    fn verify(&self, parent: &Self::ParentState, params: &Self::Parameters) -> Result<(), String>;
-    fn summarize(&self, parent: &Self::ParentState, params: &Self::Parameters) -> Self::Summary;
-    fn delta(&self, parent: &Self::ParentState, params: &Self::Parameters, old: &Self::Summary) -> Option<Self::Delta>;
-    fn apply_delta(&mut self, parent: &Self::ParentState, params: &Self::Parameters, delta: &Option<Self::Delta>) -> Result<(), String>;
+    fn update_state(
+        parameters: Parameters<'static>,
+        state: State<'static>,
+        data: Vec<UpdateData<'static>>,
+    ) -> Result<UpdateModification<'static>, ContractError>;
+    
+    fn summarize_state(
+        parameters: Parameters<'static>,
+        state: State<'static>,
+    ) -> Result<StateSummary<'static>, ContractError>;
+    
+    fn get_state_delta(
+        parameters: Parameters<'static>,
+        state: State<'static>,
+        summary: StateSummary<'static>,
+    ) -> Result<StateDelta<'static>, ContractError>;
 }
 ```
+
+**Critical Requirement** (from Freenet docs):
+> "Implementations must ensure that state delta updates are commutative.
+>  When applying multiple delta updates to a state, the order in which these
+>  updates are applied should not affect the final state."
+
+**Q1 Validated**: Use set-based state (BTreeSet) with tombstones for commutativity.
 
 ## Stroma Contract Requirements
 
@@ -727,66 +747,68 @@ async fn monitor_state_stream(freenet: &FreenetClient) -> Result<(), Error> {
 }
 ```
 
-## Outstanding Questions (CRITICAL - Must Address in Spike Week)
+## Spike Week Questions — Status
 
-### Question 1: ZK-Proof Verification Performance
-**Question**: Can we verify STARK proofs in contract `verify()` method without performance issues?
+### Q1: Conflict Resolution Semantics — ✅ ANSWERED (GO)
 
-**Impact**: Determines if we use Approach 1 (client-side) or Approach 2 (contract-side)
-
-**Test in Spike Week**:
-- Compile winterfell to Wasm (if possible)
-- Measure verification time in Wasm context
-- Target: < 100ms per proof
-- If too slow, use Approach 1
-
-### Question 2: Proof Storage Strategy
-**Question**: Should we store proofs in contract state or just outcomes?
-
-**Options**:
-- **A**: Store proofs temporarily (verified once, then removed)
-- **B**: Store proofs permanently (audit trail)
-- **C**: Don't store proofs at all (trust bot verification)
-
-**Impact**: Storage costs, audit trail, trustlessness
-
-**Recommendation**: Start with **Option C** for MVP, evaluate Options A/B for federation
-
-### Question 3: On-Demand Merkle Tree Performance
-**Question**: How expensive is generating Merkle Tree from BTreeSet on every ZK-proof verification?
-
-**Impact**: May need to cache Merkle root or pre-compute tree
-
-**Test in Spike Week**:
-- Benchmark Merkle Tree generation from set
-- Test with 100, 500, 1000 members
-- If too slow, cache Merkle root and invalidate on member changes
-
-### Question 4: Conflict Resolution Semantics
 **Question**: How does Freenet handle conflicts when two nodes submit incompatible updates?
 
-**Example**:
-- Node A: Add member X with vouches (A, B)
-- Node B: Remove member A (X's voucher)
-- These conflict - how does Freenet resolve?
+**Answer (from spike/q1/RESULTS.md)**:
+- Freenet applies all deltas via commutative set union
+- **Contract's responsibility** to ensure delta commutativity
+- Use set-based state (BTreeSet) with tombstones for remove-wins semantics
+- Trust semantics (vouch invalidation) handled by Stroma, not Freenet
 
-**Impact**: May need causal ordering or vector clocks
+**Validated Pattern**:
+```rust
+fn apply_delta(&mut self, delta: &Delta) {
+    // 1. Apply removals first (tombstone)
+    for hash in &delta.removed {
+        self.active.remove(hash);
+        self.removed.insert(hash.clone());
+    }
+    // 2. Apply additions (only if not tombstoned)
+    for hash in &delta.added {
+        if !self.removed.contains(hash) {
+            self.active.insert(hash.clone());
+        }
+    }
+}
+```
 
-**Test in Spike Week**:
-- Create two divergent states
-- Attempt to merge them
-- Observe Freenet's conflict resolution
-- Document behavior
+**Decision**: GO — commutative merges achievable with proper contract design.
 
-### Question 5: Custom Validation Beyond ComposableState
-**Question**: Can we add custom validation logic beyond ComposableState trait?
+---
 
-**Use Case**: Complex invariants like "every member must have >= 2 effective vouches from different Members" (ANY Member can vouch, not just Validators)
+### Q2: Contract Validation — ⏳ PENDING
 
-**Test in Spike Week**:
-- Review freenet-core contract API
-- Check if there's a separate validation hook
-- Determine if `verify()` is sufficient
+**Question**: Can `verify()` reject invalid state transitions?
+
+**Impact**: Determines if contract enforces invariants (trustless) or bot validates (less trustless)
+
+---
+
+### Q3: On-Demand Merkle Tree Performance — ⏳ PENDING
+
+**Question**: How expensive is generating Merkle Tree from BTreeSet?
+
+**Impact**: May need to cache Merkle root
+
+---
+
+### Q4: STARK Verification in Wasm — ⏳ PENDING
+
+**Question**: Can we verify STARK proofs in contract `verify()` method?
+
+**Impact**: Determines client-side vs contract-side verification
+
+---
+
+### Q5: Proof Storage Strategy — ⏳ PENDING (depends on Q4)
+
+**Question**: Should we store proofs in contract state or just outcomes?
+
+**Recommendation**: Start with Option C (don't store) for MVP
 
 ## Best Practices
 
@@ -821,27 +843,33 @@ pub struct MemberSet {
 }
 ```
 
-### Testing Merge Semantics
-Always test that merging is commutative:
+### Testing Merge Semantics (Q1 Validated Pattern)
+Always test that delta application is commutative:
 
 ```rust
 #[test]
-fn test_merge_commutativity() {
-    let state_a = create_state_with_member_x();
-    let state_b = create_state_with_member_y();
+fn test_delta_commutativity() {
+    let initial = create_initial_state();
     
-    // Merge A into B
-    let mut merged_ab = state_a.clone();
-    merged_ab.merge(&state_b);
+    let delta_add = Delta { added: vec!["X".into()], removed: vec![] };
+    let delta_remove = Delta { added: vec![], removed: vec!["A".into()] };
     
-    // Merge B into A (reversed order)
-    let mut merged_ba = state_b.clone();
-    merged_ba.merge(&state_a);
+    // Order 1: Add then Remove
+    let mut state1 = initial.clone();
+    state1.apply_delta(&delta_add);
+    state1.apply_delta(&delta_remove);
     
-    // Must be identical regardless of merge order
-    assert_eq!(merged_ab, merged_ba);
+    // Order 2: Remove then Add
+    let mut state2 = initial.clone();
+    state2.apply_delta(&delta_remove);
+    state2.apply_delta(&delta_add);
+    
+    // Must be identical regardless of delta order
+    assert_eq!(state1, state2, "Deltas must be commutative");
 }
 ```
+
+**See**: `spike/q1/contract.rs` for validated implementation with full test suite.
 
 ## Integration with Bot Logic
 
@@ -861,13 +889,14 @@ fn test_merge_commutativity() {
 ## Summary: Key Takeaways
 
 1. **Freenet contracts define merge logic**, not just store data
-2. **ComposableState trait** is mandatory for all state fields
+2. **ContractInterface trait** (freenet-stdlib) is the contract API
 3. **Set-based structures** (BTreeSet, HashMap) are naturally mergeable
-4. **Merkle Trees** generated on demand, not stored as primary state
-5. **ZK-Proofs** validate transitions, not stored permanently (in MVP)
-6. **Summary-delta sync** minimizes bandwidth and enables efficient eventual consistency
-7. **Commutative merging** is critical - test thoroughly
-8. **Outstanding questions** MUST be answered in Spike Week (Day 1-2)
+4. **Delta commutativity** is CONTRACT's responsibility (Q1 validated)
+5. **Merkle Trees** generated on demand, not stored as primary state
+6. **ZK-Proofs** validate transitions, not stored permanently (in MVP)
+7. **Summary-delta sync** minimizes bandwidth and enables efficient eventual consistency
+8. **Test commutativity** — same result regardless of delta order
+9. **Q1 ANSWERED**: Use set-based state with tombstones (remove-wins)
 
 ## References
 

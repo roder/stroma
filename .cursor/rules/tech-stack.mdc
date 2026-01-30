@@ -150,15 +150,21 @@ Default Presage SqliteStore stores ALL messages - this is a critical vulnerabili
 
 **See:** `.beads/security-constraints.bead` section 10, `.beads/technology-stack.bead`
 
-#### `freenet-scaffold`
-- **Purpose**: Freenet Wasm contract development with summary-delta synchronization
-- **Version**: 0.2+ (with freenet-scaffold-macro)
-- **Usage**: Implement ComposableState trait for mergeable state structures
-- **Requirement**: All contract state fields must implement ComposableState
-- **Pattern**: Use #[composable] macro for automatic Summary/Delta generation
-- **Synchronization**: Summary-delta sync for eventual consistency (no consensus)
-- **State Structures**: Prefer BTreeSet, HashMap (naturally mergeable)
+#### Freenet Crates (Q1 Validated)
+
+**`freenet` crate** — For running the node:
+- **Entry Points**:
+  - `freenet::dev_tool::SimNetwork` — Deterministic multi-node testing
+  - `freenet::local_node::Executor::new_mock_in_memory()` — Unit testing
+  - `freenet::local_node::NodeConfig::build()` — Production node
+- **See**: [docs.rs/freenet](https://docs.rs/freenet/latest/freenet/)
+
+**`freenet-stdlib` crate** — For writing Wasm contracts:
+- **Trait**: `ContractInterface` (validate_state, update_state, summarize_state, get_state_delta)
+- **Q1 Finding**: Delta operations MUST be commutative (contract's responsibility)
+- **Pattern**: Set-based state (BTreeSet) with tombstones for remove-wins
 - **Merkle Trees**: Generate on-demand from sets (not stored in contract)
+- **See**: `spike/q1/RESULTS.md` for validated patterns
 
 ### Storage & Caching
 
@@ -235,14 +241,18 @@ Default Presage SqliteStore stores ALL messages - this is a critical vulnerabili
   - Immediate ejection when trust threshold violated
 - **Security**: Never log or store Signal IDs
 
-### Freenet Integration
-- **Framework**: `freenet-scaffold` for Wasm contracts
+### Freenet Integration (Q1 Validated)
+- **Node Embedding**: `freenet` crate (NodeConfig::build() for production)
+- **Contract Writing**: `freenet-stdlib` (ContractInterface trait)
+- **Testing**: `freenet::dev_tool::SimNetwork` (deterministic, in-memory)
 - **Pattern**:
-  - Store Merkle Tree of Proofs (not member lists)
-  - Contracts verify ZK-SNARKs
+  - Set-based state (BTreeSet) with tombstones — commutative merges
+  - Merkle Trees generated on-demand (not stored in contract)
   - State stream monitoring for real-time updates
   - Emergent discovery via Social Anchor Hashing
+- **Q1 Finding**: Delta commutativity is contract's responsibility
 - **Security**: All operations preserve anonymity
+- **See**: `spike/q1/RESULTS.md`
 
 ### ZK-Proof Integration
 - **Library**: `arkworks`
@@ -329,16 +339,18 @@ strip = true  # Strip symbols
 - ❌ **DON'T**: Expose operations in group chat
 - ❌ **DON'T**: Make Signal group the source of truth
 
-### Freenet Integration Guardrails
-- ✅ **DO**: Use ComposableState trait for all contract state
+### Freenet Integration Guardrails (Q1 Validated)
+- ✅ **DO**: Use `freenet` crate for node embedding (NodeConfig::build())
+- ✅ **DO**: Use `freenet-stdlib` for contracts (ContractInterface trait)
 - ✅ **DO**: Use set-based structures (BTreeSet, HashMap) for mergeability
 - ✅ **DO**: Generate Merkle Trees on-demand (not stored in contract)
 - ✅ **DO**: Implement summary-delta synchronization
-- ✅ **DO**: Test merge semantics are commutative (order-independent)
-- ✅ **DO**: Use tombstones for deletions (grow-only sets)
+- ✅ **DO**: Test delta commutativity (same result regardless of order)
+- ✅ **DO**: Use tombstones for deletions (remove-wins semantics)
+- ✅ **DO**: Apply removals before additions in apply_delta()
 - ❌ **DON'T**: Store Merkle Trees as primary state (not mergeable)
 - ❌ **DON'T**: Use Vec for state (order matters, not easily mergeable)
-- ❌ **DON'T**: Bypass ComposableState trait (required by freenet-scaffold)
+- ❌ **DON'T**: Expect Freenet to enforce commutativity (contract's job)
 - ❌ **DON'T**: Expose member identities in contract state (use hashes)
 
 ### Cryptographic Guardrails

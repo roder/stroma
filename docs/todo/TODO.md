@@ -118,7 +118,7 @@
 
 ### Outstanding Questions (MUST NOT LOSE - Critical for Spike Week)
 
-**Track in Multiple Locations** (docs/TODO.md, docs/SPIKE-WEEK-BRIEFING.md, README.md):
+**Track in Multiple Locations** (docs/todo/TODO.md, docs/spike/SPIKE-WEEK-BRIEFING.md, README.md):
 
 1. **Q1: STARK Verification in Wasm**
    - Can we verify STARK proofs in contract verify() method?
@@ -571,7 +571,7 @@ Poll end-to-end testing belongs in Phase 2.5 validation (when we have Stroma bot
 - [X] `.beads/architecture-decisions.bead` - Module structure updated
 - [X] `.cursor/rules/operator-cli.mdc` - Created comprehensive CLI spec
 - [X] `docs/OPERATOR-GUIDE.md` - CLI usage examples
-- [X] `docs/TODO.md` - Added cli/ module to Phase 0
+- [X] `docs/todo/TODO.md` - Added cli/ module to Phase 0
 
 **Implementation Status**: Design complete, tracked for Phase 0
 
@@ -599,7 +599,7 @@ Poll end-to-end testing belongs in Phase 2.5 validation (when we have Stroma bot
 - [X] `docs/DEVELOPER-GUIDE.md` - Added shadow_handover.rs to module structure
 - [X] `docs/FEDERATION.md` - Added Shadow Handover section
 - [X] `README.md` - Added to Federation (Phase 4+) features
-- [X] `docs/TODO.md` - Added to Phase 4+ roadmap
+- [X] `docs/todo/TODO.md` - Added to Phase 4+ roadmap
 
 **Key Concept**: Bot's Signal identity (phone number) is ephemeral; cryptographic identity (keypair) persists. Succession documents signed by old bot authorize new bot.
 
@@ -632,7 +632,7 @@ Poll end-to-end testing belongs in Phase 2.5 validation (when we have Stroma bot
 **Updated Files:**
 - [ ] Create `docs/VALIDATOR-THRESHOLD-STRATEGY.md` - Comprehensive phased approach
 - [ ] Update `.beads/architecture-decisions.bead` - Add validator strategy decision
-- [ ] Update `docs/TODO.md` - Add Phase 2 and Phase 4 gates
+- [ ] Update `docs/todo/TODO.md` - Add Phase 2 and Phase 4 gates
 
 **Implementation Status**: Design complete, gates tracked for Phase 2 and Phase 4+ reviews
 
