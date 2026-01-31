@@ -226,7 +226,8 @@ _For detailed specifications on Trust Model, Mesh Health, Federation, Technical 
 | Component | Technology | Why |
 |-----------|------------|-----|
 | **Language** | Rust 1.93+ | musl 1.2.5, improved DNS, static binaries |
-| **Embedded Kernel** | freenet-stdlib v0.1.30+ | In-process, decentralized, anonymous |
+| **Embedded Node** | freenet v0.1.107+ | In-process node (NodeConfig::build()) |
+| **Contract Framework** | freenet-stdlib v0.1.30+ | Wasm contracts (ComposableState) |
 | **Contracts** | freenet-scaffold v0.2+ | ComposableState, summary-delta sync |
 | **ZK-Proofs** | STARKs (winterfell) | No trusted setup, post-quantum |
 | **Identity** | HMAC-SHA256 (ring) | Group-scoped hashing |

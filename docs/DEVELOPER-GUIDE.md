@@ -43,8 +43,9 @@ This guide explains Stroma's architecture, technical stack, and development work
 | Component | Library/Version | Purpose |
 |-----------|----------------|---------|
 | **Language** | Rust 1.93+ | musl 1.2.5, improved DNS, memory safety |
-| **Embedded Kernel** | [freenet-stdlib](https://docs.rs/freenet-stdlib) v0.1.30+ | In-process Freenet kernel |
-| **Contract Framework** | [freenet-scaffold](https://github.com/freenet/freenet-scaffold) v0.2+ | ComposableState utilities |
+| **Embedded Node** | [freenet](https://docs.rs/freenet/latest/freenet/) v0.1.107+ | In-process node (NodeConfig::build()) |
+| **Contract Framework** | [freenet-stdlib](https://docs.rs/freenet-stdlib) v0.1.30+ | Wasm contracts (ComposableState trait) |
+| **Contract Utilities** | [freenet-scaffold](https://github.com/freenet/freenet-scaffold) v0.2+ | ComposableState utilities |
 | **ZK-Proofs** | winterfell | STARKs (no trusted setup) |
 | **Identity Hashing** | ring (HMAC-SHA256) | Group-scoped masking |
 | **Memory Hygiene** | zeroize | Immediate buffer purging |
