@@ -73,16 +73,67 @@ if (density_in_a >= threshold_a) && (density_in_b >= threshold_b) {
 - Store membership in BTreeSet (naturally mergeable), generate Merkle Tree when needed
 - Contract accepts ZK-SNARK as input for verification
 
-### On-Demand Merkle Tree Generation
-- Generate Merkle Tree from BTreeSet<MemberHash> when ZK-proof verification needed
-- Merkle root serves as compact commitment to membership state
-- Tree is ephemeral - generated, used for verification, then discarded
-- This pattern ensures mergeable state while enabling ZK verification
+### On-Demand Merkle Tree Generation (Q5 Spike Validated)
+
+**Q5 Finding**: On-demand Merkle generation is extremely fast — no caching needed.
+
+| Members | Root Calculation |
+|---------|------------------|
+| 100 | 0.01ms |
+| 1000 | **0.09ms** |
+| 5000 | 0.45ms |
+
+**Decision**: Generate on demand. 0.09ms at 1000 members is 1000x faster than threshold.
+
+**See**: `docs/spike/q5/RESULTS.md` for full benchmarks.
+
+**Implementation Pattern**:
+```rust
+// Root calculation: on-demand for all membership verification
+let root = calculate_root(&members)?;
+
+// Full tree: only when proof generation needed
+let tree = MerkleTree::from_btreeset(&members)?;
+let proof = tree.generate_proof(&member_hash)?;
+```
 
 ### Tree Updates
 - Membership changes update BTreeSet (automatically merged via ComposableState)
-- Merkle Tree regenerated on-demand for next verification
+- Merkle Tree regenerated on-demand for next verification (no cache invalidation needed)
 - Rotate group-secret pepper via configuration change proposal
+
+## ZK-Proof Verification Location (Q4 Spike Validated)
+
+### Bot-Side Verification (Phase 0)
+
+**Q4 Finding**: winterfell Wasm is experimental. **Bot-side verification** recommended for Phase 0.
+
+**Architecture**:
+```
+Member → Signal command → Bot → Generate & Verify STARK → Submit outcome → Freenet
+```
+
+**Key Points**:
+- Bot generates proofs (members NEVER generate proofs)
+- Bot verifies proofs using native winterfell (fast, reliable)
+- Bot submits verified outcomes to Freenet contract
+- Contract trusts bot's verification (acceptable for Phase 0 trust model)
+
+**See**: `docs/spike/q4/RESULTS.md` for full analysis.
+
+### Why Not Contract-Side (Q4)
+- winterfell Wasm support is experimental
+- SIMD dependencies, compilation challenges
+- Bot can forge valid proofs anyway (has all inputs)
+- Defense against compromised bot comes from cross-cluster requirement and operator accountability, not contract STARK verification
+
+### Proof Storage (Q6 Decision)
+Since bot verifies (not contract): **Store outcomes only** (not proofs).
+- Proofs are ephemeral (10-100KB each)
+- Contract stores "Alice vouched for Bob", not the proof
+- Simplifies contract state and merging
+
+**See**: `docs/spike/q6/RESULTS.md` for rationale.
 
 ## Key Management
 

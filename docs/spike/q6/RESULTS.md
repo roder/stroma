@@ -93,9 +93,9 @@ pub struct StromaContractState {
 ### Verification Flow
 
 ```
-1. Invitee generates vouch request proof
-2. Voucher receives and signs proof
-3. Bot receives combined proof
+1. Member sends Signal command: /vouch @Bob
+2. Bot validates preconditions (member is active, cross-cluster, etc.)
+3. Bot generates STARK proof (proves vouch validity without revealing voucher)
 4. Bot verifies proof (native winterfell)
 5. Bot extracts outcome: "Alice vouches for Bob"
 6. Bot submits outcome to Freenet
@@ -103,13 +103,15 @@ pub struct StromaContractState {
 8. Proof discarded after submission
 ```
 
+**Key UX Principle**: Members interact ONLY through Signal commands. All cryptographic operations happen inside the bot. Members never generate, sign, or see proofs.
+
 ### Audit Strategy
 
 If proof audit is required:
 
 1. **Option A**: Bot logs proofs to separate encrypted storage
-2. **Option B**: Members retain their own proofs locally
-3. **Option C**: Proof hashes stored in contract for verification
+2. **Option B**: Proof hashes stored in contract for verification
+3. **Option C**: Multi-bot consensus provides redundant verification
 
 For Phase 0, no audit mechanism is required.
 
@@ -133,6 +135,6 @@ For Phase 0, no audit mechanism is required.
 ## Next Steps
 
 1. Implement outcome-only contract state
-2. Define outcome submission protocol
-3. Design proof format for bot transmission
+2. Define outcome submission protocol (bot → Freenet)
+3. Define ZK circuit for vouch validity
 4. Consider audit logging for Phase 1+

@@ -77,15 +77,29 @@ impl TrustGraph {
 }
 ```
 
-### Cluster Detection
+### Cluster Detection (Q3 Spike Validated)
+
+**Recommended Algorithm**: Bridge Removal (Tarjan's Algorithm)
+
+**Q3 Finding**: Standard Union-Find fails to distinguish tight clusters connected by bridges (sees 1 cluster). Bridge Removal successfully separates tight clusters by identifying and removing articulation edges.
+
+**See**: `docs/spike/q3/RESULTS.md` for full analysis.
+
 ```rust
 fn identify_internal_clusters(graph: &TrustGraph) -> Vec<Cluster> {
-    // Use graph algorithms to find connected components
-    // Identifies sub-communities within single group
+    // Q3 Validated: Use Bridge Removal (Tarjan's algorithm)
+    // Standard Union-Find FAILS for tight clusters connected by bridges
     
-    // Example algorithm: Union-Find or DFS
-    let components = find_connected_components(graph);
+    // 1. Find bridges (articulation edges) using Tarjan's algorithm
+    let bridges = find_bridges(graph);
     
+    // 2. Remove bridge edges from graph
+    let graph_without_bridges = graph.remove_edges(&bridges);
+    
+    // 3. Find connected components on bridge-removed graph
+    let components = find_connected_components(&graph_without_bridges);
+    
+    // 4. Bridge nodes become their own "cluster" (can vouch, but isolated)
     components.into_iter()
         .map(|members| Cluster {
             members,
@@ -95,6 +109,9 @@ fn identify_internal_clusters(graph: &TrustGraph) -> Vec<Cluster> {
         })
         .collect()
 }
+
+// Bridge members placed in their own cluster
+// For admission: Carol (Cluster A) + Charlie (bridge) = cross-cluster ✓
 ```
 
 ## Strategic Introduction Matching (Blind Matchmaker - DVR Optimized)

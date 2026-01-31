@@ -126,14 +126,19 @@ systemd services:
   - **Diplomat**: Proposes federation and maintains bridge density
 - **Functions**:
   - Identity masking (HMAC hashing with group-secret pepper)
-  - Trust verification (ZK-proof validation)
+  - ZK-proof generation (bot generates all STARK/ZK proofs)
+  - ZK-proof verification (bot verifies all proofs)
+  - Merkle tree generation (on-demand from member sets)
+  - Cluster detection (Bridge Removal algorithm)
   - Ejection protocol (immediate removal when threshold violated)
   - Federation proposals (diplomatic coordination)
   - Consensus enforcement (execute only contract-approved actions)
   - Ephemeral memory (raw IDs wiped immediately)
 - **Constraint**: Stateless - all state comes from Freenet
 - **Operator Role**: Service runner ONLY (no privileges)
-- **Abstraction**: Freenet complexity completely hidden from users
+- **Abstraction**: All cryptographic complexity hidden from users
+
+**CRITICAL UX BOUNDARY**: Members interact ONLY via Signal commands. ALL cryptographic operations (STARK proofs, Merkle trees, HMAC hashing, ZK verification) happen inside the bot. Members NEVER generate proofs, sign cryptographic messages, or handle keys beyond their own Signal identity. The bot is the sole cryptographic actor.
 
 #### 3. State Layer: Freenet (Dark)
 - **Role**: Decentralized, anonymous state storage with eventual consistency

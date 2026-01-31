@@ -821,27 +821,62 @@ fn validate_state(...) -> Result<ValidateResult, ContractError> {
 
 ---
 
-### Q3: On-Demand Merkle Tree Performance — ⏳ PENDING
+### Q3: Cluster Detection — ✅ ANSWERED (GO)
 
-**Question**: How expensive is generating Merkle Tree from BTreeSet?
+**Question**: Does Union-Find distinguish tight clusters connected by bridges?
 
-**Impact**: May need to cache Merkle root
+**Answer (from docs/spike/q3/RESULTS.md)**:
+- Standard Union-Find FAILS (sees 1 cluster when connected by bridges)
+- **Bridge Removal (Tarjan's algorithm)** successfully distinguishes tight clusters
+- Identifies articulation edges (bridges) and removes them to find tight components
+- Bridge members can vouch but don't form tight cluster with either side
+
+**Decision**: GO — Use Bridge Removal algorithm for cross-cluster enforcement.
 
 ---
 
-### Q4: STARK Verification in Wasm — ⏳ PENDING
+### Q4: STARK Verification in Wasm — ✅ ANSWERED (PARTIAL)
 
 **Question**: Can we verify STARK proofs in contract `verify()` method?
 
-**Impact**: Determines client-side vs contract-side verification
+**Answer (from docs/spike/q4/RESULTS.md)**:
+- winterfell Wasm support is experimental (SIMD dependencies, compilation challenges)
+- **Bot-side verification** recommended for Phase 0 (native winterfell is fast and reliable)
+- Bot generates proofs, verifies proofs, submits outcomes to Freenet
+- Contract trusts bot's verification (acceptable for Phase 0 trust model)
+- Can migrate to contract-side when Wasm improves
+
+**Key UX Principle**: Members interact ONLY through Signal commands. All cryptographic operations happen inside the bot.
+
+**Decision**: PARTIAL — Bot-side verification for Phase 0.
 
 ---
 
-### Q5: Proof Storage Strategy — ⏳ PENDING (depends on Q4)
+### Q5: Merkle Tree Performance — ✅ ANSWERED (GO)
+
+**Question**: How expensive is on-demand Merkle Tree generation?
+
+**Answer (from docs/spike/q5/RESULTS.md)**:
+- 1000 members: **0.09ms** (1000x faster than 100ms threshold)
+- 5000 members: 0.45ms (still sub-millisecond)
+- **Generate on demand** — no caching needed
+- Stateless design simplifies bot architecture
+
+**Decision**: GO — On-demand generation is viable.
+
+---
+
+### Q6: Proof Storage Strategy — ✅ ANSWERED
 
 **Question**: Should we store proofs in contract state or just outcomes?
 
-**Recommendation**: Start with Option C (don't store) for MVP
+**Answer (from docs/spike/q6/RESULTS.md)**:
+- Since Q4 chose bot-side verification: **Store outcomes only**
+- Proofs are ephemeral (10-100KB each) — discarded after verification
+- Contract stores "Alice vouched for Bob", not the proof itself
+- Simplifies contract state and merging
+
+**Decision**: Store outcomes only (not proofs).
 
 ## Best Practices
 
@@ -927,12 +962,16 @@ fn test_delta_commutativity() {
 4. **Delta commutativity** is CONTRACT's responsibility (Q1 validated)
 5. **Contract validation works** — both `update_state()` and `validate_state()` can reject (Q2 validated)
 6. **Trustless model achievable** — contract enforces invariants, bot pre-validates for UX (Q2 validated)
-7. **Merkle Trees** generated on demand, not stored as primary state
-8. **ZK-Proofs** validate transitions, not stored permanently (in MVP)
+7. **Merkle Trees** generated on demand, not stored as primary state (Q5 validated: 0.09ms at 1000 members)
+8. **ZK-Proofs** validate transitions, not stored permanently (Q6: outcomes only)
 9. **Summary-delta sync** minimizes bandwidth and enables efficient eventual consistency
 10. **Test commutativity** — same result regardless of delta order
 11. **Q1 ANSWERED**: Use set-based state with tombstones (remove-wins)
 12. **Q2 ANSWERED**: Contract CAN enforce invariants (trustless model viable)
+13. **Q3 ANSWERED**: Bridge Removal algorithm for cluster detection (Union-Find fails)
+14. **Q4 ANSWERED**: Bot-side STARK verification for Phase 0 (Wasm experimental)
+15. **Q5 ANSWERED**: On-demand Merkle generation is viable (sub-millisecond)
+16. **Q6 ANSWERED**: Store outcomes only (proofs ephemeral)
 
 ## References
 

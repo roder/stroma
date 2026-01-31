@@ -341,3 +341,28 @@ All BLOCKING questions passed. Architecture remains sound.
 - Bot-side STARK verification (Q4, upgrade later)
 - On-demand Merkle generation (Q5)
 - Store outcomes only (Q6)
+
+---
+
+## Spike Validation Checklist (For Future Spikes)
+
+Before marking a spike COMPLETE, validate against these questions:
+
+### Architecture Alignment
+- [ ] **User journey traced**: Start from Signal command → trace through bot → Freenet → outcome
+- [ ] **UX boundary respected**: Members interact ONLY via Signal commands (no proof generation, no crypto)
+- [ ] **Bot is sole crypto actor**: All ZK/STARK/Merkle operations happen inside bot
+- [ ] **Cross-referenced USER-GUIDE.md**: Workflow matches documented user experience
+
+### Technical Correctness
+- [ ] **Who generates?** Confirm proof/tree/hash generation happens in bot, not member
+- [ ] **Who verifies?** Confirm verification location (bot vs contract)
+- [ ] **Who stores?** Confirm storage location (Freenet contract state)
+- [ ] **Who transmits?** Confirm data flows (member→bot: commands only; bot→Freenet: outcomes)
+
+### Constraint Verification
+- [ ] **Reviewed security-guardrails.mdc**: No UX boundary violations
+- [ ] **Reviewed architecture-objectives.mdc**: Aligns with Trust Logic Layer description
+- [ ] **No new member requirements**: Members don't need new software, keys, or actions
+
+**Rationale**: This checklist exists because Q4/Q6 spikes initially described members generating proofs — violating Stroma's core UX principle that Signal commands are the only member interface.

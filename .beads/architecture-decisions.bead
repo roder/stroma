@@ -351,6 +351,62 @@ rustflags = ["-C", "target-feature=+crt-static"]
 - **Network Partitions**: Freenet handles eventual consistency
 - **STARK Proof Size**: Validated in Spike Week (< 100KB)
 
+### Trustlessness Analysis (Architectural Decision #13)
+
+**Phase 0 Trust Model**: Bot is trusted. Operator accountability via social/legal means.
+
+**Why Not Trustless in Phase 0?**
+
+The bot is the sole cryptographic actor (generates proofs, verifies proofs, submits outcomes).
+A compromised bot could theoretically submit false outcomes to Freenet.
+
+**Alternatives Evaluated**:
+
+| Approach | Defends Against | Why Not Phase 0 |
+|----------|-----------------|-----------------|
+| Contract STARK verification | Malformed data injection | winterfell Wasm experimental (Q4); bot can still forge valid proofs |
+| Signal attestation | Bot fabricating messages entirely | Only proves sender, not content; can't verify "/vouch @Bob" specifically |
+| Member-generated proofs | Bot forging proofs | Violates UX boundary (members only use Signal commands) |
+
+**Key Insight**: Even with contract-side STARK verification, the bot has all inputs needed to generate valid proofs for actions that never happened. STARK verification only ensures internal consistency, not that the underlying action occurred.
+
+**What Actually Provides Defense**:
+
+1. **Operator Accountability** (Phase 0): Social/legal consequences for malicious operators
+2. **Cross-Cluster Requirement**: Single compromised bot can't rubber-stamp confederates
+3. **Federation Cross-Validation** (Phase 4+): Different operators must agree on cross-mesh operations
+4. **Blind Matchmaker DVR**: Colluding member must be "in position" — bot suggests vouchers, limiting attacker placement
+
+**Federation Compromise Analysis**:
+
+If Bot-A (compromised) federates with Bot-B (honest):
+- Bot-A can fabricate members in Group A's Freenet contract
+- Bot-A can claim fake "Alice" vouches for attacker joining Group B
+- BUT: Group B's admission rules still apply:
+  - Attacker still needs second vouch from different cluster in Group B
+  - Bot-B controls who gets suggested (Blind Matchmaker)
+  - Colluding Group B member would need to bypass Blind Matchmaker DVR optimization
+
+**Result**: Single compromised bot can contribute ONE fake vouch to another group, but cannot fully compromise admission. Cross-cluster requirement from honest group still holds.
+
+**Signal Attestation Analysis**:
+
+Signal messages are authenticated (SenderCertificate validates against trust root), but:
+- Signature is on encrypted envelope, not plaintext command
+- After decryption, no cryptographic binding to content
+- Proves "Alice sent *something*" not "Alice sent `/vouch @Bob`"
+- Compromised bot could still claim Alice's message was "/vouch @Bob" when it was "/vouch @Carol"
+
+**Conclusion**: Signal attestation adds complexity without defending against realistic threats. Not recommended.
+
+**Path to Trustlessness** (Future Phases):
+
+1. **Multi-operator federation**: Different operators must agree (collude = conspiracy)
+2. **Proof-of-membership via Freenet**: Cross-verify member existence across federated contracts
+3. **Time-locked audit logs**: Encrypted proofs stored, keys released after threshold time
+
+**AGENT GUIDANCE**: For Phase 0, accept bot-trust model. Do not add complexity for "trustlessness" that doesn't actually achieve it. Focus on cross-cluster requirement and operator accountability.
+
 ## MVP Scope vs Federation
 
 ### What's In MVP (Phase 0-3)

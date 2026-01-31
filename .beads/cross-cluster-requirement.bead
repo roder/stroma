@@ -93,7 +93,9 @@ When someone is being vetted:
 
 **Isolated Invitee**: If the invitee only knows people in one cluster, they need to be introduced to someone from another cluster. This is the point — the protocol forces network bridging.
 
-**Disputed Cluster Membership**: Cluster detection uses graph algorithms (Union-Find). In ambiguous cases, err toward requiring cross-cluster.
+**Disputed Cluster Membership**: Cluster detection uses **Bridge Removal (Tarjan's algorithm)** — Q3 spike validated this approach. Standard Union-Find fails to distinguish tight clusters connected by bridges. In ambiguous cases, err toward requiring cross-cluster.
+
+**See**: `docs/spike/q3/RESULTS.md` for cluster detection algorithm validation.
 
 ## Continuous Cross-Cluster Requirement
 

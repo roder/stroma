@@ -58,6 +58,38 @@ alwaysApply: true
 - ❌ **NEVER** skip zeroization of cryptographic keys
 - ❌ **NEVER** use `unsafe` blocks without explicit security review
 
+### UX Boundary Violations (BLOCK)
+- ❌ **NEVER** require members to generate ZK/STARK proofs
+- ❌ **NEVER** require members to sign cryptographic messages (beyond Signal's built-in)
+- ❌ **NEVER** require members to install software beyond Signal
+- ❌ **NEVER** require members to handle or manage cryptographic keys
+- ❌ **NEVER** expose proof data, Merkle trees, or hashes to members
+- ❌ **NEVER** design flows where members transmit proofs to the bot
+- ✅ **ALWAYS** keep ALL cryptographic operations inside the bot
+- ✅ **ALWAYS** use Signal commands as the ONLY member interface
+- ✅ **ALWAYS** abstract technical complexity from non-technical users
+
+**Rationale**: Stroma is designed for non-technical users. Signal is the only interface. The bot is the sole cryptographic actor — it generates proofs, verifies proofs, computes Merkle roots, and submits outcomes. Members simply send commands like `/vouch @Alice`.
+
+### Phase 0 Trust Model (ACCEPT)
+
+**Bot is trusted in Phase 0**. This is an intentional architectural decision, not a gap to be fixed.
+
+**Why Bot-Trust is Acceptable**:
+1. **Contract STARK doesn't help**: Bot has all inputs to forge valid proofs anyway
+2. **Signal attestation doesn't help**: Proves sender, not message content
+3. **Member proofs violate UX**: Members only use Signal commands
+4. **Operator accountability**: Social/legal consequences provide sufficient deterrent
+
+**What Provides Defense**:
+- Cross-cluster vouching requirement (can't rubber-stamp confederates)
+- Blind Matchmaker DVR (limits attacker placement for colluding vouchers)
+- Federation cross-validation (different operators must agree on cross-mesh)
+
+**AGENT GUIDANCE**: Do NOT add complexity pursuing "trustlessness" that doesn't actually achieve it. The bot being trusted is a known, accepted constraint for Phase 0. Focus on the protections that DO work (cross-cluster, DVR, federation).
+
+**See**: `.beads/architecture-decisions.bead` section "Trustlessness Analysis" for full rationale.
+
 ### Trust Model Violations (BLOCK)
 - ❌ **NEVER** add grace periods for ejection (no 48-hour warnings, no re-verification windows)
 - ❌ **NEVER** make trust decisions without Freenet verification

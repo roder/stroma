@@ -46,30 +46,38 @@ Native verification is extremely fast. Even with 10x Wasm overhead, it would be 
 3. **Development Velocity**: Bot-side is simpler to implement
 4. **Future Migration**: Can upgrade to contract-side when Wasm improves
 
-### Bot-Side Verification Architecture
+### Bot-Side Proof Generation & Verification Architecture
 
 ```
 ┌─────────────┐    ┌─────────┐    ┌─────────┐    ┌──────────┐
-│   Member    │───►│   Bot   │───►│ Verify  │───►│ Freenet  │
-│ (generate)  │    │(receive)│    │(native) │    │(outcome) │
+│   Member    │───►│   Bot   │───►│ Generate│───►│ Freenet  │
+│  (command)  │    │(process)│    │& Verify │    │(outcome) │
 └─────────────┘    └─────────┘    └─────────┘    └──────────┘
+      │                                               │
+      │         Signal commands only                  │
+      │         (/vouch, /flag, etc.)                 │
+      └───────────────────────────────────────────────┘
+                  User never sees crypto
 ```
 
 ### Flow
 
-1. Member generates STARK proof locally (using winterfell)
-2. Bot receives proof over Signal
-3. Bot verifies proof using native winterfell (fast, reliable)
-4. Bot submits verified outcome to Freenet contract
-5. Contract trusts bot's verification
+1. Member sends command via Signal (e.g., `/vouch @Alice`)
+2. Bot processes command, validates preconditions
+3. Bot generates STARK proof (proves vouch validity without revealing voucher)
+4. Bot verifies proof using native winterfell (fast, reliable)
+5. Bot submits verified outcome to Freenet contract
+
+**Key UX Principle**: Members interact ONLY through Signal commands. All cryptographic operations (STARK proof generation, verification, Merkle proofs) happen inside the bot. Technical complexity is abstracted - users never generate proofs.
 
 ### Security Considerations
 
 | Concern | Mitigation |
 |---------|------------|
 | Compromised bot | Multi-bot consensus (Phase 1+) |
-| False verification | Audit trail, operator accountability |
+| False proof generation | Audit trail, operator accountability |
 | Proof replay | Nonce in proof construction |
+| Bot impersonation | Signal protocol authentication |
 
 ## Decision Implications
 
@@ -100,6 +108,36 @@ If Wasm becomes critical, consider:
 
 This is significant work and not recommended for Phase 0.
 
+## Why Not Signal Attestation?
+
+**Evaluated**: Using Signal's built-in message authentication to prove members sent commands.
+
+**What Signal Provides**:
+- `SenderCertificate` validates sender UUID against Signal's trust root
+- Messages are authenticated (can't forge sender identity)
+- `sealed_sender_decrypt_to_usmc()` validates certificate chain
+
+**Why It Doesn't Help**:
+| What Signal Proves | What We Need |
+|-------------------|--------------|
+| "Alice sent *a message*" | "Alice sent `/vouch @Bob`" |
+| Sender identity is valid | Message content is accurate |
+| Envelope is authentic | Bot didn't modify content |
+
+**The Gap**: Signal authenticates the sender, not the content. After decryption, there's no cryptographic binding between the plaintext command and the sender's signature. A compromised bot could claim Alice's message was `/vouch @Bob` when she actually sent `/vouch @Carol`.
+
+**Attacks Signal Attestation Would Defend**:
+- Bot fabricating messages entirely (weak attacker model)
+
+**Attacks Signal Attestation Would NOT Defend**:
+- Bot modifying message content (realistic threat)
+- Compromised member device (out of scope)
+- Replay attacks (bot controls timing)
+
+**Conclusion**: Signal attestation adds implementation complexity without defending against realistic threats. The right path to trustlessness is multi-operator federation, not cryptographic message binding.
+
+**See**: `.beads/architecture-decisions.bead` section "Trustlessness Analysis"
+
 ## Files
 
 - `verifier.rs` - Verification logic and simulation
@@ -109,7 +147,7 @@ This is significant work and not recommended for Phase 0.
 
 ## Next Steps
 
-1. Implement bot-side verification with winterfell
-2. Define proof format for Signal transmission
+1. Implement bot-side proof generation and verification with winterfell
+2. Define ZK circuit for vouch validity (voucher ∈ members, cross-cluster, etc.)
 3. Integrate with Freenet outcome submission
 4. See Q6 for proof storage decision
