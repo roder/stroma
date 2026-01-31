@@ -79,7 +79,7 @@ The bot acts as a **"Blind Matchmaker"** - it optimizes the trust mesh using gra
 3. **Metadata isolation**: All vetting in 1-on-1 PMs (no Signal group metadata), bot operator least-privilege (service runner only), vetting conversations ephemeral (never persisted to disk)
 Together: **Even if adversary seizes the bot server, they get: small encrypted file (~100KB protocol state), hashes (not identities), topology (not relationship context), NO vetting conversations, NO message history.**
 
-**For developers & contributors**: Built on embedded [freenet-core](https://github.com/freenet/freenet-core) kernel (in-process, not external service). Contracts use ComposableState trait for mergeable state with CRDT-like semantics. Set-based membership (BTreeSet) with on-demand Merkle Tree generation for ZK-proof verification (not stored). Internal matchmaking uses Minimum Spanning Tree algorithm (Union-Find, betweenness centrality) achieving optimal mesh with maximum anonymity. External federation via Private Set Intersection with Cardinality (PSI-CA) and Social Anchor Hashing (emergent discovery, no pre-shared keys). Trust verified via STARKs (winterfell). See [ALGORITHMS.md](docs/ALGORITHMS.md) for MST implementation, [freenet-contract-design.mdc](.cursor/rules/freenet-contract-design.mdc) for patterns.
+**For developers & contributors**: Built on embedded [freenet-core](https://github.com/freenet/freenet-core) kernel (in-process, not external service). Contracts use ComposableState trait for mergeable state with CRDT-like semantics (Q1-Q2 validated). Set-based membership (BTreeSet) with on-demand Merkle Tree generation for ZK-proof verification (Q5: 0.09ms @ 1000 members). Internal cluster detection via Bridge Removal algorithm (Tarjan's, Q3 validated) achieving optimal mesh topology. Matchmaking uses DVR optimization (Distinct Validators, non-overlapping voucher sets) with MST fallback. Bot-side STARK proof verification for Phase 0 (Q4 validated). External federation via Private Set Intersection with Cardinality (PSI-CA) and Social Anchor Hashing (emergent discovery, Phase 4+). See [ALGORITHMS.md](docs/ALGORITHMS.md) for MST implementation and complexity, [freenet-contract-design.mdc](.cursor/rules/freenet-contract-design.mdc) for patterns, [SPIKE-WEEK-BRIEFING.md](docs/spike/SPIKE-WEEK-BRIEFING.md) for validation results.
 
 ## Why "Stroma"?
 
@@ -283,28 +283,28 @@ cargo build --release --target x86_64-unknown-linux-musl
 
 ## Implementation Roadmap
 
-### Current Phase: Protocol v8 Poll Support (Priority)
-**Agent-Signal implements protocol v8 poll support in forked libsignal-service-rs**
+### ✅ Completed: Protocol v8 Poll Support
+**Agent-Signal implemented protocol v8 poll support in forked libsignal-service-rs**
 
-**Why Critical:**
-- Native Signal Polls provide anonymous voting (reactions expose voters)
-- Required for `/propose` system (Phase 3)
-- Blocks proposal system implementation
+**Status**: Complete (feature/protocol-v8-polls-fixed)
+- ✅ Added protocol v8 messages (PollCreate, PollVote, PollTerminate, etc.)
+- ✅ Unit tests pass (21 tests: 16 existing + 5 new)
+- ✅ Integrated into Stroma via Cargo.toml patch
 
-**Timeline**: 1-2 weeks
+### ✅ Completed: Spike Week (Technology Validation)
+**All 6 critical architecture questions answered — GO decision**
 
-**Next Phase: Spike Week (Technology Validation)**
+**Validations Complete:**
+- ✅ **Q1**: Freenet merge conflicts — Commutative deltas with set-based state + tombstones (GO)
+- ✅ **Q2**: Contract validation — `update_state()` + `validate_state()` enforce invariants (GO)
+- ✅ **Q3**: Cluster detection — Bridge Removal (Tarjan's) distinguishes tight clusters (GO)
+- ✅ **Q4**: STARK verification — Bot-side for Phase 0, Wasm experimental (PARTIAL)
+- ✅ **Q5**: Merkle Tree performance — 0.09ms @ 1000 members (GO)
+- ✅ **Q6**: Proof storage — Store outcomes only, not proofs (DECIDED)
 
-**Key Validations:**
-- Freenet Dark with ComposableState trait
-- Presage group management and poll support
-- STARK proofs (size, performance)
-- Friend circle detection for diversity requirement (bootstrap exception)
-- Answer 6 critical architecture questions
+**Decision**: ✅ **PROCEED TO PHASE 0**
 
-**Deliverable**: Go/No-Go decision report
-
-→ **[Spike Week Briefing](docs/spike/SPIKE-WEEK-BRIEFING.md)** - Day-by-day test plans and questions
+→ **[Spike Week Briefing](docs/spike/SPIKE-WEEK-BRIEFING.md)** - Complete analysis with all findings
 
 ### Development Phases
 - **Phase -1** (Weeks 1-2): Protocol v8 Polls (Agent-Signal priority task)

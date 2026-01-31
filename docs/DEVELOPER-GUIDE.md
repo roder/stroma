@@ -103,9 +103,9 @@ src/
 │   └── health_monitor.rs            # Continuous standing checks
 ├── matchmaker/                      # Internal Mesh Optimization
 │   ├── mod.rs
-│   ├── graph_analysis.rs            # Topology analysis (Union-Find, centrality)
-│   ├── cluster_detection.rs         # Identify internal clusters (connected components)
-│   └── strategic_intro.rs           # MST optimization (see ALGORITHMS.md)
+│   ├── graph_analysis.rs            # Topology analysis (Bridge Removal, centrality, DVR)
+│   ├── cluster_detection.rs         # Identify internal clusters (Tarjan's algorithm, Q3 validated)
+│   └── strategic_intro.rs           # DVR optimization + MST fallback (see ALGORITHMS.md, blind-matchmaker-dvr.bead)
 ├── config/                          # Group Configuration
 │   ├── mod.rs
 │   └── group_config.rs              # GroupConfig struct (Freenet contract)
