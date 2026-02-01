@@ -4,9 +4,20 @@ docs/chats/*
 docs/SESSION-SUMMARY-*.md
 /target
 
-# Gas Town HQ .gitignore
-# Track: Role context, handoff docs, beads config/data, rig configs
-# Ignore: Git worktrees (polecats) and clones (mayor/refinery rigs), runtime state
+# Gas Town Infrastructure (Moved to ~/gastown/stroma/)
+# Track: Only .beads/*.bead files (architectural docs) and issues.jsonl
+# Ignore: All Gas Town instance infrastructure (operational machinery)
+
+# =============================================================================
+# Gas Town infrastructure directories (now in ~/gastown/stroma/)
+# =============================================================================
+mayor/
+polecats/
+refinery/
+witness/
+crew/
+daemon/
+deacon/
 
 # =============================================================================
 # Runtime state files (transient)
@@ -14,22 +25,6 @@ docs/SESSION-SUMMARY-*.md
 **/state.json
 **/*.lock
 **/registry.json
-
-# =============================================================================
-# Rig git worktrees (recreate with 'gt sling' or 'gt rig add')
-# =============================================================================
-
-# Polecats - worker worktrees
-**/polecats/
-
-# Mayor rig clones
-**/mayor/rig/
-
-# Refinery working clones
-**/refinery/rig/
-
-# Crew workspaces (user-managed)
-**/crew/
 
 # =============================================================================
 # Runtime state directories (gitignored ephemeral data)
