@@ -5,127 +5,22 @@ alwaysApply: true
 
 # Cluster Terminology
 
-## Critical Distinction: Internal vs External
+**Canonical Source**: `.beads/cluster-terminology.bead`
 
-### Internal Clusters (Within Single Stroma Group)
-**Definition**: Sub-communities within ONE Stroma Signal group based on social affinities.
+The critical distinction between internal clusters (within a single group) and external groups (separate Stroma groups) is defined in the cluster-terminology bead. Read that file for complete specifications.
 
-**Example:**
-- Single Stroma group with 50 members
-- "Artist Cluster" (12 members who know each other well)
-- "Engineer Cluster" (15 members who know each other well)
-- "Activist Cluster" (10 members who know each other well)
-- All in the SAME Signal group
+## Quick Reference
 
-**Purpose:** Optimize internal mesh topology for full intersection.
-
-**Bot Role (Blind Matchmaker):**
-- Analyze graph to identify clusters
-- Suggest strategic introductions across clusters
-- Goal: Achieve Minimum Spanning Tree with least new interactions
-- Priority 1: Connect Bridges to Validators from different clusters
-- Priority 2: Connect Validators across disconnected islands
-- Note: ANY Member can vouch, but bot suggests Validators for optimization
-
-**Trust Map Protection:**
-- Bot operates on HMAC hashes only (no cleartext identities stored)
-- Bot knows topology (vouch counts, cluster membership via hashes)
-- Even if bot seized, adversary only gets hashes and topology, not identities
-- Three-layer defense prevents trust map seizure in usable form
-
-**Node Types (Within Group):**
-- **Bridges**: Members with 2 vouches (minimum requirement)
-- **Validators**: Members with 3+ vouches (used for optimization)
-- **Invitees/Leaf Nodes**: OUTSIDE group (1 vouch, being vetted)
-
-### External Groups (Separate Stroma Groups)
-**Definition**: Completely separate Stroma Signal groups, each with their own bot and Freenet contract.
-
-**Example:**
-- Stroma Group A (100 members, their own Signal group)
-- Stroma Group B (20 members, their own Signal group)
-- Separate bots, separate Freenet contracts
-
-**Purpose:** Federation between independent trust networks.
-
-**Bot Role (Diplomat via Blind Rendezvous):**
-- Discover other groups anonymously via Shadow Beacon
-- Calculate overlap using PSI-CA (no graph structure revealed)
-- Propose federation if BidirectionalMin thresholds satisfied
-- Facilitate cross-mesh vouching after federation
-
-**Trust Map Protection (Cross-Group):**
-- Bot knows NOTHING about other group's structure
-- Only knows: group size, overlap count (via PSI-CA)
-- Even if one bot seized, can't enumerate other group's members
-- Double-blinding prevents either group from decrypting alone
+| Concept | Internal Clusters | External Groups |
+|---------|-------------------|-----------------|
+| Scope | Within ONE Signal group | Separate Signal groups |
+| Bot Role | Blind Matchmaker | Diplomat (Blind Rendezvous) |
+| Purpose | Mesh optimization | Federation |
+| Terms | "strategic intro", "mesh-building" | "federation", "cross-mesh" |
 
 ## Terminology Rules
 
-### Use "Internal Cluster" for:
-- Sub-communities within single Stroma group
-- Artist cluster, Engineer cluster, etc.
-- Disconnected components within one group
-- Islands that need bridging
-
-### Use "External Group" or "Federated Mesh" for:
-- Separate Stroma Signal groups
-- Group A, Group B, Mesh-A, Mesh-B
-- Different bots, different contracts
-- Federation candidates
-
-### NEVER Confuse:
-- ❌ "Cluster-linking" when referring to internal MST building
-- ❌ "Federation" when referring to internal introductions
-- ✅ Use "strategic introductions" or "mesh-building" for internal
-- ✅ Use "federation" or "cross-mesh" only for external
-
-## Implementation Context
-
-### Internal Cluster Operations
-```rust
-// Bot CAN analyze graph structure for optimization
-fn identify_internal_clusters(graph: &TrustGraph) -> Vec<Cluster> {
-    // Knows topology within single group
-    // Used for strategic matching
-}
-
-fn suggest_strategic_intro(bridge: Hash, graph: &TrustGraph) -> Hash {
-    // Select validator from DIFFERENT internal cluster
-    // Maximizes intersectional diversity
-    // Note: Any Member can vouch, but prefer Validators
-}
-```
-
-### External Group Operations
-```rust
-// Bot CANNOT see other group's structure
-fn discover_external_groups() -> Vec<GroupContact> {
-    // Anonymous discovery via Bloom Filters
-    // No knowledge of internal topology
-}
-
-fn calculate_federation_viability(
-    overlap: usize,
-    our_size: usize,
-    their_size: usize,
-) -> bool {
-    // Only knows counts, not identities or relationships
-}
-```
-
-## Design Principles
-
-### Internal (Blind Matchmaker)
-- **Optimization Focus**: Least effort to full intersectional mesh
-- **Graph Awareness**: Bot analyzes topology for strategic matching
-- **Privacy Boundary**: Bot doesn't know relationship content or reasons
-- **Goal**: Every member has ≥2 vouches from different clusters
-- **Vouch Permissions**: ANY Member can vouch (not restricted to Validators)
-- **Bot Suggestions**: Bot suggests Validators for optimal intersectional diversity
-
-### External (Blind Rendezvous)
-- **Privacy Focus**: Complete anonymity, no graph exposure
-- **Zero Knowledge**: PSI-CA reveals only overlap count
-- **Discovery**: Emergent, based on shared validators
-- **Goal**: Federation without revealing social graph structure
+- ✅ "Strategic introductions" for internal cluster bridging
+- ✅ "Federation" or "cross-mesh" for external groups
+- ❌ NEVER use "federation" for internal operations
+- ❌ NEVER use "cluster-linking" for internal MST building

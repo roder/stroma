@@ -6,59 +6,17 @@ alwaysApply: true
 
 # Terminology Standards
 
-## Canonical Source
+**Canonical Source**: `.beads/terminology.bead`
 
-**All terminology MUST align with**: `.beads/terminology.bead`
-
-When writing documentation, code comments, or user-facing messages, reference the terminology bead for correct definitions.
+All terminology definitions, member roles, trust actions, cluster concepts, and key calculations are defined in the terminology bead. Read that file for complete definitions.
 
 ## Quick Reference
 
-### Member Roles
-- **Invitee**: 1 vouch, OUTSIDE group (being vetted)
-- **Bridge**: 2 vouches, IN group (minimum requirement)
-- **Validator**: 3+ vouches, IN group (well-connected)
+When writing documentation, code comments, or user-facing messages:
 
-### Trust Actions
-- **Vouch**: Personal endorsement (stakes reputation)
-- **Flag**: Opposite of vouch (distrust)
-- **Invite**: Initiate vetting (counts as first vouch)
-
-### Clusters
-- **Cluster**: Friend circle (same social context)
-- **Cross-cluster**: Different friend circles (REQUIRED)
-- **Same-cluster**: Same friend circle (does NOT count)
-
-### Key Calculations
-- **Effective Vouches**: All vouches - voucher-flaggers
-- **Regular Flags**: All flags - voucher-flaggers
-- **Standing**: Effective vouches - regular flags
-
-## Mandatory Phrasing
-
-### ✅ CORRECT
-- "2 cross-cluster vouches required"
-- "Members in different clusters"
-- "Invitee (outside group)"
-- "Immediate ejection"
-- "Can re-enter after securing new vouches"
-
-### ❌ INCORRECT
-- "2 vouches required" (missing cross-cluster)
-- "Independent members" (ambiguous)
-- "Waiting room" (not a separate space)
-- "Grace period" (no grace periods exist)
-- "Permanent ban" (re-entry always possible)
-- "Admin" (no hierarchy)
-
-## Cross-Cluster Requirement
-
-**CONTINUOUS**: Members must maintain ≥2 vouches from different clusters at all times.
-
-When documenting:
-- Always specify "cross-cluster" when discussing admission
-- Always specify "from different clusters" when discussing vouches
-- Note the bootstrap exception (single-cluster groups exempt)
+1. **Read** `.beads/terminology.bead` for correct definitions
+2. **Use** the exact phrasing specified there
+3. **Update** the bead FIRST if terminology needs to change, then update referencing documents
 
 ## Consistency Checks
 
@@ -67,28 +25,7 @@ Before committing documentation changes:
 ```bash
 # Check for ambiguous phrasing
 rg "2 vouches" --type md  # Should say "2 cross-cluster vouches"
-rg "independent members" --type md  # Should say "members in different clusters"
 rg "waiting room" --type md  # Should say "invitee (outside group)"
 rg "grace period" --type md  # Should not exist
 rg "permanent ban" --type md  # Should not exist
 ```
-
-## Document Structure
-
-User-facing documents SHOULD include a terminology table:
-- HOW-IT-WORKS.md: "Key Concepts" section
-- USER-GUIDE.md: "Key Concepts" section  
-- TRUST-MODEL.md: "Key Terms" section
-
-Technical documents SHOULD link to the terminology bead:
-- DEVELOPER-GUIDE.md
-- ALGORITHMS.md
-- Rule files (.mdc)
-
-## Updating Terminology
-
-1. Update `.beads/terminology.bead` FIRST
-2. Update this rule file if needed
-3. Update all referencing documents
-4. Use `rg "old_term" --type md` to find all usages
-5. Commit: "docs: Update terminology - [description]"

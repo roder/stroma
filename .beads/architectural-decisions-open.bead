@@ -141,7 +141,7 @@ async fn sync_ejection_to_signal(member_hash: Hash) -> Result<()> {
 
 **Decision**: **Progressive cooldown** (starts low, increases with repeated actions)
 
-Minimum time between actions on same target increases with action count.
+Minimum time between user's actions with the stroma bot on same target increases with action count.
 
 **Rationale**:
 - Allows initial corrections (vouch, then realize mistake, flag)
@@ -216,13 +216,17 @@ pub struct TrustNetworkState {
 **Decision**: **No privacy controls** for mesh visibility
 
 - Members CANNOT hide their vouch count from others
-- Members CANNOT opt out of Blind Matchmaker suggestions
+- Members CANNOT opt out of Blind Matchmaker suggestion
+- Members CANNOT directly query another member's vouch count
+- Members CAN query mesh for aggregate results only (ie: network health metric)
 
 **Rationale**:
 - Transparency is core to trust network
 - Hiding information enables gaming
 - Mesh health depends on visibility
 - "Privacy from external threats, transparency within community"
+- Members must maintain privacy individually, but have visibility of the group's members in aggregate metrics. 
+- Inviting members should be warned about an invitee's flags on re-entry (See #1)
 
 **Note**: External observers (non-members) cannot see anything. This applies only to fellow members.
 

@@ -1,0 +1,132 @@
+# Bead: Git Standards
+
+**Status**: Operational Guidance  
+**Created**: 2026-02-01  
+**Context**: Git Workflow Standards
+
+---
+
+## Commit Message Standards
+
+### Co-Authorship Attribution (MANDATORY for AI Agents)
+
+**CRITICAL**: All commits authored by Claude MUST include Co-authored-by trailer.
+
+**Format**:
+```bash
+git commit -m "$(cat <<'EOF'
+Commit message title
+
+Optional detailed description of changes.
+
+Co-authored-by: Claude <noreply@anthropic.com>
+EOF
+)"
+```
+
+**Requirements**:
+- Co-authored-by line at the END of commit message
+- Blank line before Co-authored-by
+- Exact format: `Co-authored-by: Claude <noreply@anthropic.com>`
+- Use HEREDOC for multi-line commit messages
+
+---
+
+## Commit Message Style
+
+**Title**:
+- Concise summary (1-2 sentences)
+- Focus on "why" rather than "what"
+- Use imperative mood ("Add feature" not "Added feature")
+
+**Body** (optional but recommended for significant changes):
+- Detailed description of changes
+- List major modifications with bullet points
+- Explain rationale for architectural decisions
+- Reference issues or beads if relevant
+
+---
+
+## Branch Management
+
+### Branch Naming
+- Format: `feature/description` or `fix/description`
+- Examples: `feature/vouch-invalidation`, `fix/merkle-tree-performance`
+
+### Main Branch Protection
+- `main` branch should always be in working state
+- Run tests before pushing to main
+- Use feature branches for experimental work
+
+---
+
+## Workflow Standards
+
+### Before Committing
+1. **Review Changes**: `git diff` to see what's changed
+2. **Run Quality Gates** (if code changed):
+   - `cargo fmt --check`
+   - `cargo clippy -- -D warnings`
+   - `cargo nextest run`
+   - `cargo deny check`
+3. **Stage Selectively**: Add only related changes
+4. **Write Good Message**: Clear, detailed, with Co-authored-by
+
+### After Committing
+1. **Sync with Remote**: `git pull --rebase`
+2. **Sync Beads**: `bd sync` (if available)
+3. **Push**: `git push`
+4. **Verify**: `git status` shows "up to date with origin"
+
+---
+
+## Git Hooks (Pre-commit)
+
+### Security Checks
+- Ensure no Signal IDs in cleartext
+- Ensure no secrets or keys committed (`.env`, `*.key`, etc.)
+- Ensure no test data with real identifiers
+
+### Code Quality Checks
+- Run `cargo fmt` (auto-format)
+- Run `cargo clippy` (lint)
+- Run fast unit tests
+
+---
+
+## Commit Anti-Patterns
+
+### ❌ NEVER Do These
+- Commit without Co-authored-by (when Claude authored)
+- Commit secrets or keys
+- Commit cleartext Signal IDs or test data
+- Use `git commit -m "wip"` or `git commit -m "update"`
+- Skip quality gates before committing
+- Force push to main
+- Amend commits that have been pushed
+
+### ✅ ALWAYS Do These
+- Include Co-authored-by for AI-authored commits
+- Review changes before committing
+- Write clear, detailed commit messages
+- Run quality gates before pushing
+- Pull with rebase before pushing
+- Verify push succeeded
+
+---
+
+## Special Cases
+
+### Amending Commits
+Only amend if ALL conditions are met:
+1. User explicitly requested amend, OR commit SUCCEEDED but pre-commit hook auto-modified files
+2. HEAD commit was created by you in this conversation
+3. Commit has NOT been pushed to remote
+
+NEVER amend pushed commits (requires force push).
+
+### Handling Conflicts
+- Pull with rebase to get remote changes
+- Resolve conflicts carefully
+- Preserve both sides' intent when possible
+- Run tests after conflict resolution

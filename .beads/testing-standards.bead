@@ -1,0 +1,177 @@
+# Bead: Testing Standards
+
+**Status**: Operational Guidance  
+**Created**: 2026-02-01  
+**Context**: Test-Driven Development
+
+---
+
+## Test-Driven Development (TDD) Workflow
+
+1. **Red**: Write a failing test
+2. **Green**: Write minimal code to pass
+3. **Refactor**: Improve while keeping tests green
+4. **Repeat**: For each feature
+
+### Test-First Principle
+- **Always write tests before implementation** for security-critical paths
+- Tests serve as executable specifications
+- Tests document expected behavior and edge cases
+
+---
+
+## Test Framework: nextest
+
+- Use `cargo-nextest` as the test runner
+- Run tests with: `cargo nextest run`
+- 100% code coverage required
+
+```toml
+# nextest.toml
+[profile.default]
+retries = 0  # Deterministic tests should never need retries
+```
+
+---
+
+## Deterministic Testing
+
+All tests must be **deterministic** - same inputs = same outputs.
+
+### Fixed Seeds
+```rust
+// ✅ GOOD: Deterministic seed
+use rand::SeedableRng;
+let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+
+// ❌ BAD: Non-deterministic
+let mut rng = rand::thread_rng();
+```
+
+### Fixed Test Data
+```rust
+// ✅ GOOD: Deterministic test fixtures
+const TEST_PEPPER: &[u8] = b"test-pepper-constant";
+const TEST_GROUP_ID: &str = "test-group-id-12345";
+
+// ❌ BAD: Random or time-based test data
+let pepper = generate_random_bytes();
+```
+
+### Mock Time
+```rust
+// ✅ GOOD: Use mock time
+use mock_instant::MockClock;
+MockClock::set_time(SystemTime::UNIX_EPOCH + Duration::from_secs(1000));
+```
+
+---
+
+## Test Naming Convention
+
+```rust
+// ✅ GOOD: Descriptive names
+#[test]
+fn test_hmac_masking_produces_deterministic_hash_for_same_input() { }
+
+#[test]
+fn test_trust_verification_rejects_member_when_vouches_minus_flags_below_threshold() { }
+
+// ❌ BAD: Vague names
+#[test]
+fn test_hmac() { }
+```
+
+---
+
+## Security Testing Requirements
+
+### Test Data Hygiene
+```rust
+// ✅ GOOD: Clearly fake test data
+const TEST_SIGNAL_ID: &str = "test-signal-id-00000";
+
+// ❌ BAD: Production-like identifiers
+const TEST_SIGNAL_ID: &str = "+1234567890";
+```
+
+### Memory Safety Testing
+```rust
+#[test]
+fn test_sensitive_buffer_zeroized_after_use() {
+    let mut buffer = [0u8; 32];
+    buffer.copy_from_slice(&TEST_DATA);
+    let result = hash_with_zeroize(&mut buffer);
+    assert_eq!(buffer, [0u8; 32]);  // Verify zeroized
+}
+```
+
+### Property-Based Testing
+```rust
+use proptest::prelude::*;
+
+proptest! {
+    #[test]
+    fn test_hmac_deterministic_for_same_inputs(
+        id in "[a-zA-Z0-9]{1,100}",
+        pepper in prop::array::uniform32(0u8..=255u8)
+    ) {
+        let hash1 = mask_identity_hmac(&id, &pepper);
+        let hash2 = mask_identity_hmac(&id, &pepper);
+        prop_assert_eq!(hash1, hash2);
+    }
+}
+```
+
+---
+
+## Domain-Specific Test Patterns
+
+### Ejection Protocol Tests
+```rust
+#[test]
+fn test_immediate_ejection_when_standing_negative() {
+    let member = create_test_member();
+    let mut state = create_test_state();
+    
+    // Add flags to exceed vouches (voucher-flaggers excluded from BOTH counts)
+    state.add_vouch(&member, &voucher_a);
+    state.add_vouch(&member, &voucher_b);
+    state.add_flag(&member, &non_voucher_1);
+    state.add_flag(&member, &non_voucher_2);
+    state.add_flag(&member, &non_voucher_3);
+    
+    // Standing = 2 - 3 = -1
+    let standing = calculate_trust_standing(&member, &state);
+    assert_eq!(standing, -1);
+    
+    // Should trigger immediate ejection
+    assert!(should_eject_immediately(&check_group_standing(&member, &state)));
+}
+```
+
+---
+
+## Anti-Patterns
+
+### ❌ Non-Deterministic Tests
+```rust
+#[test]
+fn test_hash() {
+    let random_id = generate_random_id();  // ❌ BAD
+}
+```
+
+### ❌ Incomplete Coverage
+```rust
+#[test]
+fn test_trust() {
+    assert!(verify_trust(&vouchers, &member));
+    // Missing: error cases, edge cases
+}
+```
+
+### ❌ Production Data in Tests
+```rust
+const TEST_ID: &str = "+15551234567";  // ❌ BAD - looks real
+```

@@ -1,0 +1,108 @@
+# Bead: Vetting Protocols
+
+**Status**: Immutable Architectural Constraint  
+**Created**: 2026-02-01  
+**Context**: Admission and Vetting Protocols
+
+---
+
+## Core Invariant
+
+**Signal Group = Fully Vetted Members Only**
+
+**Cross-Cluster Requirement** (CONTINUOUS):
+| Role | Requirement |
+|------|-------------|
+| Bridge (2 vouches) | 2 different clusters |
+| Validator (3+ vouches) | min(vouch_count, available_clusters) |
+
+**Bootstrap Exception**: When only 1 cluster exists, cross-cluster not enforced.
+
+---
+
+## Bootstrap: Seed Group (One-Time)
+
+- **Size**: 3 members (minimum for triangulation)
+- **Process**: All 3 vouch for each other (creates triangle)
+- **Result**: Initial Merkle Tree with 3 members, each with 2 vouches
+- **After**: Bot enforces gatekeeper protocol, no manual additions
+
+---
+
+## Admission Protocol
+
+### Phase 1: Invitation (First Vouch)
+```
+Member: /invite @PotentialMember "Optional context"
+```
+- Invitation counts as first vouch
+- ANY Member can invite (Bridges and Validators)
+
+### Phase 2: Strategic Matching (Blind Matchmaker)
+- Bot selects validator from DIFFERENT cluster than inviter
+- Maximizes intersectional trust diversity
+
+### Phase 3: Introduction Facilitation
+- Bot creates 3-person Signal chat (invitee, validator, bot)
+- Validator chats with invitee
+- `/vouch @Invitee` to confirm
+
+### Phase 4: Admission
+1. Verify 2 vouches from different clusters
+2. Push ZK-proofs to Freenet
+3. After Freenet confirms, add to Signal
+4. Announce in group (using hashes, not names)
+5. Delete ephemeral vetting data
+
+---
+
+## Internal Mesh-Building (Blind Matchmaker)
+
+**Purpose**: Maintain fully intersectional mesh as group grows.
+
+**Priority Algorithm:**
+1. Connect Bridges to Validators from different clusters
+2. Bridge disconnected islands (if any)
+
+**Efficiency**: N(Bridges) + I(Islands) new interactions
+
+---
+
+## Continuous Health Monitoring
+
+### Real-Time State Stream (NOT Polling)
+```rust
+async fn membership_health_monitor() {
+    let mut stream = freenet.subscribe_to_state_changes().await;
+    
+    while let Some(change) = stream.next().await {
+        match change {
+            StateChange::VouchRemoved { member, .. } => {
+                if effective_vouches < MIN_VOUCH_THRESHOLD {
+                    signal.remove_member(member).await;
+                }
+            },
+            StateChange::StandingChanged { member, standing } => {
+                if standing < 0 {
+                    signal.remove_member(member).await;
+                }
+            },
+            _ => {}
+        }
+    }
+}
+```
+
+**No Grace Periods**: Immediate ejection when threshold violated.
+
+---
+
+## Key Architectural Principles
+
+1. **Waiting Room = Outside Signal Group** (not separate chat)
+2. **Invitees = OUTSIDE Group** (1 vouch, being vetted)
+3. **Bridges = IN Group** (2 vouches, minimum)
+4. **Validators = IN Group** (3+ vouches, optimization)
+5. **Gatekeeper**: Bot strictly enforces 2-vouch requirement
+6. **Immediate Ejection**: No grace periods
+7. **Vouch Permissions**: ANY Member can vouch

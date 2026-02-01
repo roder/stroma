@@ -1,0 +1,120 @@
+# Bead: Signal Integration Standards
+
+**Status**: Immutable Architectural Constraint  
+**Created**: 2026-02-01  
+**Context**: Signal Protocol Integration
+
+---
+
+## Signal Account & Device Linking
+
+### Bot Links as Secondary Device
+
+Stroma links to an **existing Signal account** as a secondary device. The operator is responsible for having a Signal account — how they obtain it is their concern.
+
+**Device Model:**
+- Signal supports 1 primary device + up to 5 linked devices
+- Stroma bot links as a **secondary device** via QR code
+- Linked devices have **full messaging and group management capabilities**
+
+**Linking Flow:**
+1. Operator starts `stroma link-device --device-name "Stroma Bot"`
+2. Bot displays QR code in terminal
+3. Operator scans QR code with Signal app
+4. Bot receives ACI/PNI identity from primary device
+5. Bot saves identity to StromaProtocolStore
+
+**No Primary Registration**: Stroma does NOT implement `Manager::register()`. Operator creates Signal account outside of Stroma.
+
+---
+
+## Bot Behavior Principles
+
+### Bot Roles
+- **Protocol Gatekeeper**: Enforces 2-vouch requirement for admission
+- **Blind Matchmaker (Internal)**: Strategic introduction matching within single group
+- **Diplomat (External)**: Federation proposals with other Stroma groups
+- **Health Monitor**: Continuous monitoring of trust standing
+
+### Gatekeeper Pattern
+- Presence in Signal group is **binary** and strictly tied to Freenet state
+- **Core Invariant**: Every member must maintain ≥2 vouches from DIFFERENT CLUSTERS
+- **Invitees**: OUTSIDE Signal group (1 vouch, being vetted)
+- **Bridges**: IN Signal group (2 vouches, minimum)
+- **Validators**: IN Signal group (3+ vouches)
+- Monitor Freenet state stream continuously (real-time, not polling)
+
+---
+
+## Immediate Ejection Protocol
+
+**Two Independent Triggers:**
+
+```
+Effective_Vouches = |All_Vouchers| - |Voucher_Flaggers|
+Regular_Flags = |All_Flaggers| - |Voucher_Flaggers|
+Standing = Effective_Vouches - Regular_Flags
+
+# Trigger 1: Standing negative
+IF Standing < 0: EJECT
+
+# Trigger 2: Effective vouch count below minimum
+IF Effective_Vouches < MIN_VOUCH_THRESHOLD: EJECT
+```
+
+**Vouch Invalidation**: If a voucher flags a member, that vouch is invalidated.
+
+**No Grace Periods**: Immediate removal when trigger condition met.
+
+---
+
+## Privacy-First UX
+
+### Command Interface
+All vetting/vouching occurs in **1-on-1 PMs** with bot (prevents metadata leakage).
+
+**Member Commands:**
+- `/invite @username [context]` - Invite someone (counts as first vouch)
+- `/vouch @username` - Vouch for invitee or existing member
+- `/flag @username [reason]` - Flag member for trust violation
+- `/propose <subcommand> [args]` - Propose group decision
+- `/status` - View personal trust standing
+- `/mesh` - View network overview
+
+### Voting: Native Signal Polls (Anonymous)
+
+**Why Polls (Not Reactions):**
+- ✅ Anonymous voting - Signal doesn't expose who voted
+- ✅ Privacy - Only aggregated results visible
+- ❌ Reactions expose voters - violates privacy
+
+**Poll Structure:**
+- Options: Binary (Approve/Reject) or multiple choice
+- Anonymity: Bot sees only totals, never individuals
+- Timeout: Configurable per proposal (48h, 72h, etc.)
+- Threshold: From GroupConfig.config_change_threshold
+
+---
+
+## Data Handling
+
+### Never Store Signal IDs
+- **Critical**: Bot must never store Signal IDs in cleartext
+- **HMAC-based hashing**: Use keyed hashing with ACI-derived key
+- **Ephemeral Memory**: Raw Signal IDs wiped immediately after hashing
+- **Ephemeral State**: Vetting session data deleted after admission
+- **Memory Hygiene**: Use `zeroize` crate to purge sensitive buffers
+
+---
+
+## Vouch Permissions
+
+### Who Can Vouch
+- **ANY Member** in the Stroma Signal group can vouch
+- Includes both Bridges (2 vouches) and Validators (3+ vouches)
+- Invitees (people being vetted) CANNOT vouch
+
+### Vouch Validity
+- Vouches must be from members in DIFFERENT CLUSTERS (cross-cluster mandatory)
+- Bot verifies via Freenet that voucher is current Member
+- First vouch = invitation itself (no separate token)

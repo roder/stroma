@@ -8,7 +8,7 @@
 
 **Decision**: Enhance Blind Matchmaker to prioritize **Distinct Validator Ratio (DVR)** optimization with MST fallback.
 
-**Rationale**: The current MST (Minimum Spanning Tree) algorithm optimizes for fewest introductions, but doesn't maximize network resilience. DVR optimization creates Validators with non-overlapping voucher sets — directly improving attack resistance.
+**Rationale**: The original Blind Matchmaker used only MST (Minimum Spanning Tree) to optimize for *fewest introductions* to achieve connectivity. DVR adds a new optimization layer that prioritizes *network resilience* — creating Validators with non-overlapping voucher sets, which directly improves attack resistance. DVR is a metric, not an algorithm; MST remains the fallback when no DVR-optimal introduction exists.
 
 ## The Hybrid Approach
 
@@ -197,9 +197,15 @@ fn suggest_introduction(bridge: Hash, graph: &TrustGraph) -> Option<Introduction
 
 ### UX Messages
 
+**CRITICAL**: Bot uses **Signal display names** in user-facing messages, never hashes. The bot maintains a transient in-memory mapping (Signal ID → hash) to correlate incoming messages with trust state, but this is never exposed to users or persisted.
+
+**On restart**: The mapping is lost but **reconstructible**. When members send messages post-restart, the bot sees their Signal ID and re-computes: `hash = HMAC(signal_id, aci_derived_key)`. The mapping rebuilds organically as members interact. No need to persist reverse mappings.
+
+**ACI key clarification**: The ACI-derived key used for HMAC is from the **bot's own Signal identity** (its linked account), NOT from group members' keys. Each bot has one ACI keypair; this provides namespace isolation (different bots produce different hashes for the same person).
+
 **DVR-optimal suggestion:**
 ```
-"🔗 Strategic Introduction: I've identified [MemberHash_42] as an ideal
+"🔗 Strategic Introduction: I've identified @Alex as an ideal
 connection for you. Vouching for them would strengthen the network's
 distributed trust (they'd become independently verified).
 
@@ -208,10 +214,12 @@ Would you like me to facilitate an introduction?"
 
 **MST fallback suggestion:**
 ```
-"🔗 Suggestion: Consider connecting with [MemberHash_42] from a different
+"🔗 Suggestion: Consider connecting with @Jordan from a different
 part of the network. This would strengthen your position and improve
 network connectivity."
 ```
+
+**Implementation Note**: The bot resolves hashes to Signal display names using its transient session state. If the member's Signal profile isn't cached (rare edge case), the bot can prompt: "I have a suggestion — reply `/mesh suggest` to see who."
 
 ## Dependencies
 

@@ -2,7 +2,53 @@
 
 **Status**: Immutable Architectural Constraint  
 **Created**: 2026-01-28  
+**Updated**: 2026-02-01
 **Context**: Architecture Decision 2.5
+
+---
+
+## Target Architecture
+
+**Core Stack:** Rust Static Binary | Signal Protocol | Freenet (Dark) | ZK-Proofs
+
+### Architecture Principles
+- **Static Binary**: Must produce statically linked MUSL binary
+- **Minimal Attack Surface**: Keep dependencies minimal, monitor binary size
+- **Privacy-First**: All integrations must preserve anonymity
+- **Decentralized**: No centralized trust authority or coordination
+
+---
+
+## Core Cryptographic Libraries
+
+### `ring`
+- **Purpose**: HMAC generation and cryptographic operations
+- **Usage**: Identity masking with keyed hashing (not deterministic hashing)
+- **Version**: Use latest stable, audited version
+- **Pattern**:
+  ```rust
+  use ring::{digest, hmac};
+  
+  // For HMAC-based identity masking with group-secret pepper
+  let key = hmac::Key::new(hmac::HMAC_SHA256, group_secret_pepper);
+  let tag = hmac::sign(&key, signal_id.as_bytes());
+  ```
+
+### `zeroize`
+- **Purpose**: Memory hygiene - purge sensitive buffers
+- **Usage**: **Mandatory** for all identity masking operations
+- **Requirement**: Must zeroize immediately after hashing
+- **Pattern**:
+  ```rust
+  use zeroize::Zeroize;
+  buffer.zeroize();
+  ```
+
+### `arkworks`
+- **Purpose**: ZK-SNARK circuit implementation
+- **Usage**: Trust verification, recursive ZK vouching
+- **Requirement**: Must implement recursive proofs for scalability
+- **Integration**: Freenet contracts accept ZK-SNARK as input
 
 ---
 
@@ -89,42 +135,17 @@ let reaction = DataMessage {
 };
 ```
 
-### When to Use Each
+### Poll Support (Protocol v8)
+- **Status**: libsignal-service-rs currently on protocol v7 (polls missing)
+- **Solution**: Fork libsignal-service-rs, add protocol v8 poll support
+- **Strategy**: Use our fork until upstream merges
+- **Implementation**: Gastown Agent-Signal task (see `.beads/poll-implementation-gastown.bead`)
 
-**Use Presage for:**
-- Device linking (link_secondary_device)
-- Message sending/receiving
-- Group management
-- Contact handling
-- Connection lifecycle
-
-**Use libsignal-service-rs for:**
-- Custom protobuf messages (when Presage doesn't expose)
-- Raw Signal protocol operations
-- Features Presage doesn't wrap yet
-
-### Dependencies
-
-```toml
-[dependencies]
-# High-level Signal client API
-presage = { git = "https://github.com/whisperfish/presage" }
-# DO NOT use presage-store-sqlite (stores message history - server seizure risk)
-# Implement custom minimal StromaProtocolStore instead
-
-# For custom store encryption (if using file persistence)
-sqlcipher = "0.34"
-
-# Patch for curve25519 (required by Presage)
-[patch.crates-io]
-curve25519-dalek = { git = 'https://github.com/signalapp/curve25519-dalek', tag = 'signal-curve25519-4.1.3' }
-
-# Use forked libsignal-service with protocol v8 poll support
-libsignal-service = {
-    git = "https://github.com/roder/libsignal-service-rs",
-    branch = "feature/protocol-v8-polls"
-}
-```
+**Why Polls Critical:**
+- Anonymous voting (Signal doesn't expose who voted what)
+- Multiple choice options (better than binary reactions)
+- Native Signal UX (familiar interface)
+- Preserves privacy during sensitive decisions
 
 ### Custom Store Requirement (SERVER SEIZURE PROTECTION)
 
@@ -161,6 +182,39 @@ let manager = Manager::with_store(stroma_store, options).await?;
 - Protocol state (~100KB) sufficient for encryption continuity
 
 **See**: `.beads/security-constraints.bead` section 10
+
+---
+
+## Freenet Integration
+
+### Freenet Crates (Q1 Validated)
+
+**`freenet` crate** — For running the node:
+- **Entry Points**:
+  - `freenet::dev_tool::SimNetwork` — Deterministic multi-node testing
+  - `freenet::local_node::Executor::new_mock_in_memory()` — Unit testing
+  - `freenet::local_node::NodeConfig::build()` — Production node
+- **See**: [docs.rs/freenet](https://docs.rs/freenet/latest/freenet/)
+
+**`freenet-stdlib` crate** — For writing Wasm contracts:
+- **Trait**: `ContractInterface` (validate_state, update_state, summarize_state, get_state_delta)
+- **Q1 Finding**: Delta operations MUST be commutative (contract's responsibility)
+- **Pattern**: Set-based state (BTreeSet) with tombstones for remove-wins
+- **Merkle Trees**: Generate on-demand from sets (not stored in contract)
+- **See**: `docs/spike/q1/RESULTS.md` for validated patterns
+
+### Freenet Integration Guardrails
+- ✅ **DO**: Use `freenet` crate for node embedding (NodeConfig::build())
+- ✅ **DO**: Use `freenet-stdlib` for contracts (ContractInterface trait)
+- ✅ **DO**: Use set-based structures (BTreeSet, HashMap) for mergeability
+- ✅ **DO**: Generate Merkle Trees on-demand (not stored in contract)
+- ✅ **DO**: Implement summary-delta synchronization
+- ✅ **DO**: Test delta commutativity (same result regardless of order)
+- ✅ **DO**: Use tombstones for deletions (remove-wins semantics)
+- ❌ **DON'T**: Store Merkle Trees as primary state (not mergeable)
+- ❌ **DON'T**: Use Vec for state (order matters, not easily mergeable)
+- ❌ **DON'T**: Expect Freenet to enforce commutativity (contract's job)
+- ❌ **DON'T**: Expose member identities in contract state (use hashes)
 
 ---
 
@@ -219,6 +273,153 @@ impl TrustNetworkState {
 
 ---
 
+## Build Requirements
+
+### Static MUSL Binary
+- **Requirement**: Must produce statically linked MUSL binary
+- **Target**: `x86_64-unknown-linux-musl` or equivalent
+- **Configuration**: Use `cross` or `cargo build --target` with musl toolchain
+- **Rationale**: Minimal attack surface, no dynamic linking vulnerabilities
+
+### Binary Size Monitoring
+- **Requirement**: Monitor binary size in CI/CD
+- **Tool**: Gastown Deacon or custom script
+- **Action**: Alert on significant size increases (indicates dependency bloat)
+- **Constraint**: Keep attack surface minimal
+
+### Rust Version
+- **Minimum**: Rust 1.93+ (released Jan 22, 2026)
+- **Edition**: 2021
+- **Rationale**: 
+  - Bundled musl 1.2.5 with major DNS resolver improvements
+  - More reliable networking for Signal and freenet-core
+  - Better handling of large DNS records and recursive name servers
+  - Security updates and modern features
+
+---
+
+## Mandatory Tooling
+
+### Supply Chain Security
+
+#### `cargo-deny`
+- **Purpose**: Dependency auditing
+- **Requirement**: **Mandatory** in CI/CD pipeline
+- **Usage**: Check for security vulnerabilities, license issues, duplicate dependencies
+- **Configuration**: Must run before every merge
+
+#### `cargo-crev`
+- **Purpose**: Cryptographic verification of dependencies
+- **Requirement**: **Mandatory** in CI/CD pipeline
+- **Usage**: Verify crate authenticity and security reviews
+- **Integration**: Part of Gastown CI/CD pipeline
+
+### Testing Tooling
+
+#### `cargo-nextest`
+- **Purpose**: Test execution framework
+- **Requirement**: Use for all test runs
+- **Usage**: `cargo nextest run` for deterministic test execution
+
+#### Coverage Tools
+- **Options**: `cargo-llvm-cov` or `cargo-tarpaulin`
+- **Requirement**: Enforce 100% code coverage
+- **Integration**: Generate coverage reports in CI/CD
+
+### Development Tools
+
+#### `rustfmt`
+- **Purpose**: Code formatting
+- **Requirement**: All code must be formatted
+- **Usage**: Run automatically in pre-commit hooks
+
+#### `clippy`
+- **Purpose**: Linting and code quality
+- **Requirement**: Fix all warnings before merging
+- **Usage**: `cargo clippy -- -D warnings`
+
+---
+
+## Runtime Requirements
+
+### Sandboxing (Production)
+- **Tool**: seccomp
+- **Requirement**: Production bot runs in restricted sandbox
+- **Allowed**: Only Signal and Freenet node traffic
+- **Blocked**: All other network access
+- **Rationale**: Minimize attack surface
+
+### Memory Safety
+- **Requirement**: No `unsafe` blocks without security review
+- **Tool**: `zeroize` for sensitive buffer cleanup
+- **Pattern**: Zeroize immediately after cryptographic operations
+- **Audit**: Review all `unsafe` usage in code review
+
+---
+
+## Dependencies Configuration
+
+### Cargo.toml Requirements
+```toml
+[package]
+name = "stroma"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Cryptography
+ring = { version = "...", features = ["std"] }
+zeroize = { version = "...", features = ["zeroize_derive"] }
+arkworks = { version = "..." }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+ciborium = "0.2"  # CBOR for Freenet contracts (NOT JSON)
+
+# Signal integration
+presage = { git = "https://github.com/whisperfish/presage" }
+
+# Freenet integration
+freenet-stdlib = { version = "...", features = ["full"] }
+
+# Optional storage
+sled = { version = "...", optional = true }
+
+[dev-dependencies]
+cargo-nextest = "..."
+proptest = "..."  # For property-based testing
+mock_instant = "..."  # For deterministic time mocking
+
+[patch.crates-io]
+curve25519-dalek = { git = 'https://github.com/signalapp/curve25519-dalek', tag = 'signal-curve25519-4.1.3' }
+libsignal-service = {
+    git = "https://github.com/roder/libsignal-service-rs",
+    branch = "feature/protocol-v8-polls"
+}
+
+[profile.release]
+opt-level = "z"  # Optimize for size
+lto = true  # Link-time optimization
+strip = true  # Strip symbols
+```
+
+---
+
+## Prohibited Dependencies
+
+- ❌ **NEVER** use crates that require network access (except Signal/Freenet)
+- ❌ **NEVER** use crates that log or expose identifiers
+- ❌ **NEVER** use crates with known security vulnerabilities
+- ❌ **NEVER** use crates that bypass zeroization requirements
+- ❌ **NEVER** use logging frameworks that might leak identifiers
+- ❌ **NEVER** use database libraries (use Freenet for state)
+- ❌ **NEVER** use convenience libraries that add significant bloat
+- ❌ **NEVER** use unmaintained or security-vulnerable crates
+
+---
+
+## Anti-Patterns
+
 ### Code Constraints
 
 **Block These Patterns:**
@@ -242,17 +443,26 @@ let manager = Manager::with_store(stroma_store, options).await?;
 
 // ✅ REQUIRED - Ephemeral message handling
 async fn handle_message(&mut self, message: Message) -> Result<()> {
-    // Process message (vouch, flag, etc.)
     process_command(&message)?;
-    
     // Message NOT stored - ephemeral only
-    // (no persistence call)
-    
     Ok(())
 }
 ```
 
-### Gastown Agent Instructions
+---
+
+## CI/CD Pipeline Requirements
+
+1. **Build**: Static MUSL binary
+2. **Test**: `cargo nextest run` with 100% coverage
+3. **Audit**: `cargo-deny check` and `cargo-crev verify`
+4. **Lint**: `cargo clippy -- -D warnings`
+5. **Format**: `cargo fmt --check`
+6. **Size**: Monitor binary size (alert on increases)
+
+---
+
+## Gastown Agent Instructions
 
 **When implementing Signal integration:**
 1. Use Presage as primary API

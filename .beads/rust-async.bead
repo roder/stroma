@@ -1,0 +1,197 @@
+# Bead: Rust Async Programming Standards
+
+**Status**: Operational Guidance  
+**Created**: 2026-02-01  
+**Context**: Async Programming Patterns
+
+---
+
+## Core Async Runtime
+
+### Tokio
+- **Mandatory**: Use `tokio` as the async runtime
+- **Features**: Enable `full` features for comprehensive async support
+- **Version**: Use latest stable tokio (1.35+)
+
+```toml
+tokio = { version = "1.35", features = ["full"] }
+```
+
+---
+
+## Key Principles
+
+- Write clear, idiomatic Rust with async paradigms using `tokio`
+- Use expressive variable names (e.g., `is_ready`, `has_connected`)
+- Follow Rust naming: `snake_case` for variables/functions, `PascalCase` for types
+
+### Stroma-Specific Async Patterns
+- **Freenet State Stream**: Real-time monitoring (NOT polling)
+- **Signal Bot Event Loop**: Event-driven architecture with tokio channels
+- **Proof Generation**: Offload CPU-intensive STARK generation to `spawn_blocking`
+- **Memory Hygiene**: Ensure zeroization works correctly with async operations
+
+---
+
+## Task Management
+
+### Task Spawning
+- Use `tokio::spawn` for independent concurrent tasks
+- Use `tokio::task::spawn_blocking` for CPU-intensive operations (e.g., STARK proofs)
+
+```rust
+// ✅ GOOD: Spawn blocking for CPU-intensive work
+async fn generate_proof_async(data: ProofData) -> Result<Proof, Error> {
+    tokio::task::spawn_blocking(move || {
+        generate_stark_proof_sync(data)
+    })
+    .await?
+}
+```
+
+### Select for Cancellation
+```rust
+async fn bot_event_loop(mut cancel: Receiver<()>) {
+    loop {
+        tokio::select! {
+            Some(event) = state_stream.next() => {
+                handle_event(event).await;
+            }
+            _ = cancel.recv() => break,
+        }
+    }
+}
+```
+
+---
+
+## Channels
+
+- **MPSC**: Multi-producer, single-consumer (e.g., bot commands)
+- **Broadcast**: Event broadcasting (e.g., state changes)
+- **Oneshot**: One-time responses (e.g., RPC)
+
+### Best Practices
+- Prefer bounded channels for backpressure
+- Use `try_send` when you can't afford to block
+- Handle channel closure explicitly
+
+---
+
+## Shared State
+
+```rust
+// ✅ GOOD: Minimal lock scope
+async fn update_state(state: Arc<Mutex<State>>, data: Data) -> Result<(), Error> {
+    let processed = process_data(data)?;  // Work before lock
+    
+    {
+        let mut state = state.lock().await;
+        state.apply(processed);
+    }  // Lock released here
+    
+    Ok(())
+}
+```
+
+- Minimize lock duration
+- Always acquire locks in consistent order (avoid deadlocks)
+
+---
+
+## Stroma Event-Driven Architecture
+
+### Bot Event Loop Pattern
+```rust
+async fn bot_event_loop(freenet: Arc<FreenetClient>, signal: Arc<SignalClient>) -> Result<(), Error> {
+    let mut state_stream = freenet.subscribe_to_state_changes().await?;
+    
+    loop {
+        tokio::select! {
+            Some(event) = state_stream.next() => {
+                match event {
+                    StateChange::MemberVetted(hash) => signal.add_member(hash).await?,
+                    StateChange::MemberRevoked(hash) => signal.remove_member(hash).await?,
+                    StateChange::FederationApproved(group) => establish_federation(group).await?,
+                }
+            }
+            _ = tokio::signal::ctrl_c() => {
+                log::info!("Shutting down gracefully");
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+```
+
+### State Stream (NOT Polling)
+```rust
+// ✅ GOOD: Real-time state stream
+async fn monitor_freenet_state(client: &FreenetClient) {
+    let mut stream = client.subscribe_to_state_changes().await.unwrap();
+    while let Some(change) = stream.next().await {
+        handle_state_change(change).await;
+    }
+}
+
+// ❌ BAD: Polling (inefficient)
+async fn poll_freenet_state(client: &FreenetClient) {
+    loop {
+        let state = client.get_state().await.unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await;  // Wasteful
+    }
+}
+```
+
+---
+
+## Anti-Patterns
+
+### ❌ DON'T: Block in async context
+```rust
+async fn bad_example() {
+    std::thread::sleep(Duration::from_secs(1));  // Blocks runtime!
+}
+```
+
+### ❌ DON'T: Hold locks across await points
+```rust
+async fn bad_example(mutex: &Mutex<Data>) {
+    let data = mutex.lock().await;
+    some_async_operation().await;  // Still holding lock - deadlock risk!
+}
+```
+
+### ❌ DON'T: Ignore cancellation
+```rust
+async fn bad_example() {
+    loop {
+        work().await;  // No way to cancel gracefully
+    }
+}
+```
+
+---
+
+## Testing Async Code
+
+```rust
+#[tokio::test]
+async fn test_vouch_admission() {
+    let bot = setup_test_bot().await;
+    let result = bot.process_vouch(test_hash()).await;
+    assert!(result.is_ok());
+}
+```
+
+### Time Testing
+```rust
+#[tokio::test]
+async fn test_ejection_timeout() {
+    tokio::time::pause();
+    let bot = setup_test_bot().await;
+    tokio::time::advance(Duration::from_secs(3600)).await;
+    assert!(bot.member_was_ejected(test_hash()));
+}
+```

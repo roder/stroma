@@ -1,0 +1,112 @@
+# Bead: User Roles & User Experience
+
+**Status**: Immutable Architectural Constraint  
+**Created**: 2026-02-01  
+**Context**: UX Specification
+
+---
+
+## Role Definitions
+
+### Operator
+- Bot administrator who runs the bot as a service
+- **Least Privilege**: Cannot manually execute membership changes
+- Cannot change consensus thresholds without group vote
+- Cannot override ejections or bypass protocol
+- All operator actions auditable via `/audit operator`
+
+### Members
+- Fully vetted, trusted nodes IN the Stroma Signal group
+- Must maintain ≥2 vouches from DIFFERENT CLUSTERS
+- Trust Standing ≥ 0 (Effective_Vouches - Regular_Flags)
+
+**Sub-Types:**
+- **Bridges**: Exactly 2 vouches (minimum requirement)
+- **Validators**: 3+ vouches (high-trust, used for optimization)
+
+### Invitees (Leaf Nodes)
+- People OUTSIDE the Signal group being vetted
+- Has 1 vouch from inviter, needs 1 more from different member
+- Cannot vouch for others, cannot flag, cannot vote
+
+### Bot
+- Automated trust network facilitator
+- Roles: Gatekeeper, Blind Matchmaker, Diplomat, Health Monitor
+- All operations in 1-on-1 PMs (privacy-first)
+- Never stores Signal IDs in cleartext
+
+---
+
+## Bot Commands Reference
+
+### Invitation & Vetting
+- `/invite @username [context]` - Invite someone (counts as first vouch)
+- `/vouch @username` - Vouch for invitee or existing member
+
+### Trust Management
+- `/flag @username [reason]` - Flag member (required reason)
+
+### Status Queries
+- `/status` - Your trust standing
+- `/mesh` - Network overview (trust + replication health)
+- `/mesh strength` - DVR and vouch distribution
+- `/mesh replication` - Replication health status
+- `/mesh config` - Group configuration
+
+### Configuration
+- `/propose config <setting> <value>` - Signal group settings
+- `/propose stroma <setting> <value>` - Stroma configuration
+- `/propose federate <group-id>` - Federation proposal
+
+### Audit
+- `/audit operator` - Operator action history
+
+---
+
+## Voting: Native Signal Polls (Anonymous)
+
+- ✅ Anonymous voting - Signal doesn't expose who voted
+- ✅ Only aggregated results visible
+- ❌ Reactions expose voters - NOT used
+
+**Structure:**
+- Options: Binary (Approve/Reject)
+- Timeout: Configurable per proposal
+- Threshold: From GroupConfig.config_change_threshold
+
+---
+
+## Network Health: Distinct Validator Ratio (DVR)
+
+**Formula**: DVR = Distinct_Validators / (N / 4)
+
+**Three-Tier Status:**
+| Color | DVR Range | Status |
+|-------|-----------|--------|
+| 🔴 | 0-33% | Unhealthy |
+| 🟡 | 33-66% | Developing |
+| 🟢 | 66-100% | Healthy |
+
+---
+
+## Bot Voice & Personality
+
+- **Natural Language**: Conversational, not technical jargon
+- **Transparent**: Explains decisions in human terms
+- **Proactive**: Suggests strategic introductions
+- **Privacy-Conscious**: Never reveals identities or social graph
+- **Non-Judgmental**: No shame or blame in trust decisions
+
+---
+
+## State Transitions
+
+### Invitee → Bridge → Validator
+- Invitee (1 vouch, outside group)
+- Bridge (2 vouches, in group)
+- Validator (3+ vouches, in group)
+
+### Member → Ejected → Re-Entry
+- Ejection: Standing < 0 OR Effective_Vouches < 2
+- Re-entry: Secure 2 new vouches via /invite
+- No cooldown period

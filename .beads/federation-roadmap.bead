@@ -63,7 +63,7 @@ If we design for federation from the start (but implement single-group first):
 
 **This means:**
 - Contract schema includes federation hooks (present but unused)
-- Identity hashing is re-computable (group-scoped HMAC)
+- Identity hashing is re-computable (ACI-derived HMAC — each bot's namespace is isolated)
 - Module structure includes `federation/` (disabled via feature flag)
 - Node types support cross-mesh scenarios
 - Social Anchor hashing computed locally (not broadcast)
@@ -581,7 +581,7 @@ async fn monitor_discovery_uris(uris: &[Uri]) {
 **Core Philosophy**: Every design decision in Phase 0-3 MUST optimize for future federation.
 
 **Key Invariants:**
-1. Identity hashing is re-computable (group-scoped HMAC)
+1. Identity hashing is re-computable (ACI-derived HMAC — each bot's namespace is isolated)
 2. Contract schema supports federation hooks
 3. Module structure includes federation/ (disabled)
 4. Discovery is emergent (no pre-shared keys)

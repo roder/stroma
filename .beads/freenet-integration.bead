@@ -1,0 +1,164 @@
+# Bead: Freenet Integration Standards
+
+**Status**: Immutable Architectural Constraint  
+**Created**: 2026-02-01  
+**Context**: Freenet Node Embedding and Contract Development
+
+---
+
+## Architectural Decision: Embedded Node
+
+**Decision**: Embed Freenet node directly into Stroma binary (not external service)
+
+**Benefits:**
+- Simpler deployment (single service)
+- Reduced attack surface (no IPC)
+- Better error handling (in-process)
+- Easier for operators
+- **Trust Map Protection**: Distributed state (no single seizure point)
+
+---
+
+## Crate Usage (Q1 Validated)
+
+| Crate | Purpose |
+|-------|---------|
+| `freenet` | Running the node (NodeConfig, SimNetwork, Executor) |
+| `freenet-stdlib` | Writing Wasm contracts (ContractInterface trait) |
+
+**Entry Points:**
+| Use Case | Entry Point |
+|----------|-------------|
+| Spike/integration testing | `freenet::dev_tool::SimNetwork` |
+| Unit testing | `freenet::local_node::Executor::new_mock_in_memory()` |
+| Production | `freenet::local_node::NodeConfig::build()` |
+
+---
+
+## Production Pattern: NodeConfig::build()
+
+```rust
+use freenet::local_node::{NodeConfig, OperationMode};
+use freenet::dev_tool::ClientEventsProxy;
+
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    let mut config = NodeConfig {
+        should_connect: true,
+        is_gateway: false,
+        key_pair: TransportKeypair::new(),
+        network_listener_ip: "0.0.0.0".parse()?,
+        network_listener_port: 0,  // OS assigns port
+        ..Default::default()
+    };
+    
+    config.add_gateway(InitPeerNode::new(...));
+    let node: Node = config.build([client_proxy]).await?;
+    
+    let signal = SignalBot::authenticate(config.signal).await?;
+    run_bot_event_loop(node, signal).await
+}
+```
+
+---
+
+## Testing Pattern: SimNetwork
+
+```rust
+use freenet::dev_tool::SimNetwork;
+
+async fn test_conflict_resolution() -> Result<(), Error> {
+    // Create simulated network: 1 gateway, 3 nodes, deterministic seed
+    let mut sim = SimNetwork::new("test", 1, 3, 10, 3, 10, 5, 0x1234).await;
+    
+    sim.check_connectivity(Duration::from_secs(10)).await?;
+    
+    let result = sim.check_convergence().await;
+    println!("Converged: {}, Diverged: {}", 
+             result.converged.len(), result.diverged.len());
+    
+    Ok(())
+}
+```
+
+---
+
+## Two-Layer Architecture
+
+### Layer 1: Trust State (Freenet-Native)
+| Aspect | Specification |
+|--------|---------------|
+| Storage | BTreeSet (members), HashMap (vouches, flags) |
+| Sync | Native Freenet ComposableState |
+| Updates | Small deltas (~100-500 bytes), infrequent (human timescale) |
+| Security | Contract validates via `update_state()` + `validate_state()` |
+
+### Layer 2: Persistence Fragments (Reciprocal Persistence Network)
+| Aspect | Specification |
+|--------|---------------|
+| Purpose | Durability against Freenet data loss, server seizure protection |
+| Method | Encrypt full state, chunk into 64KB pieces, replicate 3x each |
+| Distribution | Deterministic per-chunk (rendezvous hashing, zero trust) |
+
+---
+
+## State Stream Monitoring
+
+**Real-Time Stream** (REQUIRED - never poll):
+
+```rust
+async fn run_bot_event_loop(node: Node, signal: SignalBot) -> Result<(), Error> {
+    let shutdown = node.shutdown_handle();
+    let mut state_stream = /* subscribe via client proxy */;
+    
+    loop {
+        tokio::select! {
+            Some(state_change) = state_stream.next() => {
+                handle_freenet_change(state_change, &signal).await?;
+            }
+            Some(message) = signal.recv_message() => {
+                handle_signal_command(message, &node).await?;
+            }
+            _ = shutdown_signal() => {
+                shutdown.shutdown();
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+```
+
+---
+
+## Emergent Discovery (Shadow Beacons)
+
+### Social Anchor Hashing
+- Generate Freenet URI from: `Hash(Sorted(Top-N-Validators))`
+- Dynamic threshold based on group size
+- URI changes as group composition changes (organic discovery)
+
+### Bloom Filter Strategy (External Federation Only)
+- Publish Bloom Filter at multiple URIs (percentile-based)
+- Use PSI-CA to prove overlap without revealing IDs
+- Both groups check if overlap meets their threshold (BidirectionalMin)
+
+---
+
+## Federation Logic (BidirectionalMin)
+
+```rust
+// Each group evaluates with its own threshold
+let density_in_a = intersection_size / group_a_size;
+let density_in_b = intersection_size / group_b_size;
+
+// Both thresholds must be satisfied
+if (density_in_a >= threshold_a) && (density_in_b >= threshold_b) {
+    propose_federation_to_both_groups();
+}
+```
+
+**Key Principles:**
+- Independent thresholds per group
+- BidirectionalMin: both groups must approve
+- Group autonomy: thresholds changeable only via group vote

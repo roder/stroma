@@ -1,0 +1,170 @@
+# Bead: Freenet Contract Design Standards
+
+**Status**: Immutable Architectural Constraint  
+**Created**: 2026-02-01  
+**Context**: Freenet Wasm Contract Development
+
+---
+
+## Overview
+
+Freenet contracts are **WebAssembly (Wasm) code that defines how to merge conflicting states** across a decentralized network. Unlike traditional databases, Freenet achieves eventual consistency through **summary-delta synchronization** rather than consensus algorithms.
+
+**References:**
+- [freenet-stdlib](https://docs.rs/freenet-stdlib) - ContractInterface trait for Wasm contracts
+- [freenet crate](https://docs.rs/freenet) - Node embedding (SimNetwork for testing, NodeConfig for production)
+- [Understanding Delta-Sync](https://freenet.org/news/summary-delta-sync/) - Deep dive on synchronization approach
+
+**Note**: `freenet-scaffold` is outdated. Use `freenet-stdlib` for contracts and `freenet` for node embedding.
+
+---
+
+## Core Concepts
+
+### Eventual Consistency via Merging
+- Values stored under contract keys must be **mergeable** (order-independent combining)
+- Merging must be a **commutative monoid** (same result regardless of merge order)
+- No consensus algorithms (Paxos, Raft) - instead use deterministic merging
+
+### Summary-Delta Synchronization
+1. **Summary**: Each node generates compact representation of current state
+2. **Delta**: Nodes exchange summaries to create minimal changes needed to sync
+
+### ContractInterface Trait (freenet-stdlib)
+
+```rust
+pub trait ContractInterface {
+    fn validate_state(
+        parameters: Parameters<'static>,
+        state: State<'static>,
+        related: RelatedContracts<'static>,
+    ) -> Result<ValidateResult, ContractError>;
+    
+    fn update_state(
+        parameters: Parameters<'static>,
+        state: State<'static>,
+        data: Vec<UpdateData<'static>>,
+    ) -> Result<UpdateModification<'static>, ContractError>;
+    
+    fn summarize_state(...) -> Result<StateSummary<'static>, ContractError>;
+    fn get_state_delta(...) -> Result<StateDelta<'static>, ContractError>;
+}
+```
+
+**Critical Requirement**: Delta updates MUST be commutative.
+
+---
+
+## Mergeable State Structures
+
+### ❌ NOT Mergeable (Avoid)
+```rust
+pub struct TrustNetworkState {
+    members: MerkleTree<MemberHash>,  // Two different trees = conflict
+    vouches: Vec<VouchProof>,         // Order matters in Vec
+}
+```
+
+### ✅ Mergeable (Use These Patterns)
+```rust
+use std::collections::{BTreeSet, HashMap};
+
+// Set-based membership (mergeable via union)
+pub struct Members {
+    active: BTreeSet<MemberHash>,
+    removed: BTreeSet<MemberHash>,  // Tombstones for removed members
+}
+
+// Map-based vouching (mergeable via map union)
+pub struct VouchGraph {
+    vouches: HashMap<MemberHash, BTreeSet<MemberHash>>,
+}
+```
+
+---
+
+## Complete Mergeable Schema
+
+```rust
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct TrustNetworkState {
+    // Membership (set-based, commutative)
+    pub members: BTreeSet<MemberHash>,
+    pub ejected: BTreeSet<MemberHash>,  // Can return (not permanent tombstone)
+    
+    // Trust graph (set-based, commutative)
+    pub vouches: HashMap<MemberHash, HashSet<MemberHash>>,  // vouchee -> vouchers
+    pub flags: HashMap<MemberHash, HashSet<MemberHash>>,    // flagged -> flaggers
+    
+    // Config (last-write-wins with timestamp)
+    pub config: GroupConfigV1,
+    pub config_timestamp: u64,
+    
+    // Version tracking
+    pub schema_version: u64,
+}
+```
+
+---
+
+## ZK-Proof Integration Strategy
+
+### Bot-Side Verification (Phase 0)
+
+**Architecture**:
+```
+Member → Signal command → Bot → Generate & Verify STARK → Submit outcome → Freenet
+```
+
+**Key Points**:
+- Bot generates proofs (members NEVER generate proofs)
+- Bot verifies proofs using native winterfell (fast, reliable)
+- Bot submits verified outcomes to Freenet contract
+- Contract trusts bot's verification (acceptable for Phase 0)
+
+### Proof Storage (Q6 Decision)
+Since bot verifies (not contract): **Store outcomes only** (not proofs).
+- Proofs are ephemeral (10-100KB each)
+- Contract stores "Alice vouched for Bob", not the proof itself
+
+---
+
+## Spike Week Validated Findings
+
+| Question | Status | Finding |
+|----------|--------|---------|
+| Q1 | GO | Use set-based state with tombstones (commutative merges) |
+| Q2 | GO | Contract CAN enforce invariants (trustless model viable) |
+| Q3 | GO | Bridge Removal algorithm for cluster detection |
+| Q4 | PARTIAL | Bot-side STARK verification for Phase 0 |
+| Q5 | GO | On-demand Merkle generation (0.09ms at 1000 members) |
+| Q6 | COMPLETE | Store outcomes only (proofs ephemeral) |
+
+---
+
+## Delta Commutativity Testing
+
+```rust
+#[test]
+fn test_delta_commutativity() {
+    let initial = create_initial_state();
+    
+    let delta_add = Delta { added: vec!["X".into()], removed: vec![] };
+    let delta_remove = Delta { added: vec![], removed: vec!["A".into()] };
+    
+    // Order 1: Add then Remove
+    let mut state1 = initial.clone();
+    state1.apply_delta(&delta_add);
+    state1.apply_delta(&delta_remove);
+    
+    // Order 2: Remove then Add
+    let mut state2 = initial.clone();
+    state2.apply_delta(&delta_remove);
+    state2.apply_delta(&delta_add);
+    
+    // Must be identical regardless of delta order
+    assert_eq!(state1, state2, "Deltas must be commutative");
+}
+```
+
+**See**: `docs/spike/q1/RESULTS.md` for validated implementation with full test suite.

@@ -79,17 +79,17 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 #[derive(ZeroizeOnDrop)]
 struct SensitiveData {
     signal_id: String,
-    pepper: Vec<u8>,
+    aci_identity: IdentityKeyPair,  // Signal ACI identity (replaces pepper)
 }
 
 impl SensitiveData {
-    fn process(&mut self) -> Hash {
-        // Process data
-        let hash = mask_identity(&self.signal_id, &self.pepper);
+    fn process(&mut self, aci_identity: &IdentityKeyPair) -> Hash {
+        // Process data using ACI-derived key
+        let hash = mask_identity(&self.signal_id, aci_identity);
         
-        // Explicit zeroization
+        // Explicit zeroization of cleartext
         self.signal_id.zeroize();
-        self.pepper.zeroize();
+        // Note: aci_identity is not zeroized here - managed by Signal store
         
         hash
     }
@@ -384,7 +384,7 @@ async fn bot_event_loop(freenet: &FreenetClient, signal: &SignalClient) {
 - ❌ **NEVER** store trust map in centralized database
 
 **Layer 2: Cryptographic Privacy**
-- ✅ All identities HMAC-hashed (group-secret pepper)
+- ✅ All identities HMAC-hashed (ACI-derived key)
 - ✅ Memory contains only hashes (immediate zeroization)
 - ✅ ZK-proofs verify trust without revealing vouchers
 - ❌ **NEVER** store cleartext identifiers anywhere
@@ -419,9 +419,11 @@ async fn bot_event_loop(freenet: &FreenetClient, signal: &SignalClient) {
 ## 7. Node Type Definitions (CRITICAL TERMINOLOGY)
 
 ### Clear Distinction
-- **Invitees (Leaf Nodes)**: OUTSIDE Signal group (1 vouch, being vetted)
+- **Invitees** (aka Leaf Nodes): OUTSIDE Signal group (1 vouch, being vetted)
 - **Bridges**: IN Signal group (2 vouches, minimum requirement)
 - **Validators**: IN Signal group (3+ vouches, high-trust members, NO special privileges)
+
+**Terminology**: "Invitee" and "Leaf Node" are synonyms — use "Invitee" in user contexts, "Leaf Node" in graph algorithms. See `terminology.bead`.
 
 ### Waiting Room = State, Not Place
 - ❌ **NEVER** create separate "waiting room" chat
@@ -445,18 +447,19 @@ mod tests {
     
     proptest! {
         #[test]
-        fn test_different_pepper_different_hash(
+        fn test_different_aci_different_hash(
             signal_id in ".*",
-            pepper1 in prop::collection::vec(any::<u8>(), 16..32),
-            pepper2 in prop::collection::vec(any::<u8>(), 16..32),
         ) {
-            let hash1 = mask_identity(&signal_id, &pepper1);
-            let hash2 = mask_identity(&signal_id, &pepper2);
+            // Generate two different ACI identity keypairs
+            let aci1 = IdentityKeyPair::generate(&mut rand::thread_rng());
+            let aci2 = IdentityKeyPair::generate(&mut rand::thread_rng());
             
-            // Same ID with different pepper MUST produce different hashes
-            if pepper1 != pepper2 {
-                assert_ne!(hash1, hash2);
-            }
+            let hash1 = mask_identity(&signal_id, &aci1);
+            let hash2 = mask_identity(&signal_id, &aci2);
+            
+            // Same ID with different ACI MUST produce different hashes
+            // (each bot's namespace is isolated)
+            assert_ne!(hash1, hash2);
         }
     }
 }

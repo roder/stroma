@@ -1,0 +1,206 @@
+# Bead: Cryptography & Zero-Knowledge Standards
+
+**Status**: Immutable Architectural Constraint  
+**Created**: 2026-02-01  
+**Context**: Cryptographic Implementation Standards
+
+---
+
+## Zero-Knowledge Proof Requirements
+
+### Trust Verification Logic
+
+The Freenet contract must verify:
+```
+ASSERT: zk_Proof(PROVE(Signer_A) AND PROVE(Signer_B))
+WHERE: Signer_A IS_MEMBER_OF Global_Merkle_Tree
+AND: Signer_B IS_MEMBER_OF Global_Merkle_Tree
+AND: Signer_A IS_NOT Signer_B
+AND: New_Member_Hash IS_NOT_MEMBER_OF Global_Merkle_Tree
+```
+
+### Recursive Proofs
+- Implement recursive proofs for scalability
+- Batch updates to ensure constant-time verification regardless of network size
+- Use `arkworks` for ZK-SNARK circuit implementation
+
+---
+
+## Private Set Intersection (PSI)
+
+### PSI-CA Pattern
+```rust
+// Conceptual pattern for Private Set Intersection Cardinality
+// Both bots apply commutative encryption (double-blinding)
+// Compare results to find overlap count without revealing specific IDs
+pub fn find_intersection_size(
+    my_hashes: Vec<[u8; 32]>, 
+    peer_hashes: Vec<[u8; 32]>
+) -> usize {
+    // Commutative encryption applied
+    // Returns count only, never individual matches
+}
+```
+
+### Federation Threshold (BidirectionalMin with Independent Thresholds)
+- **Old approach**: `|A ∩ B| / |A ∪ B| > 0.10` (union-based, problematic with asymmetric groups)
+- **New approach**: BidirectionalMin with independent per-group thresholds
+
+**BidirectionalMin Logic:**
+```rust
+// Each group evaluates with its own threshold
+let density_in_a = intersection_count / group_a_size;
+let density_in_b = intersection_count / group_b_size;
+
+// Both must be satisfied
+if (density_in_a >= threshold_a) && (density_in_b >= threshold_b) {
+    propose_federation_to_both_groups();
+}
+```
+
+**Key Properties:**
+- Each group has independent threshold in their GroupConfig
+- Small groups can require higher thresholds (e.g., 30%) to avoid absorption
+- Large groups can accept lower thresholds (e.g., 10%) for growth
+- Use PSI-CA to calculate overlap without revealing member identities
+- **Commutative Encryption**: Double-blinding for anonymous overlap calculation
+- **Trust Horizon**: Anonymous trust verification without lineage tracing
+- **Group Autonomy**: Thresholds stored in Freenet contract, changeable only via group vote
+
+---
+
+## Merkle Tree Implementation
+
+### State Storage Pattern
+- **Never store member lists directly** - use hashed identifiers only
+- **Generate Merkle Trees on-demand** from member sets for ZK-proof verification
+- **Do NOT store Merkle Trees** in contract state (they're not mergeable)
+- Store membership in BTreeSet (naturally mergeable), generate Merkle Tree when needed
+- Contract accepts ZK-SNARK as input for verification
+
+### On-Demand Merkle Tree Generation (Q5 Spike Validated)
+
+**Q5 Finding**: On-demand Merkle generation is extremely fast — no caching needed.
+
+| Members | Root Calculation |
+|---------|------------------|
+| 100 | 0.01ms |
+| 1000 | **0.09ms** |
+| 5000 | 0.45ms |
+
+**Decision**: Generate on demand. 0.09ms at 1000 members is 1000x faster than threshold.
+
+**See**: `docs/spike/q5/RESULTS.md` for full benchmarks.
+
+**Implementation Pattern**:
+```rust
+// Root calculation: on-demand for all membership verification
+let root = calculate_root(&members)?;
+
+// Full tree: only when proof generation needed
+let tree = MerkleTree::from_btreeset(&members)?;
+let proof = tree.generate_proof(&member_hash)?;
+```
+
+### Tree Updates
+- Membership changes update BTreeSet (automatically merged via ComposableState)
+- Merkle Tree regenerated on-demand for next verification (no cache invalidation needed)
+- Rotate group-secret pepper via configuration change proposal
+
+---
+
+## ZK-Proof Verification Location (Q4 Spike Validated)
+
+### Bot-Side Verification (Phase 0)
+
+**Q4 Finding**: winterfell Wasm is experimental. **Bot-side verification** recommended for Phase 0.
+
+**Architecture**:
+```
+Member → Signal command → Bot → Generate & Verify STARK → Submit outcome → Freenet
+```
+
+**Key Points**:
+- Bot generates proofs (members NEVER generate proofs)
+- Bot verifies proofs using native winterfell (fast, reliable)
+- Bot submits verified outcomes to Freenet contract
+- Contract trusts bot's verification (acceptable for Phase 0 trust model)
+
+**See**: `docs/spike/q4/RESULTS.md` for full analysis.
+
+### Why Not Contract-Side (Q4)
+- winterfell Wasm support is experimental
+- SIMD dependencies, compilation challenges
+- Bot can forge valid proofs anyway (has all inputs)
+- Defense against compromised bot comes from cross-cluster requirement and operator accountability, not contract STARK verification
+
+### Proof Storage (Q6 Decision)
+Since bot verifies (not contract): **Store outcomes only** (not proofs).
+- Proofs are ephemeral (10-100KB each)
+- Contract stores "Alice vouched for Bob", not the proof
+- Simplifies contract state and merging
+
+**See**: `docs/spike/q6/RESULTS.md` for rationale.
+
+---
+
+## Key Management
+
+### Social Anchor Hashing (Multiple Discovery Points)
+- Generate **multiple** Freenet URIs using percentile-based thresholds (not single fixed N)
+- **Percentile-Based Discovery**: Use multiple validator percentiles (e.g., top 10%, 20%, 30%, 50%)
+- **Why Multiple URIs**: Handles asymmetric group sizes - small and large groups can discover each other
+
+**Discovery URI Generation:**
+```rust
+fn generate_discovery_uris(validators: &[ValidatorId]) -> Vec<FreenetUri> {
+    let percentiles = [10, 20, 30, 50];  // Top 10%, 20%, 30%, 50%
+    let mut uris = Vec::new();
+    
+    for percentile in percentiles {
+        let n = max(3, validators.len() * percentile / 100);
+        let top_n: Vec<_> = validators.iter()
+            .sorted_by_key(|v| v.vouch_count)
+            .rev()
+            .take(n)
+            .collect();
+        
+        // Sort alphabetically for deterministic hashing
+        top_n.sort();
+        let uri = hash_social_anchor(&top_n);
+        uris.push(uri);
+    }
+    
+    uris
+}
+```
+
+**Discovery Process:**
+1. Each bot publishes Bloom Filters at multiple URIs (different percentile thresholds)
+2. Bots scan multiple URIs to find matches
+3. When match found at specific percentile, indicates shared validators at that level
+4. Proceed with PSI-CA to calculate actual overlap
+5. Exchange group sizes and thresholds during handshake
+
+**Benefits:**
+- Small groups (20 members): Publish at URIs for top 3, 4, 6, 10 validators
+- Large groups (100 members): Publish at URIs for top 10, 20, 30, 50 validators  
+- If they share validators, they'll discover each other at appropriate percentile URI
+- **Configurable**: `validator_percentile` stored in GroupConfig, changeable via group vote
+
+### Key Derivation
+- **Never use pre-shared keys (PSK)**
+- **HMAC-based hashing**: Use keyed hashing with group-secret pepper (not deterministic hashing)
+- **Group-secret pepper**: Rotates via Merkle-root update
+- All keys must be derived from group state
+- Keys should rotate based on Merkle-root updates
+- **Ephemeral state**: Relationship data deleted after vetting threshold met
+
+---
+
+## Memory Security
+
+### Zeroization Requirements
+- Use `zeroize` crate for all sensitive buffers
+- Purge immediately after cryptographic operations
+- Never leave keys or identifiers in memory longer than necessary

@@ -1,0 +1,181 @@
+# Bead: Operator CLI Standards
+
+**Status**: Immutable Architectural Constraint  
+**Created**: 2026-02-01  
+**Context**: CLI Interface Design
+
+---
+
+## Design Principle
+
+**Operator CLI is for SERVICE MANAGEMENT ONLY** - not trust operations.
+
+**Critical**: Operator cannot execute membership changes, trust operations, or override group decisions. CLI reflects operator least privilege principle.
+
+---
+
+## Command Structure
+
+```bash
+stroma <COMMAND> [OPTIONS]
+
+Commands:
+  bootstrap    Initialize new group with seed members (one-time only)
+  run          Run bot service (normal operation)
+  status       Show bot health and embedded kernel status
+  verify       Verify configuration and state integrity
+  backup-store Export Signal protocol store for backup (encrypted)
+  version      Show version information
+  help         Show help message
+```
+
+---
+
+## Command Specifications
+
+### `bootstrap` - Initialize New Group
+
+**Purpose**: One-time setup for 3-member seed group
+
+```bash
+stroma bootstrap \
+  --config <PATH> \
+  --signal-phone <PHONE> \
+  --seed-members <@USER1,@USER2,@USER3> \
+  --group-name <NAME>
+```
+
+**What It Does:**
+1. Initializes embedded Freenet kernel in dark mode
+2. Loads Signal ACI identity from protocol store
+3. Hashes all 3 seed member Signal IDs with ACI-derived key
+4. Creates initial vouch graph (triangle: all vouch each other)
+5. Deploys TrustNetworkState contract to embedded kernel
+6. Writes contract_key to config.toml
+
+---
+
+### `run` - Normal Operation
+
+**Purpose**: Run bot service with embedded Freenet kernel
+
+```bash
+stroma run --config <PATH> [--log-level <LEVEL>]
+```
+
+**What It Does:**
+1. Loads configuration
+2. Initializes embedded Freenet kernel
+3. Loads existing contract
+4. Authenticates with Signal
+5. Starts event loop (monitors Freenet, handles Signal messages)
+6. Runs until interrupted
+
+---
+
+### `status` - Health Check
+
+**Purpose**: Show bot and embedded kernel health
+
+```bash
+stroma status [--config <PATH>]
+```
+
+**Shows**: Bot state, kernel state, Signal connection, group info, member count, DVR health metric.
+
+---
+
+### `verify` - Validate Configuration
+
+**Purpose**: Verify config and state integrity without starting bot
+
+```bash
+stroma verify --config <PATH>
+```
+
+**Checks**: Config file, Signal store, contract key, data directories, phone format.
+
+---
+
+### `backup-store` - Backup Signal Protocol Store
+
+**Purpose**: Export Signal protocol store for secure backup
+
+```bash
+stroma backup-store --config <PATH> --output <FILE> --encrypt
+```
+
+**Warning**: Signal protocol store IS your cryptographic identity. If lost, ALL trust map data is unrecoverable.
+
+---
+
+## Forbidden Commands (Operator Least Privilege)
+
+### ❌ NEVER Implement These
+
+**Membership Commands:**
+```bash
+stroma add-member @User         # Violates automatic-only rule
+stroma remove-member @User      # Violates automatic-only rule
+stroma override-ejection @User  # Violates trust protocol
+```
+
+**Trust Commands:**
+```bash
+stroma vouch @User              # Only members via Signal bot
+stroma flag @User               # Only members via Signal bot
+stroma reset-standing @User     # Violates immutability
+```
+
+**Configuration Commands:**
+```bash
+stroma set-config key=value     # Requires group vote
+stroma force-config update      # Bypasses consensus
+stroma federate-with <GROUP>    # Requires group vote
+```
+
+**Why Forbidden**: Operator is service runner, not privileged admin. All trust operations go through Signal bot with Freenet verification.
+
+---
+
+## Security Constraints
+
+### Never Accept Trust Operations from CLI
+
+```rust
+match cli.command {
+    Commands::AddMember { .. } => {
+        eprintln!("❌ Error: Operators cannot manually add members");
+        eprintln!("\nMembership changes are automatic based on Freenet contract state.");
+        std::process::exit(1);
+    }
+    _ => { /* ... */ }
+}
+```
+
+### Never Show Cleartext Signal IDs
+
+```rust
+// ✅ GOOD: Show hashes only
+println!("- @Alice (hash: 0xabc...)");
+
+// ❌ BAD: Shows cleartext Signal IDs
+println!("- Alice (+1234567890)");  // FORBIDDEN
+```
+
+---
+
+## Embedded Node Lifecycle (Q1 Validated)
+
+| Use Case | Entry Point |
+|----------|-------------|
+| Testing | `freenet::dev_tool::SimNetwork` |
+| Unit tests | `freenet::local_node::Executor::new_mock_in_memory()` |
+| Production | `freenet::local_node::NodeConfig::build()` |
+
+### Graceful Shutdown
+```rust
+let shutdown = node.shutdown_handle();
+shutdown.shutdown();
+signal.disconnect().await?;
+```

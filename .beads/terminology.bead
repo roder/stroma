@@ -41,13 +41,15 @@ This bead is the **single source of truth** for Stroma terminology. All document
 
 | Term | Definition | Vouch Count | Cluster Requirement | Status |
 |------|------------|-------------|---------------------|--------|
-| **Invitee** | Person being vetted | 1 vouch | — | OUTSIDE group |
+| **Invitee** (aka Leaf Node) | Person being vetted | 1 vouch | — | OUTSIDE group |
 | **Bridge** | Minimum-requirement member | 2 vouches | 2 clusters | IN group |
 | **Validator** | Well-connected member | 3+ vouches | 3+ clusters* | IN group |
 
 *****Cluster requirement scales with vouch count**: Validators need vouches from as many distinct clusters as their vouch count (up to available clusters). If only 2 clusters exist, a 3-vouch Validator needs both clusters represented.
 
 **Note**: Validators have NO special permissions — only higher resilience and bot optimization preferences.
+
+**Terminology Note**: "Invitee" and "Leaf Node" are synonyms. Use "Invitee" in user-facing contexts (clearer meaning) and "Leaf Node" in graph-theory/algorithm contexts. Both refer to someone with 1 vouch who is OUTSIDE the group.
 
 ### Trust Calculations
 
@@ -124,6 +126,34 @@ This bead is the **single source of truth** for Stroma terminology. All document
 | **Bootstrap exception** | First 3-5 members exempt from cross-cluster (only 1 cluster exists) |
 | **Vouch invalidation** | When a voucher flags someone, their vouch is invalidated |
 | **Re-entry** | Ejected members can re-join by getting 2 new cross-cluster vouches |
+
+### Cryptographic Terms
+
+| Term | Definition |
+|------|------------|
+| **Signal ACI** | Account Identity — the bot's Signal identity keypair used for all cryptographic operations |
+| **ACI-derived key** | Keys derived from Signal ACI via HKDF for encryption, signing, and identity masking |
+| **Identity masking** | HMAC-based hashing using ACI-derived key to convert Signal IDs to anonymous hashes |
+| **Trust map** | The complete graph of members, vouches, and flags that defines the trust network's state |
+
+**Note**: "Group pepper" is DEPRECATED. All cryptographic keys are derived from the Signal ACI identity.
+
+### Persistence Terms
+
+| Term | Definition |
+|------|------------|
+| **Chunk** | 64KB piece of encrypted state (trust maps are split into chunks for distribution) |
+| **Holder** | Peer bot storing a chunk for another bot (adversarial — cannot read content) |
+| **Replication factor** | Number of copies per chunk (default: 3 = 1 local + 2 remote) |
+| **Replication Health** | Whether trust state is safely backed up across chunk holders |
+
+### Discovery Terms
+
+| Term | Definition |
+|------|------------|
+| **Social Anchor** | Hash of top-N validators used for federation discovery (Fibonacci bucket URIs) |
+| **Persistence Registry** | Freenet contract listing all Stroma bots for chunk holder computation |
+| **Rendezvous hashing** | Deterministic algorithm to compute chunk holders (not owner-chosen) |
 
 ### Bot Roles
 

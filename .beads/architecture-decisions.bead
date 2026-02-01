@@ -222,13 +222,14 @@ cargo install --path crates/core
 ### Identity Masking: HMAC-SHA256 (ring)
 - **Library**: ring crate
 - **Algorithm**: HMAC-SHA256
-- **Method**: Keyed hashing with ACI-derived key (NOT deterministic)
+- **Method**: Keyed hashing with Signal ACI-derived key (NOT deterministic hashing)
 
-**Why HMAC (not deterministic hashing):**
-- Different groups = different hashes for same person (different bot = different ACI key)
+**Why HMAC with ACI-derived key (not deterministic hashing):**
+- Different bots = different hashes for same person (each bot has unique ACI key)
 - Enables privacy-preserving federation (PSI-CA)
 - No global identifier correlation
-- Each bot's ACI key acts as namespace isolation
+- Each bot's ACI identity acts as namespace isolation
+- Single cryptographic identity: Signal ACI used for encryption, signing, AND identity masking
 
 **Implementation:**
 ```rust
@@ -359,7 +360,7 @@ rustflags = ["-C", "target-feature=+crt-static"]
 
 ### Bot Operator Role
 **Responsibilities:**
-- Provide Signal credentials (phone number)
+- Link Signal credentials (phone number)
 - Run bot service (systemd daemon or similar)
 - Monitor logs for errors
 - Restart bot on crashes
@@ -406,8 +407,8 @@ Bot State (512KB encrypted)
 - Larger states → more chunks → more distribution → harder to seize
 - Deterministic holder assignment removes registry as central attack target
 
-**Fairness Principle**: "Give 2x what you take from the network"
-- Each bot stores ~2x their state size in chunks from others
+**Fairness Principle**: "Give 2x what you take from the network. Everyone gets resil    iency"
+- Each bot stores ~2x their own state size in chunks from others
 - Self-enforced via challenge-response (failed challenges → deprioritization)
 - No central enforcement needed - bad actors naturally excluded
 
@@ -485,7 +486,7 @@ Bot State (512KB encrypted)
 - Eventual consistency via summary-delta sync
 
 **Layer 2: Cryptographic Privacy**
-- All identities HMAC-hashed (group-secret pepper, can't be reversed)
+- All identities HMAC-hashed (ACI-derived key, can't be reversed)
 - Immediate zeroization of cleartext (memory hygiene)
 - ZK-proofs verify trust without revealing vouchers
 - Memory dumps contain only hashes
@@ -626,7 +627,7 @@ Signal messages are authenticated (SenderCertificate validates against trust roo
 
 **Federation-Ready Design:**
 - Contract schema includes federation hooks (unused in MVP, but present)
-- Identity hashing is re-computable for PSI-CA (group-scoped HMAC)
+- Identity hashing is re-computable for PSI-CA (ACI-derived HMAC — each bot's namespace is isolated)
 - Module structure includes `federation/` directory (disabled in MVP)
 - Node type definitions support cross-mesh scenarios
 - Social Anchor hashing computed locally (not broadcast in MVP)
@@ -642,20 +643,15 @@ Signal messages are authenticated (SenderCertificate validates against trust roo
 ### Source Code Organization
 ```
 src/
-├── main.rs                          # CLI + Event loop entry point
-├── cli/                             # Operator CLI (Bootstrap, Run, Utilities)
-│   ├── mod.rs
-│   ├── bootstrap.rs                 # Bootstrap command (seed group)
-│   ├── run.rs                       # Run command (normal operation)
-│   └── utils.rs                     # Status, verify, export-pepper
+├── main.rs                          # Event loop, CLI entry point
 ├── kernel/                          # Identity Masking
 │   ├── mod.rs
-│   ├── hmac.rs                      # HMAC-based hashing
+│   ├── hmac.rs                      # HMAC-based hashing with ACI-derived key
 │   └── zeroize_helpers.rs           # Immediate buffer purging
-├── freenet/                         # Freenet Node Integration
+├── freenet/                         # Freenet Integration
 │   ├── mod.rs
-│   ├── node.rs                      # In-process node (freenet crate)
-│   ├── contract.rs                  # Wasm contract deployment (freenet-stdlib)
+│   ├── node.rs                      # freenet-core node management
+│   ├── contract.rs                  # Wasm contract deployment
 │   └── state_stream.rs              # Real-time state monitoring
 ├── signal/                          # Signal Integration
 │   ├── mod.rs
@@ -674,18 +670,30 @@ src/
 │   └── health_monitor.rs            # Continuous standing checks
 ├── matchmaker/                      # Internal Mesh Optimization
 │   ├── mod.rs
-│   ├── graph_analysis.rs            # Topology analysis
-│   ├── cluster_detection.rs         # Identify internal clusters
-│   └── strategic_intro.rs           # MST optimization suggestions
+│   ├── graph_analysis.rs            # Topology analysis (Bridge Removal, centrality, DVR)
+│   ├── cluster_detection.rs         # Identify internal clusters (Tarjan's algorithm, Q3 validated)
+│   └── strategic_intro.rs           # DVR optimization + MST fallback (see ALGORITHMS.md, blind-matchmaker-dvr.bead)
 ├── config/                          # Group Configuration
 │   ├── mod.rs
 │   └── group_config.rs              # GroupConfig struct (Freenet contract)
+├── persistence/                     # Reciprocal Persistence Network
+│   ├── mod.rs                       # Public API
+│   ├── encryption.rs                # AES-256-GCM, Ed25519 signatures
+│   ├── chunking.rs                  # Split/join encrypted state into 64KB chunks
+│   ├── registry.rs                  # Persistence peer discovery
+│   ├── verification.rs              # Challenge-response verification (Q13)
+│   ├── recovery.rs                  # State recovery from chunks
+│   └── write_blocking.rs            # State machine (ACTIVE/DEGRADED/etc.)
 └── federation/                      # Federation Logic (DISABLED IN MVP)
     ├── mod.rs                       # Feature flag: #[cfg(feature = "federation")]
     ├── shadow_beacon.rs             # Social Anchor Hashing (Phase 4+)
     ├── psi_ca.rs                    # Private Set Intersection (Phase 4+)
-    └── diplomat.rs                  # Federation proposals (Phase 4+)
+    ├── diplomat.rs                  # Federation proposals (Phase 4+)
+    └── shadow_handover.rs           # Bot identity rotation (Phase 4+)
 ```
+
+**Key Design**: `federation/` exists but is disabled via feature flag in MVP (validates architecture scales).
+**Key Design**: `persistence/` ensures trust state durability even if Freenet data falls off.
 
 **Key Design Notes:**
 - Added `cli/` module for operator interface
@@ -862,6 +870,10 @@ pub struct GroupConfig {
     
     // Trust parameters
     min_vouch_threshold: usize,        // Default: 2 (minimum vouches to stay in group)
+    // NOTE: Cross-cluster requirement is IMPLICIT and NON-CONFIGURABLE:
+    // - Vouches MUST come from min(vouch_count, available_clusters) distinct clusters
+    // - This is enforced by gatekeeper, not stored as config (security invariant)
+    // - See cross-cluster-requirement.bead for rationale
     
     // Metadata
     config_version: u64,
@@ -871,6 +883,7 @@ pub struct GroupConfig {
 
 **Key Decisions**:
 - Single `config_change_threshold` for ALL group decisions (configuration changes, federation proposals)
+- Cross-cluster vouching is a **security invariant**, not configurable (prevents coordinated infiltration)
 - Set-based membership (BTreeSet) with ejected state (can return, flags persist)
 - Merkle Tree generated on-demand (not stored in contract state)
 - ContractInterface trait implementation required (freenet-stdlib)
@@ -1013,7 +1026,7 @@ stroma run --config /etc/stroma/config.toml
 ```bash
 stroma status          # Show bot + freenet health
 stroma verify          # Verify config integrity
-stroma export-pepper   # Backup pepper (encrypted)
+stroma backup-identity # Backup Signal store (encrypted)
 stroma version         # Version info
 ```
 

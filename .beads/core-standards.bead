@@ -1,0 +1,134 @@
+# Bead: Core Standards
+
+**Status**: Immutable Architectural Constraint  
+**Created**: 2026-02-01  
+**Context**: Development Standards
+
+---
+
+## Project Identity
+
+- **Project Name**: Stroma (code name) - also known as **Nexus-Mesh Protocol**
+- **Architecture**: Privacy-first, decentralized trust network
+- **Philosophy**: Trust as emergent property, not centralized database
+- **Core Values**: Mutual arising, fluid selfhood, non-hierarchical organization
+
+---
+
+## Foundational Philosophy
+
+**See**: `.beads/philosophical-foundations.bead` for complete principles.
+
+**Central Principle**: Stroma embodies **paradoxical unity** — opposing truths coexist, and the system holds space for their ongoing reconciliation rather than resolving tensions by eliminating one pole.
+
+**Core Dualities** (maintain both poles, never collapse):
+- **Trust vs Anonymity**: ZK-proofs verify trust without revealing relationships
+- **Inclusion vs Protection**: Configurable thresholds let groups find their balance
+- **Individual Agency vs Collective Integrity**: Any member can act, but outcomes require consensus
+- **Accountability vs Forgiveness**: Immediate ejection + immediate re-entry path
+- **Fluidity vs Stability**: Membership is earned continuously, but the network persists
+
+**Power Philosophy**: "Power with" > "Power over" — distribute decision-making across relationships, never concentrate in singular actors.
+
+**Design Test**: When implementing, ask: "Does this maintain tension between both poles, or collapse toward one?" Always maintain the generative tension.
+
+### When Principles Conflict (Decision Framework)
+
+When dualities conflict with *each other*, apply this hierarchy:
+
+1. **Protect irreversible harms first**: Anonymity leaks, power centralization, trust map seizure cannot be undone. Slower onboarding, missed connections can be recovered. Sacrifice the recoverable.
+
+2. **Default toward security, make tradeoffs configurable**: Secure defaults, but groups can adjust via consensus for their context.
+
+3. **Align with feature's threat model**: The feature's primary defensive purpose guides which pole gets priority in that context.
+
+4. **Document tradeoffs explicitly**: Note what was sacrificed, why, and how it could be revisited.
+
+**Escalate to human review when**: Two irreversible harms conflict, threat model is ambiguous, no configurable middle ground exists, or decision sets significant precedent.
+
+**See**: `.beads/philosophical-foundations.bead` § "Decision Framework" for full guidance and worked examples.
+
+---
+
+## Core Architectural Principles
+
+### Anonymity-First Design
+- **Never store Signal IDs in cleartext**. All identifiers must be HMAC-hashed immediately.
+- **HMAC-based hashing**: Use keyed hashing with group-secret pepper (not deterministic hashing).
+- **Ephemeral state**: Relationship data deleted after vetting threshold met.
+- **Blinded identifiers**: Public ID for bot, private ID for ZK-math.
+- If memory is dumped, it must contain only hashed identifiers.
+- Use `zeroize` crate to purge raw buffers immediately after hashing.
+
+### Trust as Emergent Property
+- Trust is **mutually arising** across the network, not centrally managed.
+- The network's "Self" persists even as individual members come and go.
+- Federation occurs through **mutual discovery**, not pre-coordinated keys.
+
+### Zero-Knowledge Architecture
+- Use ZK-SNARKs for all trust verification.
+- Implement **Recursive Zero-Knowledge Vouching** for scalability.
+- Never reveal the social graph structure.
+
+### Stateless Bot Design
+- Bot presence in Signal group is binary and strictly tied to Freenet state.
+- No grace periods for ejection - immediate removal when trust threshold violated.
+- All vetting/vouching occurs in 1-on-1 PMs to prevent metadata leakage.
+
+---
+
+## Naming Conventions
+
+- **Functions**: Use `snake_case` (Rust convention)
+- **Modules**: Kernel, Shadow Beacon, Gatekeeper, Diplomat
+- **Bot Roles**: Relational Concierge, Protocol Gatekeeper, Zero-Knowledge Witness, Diplomat
+- **Network Terms**: Nexus-Mesh, Social Anchor, Trust Horizon, Blind Vouch, Recursive Vouching
+- **Node Types**: Leaf Node (1 link), Bridge Node (2 links), Validator (3+ links)
+- **Logic Notation**: Use plain-text for formulas (ASSERT, WHERE, AND, etc.) to ensure lossless documentation
+- **Gastown Context**: Use "Beads" for persistent context storage
+
+---
+
+## Documentation Standards
+
+- Use plain-text logic notation for mathematical formulas to ensure Google Docs compatibility
+- Avoid LaTeX symbols in favor of: `IN`, `NOT IN`, `AND`, `OR`, `=>`, `INTERSECT`
+- Example: `zk-Proof(Voucher IN Tree AND Hash_new NOT_IN Tree)`
+
+---
+
+## Key Constraints (Immutable)
+
+1. **No Pre-Shared Keys**: Discovery must be emergent, not admin-coordinated
+2. **No Time Windows**: Flags immediately affect standing, no grace periods
+3. **No Cleartext Storage**: All identifiers must be hashed before persistence
+4. **Minimal Attack Surface**: Keep dependencies minimal, audit with `cargo-deny` and `cargo-crev`
+5. **Ephemeral Data**: Relationship data deleted after vetting threshold met
+6. **Instant Enforcement**: Trust is continuously evaluated, ejection is immediate
+7. **User Simplicity**: Signal UI must hide all technical complexity from non-tech users
+
+---
+
+## Trust Model
+
+### Trust Standing Formula
+- **Calculation**: `Standing = Effective_Vouches - Regular_Flags`
+- **Vouch Invalidation**: If a voucher flags, their vouch is invalidated (logical inconsistency)
+- **Voucher-Flaggers**: Excluded from BOTH vouch count AND flag count (no 2-point swings)
+- **Threshold**: Standing must remain positive (>= 0)
+- **Evaluation**: Continuous, real-time monitoring
+- **Enforcement**: Immediate ejection when `Standing < 0` OR `Effective_Vouches < 2`
+
+**Formula Details** (see `.beads/security-constraints.bead`):
+```
+Voucher_Flaggers = All_Vouchers ∩ All_Flaggers
+Effective_Vouches = |All_Vouchers| - |Voucher_Flaggers|
+Regular_Flags = |All_Flaggers| - |Voucher_Flaggers|
+Standing = Effective_Vouches - Regular_Flags
+```
+
+### Network Topology
+- **Leaf Nodes**: 1 trust link (needs "Second Witness")
+- **Bridge Nodes**: 2 trust links (connectors between clusters)
+- **Validators**: 3+ trust links (high-entropy verification nodes)
+- **Minimum Spanning Tree**: Efficient connectivity with minimal new relationships

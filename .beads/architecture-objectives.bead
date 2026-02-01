@@ -1,0 +1,438 @@
+# Bead: Architecture & Objectives
+
+**Status**: Immutable Architectural Constraint  
+**Created**: 2026-02-01  
+**Context**: Core Project Definition
+
+---
+
+## Project Identity
+
+**Project Name**: Stroma (code name) - also known as **Nexus-Mesh Protocol**  
+**Type**: Privacy-first, decentralized trust network  
+**Architecture**: Rust Static Binary | Signal Protocol | Freenet (Dark) | ZK-Proofs  
+**User Base**: Designed for non-technical users with Signal; technical complexity abstracted by bot
+
+---
+
+## Core Objective
+
+Build a **scalable trust network** that leverages Signal for its user interface and Freenet for its decentralized, anonymous back-end. The core innovation is **Recursive Zero-Knowledge (ZK) Vouching**, which allows the network to scale by 10²-10³ without revealing the social graph.
+
+**Fundamental Principle**: Trust is an **emergent property** of the mesh, not a centralized database.
+
+**Core Invariant**: The Stroma Signal group contains ONLY fully vetted members. Every member must maintain vouches from as many distinct clusters as their vouch count: Bridges need 2 clusters, Validators need min(vouch_count, available_clusters).
+
+**Cross-Cluster Requirement**: Vouches MUST come from different clusters to prevent coordinated infiltration. Same-cluster vouching does NOT count toward admission. See `.beads/cross-cluster-requirement.bead`.
+
+---
+
+## Design Philosophy
+
+**Foundation**: See `.beads/philosophical-foundations.bead` for core principles, dualities, and decision framework.
+
+**Key Insight**: Stroma embodies **paradoxical unity** — the system holds space for ongoing reconciliation of opposing truths rather than resolving tensions by eliminating one pole. The dualities are generative tension, not bugs.
+
+### Trust as Emergent Property
+- Trust **mutually arises** across the network through social relationships
+- No central authority controls access or membership
+- The network's "Self" persists even as individual members come and go
+- Trust is relational, not hierarchical
+
+### Mutual Arising
+- Groups discover each other through **emergent discovery**, not pre-coordination
+- Bots find each other because they share a "social frequency," not because admins exchanged passwords
+- Federation occurs organically when groups share trusted members
+- The network scales as a "single, coherent organism rather than fragmented silos"
+
+### Fluid Identity
+- Presence in the group is **temporary permission** arising from current trust balance
+- Members can be immediately ejected when trust threshold is violated
+- No grace periods - trust is continuously evaluated
+- Identity is fluid and relational, not fixed
+
+---
+
+## Core Innovation: Recursive Zero-Knowledge Vouching
+
+### The Problem
+Traditional trust networks require revealing the social graph to scale. This creates privacy vulnerabilities and centralization risks.
+
+### The Solution
+- **Zero-Knowledge Proofs**: Verify trust without revealing who vouched
+- **Recursive Proofs**: Batch updates for constant-time verification regardless of network size
+- **Private Set Intersection (PSI)**: Calculate overlap between groups without revealing member identities
+- **Mergeable State Structures**: Use CRDT-like patterns (BTreeSet, HashMap) for eventual consistency
+- **On-Demand Merkle Trees**: Generate from member sets for ZK-proof verification (not stored)
+
+### Scaling Model
+- **Bootstrap (3 users)**: Manual seed group, all vouch for each other (initial triangle)
+- **Local Phase (20 users)**: Strategic matching within single group, internal cluster optimization
+- **Federated Phase (200 users)**: Multiple Stroma groups, cluster-linking via Blind Rendezvous
+- **Mass Scale (2000+ users)**: Algorithmic oracle, Sybil detection, recursive proofs, multi-bot consensus
+- **Scaling Factor**: 10²-10³ (100x to 1000x) without revealing social graph
+
+---
+
+## System Architecture
+
+### Bot-to-Group Relationship: 1:1
+
+**Architecture**: One bot process per Stroma group
+
+**Deployment Model:**
+- 1 Bot Instance = 1 Signal Group = 1 Freenet Contract = 1 Trust Mesh
+- Each group requires separate bot process
+- Scale: <100 groups = <100 processes (acceptable)
+
+**Example:**
+```
+systemd services:
+  stroma-bot@mission-control.service  → Signal Group "Mission Control"
+  stroma-bot@activists-nyc.service    → Signal Group "Activists-NYC"
+  stroma-bot@mutual-aid-sf.service    → Signal Group "Mutual Aid SF"
+```
+
+**Rationale:**
+- Simpler state management (each bot owns one contract)
+- Isolation (one group's issues don't cascade)
+- Clear identity (bot phone number = group identity)
+- Easier debugging (logs per group)
+
+**See**: `.beads/bot-deployment-model.bead`
+
+### Group Identity
+
+**Required**: Every Stroma group MUST have a human-readable name
+
+**Specified at**: Seed group initialization
+
+**Usage:**
+- Signal group name
+- Bot invitations: "You've been invited to '{group_name}' on Stroma"
+- Federation proposals: "Federate '{our_name}' with '{their_name}'"
+- Changeable via consensus: `/propose config name "New Name"`
+
+**See**: `.beads/group-identity.bead`
+
+---
+
+## Three-Layer Design
+
+### 1. User Interface Layer: Signal
+- **Client Library**: Presage (high-level Rust API built on libsignal-service-rs)
+- **Role**: Human-facing interface for trust operations
+- **Features**: Bot commands (`/vouch`, `/status`, `/mesh`, `/flag`, `/propose`)
+- **Privacy**: All vetting/vouching in 1-on-1 PMs (never group chat)
+- **Voting**: Native Signal Polls for anonymous group decisions
+- **Constraint**: Bot never stores Signal IDs in cleartext
+
+### 2. Trust Logic Layer: Rust Bot
+- **Implementation**: Native Rust using Presage (wraps libsignal-service-rs)
+- **Governance**: Bot is Signal admin (technical) but execute-only (no decision power)
+- **Roles**: 
+  - **Relational Concierge**: Facilitates introductions and matches
+  - **Protocol Gatekeeper**: Enforces trust thresholds automatically
+  - **Zero-Knowledge Witness**: Sees members but blind to social graph
+  - **Diplomat**: Proposes federation and maintains bridge density
+- **Functions**:
+  - Identity masking (HMAC hashing with group-secret pepper)
+  - ZK-proof generation (bot generates all STARK/ZK proofs)
+  - ZK-proof verification (bot verifies all proofs)
+  - Merkle tree generation (on-demand from member sets)
+  - Cluster detection (Bridge Removal algorithm)
+  - Ejection protocol (immediate removal when threshold violated)
+  - Federation proposals (diplomatic coordination)
+  - Consensus enforcement (execute only contract-approved actions)
+  - Ephemeral memory (raw IDs wiped immediately)
+- **Constraint**: Stateless - all state comes from Freenet
+- **Operator Role**: Service runner ONLY (no privileges)
+- **Abstraction**: All cryptographic complexity hidden from users
+
+**CRITICAL UX BOUNDARY**: Members interact ONLY via Signal commands. ALL cryptographic operations (STARK proofs, Merkle trees, HMAC hashing, ZK verification) happen inside the bot. Members NEVER generate proofs, sign cryptographic messages, or handle keys beyond their own Signal identity. The bot is the sole cryptographic actor.
+
+### 3. State Layer: Freenet (Dark)
+- **Role**: Decentralized, anonymous state storage with eventual consistency
+- **Storage**: Set-based membership (BTreeSet), vouch graph (HashMap), mergeable state
+- **Synchronization**: Summary-delta sync (ComposableState trait)
+- **Merkle Trees**: Generated on-demand for ZK-proof verification (not stored)
+- **Operations**: State stream monitoring (real-time), deterministic merging
+- **Discovery**: Emergent bot discovery via Social Anchor Hashing
+
+---
+
+## Core Modules
+
+### A. The Kernel (Identity Masking)
+- **Purpose**: Never store Signal IDs
+- **Method**: HMAC-based hashing with group-secret pepper (not deterministic hashing)
+- **Security**: Zeroize buffers immediately after hashing
+- **Ephemeral State**: Vetting session data deleted after admission
+- **Blinded Identifiers**: Public ID for bot, private ID for ZK-math
+- **Result**: Memory dump contains only hashed identifiers
+
+### A-1. Bootstrap Module (One-Time Seed Group)
+- **Purpose**: Initialize new Stroma group
+- **Seed Size**: 3 members (manual addition by operator)
+- **Initial State**: All 3 vouch for each other (creates triangle)
+- **Freenet Init**: Creates Merkle Tree with 3 members, each with 2 vouches
+- **After Bootstrap**: Bot takes over, no more manual additions
+
+### B. The Shadow Beacon (Emergent Discovery)
+- **Purpose**: Bots find each other without admin coordination
+- **Method**: Social Anchor Hashing (hash of top-N validators, dynamic threshold based on group size)
+- **Discovery**: Bloom Filters + PSI-CA (Private Set Intersection Cardinality) for overlap detection
+- **Threshold**: Federation proposed if `|A ∩ B| / |A ∪ B| > 10%` (intersection density)
+- **Commutative Encryption**: Double-blinding for PSI handshake ensures anonymous overlap calculation
+- **Emergent Rendezvous**: Discovery URI derived from group's social frequency, not pre-shared keys
+
+### C. The Gatekeeper (Signal Admin Bot)
+- **Purpose**: Enforce trust-based membership
+- **Admission**: Only after Freenet contract confirms "Vetted" status (≥2 vouches)
+- **Trust Standing**: `Standing = Effective_Vouches - Regular_Flags` (must remain positive)
+- **Vouch Invalidation**: If voucher flags, their vouch is invalidated (excluded from BOTH counts)
+- **Ejection**: Immediate removal when `Standing < 0` OR `Effective_Vouches < 2` (no grace period)
+- **Continuous Monitoring**: State stream monitored in real-time (NOT polling)
+- **UX**: All vetting operations in 1-on-1 PMs (never group chat)
+- **Waiting Room**: State of being OUTSIDE Signal group during vetting (not a separate chat)
+
+### D. The Diplomat (Federation Logic)
+- **Purpose**: Coordinate federation between groups
+- **Method**: Propose federation when overlap detected (intersection density threshold met)
+- **Consensus**: Human vote via Signal Poll (uses `config_change_threshold`) before federation
+- **Bridge Maintenance**: Proactively suggest connections when bridge density drops
+- **Cross-Mesh Vouching**: Members from Mesh-B can vouch for Mesh-A invitees
+- **Federation Contract**: Shared Freenet state for confederated meshes
+
+---
+
+## Trust Model
+
+### Vouching System
+- **Requirement**: Two Members from DIFFERENT CLUSTERS must vouch for new member
+- **Cross-Cluster**: Vouchers MUST be from different clusters (hard requirement, not optimization)
+- **Who Can Vouch**: ANY Member (Bridges and Validators), not restricted to Validators
+- **Verification**: `zk-Proof(Voucher_A IN Tree AND Voucher_B IN Tree AND Voucher_A != Voucher_B AND Cluster(A) != Cluster(B) AND Invitee NOT_IN Tree)`
+- **Privacy**: Vouchers remain anonymous (ZK-proof)
+- **First Vouch**: Invitation itself counts as first vouch
+- **Bootstrap Exception**: First 3-5 members exempt (single cluster exists)
+
+**Why Cross-Cluster Required**: Prevents coordinated infiltration. If same-cluster vouching were allowed, a compromised cluster could self-amplify by rubber-stamping confederates. Cross-cluster forces verification from independent social contexts.
+
+### Trust Standing
+- **Calculation**: `Standing = Effective_Vouches - Regular_Flags`
+- **Vouch Invalidation**: If a voucher flags a member, that vouch is invalidated (logical inconsistency)
+- **Effective Vouches**: Total vouches minus voucher-flaggers (vouchers who also flagged)
+- **Regular Flags**: Total flags minus voucher-flaggers
+- **Ejection Triggers**: 
+  1. `Standing < 0` (too many regular flags relative to effective vouches)
+  2. `Effective_Vouches < 2` (voucher left group OR voucher flagged you)
+- **No Grace Period**: Ejection is instant when either trigger activated
+- **Continuous Evaluation**: Trust monitored in real-time via Freenet state stream
+- **Re-Entry Path**: Secure 2 new vouches from members in different clusters (reset, not permanent ban)
+- **No Cooldown**: Can re-enter immediately after securing new vouches
+
+**Why Vouch Invalidation**: Prevents logical inconsistency where someone both trusts and distrusts you. Aligns with "fluid identity" philosophy - trust is current state, not fixed history.
+
+### Network Topology & Node Types
+- **Invitees (Leaf Nodes)** (1 vouch): OUTSIDE Signal group, being vetted, need second vouch
+- **Bridges** (2 vouches): IN Signal group, minimum requirement for membership
+- **Validators** (3+ vouches): IN Signal group, high-trust members used for Blind Matchmaker optimization
+- **No Special Privileges**: Validators have no extra permissions, only used for optimization
+- **Dynamic Threshold**: Validator threshold scales with group size (configurable)
+- **Social Anchor**: Top-N validators used for emergent discovery hashing
+- **Minimum Spanning Tree**: Efficient connectivity with minimal new relationships
+
+**Critical Distinction:**
+- Invitees/Leaf Nodes = OUTSIDE group (1 vouch)
+- Bridges/Validators = IN group (2+ vouches)
+
+---
+
+## Federation Model
+
+### Discovery Process
+1. **Fibonacci Bucket URIs**: Bot generates URIs at Fibonacci counts [3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987] (scales to Signal's 1000-member limit)
+2. **Deterministic Ordering**: Validators sorted by hash before bucket selection (ensures matching)
+3. **Bloom Filter Broadcast**: Bot publishes encrypted summary at all bucket URIs it can fill
+4. **Discovery Match**: Bots scan bucket URIs → matching hash means potential shared validators
+5. **PSI-CA Handshake**: Bots calculate EXACT overlap count without revealing identities
+6. **Threshold Evaluation**: BOTH must pass: min_shared_validators AND min_intersection_density
+7. **BidirectionalMin**: Each group evaluates against its OWN configured threshold
+8. **Federation Proposal**: If both thresholds satisfied, propose to respective groups
+
+### Federation Decision
+- **Human Control**: Members vote via Signal Poll on federation proposal
+- **Consensus Threshold**: Uses `config_change_threshold` (e.g., 70%)
+- **Independent Evaluation**: Each group votes based on their own threshold satisfaction
+- **Mutual Consent**: Both groups must approve for federation to proceed
+- **Contract**: Bot signs federation contract on Freenet after both groups approve
+- **Bridge Maintenance**: Bot proactively suggests connections if bridge density drops
+
+### Cross-Mesh Vouching
+- **Shadow-Vouch**: Member from Mesh-B can vouch for invitee to Mesh-A
+- **Reciprocal Buffer**: Groups act as mutual buffers for each other
+- **Fluid Movement**: Member's trust identity precedes them across meshes
+- **Expedited Vetting**: Existing members of federated groups may have expedited vetting
+
+---
+
+## Group Configuration & Consensus
+
+### Configurable Parameters (Stored in Freenet Contract)
+All group configuration stored in Freenet contract, changeable only via group consensus:
+
+```rust
+pub struct GroupConfig {
+    // Group identity
+    group_name: String,                    // "Mission Control" - changeable via consensus
+    
+    // Consensus thresholds
+    config_change_threshold: f32,          // e.g., 0.70 (70%) - used for all proposals
+    default_poll_timeout: Duration,        // e.g., 48h - default if not specified
+    
+    // Federation parameters (dual threshold model)
+    min_shared_validators: usize,          // e.g., 3 (minimum absolute overlap count)
+    min_intersection_density: f32,         // e.g., 0.10 (10% of smaller group's validators)
+    
+    // Trust parameters
+    min_vouch_threshold: usize,            // Default: 2 (minimum vouches to stay in group)
+    
+    // Metadata
+    config_version: u64,
+    last_updated: Timestamp,
+}
+```
+
+**Note**: No `ejection_appeal_threshold` - appeals handled via re-invite path (outside group).
+
+### Proposal System (`/propose`)
+
+**Unified command for all group decisions:**
+
+```
+/propose <subcommand> [args] [--timeout duration]
+```
+
+**Subcommands:**
+- `config <setting> <value>` - Change Signal group settings (name, description, etc.)
+- `stroma <setting> <value>` - Change Stroma config (thresholds, etc.)
+- `federate <group-id>` - Propose federation with another group
+
+**Voting:**
+- Native Signal Polls (anonymous voting)
+- Timeout: Configurable per proposal (default from config)
+- Threshold: Always from `config_change_threshold` (not per-proposal)
+
+**See**: `.beads/proposal-system.bead`
+
+### Operator Least Privilege
+**Critical Principle**: Operator is a service runner, NOT a privileged user. The operator does NOT manually execute commands.
+
+**Operator Role (Service Runner):**
+- Run and maintain bot service (systemd daemon or similar)
+- Monitor logs for errors and system health
+- Ensure bot stays online and connected to Freenet/Signal
+- Restart bot on crashes (via systemd auto-restart)
+
+**Operator CANNOT:**
+- Manually execute membership changes or trust operations
+- Change consensus thresholds (requires group vote)
+- Override ejections (enforced by Freenet contract)
+- See cleartext Signal IDs (only hashes)
+- Bypass ZK-proof verification
+- Unilaterally federate
+- Modify GroupConfig without group approval
+
+---
+
+## Architectural Constraints
+
+### Non-Negotiable Requirements
+1. **Never store Signal IDs in cleartext**
+2. **Never bypass ZK-proof verification**
+3. **Never add grace periods for ejection**
+4. **Never require admin coordination for federation**
+5. **Never make Signal group the source of truth**
+6. **Never expose social graph structure**
+7. **Never allow unilateral 2-point standing swings** (no single member can eject another through their own action)
+
+### Design Principles
+- **Emergent over Coordinated**: Discovery must be organic
+- **Relational over Hierarchical**: Trust is mutual, not top-down
+- **Fluid over Fixed**: Identity and membership are dynamic
+- **Anonymous over Identified**: Privacy is paramount
+- **Decentralized over Centralized**: No single point of control
+
+---
+
+## Success Metrics
+
+### Functional Goals
+- Network scales by 10²-10³ without revealing social graph
+- Trust verification in constant time regardless of network size
+- Federation occurs without admin coordination
+- Immediate ejection when trust threshold violated
+
+### Security Goals (Trust Map Protection)
+- Memory dump contains only hashed identifiers (not real identities)
+- Trust map can't be seized in usable form (three-layer defense)
+- Even if server compromised, adversary gets only hashes and topology
+- Zero-knowledge proofs for all trust operations
+- No single point of failure to compromise member identities
+
+### User Experience Goals
+- Organic, natural network expansion
+- Transparent trust standing and progression
+- Seamless movement across federated meshes
+- Human control over federation decisions
+
+---
+
+## Implementation Context
+
+### Development Framework
+- **Orchestration**: Gastown (Stage 8 AI Agentic Framework)
+- **Context Preservation**: Beads (git-backed persistent memory)
+- **Agent Specialization**: Signal, Freenet, Crypto agents
+- **Security Constraints**: Pinned as Immutable Beads
+
+### Technical Foundation
+- **Language**: Rust (static binary, MUSL)
+- **Protocols**: Signal (UI), Freenet (state), ZK-Proofs (verification)
+- **Cryptography**: ring (HMAC), arkworks (ZK-SNARKs), zeroize (memory hygiene)
+- **Tooling**: cargo-deny, cargo-crev (supply chain security)
+
+---
+
+## Key Architectural Decisions
+
+### Why Signal?
+- **User Familiarity**: Users already use Signal
+- **Privacy**: End-to-end encryption, metadata protection
+- **Group Management**: Built-in admin capabilities
+- **UX**: Natural interface for trust operations
+
+### Why Freenet?
+- **Decentralization**: No central authority
+- **Anonymity**: Dark network, no IP exposure
+- **Persistence**: State survives across network partitions
+- **Privacy**: No metadata leakage
+
+### Why Zero-Knowledge Proofs?
+- **Privacy**: Verify trust without revealing vouchers
+- **Scalability**: Recursive proofs enable constant-time verification
+- **Security**: Cryptographic guarantees, not trust in authority
+- **Innovation**: Enables 10²-10³ scaling without graph exposure
+
+### Why Emergent Discovery?
+- **No Coordination**: Admins don't need to know each other
+- **Security**: No pre-shared keys to compromise
+- **Organic Growth**: Network expands naturally
+- **Resilience**: Federation dissolves if shared members leave
+
+---
+
+## Summary
+
+Stroma is a **privacy-first, decentralized trust network** that scales by orders of magnitude without revealing the social graph. Trust is an **emergent property** that **mutually arises** through zero-knowledge cryptographic proofs. The system uses Signal for user interface, Freenet for decentralized state, and Rust for the trust logic bot. The architecture ensures that trust is **relational, fluid, and anonymous** - never hierarchical, fixed, or identified.
