@@ -1,7 +1,7 @@
 # Architecture Decisions (IMMUTABLE)
 
 **Status**: Pinned - Cannot be modified without explicit unpinning ceremony
-**Last Updated**: 2026-01-26
+**Last Updated**: 2026-01-31
 **Applies To**: All implementation phases
 
 ## Core Technologies (FINALIZED)
@@ -85,6 +85,115 @@ Since Q4 chose bot-side verification: **Store outcomes only** (not proofs)
 - Simplifies contract state and merging
 
 **See**: `docs/spike/q6/RESULTS.md` for full analysis.
+
+**Bot Discovery (Q7 Spike Finding):**
+Persistence network uses registry-based discovery for bot coordination:
+- **Single registry contract** (Phase 0, <10K bots): All Stroma bots register in well-known contract
+- **Discovery latency**: <1ms (100 bots validated)
+- **Registration overhead**: ~100 bytes per bot
+- **Sharding trigger**: 10K+ bots → 256 shards (by contract hash prefix)
+- **No heartbeat mechanism**: Stale bots detected during chunk distribution failures
+
+**Key Implications**:
+- Dedicated registry contract at deterministic address (hash of "stroma-persistence-registry-v1")
+- Provides bot list for rendezvous hashing holder computation
+- Integrates with PoW anti-Sybil registration (Q8)
+- Clean unregistration on bot shutdown (stale detection is lazy)
+
+**See**: `docs/spike/q7/RESULTS.md` for full analysis.
+
+**Sybil Resistance (Q8 Spike Finding):**
+Proof-of-Work prevents fake bot registration spam:
+- **PoW difficulty**: 18 (~30 seconds on average hardware)
+- **Registration cost**: Computationally expensive, preventing botnet spam
+- **Legitimate operators**: Acceptable one-time cost (registration only)
+- **Adjustable**: Difficulty can increase with network growth
+
+**Key Implications**:
+- Registry registration requires PoW proof verification
+- Prevents attacker from cheaply registering thousands of fake bots
+- Protects chunk holder selection from Sybil dilution
+- Economic cost makes denial-of-service attacks expensive
+
+**See**: `docs/spike/q8/RESULTS.md` for full analysis.
+
+**Chunk Verification (Q9 Spike Finding):**
+Challenge-response protocol proves chunk possession without revealing content:
+- **Protocol**: SHA-256(nonce || chunk_sample) where sample is 256 bytes
+- **Verification latency**: <1ms
+- **Security**: Unforgeable without actual chunk data
+- **Replay resistance**: Random nonce prevents reusing old responses
+
+**Key Implications**:
+- Holders cannot fake chunk possession
+- No content leakage (holder learns nothing from challenge)
+- Enables fairness verification (Q13) through spot checks
+- Detects free-riders attempting storage gaming
+
+**See**: `docs/spike/q9/RESULTS.md` for full analysis.
+
+**Rendezvous Hashing (Q11 Spike Finding):**
+Deterministic chunk holder assignment eliminates registry bottleneck:
+- **Algorithm**: HRW (Highest Random Weight) rendezvous hashing
+- **Distribution**: Uniform across network (validated)
+- **Churn stability**: Minimal reassignment when bots join/leave
+- **Deterministic**: Same inputs → same outputs (reproducible by anyone)
+- **Per-chunk assignment**: Each chunk gets different holders (security through distribution)
+
+**Key Implications**:
+- No O(N × chunks × replicas) registry records needed
+- Anyone can compute who holds whose chunks (acceptable - chunks encrypted)
+- Removes registry as high-value attack target
+- Graceful handling of bot churn (only affected chunks reassigned)
+- Scales to millions of bots without central coordination
+
+**See**: `docs/spike/q11/RESULTS.md` for full analysis.
+
+**Chunk Size Optimization (Q12 Spike Finding):**
+64KB chunks provide optimal balance for distribution vs coordination:
+- **Default**: 64KB (0.2% overhead for metadata)
+- **Alternative**: 16KB for high-security scenarios (more distribution)
+- **Example**: 500KB state → 8 chunks → ~6-8 holder bots
+- **Recovery**: 8 parallel requests (vs 500 for 1KB chunks)
+
+**Key Implications**:
+- 64KB chunks for Phase 0 implementation
+- Larger states = more chunks = more distribution = harder to seize
+- Coordination overhead acceptable for infrequent updates (human timescale)
+- Can adjust later if operational experience suggests optimization
+
+**See**: `docs/spike/q12/RESULTS.md` for full analysis.
+
+**Fairness Verification (Q13 Spike Finding):**
+Spot checks prevent free-riding without continuous heartbeats:
+- **Sample rate**: 1% of chunks checked per write
+- **Detection rate**: 100% (bad actors eventually caught)
+- **False positive rate**: 0% (validated)
+- **Latency**: <10ms per challenge-response roundtrip
+- **Enforcement**: Soft deprioritization (not hard bans)
+
+**Key Implications**:
+- No continuous heartbeat monitoring needed
+- Low overhead (probabilistic sampling)
+- Self-enforcing (failed challenges → deprioritization)
+- Fairness is goal, not hard constraint (some variation acceptable)
+
+**See**: `docs/spike/q13/RESULTS.md` for full analysis.
+
+**Chunk Communication Protocol (Q14 Spike Finding):**
+Contract-based distribution for Phase 0, hybrid approach for Phase 1+:
+- **Phase 0**: Freenet contracts (simplicity over efficiency)
+- **Rationale**: Trust state changes infrequent (human timescale ~10-100/month)
+- **Mechanism**: Each bot has chunk storage contract, chunks written as state updates
+- **Phase 1+**: Hybrid (P2P transfer + contract attestations) if contracts prove expensive
+
+**Key Implications**:
+- Single mechanism (contracts) for Phase 0 MVP
+- Leverages Freenet's eventual consistency and replication
+- Can migrate to hybrid without breaking changes
+- Attestations provide cryptographic proof of receipt
+
+**See**: `docs/spike/q14/RESULTS.md` for full analysis.
 
 **Installation:**
 ```bash
@@ -260,6 +369,74 @@ rustflags = ["-C", "target-feature=+crt-static"]
 - Manual membership changes (bot is automatic)
 - Trust decisions (governed by Freenet contract)
 - Configuration changes (requires group vote)
+
+## Reciprocal Persistence Network (Spike Week 2 Validated)
+
+### Architectural Decision #14: Persistence Through Adversarial Replication
+
+**Problem**: Freenet does not guarantee persistence - data falls off when no peers subscribe. Trust maps MUST persist (months/years of relationships).
+
+**Solution**: Reciprocal Persistence Network - bots replicate each other's encrypted state chunks as adversaries.
+
+**Architecture**:
+```
+Bot State (512KB encrypted)
+  → 8 chunks × 64KB each (Q12 validated)
+  → 3 copies per chunk (1 local + 2 remote replicas)
+  → 16 distribution operations (8 chunks × 2 replicas)
+  → Holders selected via rendezvous hashing (Q11 validated)
+  → Distributed via Freenet contracts Phase 0 (Q14 validated)
+  → Verified via challenge-response spot checks 1% sample (Q9, Q13 validated)
+```
+
+**Key Parameters (All Spike-Validated)**:
+- **Chunk size**: 64KB (Q12) - balance distribution vs coordination
+- **Replication factor**: 3 (1 local + 2 remote) - resilience requirement
+- **Discovery mechanism**: Registry-based (Q7) - <1ms latency, <10K bots unsharded
+- **Anti-Sybil**: PoW difficulty 18 (Q8) - ~30s registration cost
+- **Holder selection**: Rendezvous hashing (Q11) - deterministic, stable under churn
+- **Verification protocol**: Challenge-response (Q9) - <1ms, SHA-256(nonce || sample)
+- **Fairness enforcement**: 1% spot checks (Q13) - 100% detection, 0% false positives
+- **Distribution protocol**: Freenet contracts (Q14) - Phase 0, hybrid Phase 1+
+
+**Security Properties**:
+- Chunks encrypted with AES-256-GCM (key derived from Signal ACI via HKDF)
+- Need ALL chunks + ACI key to reconstruct state
+- Holders are adversaries (can't decrypt, can't read trust map)
+- Larger states → more chunks → more distribution → harder to seize
+- Deterministic holder assignment removes registry as central attack target
+
+**Fairness Principle**: "Give 2x what you take from the network"
+- Each bot stores ~2x their state size in chunks from others
+- Self-enforced via challenge-response (failed challenges → deprioritization)
+- No central enforcement needed - bad actors naturally excluded
+
+**Recovery Guarantees**:
+- Signal protocol store backup is REQUIRED (contains ACI key)
+- Any 1 of 3 copies per chunk sufficient for recovery
+- All chunks must be recovered (partial recovery not supported)
+- Recovery is deterministic (compute holders via rendezvous hashing)
+
+**Write-Blocking States**:
+- ACTIVE: All chunks have 2+ replicas → writes allowed
+- PROVISIONAL: No suitable peers available → writes allowed (bootstrap phase)
+- DEGRADED: Peers available but any chunk ≤1 replica → writes BLOCKED
+- ISOLATED: N=1 network → writes allowed with warning (testing only)
+
+**Network Bootstrap Thresholds**:
+- N=1: No persistence (state on Freenet only) - testing only
+- N=2: Mutual dependency (fragile) - temporary only
+- N=3: Minimal (one failure = degraded)
+- N≥4: Resilient (can tolerate 1 failure per chunk)
+- N≥5: Recommended for production
+
+**Scalability Path**:
+- Phase 0: Single registry (<10K bots)
+- Phase 1+: Sharded registry (256 shards by contract hash prefix)
+- Sharding trigger: Approaching 10K bots
+- Theoretical capacity: Millions of bots (O(N) registry, deterministic holders)
+
+**See**: `.beads/persistence-model.bead` for complete specification and `docs/spike/SPIKE-WEEK-2-BRIEFING.md` for validation results.
 
 ## Performance Targets
 
@@ -903,5 +1080,31 @@ See `.beads/federation-roadmap.bead` for full protocol specification.
 8. **Static MUSL binary** (minimal attack surface)
 9. **Operator is service runner** (no special privileges)
 10. **Single binary artifact** (same for standalone and container)
+11. **Reciprocal Persistence Network** (adversarial replication, 64KB chunks, 3x replication)
+12. **Deterministic holder selection** (rendezvous hashing, no registry bottleneck)
+13. **Challenge-response verification** (prove chunk possession without content leakage)
+14. **PoW anti-Sybil** (difficulty 18, ~30s registration cost)
 
 These decisions are IMMUTABLE and apply to ALL phases of development.
+
+## Spike Week Validation Status
+
+### Spike Week 1 (Q1-Q6): ✅ COMPLETE
+- Q1: Delta commutativity (contract responsibility, set-based state)
+- Q2: Contract validation (trustless model viable)
+- Q3: Cluster detection (bridge removal algorithm)
+- Q4: STARK verification (bot-side for Phase 0)
+- Q5: Merkle tree performance (on-demand generation)
+- Q6: Proof storage (outcomes only, not ephemeral proofs)
+
+### Spike Week 2 (Q7-Q14): ✅ COMPLETE
+- Q7: Bot discovery (registry-based, <1ms latency)
+- Q8: Sybil resistance (PoW difficulty 18, ~30s cost)
+- Q9: Chunk verification (challenge-response, <1ms)
+- Q10: Federation discovery (DEFERRED to Phase 4, use top-N)
+- Q11: Rendezvous hashing (deterministic, stable under churn, uniform distribution)
+- Q12: Chunk size optimization (64KB optimal, 0.2% overhead)
+- Q13: Fairness verification (1% spot checks, 100% detection, 0% false positives)
+- Q14: Chunk communication (contract-based Phase 0, hybrid Phase 1+)
+
+**All critical architectural questions answered.** Ready for Phase 0 implementation.
