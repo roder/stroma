@@ -292,8 +292,8 @@ fn verify_chunk_possession(
 }
 ```
 
-**Enforcement Options** (to be validated in Q13):
-1. **Spot checks**: Random challenges before allowing writes
+**Enforcement Options** (validated in Q13 spike - see `docs/spike/q13/RESULTS.md`):
+1. **Spot checks**: 1% random challenges before writes (100% detection, 0% false positives)
 2. **Reputation scoring**: Track challenge success rate
 3. **Flag bad actors**: Bots that fail challenges flagged for others to avoid
 4. **Soft exclusion**: Bad actors deprioritized as holders (not hard banned)
@@ -769,10 +769,10 @@ async fn distribute_chunk_hybrid(
 }
 ```
 
-**Spike Q14** will validate:
-- Cost of 16 contract writes per state update
-- Freenet message passing primitives (if available)
-- P2P address discovery mechanisms
+**Spike Q14 validated** (see `docs/spike/q14/RESULTS.md`):
+- Contract-based approach confirmed for Phase 0 (simplicity > efficiency for infrequent writes)
+- Hybrid approach (P2P + attestations) recommended for Phase 1+ if contract writes prove expensive
+- Freenet provides sufficient primitives for contract-based chunk distribution
 
 ---
 
@@ -1212,15 +1212,53 @@ pub struct RegistryDelta {
 
 | Spike | Question | Status | Impact on Persistence |
 |-------|----------|--------|----------------------|
-| Q7 | Bot Discovery | PENDING | How bots find each other |
-| Q8 | Fake Bot Defense | PENDING | Sybil resistance for holders |
-| Q9 | Chunk Verification | PENDING | Prove holders have chunks |
-| Q11 | Rendezvous Hashing | PENDING | Validate deterministic assignment |
-| Q12 | Chunk Size Optimization | PENDING | Balance distribution vs coordination |
-| Q13 | Fairness Verification | PENDING | Challenge-response protocol |
-| Q14 | Chunk Communication Protocol | PENDING | How chunks are transmitted to holders |
+| Q7 | Bot Discovery | ✅ COMPLETE | Registry-based discovery with <1ms lookup latency |
+| Q8 | Fake Bot Defense | ✅ COMPLETE | PoW (difficulty 18, ~30s registration) prevents Sybil attacks |
+| Q9 | Chunk Verification | ✅ COMPLETE | Challenge-response via SHA-256(nonce \|\| chunk_sample), <1ms verification |
+| Q11 | Rendezvous Hashing | ✅ COMPLETE | Validated: deterministic, stable under churn, uniform distribution |
+| Q12 | Chunk Size Optimization | ✅ COMPLETE | 64KB confirmed optimal (0.2% overhead, 6-8 holders per 500KB state) |
+| Q13 | Fairness Verification | ✅ COMPLETE | 1% spot check rate: 100% detection, 0% false positives, <10ms latency |
+| Q14 | Chunk Communication Protocol | ✅ COMPLETE | Contract-based for Phase 0, hybrid (P2P + attestations) for Phase 1+ |
 
-**See**: `docs/spike/SPIKE-WEEK-2-BRIEFING.md`
+**Spike Week 2 Results**: See `docs/spike/q7/RESULTS.md` through `docs/spike/q14/RESULTS.md`
+**Architecture Summary**: See `docs/spike/SPIKE-WEEK-2-BRIEFING.md`
+
+### Key Findings from Spike Week 2
+
+**Q7 - Bot Discovery (Registry-Based)**:
+- Single Freenet contract as persistence registry (<1ms lookup latency)
+- PoW-based registration prevents Sybil attacks
+- Scales to 10K bots unsharded, 100K+ with sharding
+
+**Q8 - Sybil Resistance (Proof-of-Work)**:
+- Difficulty 18 PoW: ~30 seconds registration time
+- Prevents botnet spam while allowing legitimate bots
+- Difficulty adjustable based on network conditions
+
+**Q9 - Chunk Verification (Challenge-Response)**:
+- Protocol: `SHA-256(nonce || chunk_sample)` proves possession
+- <1ms verification latency, unforgeable without actual chunk
+- Prevents fairness gaming (claiming storage without holding chunks)
+
+**Q11 - Rendezvous Hashing (Deterministic Assignment)**:
+- Validated: stable under churn, deterministic, uniform distribution
+- No registry needed for holder relationships (computable by anyone)
+- Graceful handling when bots join/leave network
+
+**Q12 - Chunk Size Optimization (64KB)**:
+- 64KB confirmed optimal: balance between distribution and coordination
+- 500KB state → 8 chunks → ~6-8 holder bots (distribution + security)
+- 0.2% overhead for chunk metadata
+
+**Q13 - Fairness Verification (Spot Checks)**:
+- 1% spot check rate: 100% detection of bad actors, 0% false positives
+- <10ms latency for challenge-response roundtrip
+- Self-enforcing: failed challenges → deprioritization, no central authority
+
+**Q14 - Chunk Communication (Contract-Based Phase 0)**:
+- Contract-based distribution for Phase 0 (simplicity first)
+- Infrequent writes (human timescale) make contract approach acceptable
+- Hybrid (P2P + contract attestations) available for Phase 1+ if needed
 
 ---
 
