@@ -176,23 +176,34 @@ All six outstanding questions answered:
 
 **Status**: ✅ Spike Week 1 (Q1-Q6) COMPLETE — Proceed to Phase 0
 
-### Outstanding Questions — Spike Week 2 (Q7-Q14) ⏳ PENDING
+### Outstanding Questions — Spike Week 2 (Q7-Q14) ✅ COMPLETE
 
-**Spike Week 2 validates the Reciprocal Persistence Network.**
+**Spike Week 2 validated the Reciprocal Persistence Network.**
 
-See [SPIKE-WEEK-2-BRIEFING.md](../spike/SPIKE-WEEK-2-BRIEFING.md) for full briefing.
+**Decision**: **✅ GO — PROCEED TO PERSISTENCE IMPLEMENTATION**
 
-| Question | Priority | Status | Fallback |
-|----------|----------|--------|----------|
-| Q7: Bot Discovery | 🔴 BLOCKING | PENDING | Manual bootstrap list |
-| Q8: Fake Bot Defense | 🟡 RECOVERABLE | PENDING | Rate limiting + reputation |
-| Q9: Chunk Verification | 🟡 RECOVERABLE | PENDING | Trust-on-first-verify |
-| Q11: Rendezvous Hashing | 🟡 RECOVERABLE | PENDING | Simple modulo distribution |
-| Q12: Chunk Size Optimization | 🟡 RECOVERABLE | PENDING | Fixed 64KB |
-| Q13: Fairness Verification | 🟡 RECOVERABLE | PENDING | Honor system initially |
-| Q14: Chunk Communication Protocol | 🟡 RECOVERABLE | PENDING | Simple request/response |
+See [SPIKE-WEEK-2-BRIEFING.md](../spike/SPIKE-WEEK-2-BRIEFING.md) for full briefing and [PERSISTENCE.md](../PERSISTENCE.md) for comprehensive guide.
 
-**Note**: Spike Week 2 briefing prepared but not yet executed. Must complete before persistence implementation.
+| Question | Priority | Status | Result |
+|----------|----------|--------|--------|
+| Q7: Bot Discovery | 🔴 BLOCKING | ✅ COMPLETE | Registry-based, <1ms latency, PoW registration |
+| Q8: Fake Bot Defense | 🟡 RECOVERABLE | ✅ COMPLETE | PoW difficulty 18 (~30s), >90% detection |
+| Q9: Chunk Verification | 🟡 RECOVERABLE | ✅ COMPLETE | Challenge-response SHA-256, <1ms verification |
+| Q11: Rendezvous Hashing | 🟡 RECOVERABLE | ✅ COMPLETE | Deterministic, stable under churn, uniform |
+| Q12: Chunk Size Optimization | 🟡 RECOVERABLE | ✅ COMPLETE | 64KB confirmed optimal (0.2% overhead) |
+| Q13: Fairness Verification | 🟡 RECOVERABLE | ✅ COMPLETE | 1% spot checks, 100% detection, 0% FP |
+| Q14: Chunk Communication Protocol | 🟡 RECOVERABLE | ✅ COMPLETE | Contract-based Phase 0, hybrid Phase 1+ |
+
+**Status**: ✅ Spike Week 2 (Q7-Q14) COMPLETE (2026-01-31) — Ready for persistence implementation
+
+**Documentation Updated**:
+- `.beads/persistence-model.bead` - Updated with Q7-Q14 findings
+- `.beads/architecture-decisions.bead` - Added Spike Week 2 validation status
+- `.beads/discovery-protocols.bead` - Updated with Q7 results
+- `.beads/security-constraints.bead` - Updated with Q8/Q9/Q13 results
+- `docs/PERSISTENCE.md` - Comprehensive guide created
+- `docs/DEVELOPER-GUIDE.md` - Implementation guidance added
+- `README.md` - Persistence architecture updated
 
 ## ✅ Phase -1: Protocol v8 Poll Support (COMPLETED)
 
@@ -1445,6 +1456,13 @@ These tasks implement the 12 resolved architectural decisions.
 | Q4: STARK verification in Wasm | ✅ Complete | PARTIAL — Bot-side verification for Phase 0 (Wasm experimental) | 2026-01-30 |
 | Q5: Merkle Tree performance | ✅ Complete | GO — 0.09ms for 1000 members (on-demand OK) | 2026-01-30 |
 | Q6: Proof storage strategy | ✅ Complete | Store outcomes only (not proofs) | 2026-01-30 |
+| Q7: Bot Discovery | ✅ Complete | GO — Registry-based, <1ms latency, PoW registration | 2026-01-31 |
+| Q8: Fake Bot Defense | ✅ Complete | GO — PoW difficulty 18 (~30s), >90% detection, 7-day reputation | 2026-01-31 |
+| Q9: Chunk Verification | ✅ Complete | GO — Challenge-response SHA-256, <1ms verification | 2026-01-31 |
+| Q11: Rendezvous Hashing | ✅ Complete | GO — Deterministic assignment, stable under churn, uniform distribution | 2026-01-31 |
+| Q12: Chunk Size Optimization | ✅ Complete | GO — 64KB confirmed optimal (0.2% overhead, 6-8 holders per 500KB) | 2026-01-31 |
+| Q13: Fairness Verification | ✅ Complete | GO — 1% spot checks, 100% detection, 0% false positives | 2026-01-31 |
+| Q14: Chunk Communication | ✅ Complete | GO — Contract-based Phase 0, hybrid (P2P + attestations) Phase 1+ | 2026-01-31 |
 
 **✅ SPIKE WEEK 1 (Q1-Q6) COMPLETE**
 
@@ -1455,9 +1473,18 @@ Proceed to Phase 0 implementation with:
 - On-demand Merkle generation (Q5)
 - Store outcomes only (Q6)
 
-**⏳ SPIKE WEEK 2 (Q7-Q14) PENDING**
+**✅ SPIKE WEEK 2 (Q7-Q14) COMPLETE**
 
-See [SPIKE-WEEK-2-BRIEFING.md](../spike/SPIKE-WEEK-2-BRIEFING.md) for persistence network validation.
+Proceed to persistence implementation with:
+- Registry-based discovery (Q7: single contract, <1ms lookups)
+- PoW Sybil resistance (Q8: difficulty 18, ~30s registration)
+- Challenge-response verification (Q9: SHA-256 proofs, <1ms)
+- Rendezvous hashing (Q11: deterministic holder assignment)
+- 64KB chunk size (Q12: optimal balance)
+- Spot check fairness (Q13: 1% rate, 100% detection)
+- Contract-based distribution (Q14: Phase 0 simplicity)
+
+See [SPIKE-WEEK-2-BRIEFING.md](../spike/SPIKE-WEEK-2-BRIEFING.md) and [PERSISTENCE.md](../PERSISTENCE.md) for complete validation results.
 
 ---
 
