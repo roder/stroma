@@ -1,0 +1,116 @@
+# cargo-deny configuration for Stroma
+# Supply chain security per security-constraints.bead §9
+
+[advisories]
+# Security vulnerability checks from RustSec database
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+vulnerability = "deny"      # MUST fail on vulnerabilities
+unmaintained = "warn"       # Warn on unmaintained crates
+unsound = "deny"            # MUST fail on unsound crates
+yanked = "deny"             # MUST fail on yanked crates
+notice = "warn"             # Warn on notices
+ignore = []
+
+# Severity thresholds
+#severity-threshold = "low"  # Deny all severities
+
+[licenses]
+# License compliance checks
+unlicensed = "deny"
+confidence-threshold = 0.9
+
+# Allowed licenses (permissive only, per security-constraints.bead)
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Zlib",
+]
+
+# Denied licenses (copyleft and restrictive)
+deny = [
+    "GPL-2.0",
+    "GPL-3.0",
+    "AGPL-3.0",
+    "LGPL-2.0",
+    "LGPL-2.1",
+    "LGPL-3.0",
+]
+
+# Copyleft licenses are denied
+copyleft = "deny"
+
+# Clarifications for ambiguous licenses
+[[licenses.clarify]]
+name = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [
+    { path = "LICENSE", hash = 0xbd0eed23 }
+]
+
+[licenses.private]
+# Allow unlicensed private/internal crates
+ignore = false
+registries = []
+
+[bans]
+# Prevent multiple versions of same dependency
+multiple-versions = "deny"
+multiple-versions-include-dev = false
+
+# Prevent wildcard dependencies (unpredictable versions)
+wildcards = "deny"
+
+# Allow certain duplicates (if absolutely necessary)
+allow = []
+
+# Skip certain crates from ban checks
+skip = []
+
+# Skip dependency trees
+skip-tree = []
+
+# Banned crates (prohibited by security policy)
+deny = [
+    # presage-store-sqlite stores ALL messages - server seizure risk
+    # See security-constraints.bead §10
+    { name = "presage-store-sqlite", reason = "Stores message history - prohibited by security-constraints.bead §10. Use custom StromaProtocolStore instead." },
+
+    # Avoid deprecated/vulnerable crates
+    { name = "chrono", wrappers = ["time"], reason = "Use time crate instead (more secure)" },
+]
+
+# External default features
+external-default-features = "allow"
+
+[sources]
+# Allowed dependency sources
+unknown-registry = "deny"   # Only use known registries
+unknown-git = "deny"        # Git dependencies must be explicitly allowed
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+# Git dependencies must be explicitly listed here
+allow-git = [
+    "https://github.com/whisperfish/presage",
+    "https://github.com/roder/libsignal-service-rs",
+    "https://github.com/signalapp/curve25519-dalek",
+]
+
+[graph]
+# Dependency graph analysis
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "x86_64-unknown-linux-musl" },
+    { triple = "aarch64-unknown-linux-gnu" },
+]
+
+all-features = true
+no-default-features = false
+
+# Feature depth for analysis
+feature-depth = 1

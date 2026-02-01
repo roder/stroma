@@ -12,6 +12,32 @@ bd close <id>         # Complete work
 bd sync               # Sync with git
 ```
 
+## Security CI/CD Requirements
+
+**CRITICAL**: All PRs to `main` are automatically blocked if they violate security constraints.
+
+**Before committing code, you MUST run:**
+
+```bash
+# Quick security check (2-3 minutes)
+cargo fmt --check              # Format verification
+cargo clippy --all-targets --all-features -- -D warnings  # Lint
+cargo deny check               # Supply chain security
+
+# Full security check (5-10 minutes)
+cargo llvm-cov nextest --all-features  # 100% coverage required
+cargo build --release --target x86_64-unknown-linux-musl  # Binary size check
+```
+
+**Security Constraints (Auto-Reject)**:
+- ❌ No cleartext Signal IDs (use `mask_identity()` + zeroize)
+- ❌ No `presage-store-sqlite` (use `StromaProtocolStore`)
+- ❌ No grace periods in ejection logic
+- ❌ Unsafe blocks MUST have `// SAFETY:` comments
+- ❌ Test coverage MUST be 100%
+
+**See**: `SECURITY-CI-CD.md` for complete security requirements and fix patterns.
+
 ## Landing the Plane (Session Completion)
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
@@ -19,7 +45,7 @@ bd sync               # Sync with git
 **MANDATORY WORKFLOW:**
 
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
+2. **Run quality gates** (if code changed) - **Security checks MANDATORY** (see above)
 3. **Update issue status** - Close finished work, update in-progress items
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
@@ -77,4 +103,11 @@ EOF
 ```
 
 **See**: `.cursor/rules/git-standards.mdc` for complete standards.
+
+## Additional Resources
+
+- **Security Requirements**: `SECURITY-CI-CD.md` - Complete security workflow and fix patterns
+- **Security Constraints**: `.beads/security-constraints.bead` - Immutable security policy
+- **Technology Stack**: `.beads/technology-stack.bead` - Technology decisions and patterns
+- **Issue Tracking**: Run `bd onboard` for beads workflow introduction
 

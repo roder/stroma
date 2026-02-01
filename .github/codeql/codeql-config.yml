@@ -1,0 +1,56 @@
+# CodeQL Configuration for Stroma
+# SAST (Static Application Security Testing) per security-constraints.bead
+
+name: "Stroma CodeQL Config"
+
+# Disable default queries and use security-extended instead
+disable-default-queries: false
+
+# Query suites to run
+queries:
+  - name: security-extended
+    uses: security-extended
+  - name: security-and-quality
+    uses: security-and-quality
+
+# Paths to include in analysis
+paths:
+  - src/
+  - daemon/
+  - stroma/
+
+# Paths to exclude from analysis
+paths-ignore:
+  - target/
+  - tests/fixtures/
+  - benches/
+  - examples/
+
+# Build mode for Rust (no build required)
+# CodeQL for Rust uses dataflow analysis without compilation
+# This is specified in the workflow, not here
+
+# Custom queries (optional - add later if needed)
+# query-filters:
+#   - include:
+#       kind: problem
+#       precision: high
+
+# Security-specific configuration
+# Focus on:
+# - Cleartext secrets (Signal IDs, keys)
+# - Unsafe operations
+# - Memory safety violations
+# - Cryptographic misuse
+# - Command injection
+# - Path traversal
+
+# Additional configuration for security analysis
+# These align with security-constraints.bead requirements
+# - No cleartext Signal IDs (§1)
+# - Zeroization verification (§1)
+# - No grace periods (§2)
+# - Freenet source of truth (§2)
+# - ZK-proof verification (§2)
+# - Real-time state streams (§3)
+# - Ephemeral session data (§3)

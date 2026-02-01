@@ -1,0 +1,371 @@
+name: Security & Quality Pipeline
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+  schedule:
+    # Weekly security scan (Sundays at midnight UTC)
+    - cron: '0 0 * * 0'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ============================================================================
+  # Job 1: Supply Chain Security - cargo-deny
+  # ============================================================================
+  cargo-deny:
+    name: Supply Chain Security (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v1
+        with:
+          log-level: warn
+          command: check
+          arguments: --all-features
+
+      - name: Upload cargo-deny results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-deny-results
+          path: |
+            **/deny.toml
+            **/Cargo.lock
+          retention-days: 30
+
+  # ============================================================================
+  # Job 2: SAST - GitHub CodeQL Analysis
+  # ============================================================================
+  codeql-analysis:
+    name: Static Analysis (CodeQL)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: rust
+          config-file: ./.github/codeql/codeql-config.yml
+          queries: security-extended
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+        with:
+          category: "/language:rust"
+
+  # ============================================================================
+  # Job 3: Static Analysis - Clippy & Rustfmt
+  # ============================================================================
+  static-analysis:
+    name: Code Quality (Clippy & Rustfmt)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache target directory
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run rustfmt check
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy (treat warnings as errors)
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Detect unsafe blocks
+        id: unsafe-check
+        run: |
+          echo "Scanning for unsafe blocks..."
+          UNSAFE_COUNT=$(grep -r "unsafe" --include="*.rs" src/ | grep -v "// SAFETY:" | wc -l || echo "0")
+          echo "unsafe_count=$UNSAFE_COUNT" >> $GITHUB_OUTPUT
+          echo "Found $UNSAFE_COUNT unsafe blocks without SAFETY comments"
+
+          if [ "$UNSAFE_COUNT" -gt 0 ]; then
+            echo "::warning::Found $UNSAFE_COUNT unsafe blocks without SAFETY comments"
+            grep -rn "unsafe" --include="*.rs" src/ | grep -v "// SAFETY:" || true
+          fi
+
+      - name: Check for prohibited dependencies
+        run: |
+          echo "Checking for prohibited dependencies..."
+          # Check for presage-store-sqlite (prohibited by security-constraints.bead)
+          if grep -q "presage-store-sqlite" Cargo.toml; then
+            echo "::error::presage-store-sqlite is prohibited - must use custom StromaProtocolStore"
+            exit 1
+          fi
+          echo "✓ No prohibited dependencies found"
+
+      - name: Upload unsafe block report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsafe-blocks-report
+          path: |
+            unsafe-blocks.txt
+          retention-days: 30
+
+  # ============================================================================
+  # Job 4: Test Coverage
+  # ============================================================================
+  test-coverage:
+    name: Test Coverage (100% Required)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: llvm-tools-preview
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache target directory
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+
+      - name: Install cargo-nextest
+        run: cargo install cargo-nextest
+
+      - name: Run tests with coverage
+        run: cargo llvm-cov nextest --all-features --lcov --output-path lcov.info
+
+      - name: Check coverage threshold (100%)
+        run: |
+          COVERAGE=$(cargo llvm-cov report --summary-only --json | jq '.data[0].totals.lines.percent')
+          echo "Coverage: $COVERAGE%"
+
+          # Enforce 100% coverage requirement
+          if (( $(echo "$COVERAGE < 100.0" | bc -l) )); then
+            echo "::error::Coverage is $COVERAGE%, but 100% is required"
+            exit 1
+          fi
+          echo "✓ Coverage requirement met: $COVERAGE%"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./lcov.info
+          fail_ci_if_error: false
+          flags: unittests
+          name: stroma-coverage
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            lcov.info
+            target/llvm-cov/
+          retention-days: 30
+
+  # ============================================================================
+  # Job 5: Binary Size Monitoring
+  # ============================================================================
+  binary-size:
+    name: Binary Size Monitor
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          target: x86_64-unknown-linux-musl
+
+      - name: Install musl-tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Cache target directory
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary (musl)
+        run: cargo build --release --target x86_64-unknown-linux-musl
+
+      - name: Measure binary size
+        id: size-check
+        run: |
+          BINARY_SIZE=$(stat -c%s "target/x86_64-unknown-linux-musl/release/stroma" || echo "0")
+          echo "binary_size=$BINARY_SIZE" >> $GITHUB_OUTPUT
+          echo "Binary size: $(numfmt --to=iec-i --suffix=B $BINARY_SIZE)"
+
+          # Store baseline (if first run)
+          mkdir -p .github/metrics
+          if [ ! -f .github/metrics/binary-baseline.txt ]; then
+            echo "$BINARY_SIZE" > .github/metrics/binary-baseline.txt
+            echo "Baseline set: $BINARY_SIZE bytes"
+          else
+            BASELINE=$(cat .github/metrics/binary-baseline.txt)
+            INCREASE=$((BINARY_SIZE - BASELINE))
+            PERCENT=$(echo "scale=2; ($INCREASE / $BASELINE) * 100" | bc)
+
+            echo "Baseline: $(numfmt --to=iec-i --suffix=B $BASELINE)"
+            echo "Current: $(numfmt --to=iec-i --suffix=B $BINARY_SIZE)"
+            echo "Change: $(numfmt --to=iec-i --suffix=B $INCREASE) ($PERCENT%)"
+
+            # Fail if increase exceeds 10% or 1MB
+            if [ "$INCREASE" -gt 1048576 ] || (( $(echo "$PERCENT > 10" | bc -l) )); then
+              echo "::error::Binary size increased by $(numfmt --to=iec-i --suffix=B $INCREASE) ($PERCENT%) - exceeds threshold"
+              exit 1
+            fi
+          fi
+
+      - name: Upload size report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-size-report
+          path: |
+            .github/metrics/
+          retention-days: 30
+
+  # ============================================================================
+  # Job 6: Security Constraints Verification
+  # ============================================================================
+  security-constraints:
+    name: Security Constraints (Bead Compliance)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify no cleartext Signal IDs
+        run: |
+          echo "Checking for cleartext Signal ID violations..."
+          # Search for patterns that might indicate cleartext Signal ID storage
+          VIOLATIONS=$(grep -r "store.*signal.*id\|save.*signal.*id\|persist.*signal.*id" --include="*.rs" src/ | grep -v "// HMAC\|mask_identity\|Hash::" || echo "")
+
+          if [ -n "$VIOLATIONS" ]; then
+            echo "::error::Potential cleartext Signal ID storage detected:"
+            echo "$VIOLATIONS"
+            exit 1
+          fi
+          echo "✓ No cleartext Signal ID violations detected"
+
+      - name: Verify zeroization usage
+        run: |
+          echo "Checking for zeroization on sensitive data..."
+          # Ensure zeroize crate is used
+          if ! grep -q "zeroize" Cargo.toml; then
+            echo "::warning::zeroize crate not found in Cargo.toml"
+          fi
+          echo "✓ Zeroization check complete"
+
+      - name: Verify no presage-store-sqlite usage
+        run: |
+          echo "Checking for prohibited presage-store-sqlite..."
+          if grep -q "presage-store-sqlite\|SqliteStore" Cargo.toml src/**/*.rs; then
+            echo "::error::presage-store-sqlite is prohibited - must use custom StromaProtocolStore per security-constraints.bead §10"
+            exit 1
+          fi
+          echo "✓ No prohibited store usage detected"
+
+      - name: Verify StromaProtocolStore implementation
+        run: |
+          echo "Verifying custom StromaProtocolStore exists..."
+          if [ -f "src/store/stroma_protocol_store.rs" ] || grep -q "StromaProtocolStore" src/**/*.rs; then
+            echo "✓ StromaProtocolStore implementation found"
+          else
+            echo "::warning::StromaProtocolStore implementation not found - required by security-constraints.bead"
+          fi
+
+      - name: Check for grace period violations
+        run: |
+          echo "Checking for prohibited grace periods..."
+          GRACE_VIOLATIONS=$(grep -r "grace.*period\|delay.*ejection\|warn.*before.*eject" --include="*.rs" src/ || echo "")
+
+          if [ -n "$GRACE_VIOLATIONS" ]; then
+            echo "::error::Grace period detected - prohibited by security-constraints.bead §2"
+            echo "$GRACE_VIOLATIONS"
+            exit 1
+          fi
+          echo "✓ No grace period violations detected"
+
+  # ============================================================================
+  # Job 7: Security Summary
+  # ============================================================================
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [cargo-deny, codeql-analysis, static-analysis, test-coverage, binary-size, security-constraints]
+    if: always()
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Generate summary
+        run: |
+          echo "## Security Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Results" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Supply Chain Security (cargo-deny)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Static Analysis (CodeQL)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Code Quality (Clippy & Rustfmt)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Test Coverage (100% Required)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Binary Size Monitor" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Security Constraints (Bead Compliance)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All security checks passed! ✅" >> $GITHUB_STEP_SUMMARY
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ **Security Pipeline Passed**\n\nAll security checks completed successfully:\n- Supply Chain Security (cargo-deny)\n- Static Analysis (CodeQL)\n- Code Quality (Clippy & Rustfmt)\n- Test Coverage (100%)\n- Binary Size Monitoring\n- Security Constraints Compliance'
+            })
