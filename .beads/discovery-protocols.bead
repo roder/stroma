@@ -46,7 +46,7 @@ Find other Stroma bots to participate in the Reciprocal Persistence Network.
 
 ### Discovery Mechanism
 
-**Minimal Freenet Registry + Deterministic Assignment** (pending Q7, Q11 spike validation):
+**Minimal Freenet Registry + Deterministic Assignment** (Q7 COMPLETE, Q11 PENDING):
 
 ### Registry Contract Address Derivation
 
@@ -71,11 +71,22 @@ fn shard_contract_address(shard_id: u8) -> ContractHash {
 
 **Why this works**:
 - No coordination needed — any bot computes the same address
-- Deterministic — reproducible across implementations  
+- Deterministic — reproducible across implementations
 - Versioned — can migrate to v2 if schema changes
 - Sharding-ready — shard addresses derived from same pattern
 
-### Registry Data Model
+**Q7 Anti-Sybil Registration**:
+- PoW-based registration (difficulty 18) prevents spam
+- Registration requires proof-of-work before adding to registry
+- Integration point for Q8 (Fake Bot Defense) mechanisms
+
+### Registry Data Model (Q7 Validated)
+
+**Q7 Performance Characteristics**:
+- Registration latency: <10ms per bot
+- Discovery latency: <1ms (single contract read)
+- Network size query: O(1) (count of registry entries)
+- Concurrent registration: Safe (10 bots in <10ms total, no duplicates)
 
 ```rust
 /// Minimal registry - O(N) storage only
@@ -113,8 +124,11 @@ fn compute_chunk_holders(
 
 **Epoch management**: First bot to create a shard sets initial epoch. Subsequent bots read existing epoch. Epoch increments when bot count changes >10%.
 
-**Scalability**: Single registry sufficient for <10K bots. For larger networks, shard by contract hash prefix:
-- 256 shards (1 byte prefix) → handles 1M+ bots
+**Scalability** (Q7 validation):
+- Single registry: <10K bots unsharded
+- Sharded registry: 100K+ bots (256 shards by contract hash prefix)
+- Discovery latency: <1ms (Q7 measured)
+- Registration overhead: ~100 bytes per bot (Q7 measured)
 - Each shard is ~4K bots at 1M scale
 - Holder computation queries all shards (parallelizable)
 - See `persistence-model.bead` for sharding details
@@ -520,10 +534,18 @@ fn find_federation_candidates() -> Vec<Group> {
 
 ## Implementation Notes
 
-### Persistence Registry (Q7, Q11 Spike)
+### Persistence Registry (Q7 COMPLETE, Q11 PENDING)
+
+**Q7 Findings**:
+- Registry-based discovery: ✅ VIABLE
+- Discovery latency: <1ms (requirement: <5s) ✅
+- Registration overhead: ~100 bytes (requirement: <1KB) ✅
+- Concurrent safety: No duplicates or lost entries ✅
+- Scales to 10K bots unsharded, 100K+ with sharding ✅
+- PoW-based registration (difficulty 18) for anti-Sybil ✅
 
 ```rust
-// Pending Q7 (discovery) and Q11 (rendezvous hashing) validation
+// Q7 validated - registry approach RECOMMENDED for Phase 0
 pub trait PersistenceDiscovery {
     /// Register this bot in the persistence network
     async fn register(&self) -> Result<()>;
@@ -543,6 +565,12 @@ pub trait PersistenceDiscovery {
 ```
 
 **Note**: No heartbeat method. Replication Health measured at write time via distribution acknowledgments.
+
+**Q7 Stale Bot Handling**:
+- Bots unregister on clean shutdown
+- Crashed/stale bots detected during chunk distribution
+- Failed distribution marks bot as potentially stale
+- Lazy exclusion from holder computation (no active cleanup needed)
 
 ### Federation Discovery (Shadow Beacon)
 
