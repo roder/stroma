@@ -49,6 +49,10 @@ path = "docs/spike/q11/main.rs"
 name = "spike-q12"
 path = "docs/spike/q12/main.rs"
 
+[[bin]]
+name = "spike-q13"
+path = "docs/spike/q13/main.rs"
+
 [dependencies]
 # Freenet node (in-process embedding via SimNetwork for testing, or Node for production)
 # - freenet: The node itself (SimNetwork for testing, NodeConfig for production)
