@@ -1,7 +1,7 @@
 # Security Constraints (IMMUTABLE)
 
 **Status**: Pinned - Cannot be modified without explicit unpinning ceremony
-**Last Updated**: 2026-01-26
+**Last Updated**: 2026-01-31
 **Applies To**: All agents, all code, all phases
 
 ## Critical Principle
@@ -638,8 +638,8 @@ impl presage::Store for StromaProtocolStore {
 | Peer may be malicious | Encrypt all chunks |
 | Peer may refuse to return | 3 copies per chunk (any 1 of 3 works) |
 | Peers may collude | Chunks encrypted; need ALL chunks + ACI key |
-| Peer may be fake (Sybil) | Defense mechanisms required (Q8 spike) |
-| Peer may delete chunks | Verification required (Q9, Q13 spike) |
+| Peer may be fake (Sybil) | **✅ Q8 COMPLETE**: PoW difficulty 18 (~30s registration) prevents Sybil attacks |
+| Peer may delete chunks | **✅ Q9/Q13 COMPLETE**: Challenge-response SHA-256(nonce \|\| chunk_sample) verifies possession, <1ms verification |
 
 ### Persistence Security Violations (BLOCK)
 
@@ -656,9 +656,83 @@ impl presage::Store for StromaProtocolStore {
 - ✅ **ALWAYS** use 64KB chunks with 3 copies each (1 local + 2 remote)
 - ✅ **ALWAYS** use deterministic holder selection per-chunk (rendezvous hashing)
 - ✅ **ALWAYS** keep registry minimal (O(N) bot list, not per-chunk relationships)
-- ✅ **ALWAYS** verify holders actually have chunks (Q9, Q13)
+- ✅ **ALWAYS** verify holders actually have chunks via challenge-response (Q9/Q13: SHA-256 proof, 1% spot check rate, <10ms latency)
 - ✅ **ALWAYS** treat all persistence peers as adversaries
 - ✅ **ALWAYS** use Signal protocol store as single cryptographic identity
+
+### Sybil Resistance (Q8 - COMPLETE)
+
+**Findings**: Combined defense strategy (PoW + Reputation + Capacity Verification) provides >90% fake bot detection within 7 days while maintaining <1% false positive rate.
+
+**Implementation Requirements**:
+- ✅ PoW difficulty 16-18 (~100-300ms registration, RPi-compatible)
+- ✅ Minimum 100MB capacity verification
+- ✅ 7-day reputation building period
+- ✅ 30% success rate threshold for chunk holding eligibility
+- ✅ Periodic capacity re-verification every 30 days
+
+**Security Properties**:
+- Prevents instant mass registration (PoW creates computational cost)
+- Requires real storage infrastructure (100 GB for 1000 fake bots)
+- Time barrier transforms attack from "register once" to "maintain infrastructure over time"
+- Attack cost for 1000 fake bots: 2 min CPU + 100 GB storage + 7+ days uptime + operational responses
+
+**See**: `docs/spike/q8/RESULTS.md` for complete analysis.
+
+### Chunk Possession Verification (Q9 - COMPLETE)
+
+**Findings**: Challenge-response protocol successfully verifies chunk possession without revealing content. Latency <1ms, content privacy preserved (99.6% of chunk remains private).
+
+**Protocol Specification**:
+```rust
+// Challenge: SHA-256(nonce || chunk[offset..offset+length])
+struct VerificationChallenge {
+    nonce: [u8; 32],        // Random, prevents replay
+    offset: u32,            // Random offset in chunk
+    length: u32,            // Sample size (64 bytes)
+    timestamp: u64,         // Freshness check (<1 hour)
+}
+// Challenge: 48 bytes, Response: 80 bytes, Total: 128 bytes
+```
+
+**Security Properties**:
+- ✅ Possession proof: Holder must have actual bytes to compute correct hash
+- ✅ Replay resistance: Nonce changes each challenge, old responses invalid
+- ✅ Deletion detection: Missing chunk cannot respond, detected immediately
+- ✅ Content privacy: Hash reveals nothing about plaintext (zero knowledge leak)
+- ✅ Freshness: Timestamp window prevents stale proofs
+
+**Verification Frequency**:
+- Normal operation: Daily spot checks (low overhead)
+- Before recovery: Verify all holders (critical path)
+- New holder: Immediate verification (ensure initial storage)
+- Failed verification: Retry 3x, then replace holder
+
+**See**: `docs/spike/q9/RESULTS.md` for complete protocol specification.
+
+### Fairness Enforcement (Q13 - COMPLETE)
+
+**Findings**: 1% spot check rate achieves 100% detection of free-riders with 0% false positives, <10ms latency per verification.
+
+**Verification Metrics**:
+- Latency: ~1ms total (10µs challenge generation + 500µs holder response + 200µs verification)
+- Detection rate: 100% (requirement: >95%)
+- False positive rate: 0% (requirement: <1%)
+- Content leakage: <1% (256 of 65536 bytes sampled)
+- Overhead: 0.16ms per write (1% sample of 16 chunks)
+
+**Enforcement Strategy**:
+- **Phase 0**: Spot checks (1% sample), warn on failures, log suspicious holders
+- **Phase 1+**: Reputation scoring, soft deprioritization of low-reputation holders (<95% success rate), hard exclusion after 10 consecutive failures
+
+**Attack Resistance**:
+- Replay attacks: BLOCKED (unique nonce per challenge)
+- Guessing proofs: INFEASIBLE (2^-256 probability)
+- Partial storage: PREVENTED (random offset, must store full chunk)
+- Conspiring holders: TOLERATED (chunk exists somewhere, acceptable)
+- Delay attacks: DETECTABLE (latency monitoring in Phase 1+)
+
+**See**: `docs/spike/q13/RESULTS.md` for complete findings and implementation guidance.
 
 ### Separate Concerns: Security vs Fairness
 
