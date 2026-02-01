@@ -57,3 +57,9 @@ docs/SESSION-SUMMARY-*.md
 # =============================================================================
 # Note: .beads/ has its own .gitignore that handles SQLite files
 # and keeps issues.jsonl, metadata.json, config file as source of truth
+
+# Gas Town (added by gt)
+.runtime/
+.claude/
+.beads/
+.logs/
