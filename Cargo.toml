@@ -29,12 +29,16 @@ path = "docs/spike/q5/main.rs"
 name = "spike-q4"
 path = "docs/spike/q4/main.rs"
 
+[[bin]]
+name = "spike-q7"
+path = "docs/spike/q7/main.rs"
+
 [dependencies]
 # Freenet node (in-process embedding via SimNetwork for testing, or Node for production)
 # - freenet: The node itself (SimNetwork for testing, NodeConfig for production)
 # - freenet-stdlib: For writing Wasm contracts that run inside the node
 freenet = "0.1"
-freenet-stdlib = { version = "0.1", features = ["contract", "net"] }
+freenet-stdlib = { version = "=0.1.30", features = ["contract", "net"] }
 
 # Signal integration (uses forked libsignal-service-rs with poll support)
 # ❌ DO NOT USE: presage-store-sqlite (stores ALL messages - server seizure risk!)
