@@ -351,8 +351,8 @@ let poll = DataMessage {
 - ✅ Q5: Merkle Tree performance — GO (0.09ms @ 1000 members)
 - ✅ Q6: Proof storage — Store outcomes only (not proofs)
 
-**Outstanding Questions (Spike Week 2 — PENDING):**
-- ⏳ Q7-Q14: Persistence network validation (see SPIKE-WEEK-2-BRIEFING.md)
+**Outstanding Questions (Spike Week 2 — COMPLETE):**
+- ✅ Q7-Q14: Persistence network validation (COMPLETE - see SPIKE-WEEK-2-BRIEFING.md and docs/PERSISTENCE.md)
 
 **Spike 2: Presage + Polls (2 days)**
 - Test Presage group management
