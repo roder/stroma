@@ -1,0 +1,432 @@
+# Bead: Architectural Decisions (Open Questions Resolution)
+
+**Status**: Immutable Architectural Constraint  
+**Created**: 2026-01-31  
+**Context**: Resolution of open architectural questions beyond Spike Week
+
+---
+
+## Resolved Decisions
+
+### 1. Flag History on Re-Entry
+
+**Decision**: **Flags persist**
+
+When a member is ejected and re-enters with 2 new cross-cluster vouches, their previous flags carry over.
+
+**Rationale**: 
+- Accountability: Community memory of past concerns
+- Prevents gaming: Can't clear history by briefly leaving
+- New vouchers know they're vouching for someone with history
+
+**Implementation**:
+```rust
+// On re-entry, member starts with:
+// - 2 new effective vouches (from new vouchers)
+// - Previous flags still in place
+// - Standing = 2 - previous_flags
+
+// Example: Alice was ejected with 3 flags
+// Alice re-enters with 2 new vouches
+// Standing = 2 - 3 = -1 → STILL EJECTED
+// Alice needs MORE than 2 vouches to overcome history
+```
+
+**UX Implication**: Bot should inform inviter of invitee's flag history before vetting.
+
+---
+
+### 2. Multiple Flags
+
+**Decision**: **One flag per person** (use Set, not Multiset)
+
+Each member can flag another member at most once.
+
+**Rationale**:
+- Prevents spam/brigading
+- Simpler mental model for users
+- One concern = one flag (express it once)
+
+**Implementation**:
+```rust
+pub struct TrustNetworkState {
+    // HashSet ensures one flag per flagger
+    pub flags: HashMap<Hash, HashSet<Hash>>,  // flagged → {flaggers}
+}
+
+// Duplicate flag attempts are no-ops
+fn flag(&mut self, flagger: Hash, target: Hash) -> Result<(), Error> {
+    let flaggers = self.flags.entry(target).or_default();
+    if flaggers.contains(&flagger) {
+        return Err(Error::AlreadyFlagged);  // Idempotent, not error to user
+    }
+    flaggers.insert(flagger);
+    Ok(())
+}
+```
+
+---
+
+### 3. Vouch Revocation
+
+**Decision**: **Revoke = Flag** (no neutral state)
+
+There is no "neutral" state. To withdraw a vouch, you must flag.
+
+**Rationale**:
+- Simplicity: Binary trust (vouch or flag)
+- Accountability: Revoking support is an active statement
+- Aligns with "fluid identity" — trust is current position, not accumulator
+
+**Trust States**:
+```
+         ┌─────────┐
+         │ Unknown │  (never interacted)
+         └────┬────┘
+              │ /vouch
+              ▼
+         ┌─────────┐
+         │ Vouched │  (trusts)
+         └────┬────┘
+              │ /flag (voucher-flagger path)
+              ▼
+         ┌─────────┐
+         │ Flagged │  (distrusts, vouch invalidated)
+         └─────────┘
+```
+
+**No path back**: Once flagged, cannot re-vouch same person (would require implementation discussion for future "unflag" capability — not in MVP).
+
+---
+
+### 4. Signal API Failure During Ejection
+
+**Decision**: **Retry with logarithmic backoff until achieved**
+
+If Freenet confirms ejection but Signal API fails, bot MUST retry until Signal reflects truth.
+
+**Rationale**:
+- Freenet is source of truth
+- Signal must eventually reflect Freenet state
+- Logarithmic backoff prevents API abuse while ensuring completion
+
+**Implementation**:
+```rust
+async fn sync_ejection_to_signal(member_hash: Hash) -> Result<()> {
+    let mut attempt = 0;
+    loop {
+        match signal.remove_member(member_hash).await {
+            Ok(_) => return Ok(()),
+            Err(e) if e.is_transient() => {
+                attempt += 1;
+                // Logarithmic backoff: 1s, 2s, 4s, 8s... capped at 1 hour
+                let delay = Duration::from_secs(2u64.pow(attempt).min(3600));
+                tracing::warn!(
+                    "Signal ejection failed (attempt {}), retrying in {:?}: {}",
+                    attempt, delay, e
+                );
+                tokio::time::sleep(delay).await;
+            }
+            Err(e) => return Err(e),  // Non-transient error
+        }
+    }
+}
+```
+
+**Invariant**: `signal_state.members ⊆ freenet_state.members` (Signal may lag, but never lead)
+
+---
+
+### 5. Rate Limiting / Action Cooldowns
+
+**Decision**: **Progressive cooldown** (starts low, increases with repeated actions)
+
+Minimum time between actions on same target increases with action count.
+
+**Rationale**:
+- Allows initial corrections (vouch, then realize mistake, flag)
+- Identifies bad actors (rapid cycling = suspicious)
+- Provides repair path while preventing abuse
+
+**Implementation**:
+```rust
+pub struct ActionCooldown {
+    target: Hash,
+    action_count: u32,
+}
+
+impl ActionCooldown {
+    /// Returns cooldown duration based on action history
+    fn cooldown_duration(&self) -> Duration {
+        match self.action_count {
+            0 => Duration::ZERO,           // First action: immediate
+            1 => Duration::from_secs(60),  // Second: 1 minute
+            2 => Duration::from_secs(300), // Third: 5 minutes
+            3 => Duration::from_secs(3600), // Fourth: 1 hour
+            _ => Duration::from_secs(86400), // Fifth+: 24 hours
+        }
+    }
+}
+
+// Track in bot memory (not Freenet - ephemeral)
+// Resets on bot restart (acceptable for MVP)
+```
+
+**UX**: Bot responds "Please wait X before taking another action on this member."
+
+---
+
+### 6. Contract Schema Migration
+
+**Decision**: **Versioned state with serde(default)**
+
+Use CBOR with `#[serde(default)]` for backward-compatible schema evolution.
+
+**Rationale**:
+- CBOR handles optional fields gracefully
+- No migration contracts needed for additive changes
+- Breaking changes require explicit migration (rare)
+
+**Implementation**:
+```rust
+#[derive(Serialize, Deserialize)]
+pub struct TrustNetworkState {
+    pub members: BTreeSet<Hash>,
+    pub vouches: HashMap<Hash, HashSet<Hash>>,
+    pub flags: HashMap<Hash, HashSet<Hash>>,
+    pub tombstones: BTreeSet<Hash>,
+    pub version: u64,
+    
+    // Added in v2 — old states deserialize with empty vec
+    #[serde(default)]
+    pub federation_contracts: Vec<ContractHash>,
+    
+    // Added in v3 — old states deserialize with None
+    #[serde(default)]
+    pub config: Option<GroupConfig>,
+}
+```
+
+**Version Field**: Track schema version for debugging, not migration logic.
+
+---
+
+### 7. Privacy Settings for Mesh Queries
+
+**Decision**: **No privacy controls** for mesh visibility
+
+- Members CANNOT hide their vouch count from others
+- Members CANNOT opt out of Blind Matchmaker suggestions
+
+**Rationale**:
+- Transparency is core to trust network
+- Hiding information enables gaming
+- Mesh health depends on visibility
+- "Privacy from external threats, transparency within community"
+
+**Note**: External observers (non-members) cannot see anything. This applies only to fellow members.
+
+---
+
+### 8. Bootstrap Cross-Cluster Exemption
+
+**Decision**: **Grandfathered** (existing members don't need retroactive cross-cluster vouches)
+
+When multiple clusters form, existing members are NOT required to get new vouches.
+
+**Rationale**:
+- Founders established trust before clusters existed
+- Retroactive requirements would be disruptive
+- New members must meet cross-cluster requirement
+
+**Trigger for "clusters exist"**: See Decision #12 (Cluster Formation Trigger) below.
+
+---
+
+### 9. Logging Verbosity & Security
+
+**Decision**: **Logs must not enable trust map reconstruction or state recovery**
+
+| Level | Audience | Content |
+|-------|----------|---------|
+| ERROR | Operators | Failures requiring attention |
+| WARN | Operators | Recoverable issues |
+| INFO | Operators | Operations completed (sanitized) |
+| DEBUG | Contributors | Internal flow (no sensitive data) |
+| TRACE | Contributors | Detailed flow (dev only, ephemeral) |
+
+**Four-Layer Log Security**:
+
+| Layer | What's Protected | Logging Rule |
+|-------|------------------|--------------|
+| **PII** | Signal IDs, phone numbers, names | ❌ NEVER log |
+| **Trust Map** | Relational data (who vouched for whom) | ❌ NEVER log |
+| **Persistence** | Chunk holder locations, attestations | ❌ NEVER log (even if computable) |
+| **Federation** | Federated group identities, overlap data | ❌ NEVER log |
+
+**Why This Matters**:
+If a bot is compromised, its logs must NOT provide:
+1. Member identities (PII protection)
+2. Trust relationships (trust map protection)
+3. Path to reconstruct state (persistence protection)
+4. Which groups are federated or their relationships (federation protection)
+
+**Logging Rules**:
+
+```rust
+// ❌ FORBIDDEN - reveals trust map
+tracing::info!("Vouch recorded: {} vouched for {}", voucher_hash, target_hash);
+tracing::debug!("Flag from {} to {}", flagger_hash, target_hash);
+tracing::info!("Ejecting {} (standing: {})", member_hash, standing);
+
+// ❌ FORBIDDEN - reveals persistence locations
+tracing::info!("Chunk stored at peer {}", holder_hash);
+tracing::debug!("Attestation received from {}", holder_hash);
+tracing::info!("Recovering from holders: {:?}", holder_list);
+
+// ❌ FORBIDDEN - reveals PII
+tracing::info!("Processing message from {}", signal_id);
+tracing::debug!("Adding member: {}", phone_number);
+
+// ❌ FORBIDDEN - reveals federation relationships
+tracing::info!("Federated with group {}", other_group_hash);
+tracing::debug!("PSI-CA overlap with {}: {} members", group_id, overlap_count);
+tracing::info!("Cross-mesh vouch from {}", federated_group_name);
+tracing::debug!("Discovery: found group {} at URI {}", group_hash, uri);
+
+// ✅ ALLOWED - operation types only
+tracing::info!("Vouch recorded");
+tracing::info!("Flag recorded");
+tracing::info!("Member admitted");
+tracing::info!("Member ejected");
+tracing::info!("Chunk distribution completed (all chunks 3/3)");
+tracing::info!("State recovery initiated");
+tracing::info!("Federation proposal created");
+tracing::info!("Federation established");
+
+// ✅ ALLOWED - aggregate counts (no identifiers)
+tracing::info!("Network state: {} members, {} pending invites", count, pending);
+tracing::debug!("Cluster detection: {} clusters found", cluster_count);
+tracing::info!("Federated groups: {}", federation_count);  // count only, no IDs
+
+// ✅ ALLOWED - error context without identifiers
+tracing::error!("Signal API failed: {}", error_type);
+tracing::warn!("Chunk distribution partial: 7/8 chunks fully replicated");
+```
+
+**Implementation**:
+- Use structured logging (tracing crate)
+- Create sanitized log macros that strip identifiers
+- Log review in CI/CD (grep for hash patterns)
+- Production logs should pass "compromised bot" test
+
+**Compromised Bot Test**:
+> If an adversary has full access to bot logs, can they reconstruct:
+> 1. Who is in the group? **NO** (no PII, no hashes logged)
+> 2. Who vouched for whom? **NO** (no relational data logged)
+> 3. Where are persistence fragments? **NO** (no holder locations logged)
+> 4. Which groups are federated? **NO** (no group IDs, names, or URIs logged)
+>
+> If any answer is YES, logging is too verbose.
+
+---
+
+### 10. Tombstone Intent and Re-Entry
+
+**Decision**: **"Ejected" state, not permanent tombstone** (Option C)
+
+No permanent bans. "Ejected + flags persist" is sufficient accountability.
+
+**Data Model**:
+```rust
+pub struct TrustNetworkState {
+    pub members: BTreeSet<Hash>,        // Active members
+    pub ejected: BTreeSet<Hash>,        // Currently ejected (can return)
+    pub vouches: HashMap<Hash, HashSet<Hash>>,  // All vouches (including for ejected)
+    pub flags: HashMap<Hash, HashSet<Hash>>,    // All flags (persist across ejection)
+}
+```
+
+**Behavior**:
+- Ejected members keep their hash, vouch history, and flag history
+- Re-entry moves them from `ejected` back to `members`
+- CRDT correctness: `ejected` set operations are commutative
+- No "permanent ban" concept — aligns with forgiveness philosophy
+
+**Re-entry Requirements**:
+- Secure 2+ new cross-cluster vouches
+- Standing must be positive: `new_vouches - persisted_flags > 0`
+- More flags = more vouches needed to re-enter
+
+**Rationale**: Stroma's philosophy emphasizes "accountability AND forgiveness." Permanent bans collapse toward punishment; ejection with repair path maintains the duality.
+
+---
+
+### 11. Multi-Bot Consensus Intent
+
+**Decision**: **Multi-bot = federation coordination, NOT redundancy**
+
+| Scope | Bots | Trust Model |
+|-------|------|-------------|
+| **MVP (single group)** | 1 bot | Trusted (operator accountability) |
+| **Federation (Phase 4+)** | N bots (one per group) | Coordinate via Freenet |
+
+**Explicitly OUT OF SCOPE**: Multi-bot verification redundancy within a single group.
+
+**Rationale**:
+- Single-group redundancy adds complexity without proportional benefit
+- Operator accountability is sufficient for MVP
+- Federation naturally introduces multiple bots (each group has one)
+- Cross-group operations require bot-to-bot coordination
+
+**Documentation**: "Multi-bot" in Stroma always means federation, never redundancy.
+
+---
+
+### 12. Cluster Formation Trigger
+
+**Decision**: **Automatic detection when `clusters >= 2`** (no member count threshold)
+
+**Trigger**: Bridge Removal algorithm detects 2+ distinct clusters
+
+```rust
+fn should_require_cross_cluster(state: &TrustNetworkState) -> bool {
+    let clusters = bridge_removal_detect_clusters(&state.vouches);
+    clusters.len() >= 2
+}
+```
+
+**Why no member count threshold**:
+- 10 tight friends = 1 cluster → no cross-cluster needed
+- 6 from 2 friend groups = 2 clusters → cross-cluster required
+- Algorithm detects actual social structure, not arbitrary numbers
+
+**Announcement**: When triggered, bot posts to group:
+> "📊 Network update: Your group now has distinct sub-communities! Cross-cluster vouching is now required for new members. This means new members need vouches from people in different friend circles. Existing members are grandfathered."
+
+**Grandfathering**: Existing members at time of trigger are NOT required to get new vouches.
+
+**Timing**: Run cluster detection on every membership change (fast: <1ms per Q3 Spike)
+
+---
+
+---
+
+## Summary
+
+| # | Question | Decision | Status |
+|---|----------|----------|--------|
+| 1 | Flag history | Flags persist | ✅ Resolved |
+| 2 | Multiple flags | One per person (set) | ✅ Resolved |
+| 3 | Vouch revocation | Revoke = Flag (no neutral) | ✅ Resolved |
+| 4 | Signal failure | Logarithmic backoff retry | ✅ Resolved |
+| 5 | Rate limiting | Progressive cooldown | ✅ Resolved |
+| 6 | Schema migration | Versioned state (serde default) | ✅ Resolved |
+| 7 | Privacy settings | No hiding (transparent within group) | ✅ Resolved |
+| 8 | Bootstrap grandfathering | Existing members grandfathered | ✅ Resolved |
+| 9 | Logging | NO PII, INFO/DEBUG levels | ✅ Resolved |
+| 10 | Tombstone/ejection | Ejected state, not permanent ban | ✅ Resolved |
+| 11 | Multi-bot | Federation coordination, not redundancy | ✅ Resolved |
+| 12 | Cluster trigger | Automatic when `clusters >= 2` | ✅ Resolved |
+
+**All open architectural questions resolved.**

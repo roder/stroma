@@ -1,0 +1,344 @@
+# Bead: Serialization Format
+
+**Status**: Immutable Architectural Constraint  
+**Created**: 2026-01-31  
+**Context**: Architecture Decision - State Serialization
+
+---
+
+## Decision Summary
+
+**Freenet provides raw bytes** (`Vec<u8>`). Serialization is entirely our responsibility.
+
+**Chosen Format**: **CBOR** via `ciborium` crate
+
+---
+
+## Three Serialization Contexts
+
+| Context | Format | Rationale |
+|---------|--------|-----------|
+| **Freenet Contract State** | CBOR | Compact, deterministic, cross-language |
+| **Persistence Fragments** | Opaque bytes | Already encrypted — format doesn't matter to holders |
+| **Signal Messages** | Protobuf | Signal's native format (non-negotiable) |
+
+---
+
+## Why CBOR (Not JSON or bincode)
+
+### Comparison Matrix
+
+| Criterion | JSON | CBOR | bincode | MessagePack |
+|-----------|------|------|---------|-------------|
+| Size | Large (~2-3x) | **Compact** | Smallest | Compact |
+| Speed | Slow | Fast | **Fastest** | Fast |
+| Deterministic | No* | **Yes** | Yes | Partial |
+| Cross-language | Yes | **Yes** | Rust-only | Yes |
+| Human-readable | Yes | No | No | No |
+| Freenet ecosystem | — | **Common** | — | — |
+| Schema evolution | Poor | **Good** | Poor | Good |
+
+*JSON key order is undefined; round-trips can produce different bytes
+
+### Why NOT JSON
+
+1. **Size**: JSON is 2-3x larger than CBOR for structured data
+2. **Non-deterministic**: Key ordering varies, making state comparison unreliable
+3. **Bandwidth**: Every delta update costs network resources
+4. **Parse speed**: Slower than binary formats
+
+### Why NOT bincode
+
+1. **Rust-only**: If federation requires interop with non-Rust implementations
+2. **Schema evolution**: Fragile when struct fields change
+3. **No canonical mode**: Less suitable for hashing/comparison
+
+### Why CBOR
+
+1. **Compact**: Binary format, similar to bincode efficiency
+2. **Deterministic**: Canonical mode via `ciborium::value::CanonicalValue`
+3. **Cross-language**: Supported in virtually every language
+4. **Schema evolution**: Handles optional fields gracefully
+5. **Freenet ecosystem**: Common choice in Freenet contracts
+6. **Mature**: Well-tested `ciborium` crate
+
+---
+
+## Implementation
+
+### Dependencies
+
+```toml
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+ciborium = "0.2"
+```
+
+### Serialization Pattern
+
+```rust
+use ciborium::{from_reader, into_writer};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeSet, HashMap, HashSet};
+
+/// Trust network state (Freenet contract)
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct TrustNetworkState {
+    pub members: BTreeSet<Hash>,
+    pub vouches: HashMap<Hash, HashSet<Hash>>,
+    pub flags: HashMap<Hash, HashSet<Hash>>,
+    pub tombstones: BTreeSet<Hash>,
+    pub version: u64,
+}
+
+impl TrustNetworkState {
+    /// Serialize to CBOR bytes for Freenet storage
+    pub fn to_bytes(&self) -> Result<Vec<u8>, SerializationError> {
+        let mut bytes = Vec::new();
+        into_writer(self, &mut bytes)?;
+        Ok(bytes)
+    }
+    
+    /// Deserialize from CBOR bytes
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, SerializationError> {
+        from_reader(bytes).map_err(Into::into)
+    }
+}
+```
+
+### Freenet Contract Integration
+
+```rust
+use freenet_stdlib::{ContractInterface, ValidateResult, UpdateResult, ContractError};
+
+impl ContractInterface for TrustContract {
+    fn validate_state(state: &[u8]) -> Result<ValidateResult, ContractError> {
+        // Deserialize from CBOR
+        let trust_state = TrustNetworkState::from_bytes(state)
+            .map_err(|_| ContractError::InvalidState)?;
+        
+        // Validate business rules
+        trust_state.validate()?;
+        
+        Ok(ValidateResult::Valid)
+    }
+    
+    fn update_state(state: &mut [u8], delta: &[u8]) -> Result<UpdateResult, ContractError> {
+        // Deserialize current state
+        let mut trust_state = TrustNetworkState::from_bytes(state)?;
+        
+        // Deserialize delta
+        let delta = StateDelta::from_bytes(delta)?;
+        
+        // Apply delta (CRDT-style, commutative)
+        trust_state.apply_delta(&delta);
+        
+        // Serialize back to CBOR
+        let new_bytes = trust_state.to_bytes()?;
+        
+        // Update state buffer
+        state.clear();
+        state.extend(new_bytes);
+        
+        Ok(UpdateResult::Updated)
+    }
+}
+```
+
+### Delta Serialization
+
+```rust
+/// State delta for commutative merge
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct StateDelta {
+    pub members_added: Vec<Hash>,
+    pub members_removed: Vec<Hash>,
+    pub vouches_added: Vec<(Hash, Hash)>,  // (voucher, vouchee)
+    pub vouches_removed: Vec<(Hash, Hash)>,
+    pub flags_added: Vec<(Hash, Hash)>,    // (flagger, flagged)
+    pub new_version: u64,
+}
+
+impl StateDelta {
+    pub fn to_bytes(&self) -> Result<Vec<u8>, SerializationError> {
+        let mut bytes = Vec::new();
+        into_writer(self, &mut bytes)?;
+        Ok(bytes)
+    }
+    
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, SerializationError> {
+        from_reader(bytes).map_err(Into::into)
+    }
+}
+```
+
+---
+
+## Persistence Layer Integration
+
+Persistence fragments don't need separate format decision — CBOR state is encrypted:
+
+```rust
+/// Prepare trust state for persistence (RPN)
+pub fn prepare_for_persistence(
+    state: &TrustNetworkState,
+    keypair: &Keypair,
+) -> Result<Vec<Chunk>, PersistenceError> {
+    // 1. Serialize to CBOR
+    let plaintext = state.to_bytes()?;
+    
+    // 2. Encrypt with AES-256-GCM
+    let key = derive_key(keypair);
+    let ciphertext = encrypt(&plaintext, &key)?;
+    
+    // 3. Split into 64KB chunks
+    let chunks = split_into_chunks(&ciphertext, CHUNK_SIZE)?;
+    
+    // Chunks are opaque encrypted bytes to holders
+    Ok(chunks)
+}
+
+/// Recover trust state from persistence chunks
+pub fn recover_from_persistence(
+    chunks: &[Chunk],
+    keypair: &Keypair,
+) -> Result<TrustNetworkState, PersistenceError> {
+    // 1. Concatenate all chunks (must have ALL chunks)
+    let ciphertext = concatenate_chunks(chunks)?;
+    
+    // 2. Decrypt with AES-256-GCM
+    let key = derive_key(keypair);
+    let plaintext = decrypt(&ciphertext, &key)?;
+    
+    // 3. Deserialize from CBOR
+    let state = TrustNetworkState::from_bytes(&plaintext)?;
+    
+    Ok(state)
+}
+```
+
+---
+
+## Key Design Principles
+
+### 1. Deterministic Serialization
+
+For state comparison and hashing, use canonical CBOR:
+
+```rust
+use ciborium::value::CanonicalValue;
+
+/// Serialize for hashing (canonical, deterministic)
+pub fn to_canonical_bytes(&self) -> Result<Vec<u8>, SerializationError> {
+    let value: CanonicalValue = ciborium::value::Value::serialized(self)?.into();
+    let mut bytes = Vec::new();
+    into_writer(&value, &mut bytes)?;
+    Ok(bytes)
+}
+```
+
+### 2. Backward Compatibility
+
+CBOR handles optional fields gracefully:
+
+```rust
+#[derive(Serialize, Deserialize)]
+pub struct TrustNetworkState {
+    pub members: BTreeSet<Hash>,
+    pub vouches: HashMap<Hash, HashSet<Hash>>,
+    pub flags: HashMap<Hash, HashSet<Hash>>,
+    pub tombstones: BTreeSet<Hash>,
+    pub version: u64,
+    
+    // Added in v2 — older states deserialize with default
+    #[serde(default)]
+    pub federation_contracts: Vec<ContractHash>,
+}
+```
+
+### 3. Size Efficiency
+
+CBOR is efficient for our data structures:
+
+| State Size | JSON | CBOR | Savings |
+|------------|------|------|---------|
+| 10 members | ~2KB | ~800B | 60% |
+| 100 members | ~20KB | ~8KB | 60% |
+| 1000 members | ~200KB | ~80KB | 60% |
+
+---
+
+## Constraints
+
+### ALWAYS Use CBOR For
+- Freenet contract state
+- Freenet delta messages
+- State snapshots for persistence
+- Any data stored in Freenet
+
+### NEVER Use CBOR For
+- Signal messages (use Protobuf)
+- Log messages (use text/JSON for human readability)
+- Config files (use TOML for human editing)
+
+### Error Handling
+- Treat deserialization failure as invalid state
+- Return `ContractError::InvalidState` for malformed CBOR
+- Log deserialization errors (without exposing state content)
+
+---
+
+## Migration Path
+
+If future needs require format change:
+
+1. **Add version field** to state struct
+2. **Detect format** from first bytes (CBOR has distinct header)
+3. **Migrate on read**: Deserialize old, re-serialize new
+4. **Deprecation window**: Support both formats during transition
+
+---
+
+## Testing Requirements
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_roundtrip_serialization() {
+        let state = TrustNetworkState::new();
+        let bytes = state.to_bytes().unwrap();
+        let recovered = TrustNetworkState::from_bytes(&bytes).unwrap();
+        assert_eq!(state, recovered);
+    }
+    
+    #[test]
+    fn test_deterministic_serialization() {
+        let state = TrustNetworkState::new();
+        let bytes1 = state.to_canonical_bytes().unwrap();
+        let bytes2 = state.to_canonical_bytes().unwrap();
+        assert_eq!(bytes1, bytes2, "Canonical serialization must be deterministic");
+    }
+    
+    #[test]
+    fn test_backward_compatibility() {
+        // Serialize with v1 struct (without federation_contracts)
+        let v1_bytes = /* ... */;
+        
+        // Deserialize with v2 struct (with optional federation_contracts)
+        let state: TrustNetworkState = from_reader(&v1_bytes[..]).unwrap();
+        assert!(state.federation_contracts.is_empty());
+    }
+}
+```
+
+---
+
+## See Also
+
+- `.beads/technology-stack.bead` — Overall tech stack
+- `.beads/persistence-model.bead` — Persistence layer architecture
+- `docs/spike/q1/contract.rs` — Spike Week contract example
+- `.cursor/rules/freenet-contract-design.mdc` — Contract design patterns

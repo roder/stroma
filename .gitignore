@@ -61,5 +61,6 @@ docs/SESSION-SUMMARY-*.md
 # Gas Town (added by gt)
 .runtime/
 .claude/
-.beads/
+# Note: .beads/ has its own .gitignore for runtime files
+# We track *.bead files and issues.jsonl for team collaboration
 .logs/

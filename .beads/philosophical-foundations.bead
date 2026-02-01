@@ -1,0 +1,304 @@
+# Bead: Philosophical Foundations
+
+**Status**: Immutable Architectural Constraint  
+**Created**: 2026-01-28  
+**Context**: Core Design Philosophy
+
+---
+
+## Central Principle: Paradoxical Unity
+
+Stroma is built on the recognition that opposing truths coexist. The system does not resolve tensions between dualities — it **holds space for their ongoing reconciliation**. Balance between opposing forces is what decentralizing power means in practice.
+
+**Key Insight**: The dualities aren't bugs to be eliminated — they're the generative tension that makes the system adaptive.
+
+---
+
+## Core Dualities
+
+### 1. Trust vs Anonymity
+
+**The Tension**:
+- Trust requires knowing *who* to trust (relationships are specific)
+- Anonymity requires hiding *who* trusts whom (relationships are obscured)
+
+**How Stroma Holds Both**:
+- ZK-proofs: "I can prove trust exists without revealing the relationship"
+- HMAC hashing: Identities are recognizable to the system but not recoverable
+- Members know their vouchers; external observers see only topology
+
+**Implementation Principle**: Never sacrifice anonymity to make trust "easier." Never sacrifice trust verification to maximize anonymity. The tension is productive.
+
+---
+
+### 2. Inclusion vs Protection
+
+**The Tension**:
+- Low barriers → easier joining → faster growth → more accessible
+- High barriers → harder infiltration → slower growth → more secure
+
+**How Stroma Holds Both**:
+- Configurable `min_vouch_threshold`: groups choose their own equilibrium
+- Default of 2 provides baseline security without excessive gatekeeping
+- Groups with higher threat models can increase to 3 or 4
+- Federation allows different groups to maintain different thresholds
+
+**Implementation Principle**: Never hardcode a position on this spectrum. Provide the mechanism for groups to negotiate their own balance via consensus (`/propose stroma min_vouch_threshold`).
+
+---
+
+### 3. Individual Agency vs Collective Integrity
+
+**The Tension**:
+- Individual power: any member can vouch, invite, flag
+- Collective validation: no single member can unilaterally admit or eject
+
+**How Stroma Holds Both**:
+- ANY Member can vouch (Bridges and Validators alike) — individual agency
+- 2+ vouches from DIFFERENT CLUSTERS required — collective validation (cross-cluster mandatory)
+- Standing = Effective_Vouches - Regular_Flags — continuous negotiation
+- No single action causes 2-point swing — prevents unilateral power
+
+**Implementation Principle**: Individual actions matter, but outcomes emerge from relationships. Never let one member's action determine another's fate alone.
+
+---
+
+### 4. Accountability vs Forgiveness
+
+**The Tension**:
+- Accountability: violations must have consequences (ejection)
+- Forgiveness: people can change, re-entry must be possible
+
+**How Stroma Holds Both**:
+- Immediate ejection: no grace periods, consequences are real
+- Immediate re-entry path: no cooldowns, no permanent bans
+- Fresh start available: secure 2 new vouches from members in different clusters
+- Flags persist on re-entry: community memory of concerns is preserved, but re-entry is always possible with sufficient new vouches (accountability weighted slightly over forgiveness in this case)
+
+**See**: `TRUST-MODEL.md` "Re-Entry After Ejection" section for rationale
+
+**Implementation Principle**: Never add "warnings" or "probation" that soften accountability. Never add "permanent bans" or "cooldowns" that eliminate forgiveness. Hold both: swift consequences AND available redemption.
+
+---
+
+### 5. Fluidity vs Stability
+
+**The Tension**:
+- Fluid selfhood: membership is temporary permission, continuously earned
+- Stable identity: the network persists, relationships have continuity
+
+**How Stroma Holds Both**:
+- Trust is relational and dynamic, not fixed credentials
+- But the mesh structure provides stability as individuals flow through
+- The network's "Self" persists even as members come and go
+- Vouch relationships can transform (trust ↔ distrust via invalidation)
+
+**Implementation Principle**: Never treat membership as permanent entitlement. Never treat the network as merely the sum of current members. The whole exceeds and outlasts its parts.
+
+---
+
+### 6. Autonomy vs Connection
+
+**The Tension**:
+- Group autonomy: each Stroma group controls its own parameters
+- Federation: groups benefit from connection to wider networks
+
+**How Stroma Holds Both**:
+- Each group = separate bot, separate contract, separate thresholds
+- Federation is opt-in via consensus (`/propose federate`)
+- BidirectionalMin: each group applies its *own* threshold to decide
+- Federation can dissolve if shared members leave (emergent, not permanent)
+
+**Implementation Principle**: Never force federation. Never prevent it. Groups discover each other organically and choose connection — or don't.
+
+---
+
+## "Power With" vs "Power Over"
+
+Stroma redistributes power laterally across relationships rather than concentrating it in administrators, platforms, or authorities.
+
+**What This Means Architecturally**:
+
+| "Power Over" (Rejected) | "Power With" (Embraced) |
+|------------------------|------------------------|
+| Admin can unilaterally add/remove | Consensus required for all changes |
+| Platform controls trust database | Trust emerges from relationships |
+| Authority grants credentials | Standing continuously negotiated |
+| Central server holds truth | Freenet distributes state |
+| Operator has special privileges | Operator is service runner only |
+
+**Implementation Principle**: When facing a design decision, ask: "Does this concentrate power in a single actor, or distribute it across relationships?" Always choose distribution.
+
+---
+
+## Design Test: Maintaining Tension
+
+When implementing any feature, verify it doesn't collapse toward one pole:
+
+**Red Flags (Collapsing Tension)**:
+- ❌ "Only Validators can vouch" (collapses toward hierarchy)
+- ❌ "Permanent bans for repeated violations" (collapses toward punishment)
+- ❌ "Grace period before ejection" (collapses toward permissiveness)
+- ❌ "Admin can override consensus" (collapses toward centralization)
+- ❌ "Store identities for accountability" (collapses toward surveillance)
+- ❌ "Anonymous voting means no consequences" (collapses toward unaccountability)
+
+**Green Flags (Maintaining Tension)**:
+- ✅ Configurable thresholds via group consensus
+- ✅ Immediate ejection + immediate re-entry path
+- ✅ Bot executes consensus, doesn't make decisions
+- ✅ ZK-proofs verify trust without revealing relationships
+- ✅ Standing continuously recalculated (not cached credentials)
+- ✅ Federation opt-in via BidirectionalMin (mutual consent)
+
+---
+
+## Application to Implementation
+
+### For Agents
+
+When implementing features, internalize these questions:
+
+1. **Does this maintain both poles of the relevant duality?**
+   - If it resolves tension by eliminating one pole, reconsider
+
+2. **Does this distribute power or concentrate it?**
+   - "Power with" means the answer emerges from relationships, not authority
+
+3. **Is this configurable via consensus?**
+   - If reasonable groups might want different values, make it configurable
+
+4. **Does this allow transformation?**
+   - Relationships should be able to change (vouch → flag, ejection → re-entry)
+
+5. **Does this hold accountability AND forgiveness?**
+   - Swift consequences, but redemption available
+
+### For Architecture Decisions
+
+When adding new beads or modifying architecture:
+
+1. Identify which duality the decision touches
+2. Verify the design holds both poles
+3. Check that the mechanism allows ongoing negotiation (not fixed resolution)
+4. Ensure groups can adjust parameters to find their own balance
+5. Document which tension is being maintained
+
+---
+
+## Decision Framework: When Principles Conflict
+
+When dualities are in tension *with each other* (not just internally), agents need guidance on how to navigate tradeoffs.
+
+### The Tradeoff Hierarchy
+
+**1. Protect Against Irreversible Harms First**
+
+Some harms cannot be undone:
+- Anonymity leaks (once exposed, identity cannot be re-hidden)
+- Centralization of power (once concentrated, hard to redistribute)
+- Trust map seizure (once captured, relationships are known)
+
+Some harms are recoverable:
+- Slower onboarding (can adjust thresholds later)
+- Missed federation opportunity (can reconnect later)
+- Overly strict barriers (can loosen via consensus)
+
+**Principle**: When forced to choose, sacrifice the recoverable to protect against the irreversible.
+
+**2. Default Toward Security, Make Tradeoffs Configurable**
+
+- Choose secure defaults that protect against the primary threat model
+- But ensure groups can adjust via consensus if their context differs
+- The system provides protective primitives; groups negotiate their own balance
+
+**Example**:
+- Default `min_vouch_threshold = 2` (secure baseline)
+- But configurable to 3 or 4 for high-threat groups
+- Or theoretically lower if a group explicitly accepts that risk (floor of 2)
+
+**3. Align With Feature's Threat Model**
+
+Ask: "What threat is this feature primarily defending against?"
+
+| Feature | Primary Threat | Optimize For |
+|---------|---------------|--------------|
+| Identity masking | Trust map seizure | Anonymity |
+| Vouch verification | Sybil attack | Protection |
+| Re-entry path | Permanent exclusion | Forgiveness |
+| Federation discovery | Isolation | Connection |
+| Ejection protocol | Bad actor persistence | Accountability |
+
+The feature's purpose should guide which pole gets priority *in that context*.
+
+**4. Document Tradeoffs Explicitly**
+
+When a tradeoff is made:
+- Note what was sacrificed
+- Note why (which threat model justified it)
+- Note how it could be revisited (configurability, future work)
+- This allows future decisions to reconsider with new information
+
+### Decision Checklist for Agents
+
+When principles pull in different directions:
+
+```
+□ Identify the conflicting dualities
+□ Assess reversibility of each option's harms
+□ Determine the primary threat this feature addresses
+□ Choose the option that:
+  - Protects against irreversible harms
+  - Aligns with the feature's threat model
+  - Remains configurable where reasonable
+□ Document the tradeoff and rationale
+□ Flag for human review if genuinely uncertain
+```
+
+### Examples of Tradeoff Resolution
+
+**Example 1: Federation Discovery**
+- Conflict: Anonymity (minimal metadata) vs Connection (easier discovery)
+- Threat model: Federation discovery's purpose is enabling connection
+- Irreversibility: Anonymity leaks are irreversible; missed connections are not
+- Resolution: Lean toward anonymity in the protocol (PSI-CA, no graph exposure), but make discovery thresholds configurable so groups can be more or less "visible"
+
+**Example 2: Re-Entry After Ejection**
+- Conflict: Forgiveness (easy return) vs Protection (prevent bad actor cycling)
+- Threat model: Re-entry exists to prevent permanent exclusion (forgiveness)
+- Irreversibility: Permanent bans are irreversible; a cycling bad actor can be re-ejected
+- Resolution: Allow immediate re-entry (no cooldown), but require fresh vouches from Members who weren't previous vouchers (prevents rubber-stamping)
+
+**Example 3: Scaling Vouch Permissions**
+- Conflict: Individual Agency (everyone can vouch) vs Collective Integrity (higher quality vouches)
+- Threat model: At scale, Sybil attacks become more viable
+- Irreversibility: Neither is fully irreversible
+- Resolution: Maintain "ANY Member can vouch" but make `min_vouch_threshold` configurable; large groups can require 3+ vouches without restricting *who* can provide them
+
+### When To Escalate
+
+Flag for human review when:
+- Two irreversible harms are in direct conflict
+- The threat model is ambiguous or contested
+- No configurable middle ground exists
+- The decision would set precedent for multiple features
+
+**Principle**: Agents should make clear tradeoffs confidently, but recognize when a decision requires human judgment about values the system can't encode.
+
+---
+
+## Grounding Quote
+
+> "Creating balance between opposing truths is what decentralizing power is about... and ultimately this project."
+
+The system accepts both poles and creates space for their ongoing reconciliation. That's the foundation everything else builds on.
+
+---
+
+## Related Constraints
+
+- `architecture-objectives.mdc`: Technical architecture embodying these principles
+- `security-guardrails.mdc`: Specific constraints that maintain tensions
+- `core-standards.mdc`: Terminology and formulas reflecting these principles
+- `governance-model.bead`: Bot as execute-only (power distribution)
+- `proposal-system.bead`: Consensus mechanism for ongoing negotiation

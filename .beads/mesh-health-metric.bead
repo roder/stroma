@@ -1,0 +1,296 @@
+# Mesh Health Metric: Distinct Validator Ratio (IMMUTABLE)
+
+**Status**: Pinned - Cannot be modified without explicit unpinning ceremony
+**Created**: 2026-01-28
+**Supersedes**: Previous arbitrary 30-60% density metric
+
+## Architectural Decision
+
+**Decision**: Replace arbitrary percentage-based mesh health with **Distinct Validator Ratio (DVR)** — a graph-theory-grounded metric that directly measures network resilience.
+
+**Rationale**: The previous 30-60% density metric was:
+- Arbitrary (why 30%? why 60%?)
+- Scale-dependent (30% of 10 ≠ 30% of 100 in resilience terms)
+- Structure-blind (high density could all be in one cluster)
+
+The new DVR metric is:
+- Grounded in graph theory (MST optimization)
+- Directly tied to security model (measures independent verification)
+- Scale-independent (ratio meaningful at any size)
+- Actionable (tells users exactly what to improve)
+
+## The Metric
+
+### Formula
+
+```
+DVR = Distinct_Validators / Max_Possible_Distinct_Validators
+
+where:
+  Distinct_Validators = Count of Validators with non-overlapping voucher sets
+  Max_Possible = floor(N / 4)
+  N = Network size (total members)
+```
+
+### Why N/4?
+
+Each "distinct" Validator requires:
+- 1 member (the Validator themselves)
+- 3 unique vouchers (from 3 different clusters, not shared with other distinct Validators)
+
+Total: ~4 members per distinct Validator → Maximum ≈ N/4
+
+### Definition: "Distinct" Validators
+
+Two Validators are "distinct" if their voucher sets have **no overlap**.
+
+```
+V1 vouched by: {A, B, C}
+V2 vouched by: {D, E, F}
+V1 and V2 are DISTINCT (no shared vouchers)
+
+V1 vouched by: {A, B, C}
+V3 vouched by: {A, D, E}
+V1 and V3 are NOT distinct (share voucher A)
+```
+
+**Why this matters**: Distinct Validators represent completely independent verification. If two Validators share a voucher, compromising that voucher affects both — reducing true network resilience.
+
+## Three-Tier Health System
+
+### Color Bands (Thirds)
+
+| Color | DVR Range | Status | Bot Behavior |
+|-------|-----------|--------|--------------|
+| 🔴 Red | 0% - 33% | **Unhealthy** | Actively suggest cross-cluster introductions |
+| 🟡 Yellow | 33% - 66% | **Developing** | Suggest improvements opportunistically |
+| 🟢 Green | 66% - 100% | **Healthy** | Maintenance mode |
+
+### Why Thirds?
+
+- **Simple**: Three states are cognitively easy to understand
+- **Actionable**: Each state has clear meaning and response
+- **Balanced**: Equal ranges prevent arbitrary "optimal zone" gaming
+
+## Calculation Algorithm
+
+```rust
+/// Calculate Distinct Validator Ratio
+fn calculate_dvr(graph: &TrustGraph) -> f32 {
+    let n = graph.member_count();
+    if n < 4 {
+        return 1.0; // Bootstrap: too small to measure meaningfully
+    }
+    
+    let max_possible = n / 4;
+    if max_possible == 0 {
+        return 1.0;
+    }
+    
+    let distinct_count = count_distinct_validators(graph);
+    (distinct_count as f32 / max_possible as f32).min(1.0)
+}
+
+/// Count Validators with non-overlapping voucher sets
+fn count_distinct_validators(graph: &TrustGraph) -> usize {
+    let validators: Vec<_> = graph.members()
+        .filter(|m| m.vouch_count() >= 3)
+        .collect();
+    
+    // Greedy algorithm: select Validators whose voucher sets don't overlap
+    // with already-selected Validators
+    let mut distinct = Vec::new();
+    let mut used_vouchers = HashSet::new();
+    
+    // Sort by vouch count descending (prefer more connected first)
+    let mut sorted = validators.clone();
+    sorted.sort_by_key(|v| std::cmp::Reverse(v.vouch_count()));
+    
+    for validator in sorted {
+        let vouchers: HashSet<_> = validator.vouchers().collect();
+        
+        // Check if any voucher already used
+        if vouchers.is_disjoint(&used_vouchers) {
+            distinct.push(validator);
+            used_vouchers.extend(vouchers);
+        }
+    }
+    
+    distinct.len()
+}
+
+/// Get health status from DVR
+fn health_status(dvr: f32) -> HealthStatus {
+    match dvr {
+        d if d < 0.33 => HealthStatus::Unhealthy,  // 🔴 Red
+        d if d < 0.66 => HealthStatus::Developing, // 🟡 Yellow
+        _ => HealthStatus::Healthy,                // 🟢 Green
+    }
+}
+```
+
+## User-Facing Display
+
+### `/mesh` Command Output
+
+```
+📊 Network Health: 🟢 Healthy (75%)
+
+Distinct Validators: 3 / 4 possible
+Network Size: 20 members
+Clusters: 4 detected
+
+Status: Your network has strong distributed trust.
+```
+
+### `/mesh strength` Command Output
+
+```
+📈 Mesh Health Report
+
+Distinct Validator Ratio: 75% 🟢
+
+┌─────────────────────────────┐
+│ 🟢 Healthy    │████████░░│ │
+│ 🟡 Developing │          │ │
+│ 🔴 Unhealthy  │          │ │
+└─────────────────────────────┘
+
+Distinct Validators: 3
+  V1: vouched by A(C1), B(C2), C(C3)
+  V2: vouched by D(C1), E(C2), F(C3)
+  V3: vouched by G(C1), H(C2), I(C3)
+
+Maximum Possible: 4 (network size / 4)
+
+To improve: Build cross-cluster relationships to create
+1 more distinct Validator with unique vouchers.
+```
+
+## Examples
+
+### Example 1: Small Network (12 members)
+
+```
+Max possible distinct Validators: 12 / 4 = 3
+Actual distinct Validators: 2
+
+DVR = 2/3 = 66.7% 🟢 Healthy
+```
+
+### Example 2: Medium Network (20 members)
+
+```
+Max possible distinct Validators: 20 / 4 = 5
+Actual distinct Validators: 2
+
+DVR = 2/5 = 40% 🟡 Developing
+
+Bot suggests: "Network health is developing. Consider
+introducing [Bridge X] to [Validator Y from different cluster]
+to build toward a third distinct Validator."
+```
+
+### Example 3: Unhealthy Network (20 members)
+
+```
+Max possible distinct Validators: 5
+Actual distinct Validators: 1
+
+DVR = 1/5 = 20% 🔴 Unhealthy
+
+Bot actively suggests cross-cluster introductions to
+create more independently-verified Validators.
+```
+
+## Relationship to Other Metrics
+
+### DVR vs Density
+
+| Metric | What It Measures | Limitation |
+|--------|------------------|------------|
+| **Density** | Total edges / possible edges | Doesn't capture structure |
+| **DVR** | Independent verification depth | More meaningful for security |
+
+A network can have high density but low DVR if all connections are within clusters.
+
+### DVR vs Bridge Count
+
+| Metric | What It Measures | Relationship |
+|--------|------------------|--------------|
+| **Bridge Count** | Members with exactly 2 vouches | More Bridges = more potential Validators |
+| **DVR** | Independently-verified Validators | Bridges can become Validators with 1 more cross-cluster vouch |
+
+### Supplementary Metrics
+
+DVR is the **primary** health metric. These are supplementary:
+
+1. **Cluster Balance**: Gini coefficient of cluster sizes
+2. **Bridge Vulnerability**: % of Bridges 1 flag away from ejection
+3. **Cross-Cluster Edge Density**: % of possible inter-cluster edges that exist
+
+## Security Properties
+
+### What DVR Captures
+
+1. **Infiltration Resistance**: High DVR = trust verified from many independent sources
+2. **Single Point of Failure**: Low DVR = few members verified by unique sets
+3. **Network Resilience**: High DVR = network survives multiple member departures
+
+### Attack Resistance
+
+**Without DVR optimization:**
+- Attacker could create "hub" Validators verified by overlapping sets
+- Compromising shared vouchers affects multiple Validators
+
+**With DVR optimization:**
+- Each distinct Validator represents independent verification
+- Compromising one voucher set doesn't cascade
+
+## Implementation Notes
+
+### Calculation Complexity
+
+- **Time**: O(V² × E) worst case for greedy distinct selection
+- **Space**: O(V + E) for graph representation
+- **Practical**: For typical networks (<1000 members), sub-second calculation
+
+### Bootstrap Handling
+
+For networks with < 4 members:
+- DVR = 100% (too small to measure meaningfully)
+- Status = 🟢 Healthy (bootstrap phase exempt)
+
+### Cluster Detection Dependency
+
+DVR calculation depends on accurate cluster detection. If cluster detection is unreliable, DVR may be inaccurate.
+
+**Fallback**: If cluster detection fails, use vouch-set overlap only (ignore cluster constraint for Validators).
+
+## Migration from Old Metric
+
+### What Changes
+
+| Old | New |
+|-----|-----|
+| "30-60% density optimal" | "66%+ DVR healthy" |
+| 5 status bands | 3 status bands (thirds) |
+| Density-based calculation | Distinct Validator-based |
+| "Mesh Health: 100/100" | "Network Health: 🟢 75%" |
+
+### User Communication
+
+Old message: "Mesh Health: 100/100 ✅ (38% density)"
+New message: "Network Health: 🟢 Healthy (75%)"
+
+The new message:
+- Shows color indicator immediately
+- Uses percentage that directly reflects optimization potential
+- Removes confusing "density" concept
+
+## Related Documents
+
+- `.beads/cross-cluster-requirement.bead` - Cross-cluster vouching rules
+- `.beads/terminology.bead` - Canonical definitions
+- `docs/ALGORITHMS.md` - MST and graph theory details
+- `docs/TRUST-MODEL.md` - Full trust model documentation
