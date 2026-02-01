@@ -36,7 +36,7 @@ cargo build --release --target x86_64-unknown-linux-musl  # Binary size check
 - ❌ Unsafe blocks MUST have `// SAFETY:` comments
 - ❌ Test coverage MUST be 100%
 
-**See**: `SECURITY-CI-CD.md` for complete security requirements and fix patterns.
+**See**: `docs/SECURITY-CI-CD.md` for complete security requirements and fix patterns.
 
 ## Landing the Plane (Session Completion)
 
@@ -106,7 +106,7 @@ EOF
 
 ## Additional Resources
 
-- **Security Requirements**: `SECURITY-CI-CD.md` - Complete security workflow and fix patterns
+- **Security Requirements**: `docs/SECURITY-CI-CD.md` - Complete security workflow and fix patterns
 - **Security Constraints**: `.beads/security-constraints.bead` - Immutable security policy
 - **Technology Stack**: `.beads/technology-stack.bead` - Technology decisions and patterns
 - **Issue Tracking**: Run `bd onboard` for beads workflow introduction
