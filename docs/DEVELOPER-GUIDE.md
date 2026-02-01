@@ -184,12 +184,24 @@ pub struct EncryptedTrustNetworkState {
 }
 // Note: No separate keypair file - uses Signal ACI identity from protocol store
 
-/// A single chunk of encrypted state
+/// A single chunk of encrypted state (Q12: 64KB constant)
+pub const CHUNK_SIZE: usize = 64 * 1024; // 64KB
+
 pub struct Chunk {
-    data: Vec<u8>,                 // 64KB of encrypted data
+    data: Vec<u8>,                 // 64KB of encrypted data (CHUNK_SIZE)
     chunk_index: u32,              // Position in sequence
-    chunk_hash: Hash,              // For integrity verification
+    chunk_hash: Hash,              // SHA-256 for integrity (Q9)
     version: u64,                  // Must match other chunks
+}
+
+/// Registry entry for bot discovery (Q7)
+pub struct RegistryEntry {
+    bot_pubkey: PublicKey,
+    num_chunks: u32,               // state_size.div_ceil(CHUNK_SIZE)
+    size_bucket: SizeBucket,
+    registered_at: Timestamp,
+    contract_hash: Hash,
+    pow_proof: RegistrationProof,  // Difficulty 18 (Q8)
 }
 ```
 
@@ -225,6 +237,251 @@ ALL persistence peers are treated as adversaries:
 | Registry | Shared (distributed) | Handles stale bots |
 
 See [PERSISTENCE.md](PERSISTENCE.md) for full architecture and recovery procedures.
+
+### Persistence Implementation Guidance (Spike Week 2)
+
+**Validated Parameters and Protocols:**
+
+#### Bot Discovery (Q7)
+```rust
+// Well-known registry contract address
+const PERSISTENCE_REGISTRY: ContractHash =
+    hash("stroma-persistence-registry-v1");
+
+impl Bot {
+    pub async fn register_for_persistence(&self) -> Result<(), Error> {
+        let entry = RegistryEntry {
+            bot_pubkey: self.pubkey,
+            num_chunks: self.state_size / CHUNK_SIZE,
+            size_bucket: self.compute_size_bucket(),
+            registered_at: current_timestamp(),
+            contract_hash: self.contract_hash,
+            pow_proof: self.generate_pow_proof(DIFFICULTY_18), // Q8
+        };
+
+        freenet.update(PERSISTENCE_REGISTRY, |state| {
+            state.register(entry)
+        }).await
+    }
+}
+```
+
+**See**: [Q7 Results](spike/q7/RESULTS.md) for discovery protocol details
+
+#### Proof of Work Registration (Q8)
+```rust
+// Production difficulty: 18 (requirement from Q8)
+const POW_DIFFICULTY: u32 = 18;
+
+pub struct RegistrationProof {
+    nonce: u64,
+    timestamp: u64,
+    difficulty: u32,
+}
+
+impl RegistrationProof {
+    pub fn generate(bot_pubkey: &PublicKey) -> Self {
+        // ~100ms registration time on standard hardware
+        // ~2 minutes for 1000 fake bots (Sybil defense)
+        let mut nonce = 0;
+        loop {
+            let hash = hash(&format!("{:?}{}", bot_pubkey, nonce));
+            if hash_meets_difficulty(&hash, POW_DIFFICULTY) {
+                return Self { nonce, timestamp: now(), difficulty: POW_DIFFICULTY };
+            }
+            nonce += 1;
+        }
+    }
+
+    pub fn verify(&self, bot_pubkey: &PublicKey) -> bool {
+        let hash = hash(&format!("{:?}{}", bot_pubkey, self.nonce));
+        hash_meets_difficulty(&hash, self.difficulty)
+    }
+}
+```
+
+**Combined Defense**: PoW + Reputation (7-day minimum) + Capacity verification (100MB)
+
+**See**: [Q8 Results](spike/q8/RESULTS.md) for complete Sybil defense strategy
+
+#### Chunk Verification (Q9)
+```rust
+// Challenge-response protocol for verifying chunk possession
+pub struct VerificationChallenge {
+    nonce: [u8; 32],        // Random, prevents replay
+    offset: u32,            // Where to read in chunk
+    length: u32,            // Sample size (typically 64 bytes)
+    timestamp: u64,         // Unix timestamp for freshness
+}
+
+pub struct VerificationResponse {
+    hash: [u8; 32],         // SHA-256(nonce || chunk[offset..offset+length])
+    challenge: VerificationChallenge,
+}
+
+impl Bot {
+    pub async fn verify_chunk_holder(
+        &self,
+        holder: &PublicKey,
+        chunk_idx: u32
+    ) -> Result<bool, Error> {
+        let challenge = VerificationChallenge {
+            nonce: random_nonce(),
+            offset: random_offset(CHUNK_SIZE),
+            length: 64,
+            timestamp: now(),
+        };
+
+        let response = holder.send_challenge(challenge).await?;
+        let expected = self.compute_expected_response(&challenge, chunk_idx);
+
+        Ok(response.hash == expected)
+    }
+}
+```
+
+**Protocol overhead**: 128 bytes per challenge (48 challenge + 80 response)
+
+**See**: [Q9 Results](spike/q9/RESULTS.md) for verification protocol details
+
+#### Rendezvous Hashing (Q11)
+```rust
+/// Deterministic chunk holder selection via HRW (Highest Random Weight)
+pub fn compute_chunk_holders(
+    owner: &BotId,
+    chunk_idx: u32,
+    network_bots: &[BotId],
+    epoch: Epoch,
+    replicas: usize,
+) -> Vec<BotId> {
+    let mut scores: Vec<(BotId, u64)> = network_bots
+        .iter()
+        .map(|candidate| {
+            let score = hash_score(owner, chunk_idx, candidate, epoch);
+            (*candidate, score)
+        })
+        .collect();
+
+    // Select top-N scoring candidates
+    scores.sort_by(|a, b| b.1.cmp(&a.1));
+    scores.into_iter().take(replicas).map(|(bot, _)| bot).collect()
+}
+
+fn hash_score(owner: &BotId, chunk_idx: u32, candidate: &BotId, epoch: Epoch) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    let mut hasher = DefaultHasher::new();
+    owner.hash(&mut hasher);
+    chunk_idx.hash(&mut hasher);
+    candidate.hash(&mut hasher);
+    epoch.hash(&mut hasher);
+    hasher.finish()
+}
+```
+
+**Properties**: Deterministic, uniform distribution, minimal churn on bot join/leave
+
+**See**: [Q11 Spike](spike/q11/main.rs) for algorithm validation
+
+#### Chunk Size (Q12)
+```rust
+/// 64KB chunk size provides optimal balance
+/// - Low overhead: 0.2% (vs 9.8% for 1KB)
+/// - Acceptable distribution: 32% of network (100 bots)
+/// - Simple bookkeeping: ~24 chunks per bot (512KB state)
+pub const CHUNK_SIZE: usize = 64 * 1024; // 64KB
+
+pub fn chunk_state(state: &[u8]) -> Vec<Vec<u8>> {
+    state.chunks(CHUNK_SIZE).map(|c| c.to_vec()).collect()
+}
+
+pub fn num_chunks(state_size: usize) -> usize {
+    state_size.div_ceil(CHUNK_SIZE)
+}
+```
+
+**Alternative**: 16KB for high-security scenarios (82.5% distribution, 0.6% overhead)
+
+**See**: [Q12 Results](spike/q12/RESULTS.md) for chunk size analysis
+
+#### Spot Check Verification (Q13)
+```rust
+/// Verify 1% sample of holders before each write
+pub async fn verify_before_write(
+    owner: &Bot,
+    chunks: &[Chunk]
+) -> Result<()> {
+    let all_holders: Vec<_> = chunks
+        .iter()
+        .flat_map(|chunk| chunk.get_holders())
+        .collect();
+
+    // Sample 1% (minimum 1)
+    let sample_size = (all_holders.len() as f64 * 0.01).max(1.0) as usize;
+    let sample = all_holders.choose_multiple(&mut rng, sample_size);
+
+    for holder in sample {
+        let challenge = ChunkChallenge::new(
+            owner.id,
+            holder.chunk_idx,
+            CHUNK_SIZE
+        );
+        let response = holder.send_challenge(challenge).await?;
+
+        if !response.verify(&challenge, &chunks[holder.chunk_idx]) {
+            warn!("Holder {} failed verification", holder.id);
+            mark_suspicious(holder.id);
+        }
+    }
+
+    Ok(())
+}
+```
+
+**Overhead**: ~0.16ms per write (negligible)
+
+**See**: [Q13 Results](spike/q13/RESULTS.md) for fairness verification protocol
+
+#### Chunk Distribution Protocol (Q14)
+```rust
+// Phase 0: Contract-based distribution (simple, proven)
+pub async fn distribute_via_contract(
+    holder: &BotId,
+    chunk: &Chunk,
+) -> Result<DistributionAttestation> {
+    let chunk_contract = holder.chunk_contract_address(chunk.index);
+    freenet.put(chunk_contract, chunk.data.clone()).await?;
+
+    Ok(DistributionAttestation {
+        holder: *holder,
+        chunk_hash: hash(&chunk.data),
+        timestamp: now(),
+    })
+}
+
+// Phase 1+: Hybrid P2P + attestation (5x faster, 9x cheaper)
+pub async fn distribute_hybrid(
+    holder: &BotId,
+    chunk: &Chunk,
+) -> Result<DistributionAttestation> {
+    // P2P transfer (bulk data)
+    p2p_network.send_chunk(holder, chunk).await?;
+
+    // Attestation write (small metadata)
+    let attestation = DistributionAttestation {
+        holder: *holder,
+        chunk_hash: hash(&chunk.data),
+        timestamp: now(),
+    };
+    freenet.put_attestation(&attestation).await?;
+
+    Ok(attestation)
+}
+```
+
+**Phase 0**: ~1.6s, 160 units per 512KB update (acceptable for infrequent updates)
+**Phase 1+**: ~320ms, 18 units per 512KB update (9x cost reduction)
+
+**See**: [Q14 Results](spike/q14/RESULTS.md) for protocol comparison
 
 ## Freenet Contract Design
 
@@ -1263,11 +1520,23 @@ jobs:
 
 ### Spike Week 1 (Q1-Q6) — ✅ ALL COMPLETE
 
-All Spike Week 1 questions answered. Ready for Phase 0 implementation.
+All Spike Week 1 questions answered. Trust network primitives validated.
 
-### Spike Week 2 (Q7-Q14) — ⏳ PENDING
+### Spike Week 2 (Q7-Q14) — ✅ ALL COMPLETE
 
-Persistence-related questions are pending validation. See [SPIKE-WEEK-2-BRIEFING.md](spike/SPIKE-WEEK-2-BRIEFING.md) for details.
+All Spike Week 2 questions answered. Persistence network validated with concrete parameters:
+
+**Validated Parameters:**
+- **PoW Difficulty**: 18 (production), ~100ms registration
+- **Chunk Size**: 64KB (0.2% overhead, 32% distribution)
+- **Verification**: Challenge-response, 128 bytes overhead
+- **Spot Check Rate**: 1% sample per write
+- **Distribution**: Contract-based (Phase 0), Hybrid P2P (Phase 1+)
+- **Holder Selection**: Rendezvous hashing (deterministic, uniform)
+
+**Implementation Status**: Ready for Phase 0 development
+
+**See**: [SPIKE-WEEK-2-BRIEFING.md](spike/SPIKE-WEEK-2-BRIEFING.md) for complete analysis
 
 ### Q1: Freenet Conflict Resolution — ✅ COMPLETE (GO)
 **Answer**: Freenet applies all deltas via commutative set union. Use set-based state (BTreeSet) with tombstones.
@@ -1305,6 +1574,56 @@ Persistence-related questions are pending validation. See [SPIKE-WEEK-2-BRIEFING
 
 **See**: [spike/q6/RESULTS.md](spike/q6/RESULTS.md)
 
+### Q7: Bot Discovery — ✅ COMPLETE (GO)
+**Answer**: Registry contract at well-known address (`hash("stroma-persistence-registry-v1")`). Discovery < 1ms, registration ~100 bytes overhead.
+
+**Implementation**: Single registry for < 10K bots, shard at scale.
+
+**See**: [spike/q7/RESULTS.md](spike/q7/RESULTS.md)
+
+### Q8: Fake Bot Defense — ✅ COMPLETE (GO)
+**Answer**: Multi-layer defense: **PoW (difficulty 18)** + **Reputation (7-day minimum)** + **Capacity verification (100MB)**. Detection rate > 90%, false positive < 1%.
+
+**Cost**: Attacker needs 7 days + 100GB storage + operational infrastructure for 1000 fake bots.
+
+**See**: [spike/q8/RESULTS.md](spike/q8/RESULTS.md)
+
+### Q9: Chunk Verification — ✅ COMPLETE (GO)
+**Answer**: Challenge-response with SHA-256. Holder proves possession by computing `hash(nonce || chunk_sample)`. Protocol overhead: 128 bytes, latency < 1ms.
+
+**Security**: Replay-resistant, content-private, cryptographically sound.
+
+**See**: [spike/q9/RESULTS.md](spike/q9/RESULTS.md)
+
+### Q11: Rendezvous Hashing — ✅ COMPLETE (GO)
+**Answer**: HRW (Highest Random Weight) algorithm for deterministic holder selection. `score = hash(owner || chunk_idx || candidate || epoch)`. Select top-N scoring candidates.
+
+**Properties**: Deterministic, uniform distribution, minimal churn, zero-trust.
+
+**See**: [spike/q11/main.rs](spike/q11/main.rs)
+
+### Q12: Chunk Size — ✅ COMPLETE (GO)
+**Answer**: **64KB chunks** optimal balance. Coordination overhead 0.2%, distribution 32% of network (100 bots). Alternative: 16KB for 82.5% distribution, 0.6% overhead.
+
+**Rationale**: Low overhead, simple bookkeeping, scales to large states.
+
+**See**: [spike/q12/RESULTS.md](spike/q12/RESULTS.md)
+
+### Q13: Spot Check Verification — ✅ COMPLETE (GO)
+**Answer**: **1% sample rate** before each write. Challenge-response verification with 256-byte samples. Overhead ~0.16ms per write, detection rate > 95%, false positive < 1%.
+
+**Phase 1+**: Add reputation scoring, increase to 5% if free-riding detected.
+
+**See**: [spike/q13/RESULTS.md](spike/q13/RESULTS.md)
+
+### Q14: Chunk Distribution Protocol — ✅ COMPLETE (GO)
+**Answer**: **Contract-based for Phase 0** (simple, proven). **Hybrid P2P for Phase 1+** (5x faster, 9x cheaper).
+
+**Phase 0**: ~1.6s, 160 units per 512KB update
+**Phase 1+**: ~320ms, 18 units per 512KB update
+
+**See**: [spike/q14/RESULTS.md](spike/q14/RESULTS.md)
+
 ### Summary: Spike Week 1 (Q1-Q6) - Proceed to Phase 0
 
 | Question | Decision | Implementation |
@@ -1318,21 +1637,49 @@ Persistence-related questions are pending validation. See [SPIKE-WEEK-2-BRIEFING
 
 **See**: [Spike Week Briefing](spike/SPIKE-WEEK-BRIEFING.md) for Spike Week 1 analysis
 
+### Summary: Spike Week 2 (Q7-Q14) - Persistence Network Ready
+
+| Question | Decision | Implementation |
+|----------|----------|----------------|
+| Q7: Discovery | GO | Registry contract |
+| Q8: Sybil Defense | GO | PoW 18 + Reputation |
+| Q9: Verification | GO | Challenge-response |
+| Q11: Hashing | GO | Rendezvous (HRW) |
+| Q12: Chunk Size | GO | 64KB chunks |
+| Q13: Spot Check | GO | 1% sample rate |
+| Q14: Protocol | GO | Contract (Phase 0) |
+
+**Validated Constants**:
+- PoW difficulty: **18** (production)
+- Chunk size: **64KB** (constant)
+- Verification sample: **1%** per write
+- Reputation age: **7 days** minimum
+- Capacity: **100MB** minimum
+
+**See**: [Spike Week 2 Briefing](spike/SPIKE-WEEK-2-BRIEFING.md) for persistence analysis
+
 ### Spike Week 2 (Q7-Q14) — Persistence Network
 
-These questions must be validated before persistence implementation:
+All persistence questions validated. Implementation ready:
 
-| Question | Status | Fallback if Fails |
-|----------|--------|-------------------|
-| Q7: Bot Discovery | PENDING | Manual bootstrap list |
-| Q8: Fake Bot Defense | PENDING | Rate limiting + reputation |
-| Q9: Chunk Verification | PENDING | Trust-on-first-verify |
-| Q11: Rendezvous Hashing | PENDING | Simple modulo distribution |
-| Q12: Chunk Size | PENDING | Fixed 64KB |
-| Q13: Fairness Verification | PENDING | Honor system initially |
-| Q14: Chunk Protocol | PENDING | Simple request/response |
+| Question | Decision | Implementation Details |
+|----------|----------|----------------------|
+| Q7: Bot Discovery | ✅ GO | Registry contract at well-known address |
+| Q8: Fake Bot Defense | ✅ GO | PoW (difficulty 18) + Reputation + Capacity verification |
+| Q9: Chunk Verification | ✅ GO | Challenge-response with SHA-256 (128 bytes) |
+| Q11: Rendezvous Hashing | ✅ GO | HRW algorithm (deterministic holder selection) |
+| Q12: Chunk Size | ✅ GO | 64KB chunks (0.2% overhead, 32% distribution) |
+| Q13: Spot Check | ✅ GO | 1% sample rate per write (0.16ms overhead) |
+| Q14: Chunk Protocol | ✅ GO | Contract-based (Phase 0), Hybrid P2P (Phase 1+) |
 
-**See**: [Spike Week 2 Briefing](spike/SPIKE-WEEK-2-BRIEFING.md) for persistence validation plan
+**See**:
+- [Q7 Results](spike/q7/RESULTS.md) - Registry-based discovery
+- [Q8 Results](spike/q8/RESULTS.md) - Multi-layer Sybil defense
+- [Q9 Results](spike/q9/RESULTS.md) - Challenge-response verification
+- [Q11 Spike](spike/q11/main.rs) - Rendezvous hashing algorithm
+- [Q12 Results](spike/q12/RESULTS.md) - Chunk size optimization
+- [Q13 Results](spike/q13/RESULTS.md) - Fairness verification protocol
+- [Q14 Results](spike/q14/RESULTS.md) - Distribution protocol comparison
 
 ## Development Standards
 
@@ -1497,6 +1844,6 @@ This project uses **Gastown** - multi-agent coordination with specialized roles:
 
 ---
 
-**Status**: Early development (Spike Week). Ready for technology validation phase.
+**Status**: Technology validation complete (Spike Week 1 & 2). Ready for Phase 0 implementation.
 
-**Last Updated**: 2026-01-27
+**Last Updated**: 2026-01-31
