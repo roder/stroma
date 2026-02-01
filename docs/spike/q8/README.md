@@ -165,7 +165,7 @@ impl CapacityProof {
 
 ```rust
 pub struct RegistrationRequirements {
-    pow_difficulty: u8,           // Must solve PoW (difficulty 16)
+    pow_difficulty: u8,           // Must solve PoW (difficulty 18 for production)
     min_age_for_holding: u32,     // 7 days before eligible
     capacity_verification: bool,   // Must prove storage exists
 }
@@ -222,7 +222,7 @@ fn test_pow_cost() {
 fn test_sybil_cost() {
     // Attacker wants to register 1000 fake bots
     let target = 1000;
-    let difficulty = 16;
+    let difficulty = 18; // Production difficulty
     
     // Each registration takes ~100ms
     let time_per_reg = Duration::from_millis(100);

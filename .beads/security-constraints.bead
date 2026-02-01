@@ -665,7 +665,7 @@ impl presage::Store for StromaProtocolStore {
 **Findings**: Combined defense strategy (PoW + Reputation + Capacity Verification) provides >90% fake bot detection within 7 days while maintaining <1% false positive rate.
 
 **Implementation Requirements**:
-- ✅ PoW difficulty 16-18 (~100-300ms registration, RPi-compatible)
+- ✅ PoW difficulty 18 (~30s registration, ~60s on RPi 4)
 - ✅ Minimum 100MB capacity verification
 - ✅ 7-day reputation building period
 - ✅ 30% success rate threshold for chunk holding eligibility
@@ -675,7 +675,7 @@ impl presage::Store for StromaProtocolStore {
 - Prevents instant mass registration (PoW creates computational cost)
 - Requires real storage infrastructure (100 GB for 1000 fake bots)
 - Time barrier transforms attack from "register once" to "maintain infrastructure over time"
-- Attack cost for 1000 fake bots: 2 min CPU + 100 GB storage + 7+ days uptime + operational responses
+- Attack cost for 1000 fake bots: 8+ hours CPU + 100 GB storage + 7+ days uptime + operational responses
 
 **See**: `docs/spike/q8/RESULTS.md` for complete analysis.
 

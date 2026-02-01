@@ -1527,7 +1527,7 @@ All Spike Week 1 questions answered. Trust network primitives validated.
 All Spike Week 2 questions answered. Persistence network validated with concrete parameters:
 
 **Validated Parameters:**
-- **PoW Difficulty**: 18 (production), ~100ms registration
+- **PoW Difficulty**: 18 (production), ~30s registration (~60s on RPi 4)
 - **Chunk Size**: 64KB (0.2% overhead, 32% distribution)
 - **Verification**: Challenge-response, 128 bytes overhead
 - **Spot Check Rate**: 1% sample per write

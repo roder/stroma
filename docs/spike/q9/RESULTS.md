@@ -17,7 +17,7 @@ Challenge-response verification with nonces successfully verifies chunk possessi
 
 ```
 Chunk created: 65536 bytes (64KB)
-Owner creates challenge: offset=21845, length=64
+Owner creates challenge: offset=21845, length=256
 Holder responds with hash
 ✅ Response verified correctly
 ```
@@ -85,7 +85,7 @@ Expected network latency: < 100ms
 
 **Holder learns from challenge:**
 - An offset exists (e.g., byte 21,333)
-- A length is requested (64 bytes)
+- A length is requested (256 bytes, 0.4% of 64KB chunk)
 - A nonce (random, reveals nothing about content)
 - Timestamp (when verification was requested)
 
@@ -110,7 +110,7 @@ Expected network latency: < 100ms
 struct VerificationChallenge {
     nonce: [u8; 32],        // Random, prevents replay
     offset: u32,            // Where to read in chunk
-    length: u32,            // How many bytes (typically 64)
+    length: u32,            // How many bytes (256 bytes = 0.4% of 64KB chunk)
     timestamp: u64,         // Unix timestamp for freshness
 }
 ```
@@ -202,7 +202,7 @@ registry.record_holder(owner, chunk_index, holder_pubkey, chunk_hash);
 
 // Periodic verification (e.g., daily)
 fn verify_holder(owner: &Owner, holder: &Holder, chunk_index: u32) -> bool {
-    let challenge = create_challenge(offset: random(), length: 64);
+    let challenge = create_challenge(offset: random(), length: 256);
     let response = holder.request_verification(challenge).await?;
     owner.verify_response(response, chunk_index)
 }

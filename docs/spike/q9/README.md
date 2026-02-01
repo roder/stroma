@@ -61,7 +61,7 @@ Without verification:
 pub struct VerificationChallenge {
     nonce: [u8; 32],        // Random, prevents replay
     offset: u32,            // Where to read in chunk
-    length: u32,            // How many bytes (e.g., 64)
+    length: u32,            // How many bytes (256 bytes for production)
     timestamp: Timestamp,   // Freshness (reject if too old)
 }
 
@@ -234,7 +234,7 @@ async fn test_challenge_response_success() {
     let challenge = VerificationChallenge {
         nonce: random_nonce(),
         offset: 12345,
-        length: 64,
+        length: 256,
         timestamp: now(),
     };
     
@@ -307,13 +307,13 @@ fn test_no_content_leak() {
     
     // Challenge reveals only:
     // - An offset exists (offset: 12345)
-    // - A length is requested (length: 64)
+    // - A length is requested (length: 256, 0.4% of 64KB chunk)
     // - A nonce (random, reveals nothing)
     
     let challenge = VerificationChallenge {
         nonce: random_nonce(),
         offset: 12345,
-        length: 64,
+        length: 256,
         timestamp: now(),
     };
     
