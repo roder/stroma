@@ -79,7 +79,7 @@ The bot acts as a **"Blind Matchmaker"** - it optimizes the trust mesh using gra
 3. **Metadata isolation**: All vetting in 1-on-1 PMs (no Signal group metadata), bot operator least-privilege (service runner only), vetting conversations ephemeral (never persisted to disk)
 Together: **Even if adversary seizes the bot server, they get: small encrypted file (~100KB protocol state), hashes (not identities), topology (not relationship context), NO vetting conversations, NO message history.**
 
-**For developers & contributors**: Built on embedded [freenet-core](https://github.com/freenet/freenet-core) kernel (in-process, not external service). Contracts use ComposableState trait for mergeable state with CRDT-like semantics (Q1-Q2 validated). Set-based membership (BTreeSet) with on-demand Merkle Tree generation for ZK-proof verification (Q5: 0.09ms @ 1000 members). Internal cluster detection via Bridge Removal algorithm (Tarjan's, Q3 validated) achieving optimal mesh topology. Matchmaking uses DVR optimization (Distinct Validators, non-overlapping voucher sets) with MST fallback. Bot-side STARK proof verification for Phase 0 (Q4 validated). External federation via Private Set Intersection with Cardinality (PSI-CA) and Social Anchor Hashing (emergent discovery, Phase 4+). See [ALGORITHMS.md](docs/ALGORITHMS.md) for MST implementation and complexity, [freenet-contract-design.mdc](.cursor/rules/freenet-contract-design.mdc) for patterns, [SPIKE-WEEK-BRIEFING.md](docs/spike/SPIKE-WEEK-BRIEFING.md) for validation results.
+**For developers & contributors**: Built on embedded [freenet-core](https://github.com/freenet/freenet-core) kernel (in-process, not external service). Contracts use ComposableState trait for mergeable state with CRDT-like semantics (Q1-Q2 validated). Set-based membership (BTreeSet) with on-demand Merkle Tree generation for ZK-proof verification (Q5: 0.09ms @ 1000 members). Internal cluster detection via Bridge Removal algorithm (Tarjan's, Q3 validated) achieving optimal mesh topology. Matchmaking uses DVR optimization (Distinct Validators, non-overlapping voucher sets) with MST fallback. Bot-side STARK proof verification for Phase 0 (Q4 validated). Persistence via Reciprocal Network with registry-based discovery (Q7), PoW Sybil resistance (Q8), challenge-response verification (Q9), rendezvous hashing (Q11), 64KB chunks (Q12), 1% spot checks (Q13), and contract distribution (Q14). External federation via Private Set Intersection with Cardinality (PSI-CA) and Social Anchor Hashing (emergent discovery, Phase 4+). See [ALGORITHMS.md](docs/ALGORITHMS.md) for MST implementation and complexity, [freenet-contract-design.mdc](.cursor/rules/freenet-contract-design.mdc) for patterns, [SPIKE-WEEK-BRIEFING.md](docs/spike/SPIKE-WEEK-BRIEFING.md) and [SPIKE-WEEK-2-BRIEFING.md](docs/spike/SPIKE-WEEK-2-BRIEFING.md) for validation results.
 
 ## Why "Stroma"?
 
@@ -146,10 +146,18 @@ Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/propose`, 
 - **Eventual consistency**: Summary-delta synchronization (no consensus algorithms)
 - **Set-based membership**: BTreeSet with on-demand Merkle Tree generation
 - **Anonymous routing**: Dark mode (no IP exposure)
-- **Durability**: Reciprocal Persistence Network — bots hold encrypted fragments of each other's state
+- **Durability**: Reciprocal Persistence Network — validated architecture with:
+  - Registry-based bot discovery (Q7: <1ms latency)
+  - PoW Sybil resistance (Q8: >90% fake bot detection)
+  - Challenge-response verification (Q9: SHA-256 proofs, 128 bytes)
+  - Rendezvous hashing for deterministic holders (Q11)
+  - 64KB chunks with 2 replicas (Q12: 0.2% overhead)
+  - 1% spot check fairness verification (Q13)
+  - Contract-based distribution (Q14: <10s recovery)
 
-→ **[Developer Guide](docs/DEVELOPER-GUIDE.md)** - Architecture, contract design, tech stack  
+→ **[Developer Guide](docs/DEVELOPER-GUIDE.md)** - Architecture, contract design, tech stack
 → **[Persistence](docs/PERSISTENCE.md)** - State durability & recovery
+→ **[Spike Week 2](docs/spike/)** - Validated persistence architecture (Q7-Q14)
 
 ---
 
@@ -178,17 +186,25 @@ Trust health is measured by **Distinct Validator Ratio** — the fraction of max
 ### Replication Health: Is My Data Resilient?
 **Replication Health** answers a critical question: "If the bot crashes, can the trust network be recovered?"
 
-Stroma uses a **Reciprocal Persistence Network** — bots hold encrypted chunks of each other's state, but can't read them (64KB chunks, 3 copies each).
+Stroma uses a **Reciprocal Persistence Network** — bots hold encrypted chunks of each other's state, but can't read them. The architecture includes:
+- **Registry-based discovery** (Q7) for finding peers
+- **PoW Sybil resistance** (Q8) preventing fake bots from diluting the network
+- **Challenge-response verification** (Q9) proving chunk possession without revealing content
+- **Rendezvous hashing** (Q11) for deterministic holder assignment
+- **64KB chunk size** (Q12) optimizing distribution breadth vs coordination overhead
+- **1% spot check fairness** (Q13) detecting free-riders with minimal overhead
+- **Contract-based distribution** (Q14) for Phase 0, hybrid P2P in Phase 1+
 
 **Status (measured at write time)**:
-- 🟢 **Replicated** (all chunks 3/3): Fully resilient — all chunks available
-- 🟡 **Partial** (some chunks 2/3): Recoverable, but degraded
-- 🔴 **At Risk** (any chunk ≤1/3): Cannot recover — writes blocked until fixed
+- 🟢 **Replicated** (all chunks 2/2): Fully resilient — all chunks available
+- 🟡 **Partial** (some chunks 1/2): Recoverable, but degraded
+- 🔴 **At Risk** (any chunk 0/2): Cannot recover — writes blocked until fixed
 - 🔵 **Initializing**: New bot establishing persistence
 
 **Check with**: `/mesh replication`
 
 → **[Persistence Documentation](docs/PERSISTENCE.md)** - Full durability architecture
+→ **[Spike Week 2 Results](docs/spike/)** - Validated persistence architecture (Q7-Q14)
 
 ### Federation (Phase 4+ - Future)
 - **Emergent discovery**: Bots find each other via shared validators
@@ -324,14 +340,26 @@ cargo build --release --target x86_64-unknown-linux-musl
 
 → **[Spike Week Briefing](docs/spike/SPIKE-WEEK-BRIEFING.md)** - Complete analysis with all findings
 
-### ⏳ Pending: Spike Week 2 (Persistence Validation)
-**Q7-Q14 validate the Reciprocal Persistence Network** — must complete before persistence implementation.
+### ✅ Completed: Spike Week 2 (Persistence Validation)
+**All 8 persistence architecture questions answered — GO decision**
 
-**Pending Validations:**
-- ⏳ **Q7**: Bot discovery mechanisms (🔴 BLOCKING)
-- ⏳ **Q8**: Fake bot defense (Sybil resistance)
-- ⏳ **Q9**: Chunk verification protocols
-- ⏳ **Q11-Q14**: Rendezvous hashing, chunk size, fairness, communication protocol
+**Validations Complete:**
+- ✅ **Q7**: Registry-based bot discovery — <1ms latency, exact network size (GO) → [Results](docs/spike/q7/RESULTS.md)
+- ✅ **Q8**: PoW + Reputation + Capacity verification — >90% fake bot detection (GO) → [Results](docs/spike/q8/RESULTS.md)
+- ✅ **Q9**: Challenge-response chunk verification — SHA-256 nonce protocol, 128 bytes overhead (GO) → [Results](docs/spike/q9/RESULTS.md)
+- ✅ **Q11**: Rendezvous hashing — Deterministic holder assignment (GO)
+- ✅ **Q12**: 64KB chunk size — Optimal balance: 32% distribution, 0.2% overhead (GO) → [Results](docs/spike/q12/RESULTS.md)
+- ✅ **Q13**: 1% spot check fairness — <1% false positive, 100% free-rider detection (GO) → [Results](docs/spike/q13/RESULTS.md)
+- ✅ **Q14**: Contract-based chunk distribution — Phase 0 simple, hybrid P2P in Phase 1+ (GO) → [Results](docs/spike/q14/RESULTS.md)
+
+**Decision**: ✅ **PROCEED TO PERSISTENCE IMPLEMENTATION**
+
+**Key Findings:**
+- Registry contract provides single source of truth for bot discovery
+- Multi-layered defense (PoW + reputation + capacity) raises Sybil attack cost significantly
+- 64KB chunks balance security (32% distribution) with efficiency (0.2% overhead)
+- Challenge-response verification proves chunk possession without content leakage
+- Contract-based distribution meets Phase 0 latency requirements (<10s)
 
 → **[Spike Week 2 Briefing](docs/spike/SPIKE-WEEK-2-BRIEFING.md)** - Persistence network validation plan
 
