@@ -18,6 +18,16 @@ witness/
 crew/
 daemon/
 deacon/
+stroma/
+
+# =============================================================================
+# Gas Town runtime files (now in ~/gastown/stroma/)
+# =============================================================================
+.events.jsonl
+.feed.jsonl
+settings/
+plugins/
+.claude/
 
 # =============================================================================
 # Runtime state files (transient)
