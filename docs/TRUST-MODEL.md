@@ -302,11 +302,21 @@ You can re-enter immediately after securing 2 new vouches from different cluster
 ### Previous History
 **Question**: Do previous flags carry over?
 
-**Answer**: TBD - needs design decision
-- **Option A**: Fresh start (all previous vouches/flags cleared)
-- **Option B**: Flags persist (but must get 2 new vouches to overcome them)
+**Answer**: **Yes — flags persist**
 
-**Recommendation**: Option A for MVP (simpler, more forgiving)
+When re-entering after ejection:
+- Previous flags remain in effect
+- You start with 2 new vouches (from new vouchers)
+- Standing = 2 new vouches - previous flags
+- If you had 3+ flags before, you need MORE than 2 new vouches to have positive standing
+
+**Rationale**: Accountability over forgiveness in this case. Community memory of concerns is preserved. New vouchers are informed they're vouching for someone with history.
+
+**Example**: Alice was ejected with 3 flags. To re-enter:
+- She needs at least 4 vouches (to overcome 3 flags and have positive standing)
+- This is intentionally harder than first-time entry
+
+**See**: `.beads/architectural-decisions-open.bead` Decision #1
 
 ## Network Topology
 
@@ -524,11 +534,16 @@ Invitation itself counts as first vouch (no token exchange system).
 ### Re-Flagging
 Can you flag someone multiple times?
 
-**Answer**: TBD - needs design decision
-- **Option A**: One flag per person (use set, not multiset)
-- **Option B**: Multiple flags allowed (use multiset, counts accumulate)
+**Answer**: **No — one flag per person** (set, not multiset)
 
-**Recommendation**: Option A for MVP (simpler, prevents spam)
+Each member can flag another member at most once. Duplicate flag attempts are no-ops.
+
+**Rationale**: 
+- Prevents spam/brigading
+- One concern = one flag (express it once)
+- Simpler mental model
+
+**See**: `.beads/architectural-decisions-open.bead` Decision #2
 
 ## Ejection Protocol
 
@@ -538,18 +553,15 @@ Can you flag someone multiple times?
 - **No re-verification windows**
 - **Automatic** - bot handles it
 
-### Heartbeat Monitor
-Bot checks trust standing every 60 minutes:
-- Query Freenet for current state
-- Calculate effective vouches and standing for all members
-- Eject any member where either trigger is violated
-- Send notifications (hashes, not names)
-
-### Real-Time Monitoring
-In addition to heartbeat, bot monitors Freenet state stream:
+### Real-Time State Monitoring
+Bot monitors Freenet state stream (real-time, NOT polling):
+- Subscribes to contract state changes
 - Reacts to vouch/flag changes immediately
+- Calculates effective vouches and standing on every state change
 - Ejects within seconds of trigger violation
-- No polling delay
+- No periodic polling or heartbeat mechanism
+
+**Note**: No 60-minute heartbeat. Bot uses Freenet's state stream for instant reactivity.
 
 ### Notification Flow
 

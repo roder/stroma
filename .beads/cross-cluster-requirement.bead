@@ -28,11 +28,29 @@
 
 ## Bootstrap Exception
 
-**Exception**: During bootstrap phase (first 3-5 members), cross-cluster is not enforceable because only one cluster exists.
+**Exception**: During bootstrap phase, cross-cluster is not enforceable because only one cluster exists.
 
-**Transition Rule**: Once the group has 2+ distinct clusters (detected via graph analysis), cross-cluster becomes mandatory for all new admissions.
+**Trigger**: Cross-cluster becomes mandatory when Bridge Removal algorithm detects `clusters >= 2`.
 
-**Practical Threshold**: Groups of 6+ members typically have multiple clusters. The bot should begin enforcing cross-cluster when cluster detection identifies 2+ components.
+```rust
+fn should_require_cross_cluster(state: &TrustNetworkState) -> bool {
+    let clusters = bridge_removal_detect_clusters(&state.vouches);
+    clusters.len() >= 2
+}
+```
+
+**Key insight**: No member count threshold needed. The algorithm detects actual social structure:
+- 10 tight friends = 1 cluster → no cross-cluster needed
+- 6 from 2 friend groups = 2 clusters → cross-cluster required
+
+**Grandfathering**: When trigger activates, existing members are NOT required to get new vouches. Only new admissions must meet cross-cluster requirement.
+
+**Announcement**: When triggered, bot notifies group:
+> "📊 Network update: Your group now has distinct sub-communities! Cross-cluster vouching is now required for new members. This means new members need vouches from people in different friend circles. Existing members are grandfathered."
+
+**Timing**: Run cluster detection on every membership change (fast: <1ms per Q3 Spike).
+
+**See**: `.beads/architectural-decisions-open.bead` Decision #12 for full rationale.
 
 ## Threat Model: Coordinated Infiltration
 

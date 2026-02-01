@@ -73,7 +73,9 @@ Stroma is built on the recognition that opposing truths coexist. The system does
 - Immediate ejection: no grace periods, consequences are real
 - Immediate re-entry path: no cooldowns, no permanent bans
 - Fresh start available: secure 2 new vouches from members in different clusters
-- History doesn't permanently define you (TBD: flags may not carry over)
+- Flags persist on re-entry: community memory of concerns is preserved, but re-entry is always possible with sufficient new vouches (accountability weighted slightly over forgiveness in this case)
+
+**See**: `TRUST-MODEL.md` "Re-Entry After Ejection" section for rationale
 
 **Implementation Principle**: Never add "warnings" or "probation" that soften accountability. Never add "permanent bans" or "cooldowns" that eliminate forgiveness. Hold both: swift consequences AND available redemption.
 

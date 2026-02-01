@@ -1,0 +1,1298 @@
+# Persistence Model (IMMUTABLE)
+
+**Status**: Pinned - Cannot be modified without explicit unpinning ceremony
+**Last Updated**: 2026-01-31
+**Applies To**: All persistence implementation, Agent-Freenet, Agent-Crypto, Agent-Signal
+
+---
+
+## WHY: The Fundamental Problem
+
+### Core Problem Statement
+
+**Freenet does not guarantee persistence.** If no peers are subscribed to a contract, the data disappears. This is a fundamental property of Freenet's architecture.
+
+**Stroma's trust maps MUST persist.** The trust network (members, vouches, flags) represents relationships built over months or years. Loss of this data is catastrophic.
+
+### The Goal (MEMORIZE THIS)
+
+> A Stroma bot must be able to crash, lose all local state, and fully recover its trust map from encrypted fragments held by adversarial peers who cannot read or reconstruct that data.
+
+**If you're implementing a feature and don't see how it connects to this goal, STOP and ask.**
+
+---
+
+## The Five Guarantees (MANDATORY)
+
+Every persistence implementation MUST provide:
+
+| # | Guarantee | Requirement |
+|---|-----------|-------------|
+| 1 | **DURABILITY** | If bot crashes, trust map can be recovered from chunks |
+| 2 | **CONFIDENTIALITY** | Chunk holders learn nothing about trust map contents |
+| 3 | **INTEGRITY** | Recovered state is verified (signature + version chain) |
+| 4 | **AVAILABILITY** | At least 1 of 3 copies per chunk must be reachable for recovery |
+| 5 | **FAIRNESS** | Storage burden is approximately balanced across the network |
+
+---
+
+## Two-Layer Architecture (REQUIRED)
+
+### Layer 1: Trust State (Freenet-Native)
+
+| Aspect | Specification |
+|--------|---------------|
+| Storage | BTreeSet (members), HashMap (vouches, flags) |
+| Sync | Native Freenet ComposableState (Q1 validated) |
+| Updates | Small deltas (~100-500 bytes), INFREQUENT (human timescale) |
+| Security | Contract validates via `update_state()` + `validate_state()` (Q2) |
+
+### Layer 2: Persistence Fragments (Reciprocal Persistence Network)
+
+| Aspect | Specification |
+|--------|---------------|
+| Purpose | Durability against Freenet data loss, server seizure protection |
+| Method | Encrypt full state, chunk by size, replicate each chunk 2x |
+| Distribution | Deterministic assignment via rendezvous hashing |
+| Frequency | Same as trust state updates (infrequent) |
+| Security | Need ALL chunks + ACI key to reconstruct |
+
+### What Freenet Provides (Leveraged)
+
+| Capability | How Stroma Uses It |
+|------------|-------------------|
+| Summary-Delta Sync | Trust state merges commutatively (Q1 validated) |
+| Subscription Trees | Bots subscribe to contract state changes |
+| Eventual Consistency | Trust state converges across network |
+| Small-World Topology | Efficient propagation of updates |
+
+### What Freenet Does NOT Provide (We Add)
+
+| Gap | Stroma's Solution |
+|-----|-------------------|
+| Persistence (data falls off) | Reciprocal Persistence Network |
+| Encryption at rest | Application-level AES-256-GCM |
+| Seizure resistance | Chunked fragments distributed across N bots |
+| Member count privacy | Size buckets, encrypted attestations |
+
+### Why Full State (Not Delta Fragments)
+
+Analysis of delta-fragmentation vs full-state re-chunking:
+
+| Approach | Recovery Complexity | Update Efficiency | Storage Efficiency |
+|----------|--------------------|--------------------|-------------------|
+| Full state per update | Simple (get latest) | Poor (full rechunk) | Poor (no dedup) |
+| Pure deltas | Complex (replay all) | Good (small frags) | Good |
+| Hybrid with compaction | Medium (replay since compact) | Good | Medium |
+
+**Decision: Full state re-chunking** because:
+- Updates are infrequent (human timescale) - complexity not justified
+- Encryption uses nonces (different ciphertext each time - no dedup benefit)
+- Content-addressing doesn't help (nonce randomness defeats deduplication)
+- Simplicity > optimization for rare operations
+
+### Content-Addressing Analysis
+
+| Question | Finding |
+|----------|---------|
+| Chunk deduplication? | Not useful - encryption uses nonces (different ciphertext each time) |
+| Delta deduplication? | Not useful - encryption uses nonces (different ciphertext) |
+| Registry deduplication? | Not useful - records change frequently, need stable addressing |
+
+**Conclusion:** Freenet's content-addressing doesn't provide value for encrypted chunks. Use stable contract addresses instead.
+
+---
+
+## Chunking + Replication Model (FIXED)
+
+### Core Parameters
+
+```
+CHUNK_SIZE = 64KB          (balance: distribution vs coordination)
+REPLICATION_FACTOR = 3     (1 local + 2 remote replicas per chunk)
+```
+
+### Version-Locked Distribution (REQUIRED)
+
+**Problem**: Distribution of 8 chunks to 16 holders is not atomic. State changes during distribution could fragment chunk sets.
+
+**Solution**: Version-locked distribution with queue.
+
+```
+Flow:
+1. State changes → version = 48 → LOCK for distribution
+2. Queue any new changes (don't apply yet)
+3. Distribute v48 chunks to ALL holders
+4. On success: UNLOCK, apply queued changes → version = 49 → repeat
+5. On partial failure: retry failed holders, don't proceed to v49
+
+Invariant: All holders for a given version have IDENTICAL chunks.
+```
+
+```rust
+pub struct DistributionLock {
+    locked_version: Option<u64>,
+    pending_changes: Vec<StateChange>,
+}
+
+impl DistributionLock {
+    /// Lock state for distribution
+    pub fn lock(&mut self, version: u64) {
+        assert!(self.locked_version.is_none(), "Already locked");
+        self.locked_version = Some(version);
+    }
+    
+    /// Queue changes while locked
+    pub fn queue_change(&mut self, change: StateChange) {
+        self.pending_changes.push(change);
+    }
+    
+    /// Unlock after successful distribution
+    pub fn unlock(&mut self) -> Vec<StateChange> {
+        self.locked_version = None;
+        std::mem::take(&mut self.pending_changes)
+    }
+}
+```
+
+**Why this works**:
+- Trust state changes are infrequent (human timescale)
+- Queue latency is acceptable (seconds, not minutes)
+- Avoids fragmented chunk sets across versions
+- Simpler than optimistic distribution with version reconciliation
+
+### How It Works
+
+```
+Bot-A's state = 500KB encrypted
+  → Split into ceil(500KB / 64KB) = 8 chunks
+  → Each chunk: 1 local copy + 2 remote replicas = 3 copies total
+  → 2 remote replicas distributed to DIFFERENT bots via rendezvous hashing
+  → Total remote placements: 8 × 2 = 16 placements across ~8-16 bots
+```
+
+### Security Through Distribution
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    CHUNK REPLICATION MODEL                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Bot-A's state (500KB) → 8 encrypted chunks                     │
+│                                                                  │
+│  Chunk[0]: Bot-A (local) + Bot-X + Bot-Y  (3 copies)           │
+│  Chunk[1]: Bot-A (local) + Bot-Z + Bot-W  (3 copies)           │
+│  Chunk[2]: Bot-A (local) + Bot-M + Bot-N  (3 copies)           │
+│  ...                                                            │
+│  Chunk[7]: Bot-A (local) + Bot-P + Bot-Q (3 copies)            │
+│                                                                  │
+│  RESILIENCE: Any 1 of 3 copies per chunk = recoverable         │
+│  SECURITY: Need ALL 8 chunks + ACI key to reconstruct          │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Security Scaling
+
+| State Size | Chunks | Remote Holders | Attack Complexity |
+|------------|--------|----------------|-------------------|
+| 64KB | 1 | ~2 bots | Compromise 2 bots + ACI |
+| 500KB | 8 | ~8-16 bots | Compromise holders of ALL 8 + ACI |
+| 5MB | ~80 | ~80-160 bots | Compromise holders of ALL 80 + ACI |
+
+**Key insight**: Larger trust maps → more chunks → more distribution → harder to seize.
+
+**Security model**: Without ACI key, ciphertext chunks are useless. Encryption is the real barrier.
+
+**DO NOT CHANGE** chunk size or replication factor without security review and explicit unpinning.
+
+---
+
+## Reciprocal Fairness Principle
+
+**Fundamental Rule**: "Give 2x what you take from the network"
+
+Each bot must store approximately **2x their own state size** in chunks from other bots:
+
+```
+If my trust map state is 10MB (encrypted):
+  - I create ~160 chunks × 64KB each
+  - Each chunk needs 2 remote replicas → 320 chunk placements across ~160-320 bots
+  - Other bots store ~20MB total for me (2 replicas × 10MB)
+  - I must store ~20MB of chunks for other bots → 2x fairness
+  - Result: I store 2x what others store for me → fair participation
+```
+
+**Why 2x (not 1x or 3x)?**
+- **2 remote replicas** per chunk (replication factor 3 = 1 local + 2 remote)
+- **Other bots store 2x my state** for me (total remote storage)
+- **I store 2x my state** for others (reciprocal fairness)
+- Accounts for: some bots larger, some smaller, but averages to balanced network
+
+**Enforcement (Self-Enforced via Challenge-Response):**
+
+Fairness is **self-enforced**, not centrally tracked:
+- If a bot doesn't store chunks for others, challenge-response fails
+- Failed challenges → bot deprioritized as holder by others
+- No central enforcement needed — bad actors naturally excluded
+
+```rust
+/// Fairness is tracked locally, not in registry
+struct LocalFairnessState {
+    my_state_size: usize,
+    chunks_i_hold: HashMap<(ContractHash, u32), Chunk>,  // (owner, chunk_idx)
+}
+
+impl LocalFairnessState {
+    fn storage_provided(&self) -> usize {
+        self.chunks_i_hold.values().map(|c| c.data.len()).sum()
+    }
+    
+    fn is_fair(&self) -> bool {
+        self.storage_provided() >= self.my_state_size * 2
+    }
+}
+```
+
+**Key insight**: A bot providing more than it consumes is fine. Fairness is a **goal**, not a hard constraint. NEVER sacrifice security, robustness, or simplicity for "perfect fairness."
+
+**Flexibility:**
+- Exact ratio can vary (1.8x - 2.5x acceptable)
+- Tolerates size changes over time
+- Network self-balances as bots join/leave
+
+### Fairness Verification (Challenge-Response)
+
+**Problem**: How do we know a bot ACTUALLY stores the chunks it claims?
+
+**Solution**: Challenge-response protocol (Q13 spike):
+
+```rust
+/// Challenge: Prove you have chunk[X] by returning hash(chunk || nonce)
+struct ChunkChallenge {
+    owner: ContractHash,       // Whose chunk
+    chunk_index: u32,          // Which chunk
+    nonce: [u8; 32],           // Random nonce
+}
+
+struct ChunkResponse {
+    proof: Hash,               // hash(chunk_data || nonce)
+    signature: Signature,      // Signed by responder
+}
+
+/// Verify without revealing chunk content
+fn verify_chunk_possession(
+    challenge: &ChunkChallenge,
+    response: &ChunkResponse,
+    chunk_hash: &Hash,  // Known from original distribution
+) -> bool {
+    // Responder must have actual chunk to compute correct hash
+    // Cannot forge without possessing chunk data
+    verify_proof(challenge, response, chunk_hash)
+}
+```
+
+**Enforcement Options** (to be validated in Q13):
+1. **Spot checks**: Random challenges before allowing writes
+2. **Reputation scoring**: Track challenge success rate
+3. **Flag bad actors**: Bots that fail challenges flagged for others to avoid
+4. **Soft exclusion**: Bad actors deprioritized as holders (not hard banned)
+
+---
+
+## Separate Concerns: Security vs Fairness (CRITICAL)
+
+### The Separation
+
+Chunk holders and fairness partners are **DIFFERENT bots** (by algorithm).
+
+```
+Bot-A's perspective (500KB state = 8 chunks):
+┌────────────────────────────────────────────────────────────────────┐
+│  FAIRNESS: I hold chunks FOR Bot-B, Bot-C, ... (~2x my state size)│
+│  SECURITY: ~8-16 bots hold MY chunks (deterministic per-chunk)    │
+│                                                                    │
+│  For each of my 8 chunks:                                          │
+│  - 2 holders assigned by rendezvous hashing (not chosen by Bot-A) │
+│  - Assignment is COMPUTABLE by anyone (public algorithm)          │
+│  - BUT: Chunks are ENCRYPTED (holder can't read content)          │
+│  - Need ALL 8 chunks + ACI key to reconstruct                     │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+### Why Separation Still Matters (Deterministic Model)
+
+**Security**: Knowing holder identities doesn't help without compromising them AND obtaining ACI key.
+**Fairness**: 2x storage ratio ensures balanced network participation.
+
+**Security tradeoff accepted**: Anyone can compute who holds whose chunks. But:
+1. Chunks are encrypted (holder can't read)
+2. Need ALL chunks (single chunk = partial ciphertext only)
+3. Need ACI private key to decrypt (never leaves bot's device)
+4. Attack requires compromising holders of ALL chunks + obtaining ACI key
+5. **Removes registry as high-value attack target**
+
+### Chunk Holder Properties (Security Critical)
+
+**Chunk holders ARE:**
+- Deterministically assigned per-chunk (rendezvous hashing, same result for everyone)
+- Computable by anyone (no secrets in assignment algorithm)
+- Holding encrypted chunks (can't read content)
+
+**Chunk holders STILL are NOT:**
+- Chosen by the chunk owner (algorithm assigns)
+- Your "replica set partners" (assignments are unpredictable per-chunk)
+- Able to read chunk content (AES-256-GCM encrypted)
+
+**Why Deterministic (Not Owner-Chosen) Holders:**
+```
+If chunk holders were chosen by chunk owner:
+  - Owner could pick colluding partners
+  - Partners could coordinate to collect all chunks
+  - Security defeated by bad actor owners
+
+With deterministic assignment (rendezvous hashing):
+  - Owner CANNOT choose holders (algorithm assigns)
+  - Anyone can verify assignment is correct
+  - Holders are still adversaries (don't trust each other)
+  - Attack requires compromising 2 of 3 holders (knowing identity doesn't help)
+```
+
+**Why holder identity privacy is NOT required:**
+```
+Old assumption: Hiding who holds whose chunks adds security
+Reality: Attack still requires compromising actual holders
+  - Knowing "Bot-X holds Bot-A's chunk[3]" doesn't help read encrypted data
+  - Must breach Bot-X to get the chunk, and still need ALL other chunks + ACI key
+  - Deterministic assignment REMOVES registry as attack target
+  - Net security: equivalent or better (no centralized metadata store)
+```
+
+---
+
+## Deterministic Chunk Assignment (Rendezvous Hashing)
+
+**Key Innovation**: Chunk holders are computed algorithmically per-chunk, not stored in a registry.
+
+### Why Deterministic Assignment
+
+| Aspect | Registry-Based | Deterministic (Chosen) |
+|--------|---------------|------------------------|
+| Registry size | O(chunks × replicas) | O(N) bot list only |
+| Assignment lookup | Query registry | Local computation |
+| Single point of failure | Registry breach reveals all | None |
+| Churn handling | Update records | Recompute (graceful) |
+| Holder identity privacy | Encrypted in registry | Computable by anyone |
+
+**Security tradeoff accepted**: Anyone can compute who holds whose chunks. But:
+- Chunks are still encrypted (holder can't read)
+- Need ALL chunks + ACI key (single chunk = partial ciphertext)
+- Holders are adversaries (don't trust each other)
+- Knowing holder identities doesn't help without compromising those holders AND ACI key
+- **Removes registry as high-value attack target**
+
+### Epoch Management
+
+**Epochs are set by shard creators, reused by consumers:**
+
+- First bot to create a registry shard sets the initial epoch
+- Subsequent bots read the existing epoch from the shard
+- Epoch increments when bot count changes significantly (>10%) or explicit bump
+- All consumers of a shard use the same epoch for deterministic holder computation
+
+```rust
+/// Epoch is part of registry state, not independently managed
+pub struct PersistenceRegistry {
+    bots: BTreeSet<RegistryEntry>,
+    epoch: u64,  // Set by shard creator, incremented on significant changes
+}
+
+impl PersistenceRegistry {
+    /// Epoch increments when:
+    /// - Bot count changes by >10%, OR
+    /// - Explicit epoch bump (rare, for major network changes)
+    fn should_increment_epoch(&self, old_count: usize, new_count: usize) -> bool {
+        let change_ratio = (new_count as f64 - old_count as f64).abs() / old_count as f64;
+        change_ratio > 0.10
+    }
+}
+```
+
+### Rendezvous Hashing Algorithm
+
+```rust
+/// Compute the 2 replica holders for a specific chunk
+fn compute_chunk_holders(
+    owner_contract: &ContractHash,
+    chunk_index: u32,
+    registered_bots: &[ContractHash],  // Sorted list from registry
+    epoch: u64,
+) -> [ContractHash; 2] {
+    // Rendezvous hashing: each bot gets a score for holding this chunk
+    // Top 2 scores = this chunk's replica holders
+    let mut scores: Vec<(ContractHash, Hash)> = registered_bots
+        .iter()
+        .filter(|b| *b != owner_contract)  // Can't hold own chunks
+        .map(|bot| {
+            // Include chunk_index so different chunks go to different holders
+            let score = hash(owner_contract, chunk_index, bot, epoch);
+            (*bot, score)
+        })
+        .collect();
+    
+    scores.sort_by_key(|(_, score)| *score);
+    [scores[0].0, scores[1].0]
+}
+
+/// Compute all chunk holders for a bot's entire state
+fn compute_all_chunk_holders(
+    owner_contract: &ContractHash,
+    num_chunks: u32,
+    registered_bots: &[ContractHash],
+    epoch: u64,
+) -> Vec<[ContractHash; 2]> {
+    (0..num_chunks)
+        .map(|i| compute_chunk_holders(owner_contract, i, registered_bots, epoch))
+        .collect()
+}
+
+/// Compute which chunks I must hold for others (fairness obligations)
+fn compute_my_storage_obligations(
+    my_contract: &ContractHash,
+    all_bots: &[(ContractHash, u32)],  // (contract, num_chunks)
+    epoch: u64,
+) -> Vec<(ContractHash, u32)> {  // (owner, chunk_index)
+    let bot_list: Vec<_> = all_bots.iter().map(|(c, _)| *c).collect();
+    
+    all_bots
+        .iter()
+        .flat_map(|(owner, num_chunks)| {
+            (0..*num_chunks).filter_map(|chunk_idx| {
+                let holders = compute_chunk_holders(owner, chunk_idx, &bot_list, epoch);
+                if holders.contains(my_contract) {
+                    Some((*owner, chunk_idx))
+                } else {
+                    None
+                }
+            })
+        })
+        .collect()
+}
+```
+
+### Churn Handling (Bots Join/Leave)
+
+**Rendezvous hashing property**: When a bot leaves, only chunks assigned to THAT bot need reassignment. Other assignments stay stable.
+
+```
+Epoch 5: Holders for Bot-A chunk[3] = [Bot-X, Bot-Y]
+Bot-Y leaves (epoch → 6)
+Epoch 6: Holders for Bot-A chunk[3] = [Bot-X, Bot-W]  # Only Bot-Y replaced
+Other chunks for Bot-A: may or may not change (depends on Y's ranking)
+```
+
+**Recovery during churn**:
+- Bot checks liveness before sending chunks
+- If computed holder is offline, use next-in-ranking as fallback
+- Fallback is also deterministic (no registry update needed)
+
+### Holder Redistribution on Unavailability
+
+**When a holder becomes unavailable:**
+
+1. Detection: Failed chunk distribution or recovery attempt
+2. Compute new holder: `rendezvous_hash(chunk_idx, bot_list - unavailable, epoch)`
+3. The algorithm naturally selects the next-highest-scoring bot
+4. No registry update needed (deterministic fallback)
+
+```rust
+/// Compute fallback holder when primary is unavailable
+fn compute_fallback_holder(
+    owner_contract: &ContractHash,
+    chunk_index: u32,
+    registered_bots: &[ContractHash],
+    unavailable: &HashSet<ContractHash>,
+    epoch: u64,
+) -> ContractHash {
+    // Filter out unavailable bots, recompute
+    let available_bots: Vec<_> = registered_bots
+        .iter()
+        .filter(|b| !unavailable.contains(b))
+        .cloned()
+        .collect();
+    
+    // Same algorithm, fewer candidates → next-best holder selected
+    compute_chunk_holders(owner_contract, chunk_index, &available_bots, epoch)[0]
+}
+```
+
+**Key insight**: Holder redistribution is deterministic. Any bot can compute the same fallback without coordination.
+
+### Sharded Registry (Scalability)
+
+**Problem**: Single registry is SPOF and bottleneck at large scale (100K+ bots).
+
+**Solution**: Shard registry by contract hash prefix.
+
+```rust
+/// 256 registry shards (by first byte of contract hash)
+const NUM_SHARDS: usize = 256;
+
+fn get_shard_for_bot(contract: &ContractHash) -> u8 {
+    contract.as_bytes()[0]  // First byte determines shard
+}
+
+/// Each shard is a separate Freenet contract
+pub struct ShardedRegistry {
+    shards: [ContractHash; NUM_SHARDS],  // Addresses of shard contracts
+}
+
+impl ShardedRegistry {
+    /// Register bot in appropriate shard
+    fn register(&self, bot: &RegistryEntry) -> ShardId {
+        let shard = get_shard_for_bot(&bot.contract_hash);
+        // Write to shard contract
+        shard
+    }
+    
+    /// Get bot list for holder computation
+    /// Only query shards that COULD contain my holders
+    fn get_relevant_bots(&self, my_contract: &ContractHash) -> Vec<RegistryEntry> {
+        // Rendezvous hashing is deterministic, but holders could be in any shard
+        // For full accuracy: query all shards (can be parallelized)
+        // For optimization: cache shard contents locally, refresh periodically
+        self.shards.par_iter()
+            .flat_map(|shard| query_shard(shard))
+            .collect()
+    }
+}
+```
+
+**Scaling characteristics**:
+
+| Network Size | Shards Needed | Bots per Shard | Shard Size |
+|--------------|---------------|----------------|------------|
+| 10K bots | 1 (unsharded) | 10K | ~1MB |
+| 100K bots | 256 | ~400 | ~40KB |
+| 1M bots | 256 | ~4K | ~400KB |
+| 10M bots | 65536 (2 bytes) | ~150 | ~15KB |
+
+**Why this works**:
+- Each shard is independently queryable (parallelizable)
+- No single contract holds entire bot list
+- Rendezvous hashing still works (just query all shards)
+- Shard assignment is deterministic (by hash prefix)
+- Can increase shards as network grows (2 bytes for 10M+ bots)
+
+**Phase 0 approach**: Single registry (sufficient for <10K bots).  
+**Scale trigger**: Implement sharding when approaching 10K bots.
+
+---
+
+## Full Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    RECIPROCAL PERSISTENCE NETWORK                            │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │              PERSISTENCE PEER DISCOVERY LAYER                           │ │
+│  │                                                                          │ │
+│  │  Mechanism: Dedicated Freenet key/contract for Stroma bot discovery    │ │
+│  │  All discovered bots are ADVERSARIES:                                   │ │
+│  │  - Cannot decrypt each other's state                                    │ │
+│  │  - Cannot learn trust graph structure                                   │ │
+│  │  - Only hold encrypted fragments + signatures                           │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                    │                                         │
+│                                    ▼                                         │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │              MINIMAL REGISTRY (O(N) storage)                            │ │
+│  │                                                                          │ │
+│  │  PUBLIC (deterministic assignment - no relationships stored):          │ │
+│  │  - Network size (N bots exist)                                          │ │
+│  │  - Bot membership (Contract-X is a Stroma bot)                          │ │
+│  │  - Current epoch (monotonic, increments on membership change)          │ │
+│  │  - Size buckets (Contract-X has ~50 members) - optional, for fairness  │ │
+│  │  - Liveness hints (last-seen timestamp) - optional                      │ │
+│  │                                                                          │ │
+│  │  NOT STORED:                                                             │ │
+│  │  - Chunk holder relationships → COMPUTED via rendezvous hashing        │ │
+│  │  - No per-chunk records → scales to any network size                   │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                    │                                         │
+│                                    ▼                                         │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │              SUBSCRIPTION LAYER (TWO SEPARATE CONCERNS)                 │ │
+│  │                                                                          │ │
+│  │  CRITICAL: Outbound and Inbound subscriptions are SEPARATE concerns    │ │
+│  │  They should NOT pollute each other or leak correlation information    │ │
+│  │                                                                          │ │
+│  │  1. OUTBOUND SUBSCRIPTIONS (Fairness - I hold others' fragments):      │ │
+│  │     - Compute: "Who am I holding fragments for?" (rendezvous hash)     │ │
+│  │     - I subscribe to those bots' contracts                              │ │
+│  │     - I receive and store their fragments                               │ │
+│  │     - Target: Store ~2x MY state size in fragments from others          │ │
+│  │     - Selection: DETERMINISTIC via rendezvous hashing                   │ │
+│  │     - Principle: Give ~2x what you take from the network                │ │
+│  │                                                                          │ │
+│  │  2. INBOUND SUBSCRIPTIONS (Security - Others hold MY chunks):          │ │
+│  │     - Compute: "Who holds my chunks?" (rendezvous hash per-chunk)      │ │
+│  │     - Those bots subscribe to MY contract                               │ │
+│  │     - They receive and store my chunks (2 replicas per chunk)           │ │
+│  │     - Selection: DETERMINISTIC (algorithm assigns, not me or registry) │ │
+│  │     - Anyone CAN compute who holds whose → but chunks still encrypted  │ │
+│  │                                                                          │ │
+│  │  WHY SEPARATE (even with deterministic assignment):                     │ │
+│  │  - Bot-B (whose fragments I hold) ≠ holder of MY fragments             │ │
+│  │  - Bot-X (who holds my fragments) ≠ someone I hold fragments for       │ │
+│  │  - Assignment is deterministic but UNPREDICTABLE (hash-based)          │ │
+│  │  - Holders still can't coordinate attack (don't trust each other)      │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                    │                                         │
+│                                    ▼                                         │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │              ENFORCEMENT LAYER (FAIRNESS + SECURITY)                    │ │
+│  │                                                                          │ │
+│  │  Before Bot-A can WRITE to its contract:                                │ │
+│  │  1. Query network size (N) from registry                                │ │
+│  │  2. IF N >= 3: Verify all chunks have 2+ replicas confirmed (inbound)  │ │
+│  │     AND verify storing ~2x own state size (outbound fairness)           │ │
+│  │  3. IF N = 2: Verify mutual replication (both directions)               │ │
+│  │  4. IF N = 1: WARN, allow writes (operator accepts risk)                │ │
+│  │  5. If not compliant: BLOCK writes until compliant                      │ │
+│  │                                                                          │ │
+│  │  FAIRNESS PRINCIPLE: "Give 2x what you take"                            │ │
+│  │  - Each bot stores ~2x their state size in fragments from others        │ │
+│  │  - If my state is 10MB, I store ~20MB for others (2 fragments @ 10MB)   │ │
+│  │  - Public registry tracks total_stored vs. total_held per bot           │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                    │                                         │
+│                                    ▼                                         │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │              VERIFICATION & RECOVERY LAYER                              │ │
+│  │                                                                          │ │
+│  │  STATE VERSIONING:                                                      │ │
+│  │  - Each state update has monotonic version number                       │ │
+│  │  - Recovery requests specific version OR "latest"                       │ │
+│  │  - Enables consistent recovery across multiple chunk holders            │ │
+│  │                                                                          │ │
+│  │  RECOVERY (deterministic computation):                                  │ │
+│  │  1. Bot loads Signal identity from backup                               │ │
+│  │  2. Fetch registry: get bot list + current epoch + my num_chunks        │ │
+│  │  3. For each chunk: COMPUTE holders via rendezvous_hash(chunk_index)   │ │
+│  │  4. Request ALL chunks from computed holders (any 1 of 3 per chunk)    │ │
+│  │  5. Concatenate chunks, decrypt with ACI key, verify signature, resume │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Chunk Communication Protocol
+
+### Protocol Options (Q14 Spike)
+
+Bots need to communicate chunks to holders. Three options analyzed:
+
+| Option | Mechanism | Pros | Cons |
+|--------|-----------|------|------|
+| **A. Freenet contracts** | Each bot has "chunk inbox" contract | Leverages Freenet primitives | Expensive (contract writes) |
+| **B. Direct P2P** | Bots connect via Freenet network layer | Fast, efficient for large payloads | NAT traversal, address discovery |
+| **C. Hybrid** | Registry stores contact info, P2P for chunks | Best of both | Two mechanisms |
+
+**Phase 0 Recommendation**: Option A (Freenet contracts)
+
+**Rationale**:
+- Simplicity: One mechanism (contracts) for everything
+- Leverages Freenet's eventual consistency and replication
+- Trust state changes are infrequent → expense is acceptable
+- If too expensive, migrate to Hybrid (Option C) in Phase 1
+
+**Implementation Pattern (Phase 0)**:
+
+```rust
+/// Each bot has a chunk storage contract
+/// Chunks are written as state updates to holder's contract
+pub struct ChunkStorageContract {
+    /// Chunks I'm holding for others: (owner, chunk_idx) → chunk_data
+    stored_chunks: HashMap<(ContractHash, u32), Chunk>,
+}
+
+/// Distribute chunk to holder via their contract
+async fn distribute_chunk(
+    holder_contract: &ContractHash,
+    chunk: &Chunk,
+    freenet: &FreenetClient,
+) -> Result<Attestation> {
+    // Write chunk to holder's storage contract
+    let delta = ChunkStorageDelta::Store {
+        owner: chunk.owner,
+        chunk_index: chunk.chunk_index,
+        data: chunk.data.clone(),
+    };
+    
+    freenet.update_contract(holder_contract, &delta).await?;
+    
+    // Holder's contract returns attestation (signed receipt)
+    Ok(attestation)
+}
+```
+
+**Hybrid Option (Phase 1+)**:
+
+If Freenet contract writes prove too expensive:
+
+```rust
+/// Registry stores contact info for direct P2P
+pub struct RegistryEntry {
+    contract_hash: ContractHash,
+    size_bucket: SizeBucket,
+    num_chunks: u32,
+    // Phase 1+: Optional P2P contact info
+    p2p_address: Option<PeerAddress>,
+}
+
+/// Use P2P for chunk transfer, Freenet for attestations only
+async fn distribute_chunk_hybrid(
+    holder: &RegistryEntry,
+    chunk: &Chunk,
+) -> Result<Attestation> {
+    if let Some(addr) = &holder.p2p_address {
+        // Direct P2P transfer (fast, efficient)
+        let attestation = p2p_send_chunk(addr, chunk).await?;
+        Ok(attestation)
+    } else {
+        // Fallback to Freenet contract
+        distribute_chunk(&holder.contract_hash, chunk, freenet).await
+    }
+}
+```
+
+**Spike Q14** will validate:
+- Cost of 16 contract writes per state update
+- Freenet message passing primitives (if available)
+- P2P address discovery mechanisms
+
+---
+
+## Contract Authority Models
+
+| Contract Type | Authority Model | Rationale |
+|--------------|-----------------|-----------|
+| **Trust Map Contract** | Single-writer (bot) | Core trust graph - MUST be single authority |
+| **Federation Contract** | Single-writer (each side) | Each group records their own federation state |
+| **Replication Contract** | Single-writer + shared validation | Bot is authority, but peers validate attestations |
+| **Persistence Registry** | Shared (distributed) | Needs to handle stale bots, no single authority |
+| **Chunk Storage Contract** | Multi-writer (holders write to their own) | Each bot controls their storage contract |
+
+**Key Principle:** `1 Bot = 1 Signal Group = 1 Trust Map Contract = 1 Trust Mesh`
+
+---
+
+## Adversarial Peer Model (ASSUME ALWAYS)
+
+### All Persistence Peers are Adversaries
+
+| They CAN | They CANNOT |
+|----------|-------------|
+| Store encrypted chunks | Decrypt content |
+| Validate signature | Learn trust graph |
+| Verify version increasing | Forge updates |
+| Replicate to peers | Reconstruct state (need ALL chunks + ACI) |
+| Refuse to return chunks | Prevent recovery (need any 1 of 3 per chunk) |
+
+### Design Principle
+
+**Zero Trust**: Every protocol decision assumes peers are actively malicious.
+
+---
+
+## Replication Health Metric (USER-FACING)
+
+### The Fundamental Question
+
+**"Is my trust network data resilient?"**
+
+Replication Health answers this by tracking whether the last state change was successfully distributed to chunk holders.
+
+### Metric Definition
+
+**Replication Health** is measured at **write time** (not via heartbeats):
+
+| Event | What Happens |
+|-------|--------------|
+| State changes (vouch, flag, join, etc.) | Bot creates snapshot → encrypts → chunks → distributes 2 replicas per chunk |
+| All chunks fully replicated | 🟢 **Replicated** — fully resilient |
+| Some chunks degraded (1/3) | 🟡 **Partial** — recoverable, but degraded |
+| Any chunk has 0/3 copies | 🔴 **At Risk** — cannot recover that chunk if crash now |
+
+### Formula
+
+```
+Chunk Health = min(copies_confirmed) across all chunks
+Replication Health = Chunks_With_2+_Replicas / Total_Chunks
+
+Where:
+- Chunks_With_2+_Replicas = Chunks where at least 2 of 3 copies confirmed
+- Total_Chunks = ceil(state_size / CHUNK_SIZE)
+```
+
+### States and Recovery Confidence
+
+| Status | Chunk Health | Recovery | Can Write? | User Display |
+|--------|--------------|----------|------------|--------------|
+| 🟢 **Replicated** | All chunks 3/3 | ✅ Guaranteed | Yes | "Fully resilient" |
+| 🟡 **Partial** | Some chunks 2/3 | ✅ Possible | Yes | "Recoverable but degraded" |
+| 🔴 **At Risk** | Any chunk ≤1/3 | ❌ Not possible | **Blocked** | "Cannot recover if crash" |
+| 🔵 **Initializing** | Establishing | — | Limited | "Setting up persistence" |
+
+### Key Design: No Heartbeats Required
+
+Replication Health is based on **distribution acknowledgment**, not continuous heartbeat monitoring:
+
+1. **At write time**: Bot distributes 2 replicas per chunk to deterministic holders
+2. **Acknowledgment**: Each holder signs receipt confirmation
+3. **Health recorded**: Based on confirmed receipts per chunk
+4. **No polling**: We don't continuously check if holders still have chunks
+
+**Rationale**:
+- Trust state changes are **infrequent** (human timescale: ~10-100/month)
+- Heartbeats add complexity without proportional benefit
+- Recovery only needed after crash — at that point we query holders directly
+- Simpler model, fewer failure modes
+
+### User Command: `/mesh replication`
+
+```
+User → Bot: /mesh replication
+
+Bot → User:
+"💾 Replication Health: 🟢 Replicated
+
+Last State Change: 3 hours ago (Alice joined)
+State Size: 512KB (8 chunks)
+Chunks Replicated: 8/8 (all 3 copies per chunk) ✅
+State Version: 47
+
+Recovery Confidence: ✅ Yes — all chunks available from multiple holders
+
+💡 Your trust network is resilient. If this bot goes offline,
+the state can be recovered from chunk holders."
+```
+
+### Degraded Example
+
+```
+User → Bot: /mesh replication
+
+Bot → User:
+"💾 Replication Health: 🟡 Partial
+
+Last State Change: 1 hour ago (Bob vouched for Carol)
+State Size: 512KB (8 chunks)
+Chunks Replicated: 7/8 fully, 1/8 degraded (2/3 copies) ⚠️
+State Version: 48
+
+Recovery Confidence: ✅ Yes — all chunks recoverable
+
+⚠️ One chunk has degraded replication. Recovery is still possible,
+but resilience is reduced. Bot will retry distribution."
+```
+
+### Integration with /mesh Command
+
+```
+User → Bot: /mesh
+
+Bot → User:
+"📊 Network Overview
+
+Members: 47
+Trust Health: 🟢 Healthy (DVR: 75%)
+Replication Health: 🟢 Replicated (3/3)
+
+Use /mesh strength for trust details
+Use /mesh replication for durability details"
+```
+
+---
+
+## Write-Blocking States (REQUIRED)
+
+| State | Condition | Writes | Replication Health |
+|-------|-----------|--------|-------------------|
+| **PROVISIONAL** | No suitable peers available | ALLOWED | 🔵 Initializing |
+| **ACTIVE** | All chunks have 2+ replicas confirmed | ALLOWED | 🟢 Replicated or 🟡 Partial |
+| **DEGRADED** | Any chunk has ≤1 replica, peers available | **BLOCKED** | 🔴 At Risk |
+| **ISOLATED** | N=1 network | ALLOWED (warned) | 🔵 Initializing |
+
+### Key Principle
+
+Availability-based, NOT TTL-based. Bot never penalized for network scarcity.
+
+### Why DEGRADED Blocks
+
+If peers are available but distribution failed, you MUST succeed before making changes. This prevents accumulating state that can't be backed up.
+
+### Network Bootstrap Limitations (Known)
+
+**N=1 (Single bot)**:
+- Chunks go nowhere — state pushed to Freenet only
+- "Good luck" that Freenet doesn't drop it
+- Operator warned: no persistence guarantee
+- Acceptable for testing, NOT for production
+
+**N=2 (Two bots)**:
+- Mutual dependency — if both need each other simultaneously, catastrophic failure
+- Low network resiliency — acceptable only temporarily
+- Operator warned: minimal persistence guarantee
+
+**N≥3 (Resilient)**:
+- Network becomes resilient when: `N > replicas_needed`
+- With 3 copies per chunk: need N≥4 for true redundancy
+- Recommended minimum for production: N≥5
+
+```
+Resilience threshold:
+  N=1: No persistence (state on Freenet only)
+  N=2: Mutual dependency (fragile)
+  N=3: Minimal (one failure = degraded)
+  N≥4: Resilient (can tolerate 1 failure per chunk)
+  N≥5: Recommended (comfortable margin)
+```
+
+### Partial Recovery (NOT SUPPORTED)
+
+**If any chunk is permanently lost, full state is unrecoverable.**
+
+This is a deliberate design decision:
+- Encryption requires ALL chunks + ACI key
+- Partial ciphertext is useless
+- No graceful degradation (members without vouches, etc.)
+- Total failure is the only outcome
+
+**Mitigations**:
+- 3x replication per chunk (any 1 of 3 works)
+- Deterministic fallback holders
+- Larger states = more distribution = harder to lose ALL copies of ANY chunk
+
+---
+
+## Recovery Requirements (MANDATORY)
+
+### Signal Protocol Store Backup is CRITICAL
+
+**Your Signal protocol store IS your recovery identity.** No separate keypair file needed.
+
+The bot uses the Signal account's **ACI (Account Identity) key** for:
+- Chunk encryption (AES-256-GCM derived from ACI key via HKDF)
+- State signatures (using ACI identity key)
+- Persistence network identification
+
+Without Signal store backup:
+- Fragments are useless (can't derive decryption key)
+- Trust map is permanently lost
+- NO recovery path exists
+
+**Key Simplification**: Operators only need to back up their Signal protocol store. This contains the ACI identity keypair, which is used for all cryptographic operations. No separate keypair file to manage.
+
+### Recovery Flow
+
+```rust
+async fn recover_state() -> Result<State, Error> {
+    // 1. Restore Signal protocol store from backup (REQUIRED)
+    let signal_store = restore_signal_store_from_backup()?;
+    let aci_identity = signal_store.get_identity_key_pair().await?;
+    
+    // 2. Query registry: get bot list, epoch, my num_chunks
+    let registry = fetch_registry().await?;
+    let my_entry = registry.get_my_entry(&aci_identity.public_key())?;
+    let num_chunks = my_entry.num_chunks;
+    
+    // 3. Compute holders for each chunk, fetch ALL chunks
+    let mut chunks = Vec::with_capacity(num_chunks as usize);
+    for chunk_idx in 0..num_chunks {
+        let holders = compute_chunk_holders(
+            &my_entry.contract_hash,
+            chunk_idx,
+            &registry.bot_list,
+            registry.epoch,
+        );
+        // Need any 1 of 3 copies (local copy was lost in crash)
+        let chunk = fetch_chunk_from_any_holder(&holders, chunk_idx).await?;
+        chunks.push(chunk);
+    }
+    
+    // 4. Concatenate chunks, derive encryption key from ACI, decrypt, verify
+    let encrypted_state = concatenate_chunks(&chunks);
+    let encryption_key = derive_key_from_aci(&aci_identity);  // HKDF
+    let decrypted = decrypt(&encrypted_state, &encryption_key)?;
+    verify_signature(&decrypted, &aci_identity)?;
+    Ok(decrypted)
+}
+```
+
+### Why Use Signal ACI Key
+
+| Benefit | Explanation |
+|---------|-------------|
+| **Fewer secrets** | No separate keypair to manage |
+| **Single backup** | Signal store backup covers everything |
+| **Already secure** | Signal keys stored in secure protocol store |
+| **Deterministic derivation** | Encryption key derived via HKDF from ACI |
+
+### Recovery Verification (Signature Only)
+
+**Recovery uses signature verification only** — chain integrity is informational, not required.
+
+```rust
+/// Recovery verification (minimal, practical)
+fn verify_recovered_state(
+    state: &EncryptedTrustNetworkState,
+    aci_identity: &IdentityKeyPair,
+) -> Result<bool, Error> {
+    // 1. Verify signature (proves bot authored this state)
+    let signature_valid = verify_signature(
+        &state.hash(),
+        &state.signature,
+        &aci_identity.public_key(),
+    )?;
+    
+    // 2. Version is informational (helps detect stale state)
+    // We don't require chain verification because:
+    // - We only need "this is a valid state I authored"
+    // - We don't have historical states to verify chain against
+    // - Chain integrity is for debugging, not recovery
+    
+    Ok(signature_valid)
+}
+```
+
+**What we verify**:
+- ✅ Signature matches ACI identity (proves authorship)
+- ✅ Decryption succeeds (proves we have correct key)
+- ✅ All chunks present (proves complete state)
+
+**What we DON'T require**:
+- ❌ Chain verification (`previous_hash`) — informational only
+- ❌ Historical state comparison — not available after crash
+- ❌ Version range check — any valid signed state is acceptable
+
+**Rationale**: Recovery goal is "restore a valid state I authored." Chain integrity helps detect tampering in normal operation but isn't verifiable after total state loss.
+
+---
+
+## Registry Design (MINIMAL - O(N) Storage)
+
+### Registry Contract Address Derivation
+
+**Deterministic derivation from well-known seed** — no coordination needed.
+
+```rust
+/// Registry contract addresses are deterministically derived
+/// Any bot can compute the same address without coordination
+const STROMA_REGISTRY_SEED: &[u8] = b"stroma-persistence-registry-v1";
+
+fn registry_contract_address() -> ContractHash {
+    // Derive deterministically from seed
+    ContractHash::from_bytes(&sha256(STROMA_REGISTRY_SEED))
+}
+
+// For sharded registry (256 shards)
+fn shard_contract_address(shard_id: u8) -> ContractHash {
+    let seed = format!("stroma-persistence-registry-v1-shard-{:02x}", shard_id);
+    ContractHash::from_bytes(&sha256(seed.as_bytes()))
+}
+```
+
+**Why this works**:
+- No coordination needed — any bot computes the same address
+- Deterministic — reproducible across implementations
+- Versioned — can migrate to v2 if schema changes
+- Sharding-ready — shard addresses derived from same pattern
+
+### Single Record Type (Deterministic Assignment)
+
+```rust
+/// Minimal registry - chunk holder relationships are COMPUTED, not stored
+pub struct BotRegistryEntry {
+    contract_hash: ContractHash,     // Bot's trust contract address
+    registered_at: Timestamp,        // When bot joined network
+    size_bucket: SizeBucket,         // Range, not exact count (optional, for fairness)
+    num_chunks: u32,                 // How many chunks this bot has (for recovery)
+}
+
+/// Registry state - uses ComposableState with set-based deltas
+pub struct PersistenceRegistry {
+    bots: BTreeSet<BotRegistryEntry>,  // O(N) storage
+    tombstones: BTreeSet<ContractHash>, // Remove-wins semantics
+    epoch: u64,                         // Monotonic, increments on significant changes
+}
+
+/// Registry delta (commutative, set-based - Q1 validated)
+#[derive(Serialize, Deserialize)]
+pub struct RegistryDelta {
+    bots_added: Vec<BotRegistryEntry>,
+    bots_removed: Vec<ContractHash>,  // Adds to tombstones
+}
+```
+
+### Why No Per-Chunk Records
+
+| Old Design (Registry-Based) | New Design (Deterministic) |
+|-----------------------------|---------------------------|
+| Store N * chunks * 2 relationship records | Store N bot entries only |
+| Query: "Who holds my chunks?" | Compute: `rendezvous_hash(chunk_idx)` |
+| Registry is attack target | No sensitive data in registry |
+| Scaling: O(N × chunks) potential | Scaling: O(N) guaranteed |
+
+**Key insight**: Chunk holder relationships can be computed by anyone. This is acceptable because:
+1. Chunks are encrypted (knowing holder doesn't help read data)
+2. Need ALL chunks + ACI key (single chunk = partial ciphertext)
+3. Attack requires compromising actual holders, not metadata
+
+---
+
+## Constraints Checklist (VERIFY BEFORE MERGE)
+
+| Constraint | Verification |
+|------------|--------------|
+| Chunk size 64KB | CHUNK_SIZE constant used consistently |
+| Replication factor 3 | 1 local + 2 remote replicas per chunk |
+| Deterministic holder selection | Rendezvous hashing per-chunk, not owner-chosen |
+| Encrypted chunks | AES-256-GCM with key derived from Signal ACI |
+| Signature chain | Using Signal ACI identity key, version monotonic |
+| Write-blocking enforced | DEGRADED state blocks writes |
+| Signal store backup documented | Operator warned, procedure clear |
+| Minimal registry | O(N) bot list only, no per-chunk relationships |
+| Adversarial peer model | Zero trust in all protocols |
+| Fairness verification | Challenge-response for chunk possession |
+
+---
+
+## Anti-Patterns (BLOCK)
+
+### ❌ NEVER
+
+- Allow chunk owner to choose holders (collusion risk)
+- Store chunks unencrypted (adversarial peers)
+- Use single replica (need 3 copies for resilience)
+- Store per-chunk relationships in registry (scaling, attack surface)
+- Allow writes in DEGRADED state (unbackable changes)
+- Skip Signal store backup in operator docs (unrecoverable)
+- Trust federation peers more than random peers (same adversarial model)
+- Create separate keypair file (use Signal ACI key instead)
+- Trust chunk storage claims without verification (fairness gaming)
+
+### ✅ ALWAYS
+
+- Use deterministic holder selection (rendezvous hashing per-chunk)
+- Encrypt with key derived from Signal ACI before chunking
+- Maintain 3 copies per chunk (1 local + 2 remote)
+- Keep registry minimal (O(N) bot list only)
+- Block writes until persistence confirmed (in DEGRADED)
+- Document Signal store backup prominently
+- Treat all persistence peers as adversaries
+- Use Signal ACI identity for all persistence cryptography
+- Implement challenge-response for fairness verification
+
+---
+
+## Related Constraints
+
+- **bot-deployment-model.bead**: 1:1 bot-to-group (affects persistence scope)
+- **security-constraints.bead**: Server seizure protection, custom store
+- **governance-model.bead**: Execute-only bot (recovery is automatic)
+- **discovery-protocols.bead**: Persistence vs federation discovery
+
+---
+
+## Spike Dependencies
+
+| Spike | Question | Status | Impact on Persistence |
+|-------|----------|--------|----------------------|
+| Q7 | Bot Discovery | PENDING | How bots find each other |
+| Q8 | Fake Bot Defense | PENDING | Sybil resistance for holders |
+| Q9 | Chunk Verification | PENDING | Prove holders have chunks |
+| Q11 | Rendezvous Hashing | PENDING | Validate deterministic assignment |
+| Q12 | Chunk Size Optimization | PENDING | Balance distribution vs coordination |
+| Q13 | Fairness Verification | PENDING | Challenge-response protocol |
+| Q14 | Chunk Communication Protocol | PENDING | How chunks are transmitted to holders |
+
+**See**: `docs/spike/SPIKE-WEEK-2-BRIEFING.md`
+
+---
+
+## Comprehensive Agent Guidance Summary
+
+### Two Separate Concern Types (CRITICAL)
+
+**"Fairness coordination" and "Chunk holders" are DIFFERENT relationships.**
+
+1. **Fairness Coordination:** Random bots whose chunks you store (target: 2x your state size total)
+2. **Chunk Holders:** Random adversarial peers who hold YOUR chunks (security - different bots!)
+
+### Chunk Holders (Security - Deterministic Assignment)
+
+1. Assigned via RENDEZVOUS HASHING per-chunk (deterministic, not chosen by owner)
+2. Anyone can compute who holds whose chunks (public algorithm)
+3. BUT: Chunks are encrypted (holder can't read content)
+4. Need ALL chunks + ACI key to reconstruct (not just 2 of 3)
+5. Larger states → more chunks → more distribution → harder to seize
+
+### Fairness Accounting (Best Effort)
+
+1. Track storage provided vs consumed
+2. Aim for approximate balance (not exact)
+3. NEVER sacrifice security, robustness, or simplicity for "perfect fairness"
+4. A bot providing more than it consumes is fine
+5. Fairness is a goal, not a hard constraint
+6. Use challenge-response to verify chunk possession (prevent gaming)
+
+### Contract Writes
+
+1. ALWAYS encrypt with key derived from Signal ACI identity (HKDF)
+2. ALWAYS sign with Signal ACI identity key
+3. ALWAYS include Merkle root for ZK-proofs
+4. ALWAYS chunk into 64KB pieces
+5. ALWAYS distribute 2 replicas per chunk to deterministic peers
+6. NEVER publish plaintext to Freenet
+7. NEVER expose member count (use size commitments)
+8. NEVER create separate keypair file (use Signal ACI)
+
+### Write-Blocking Rules
+
+1. ACTIVE (all chunks have 2+ replicas confirmed): Write allowed
+2. PROVISIONAL (no suitable holders available): Write allowed
+3. DEGRADED (holders available but any chunk ≤1 replica): Write BLOCKED
+4. ISOLATED (N=1 network): Write allowed with warning
+5. Never penalize bot for network scarcity
+
+### Privacy (Deterministic Model)
+
+1. Chunk holder identities are COMPUTABLE by anyone (rendezvous hashing)
+2. This is acceptable because chunks are ENCRYPTED (holder can't read)
+3. Knowing "Bot-X holds Bot-A's chunk[3]" doesn't help without compromising Bot-X AND getting ALL other chunks + ACI key
+4. 1 chunk = 1/N of ciphertext (useless without ACI key)
+5. No registry to breach → no centralized attack target for holder identities
+
+### Recovery (Deterministic Computation)
+
+1. Signal protocol store backup is REQUIRED
+2. Restore Signal store, load ACI identity keypair
+3. Fetch registry: get bot list + current epoch + num_chunks
+4. For each chunk: COMPUTE holders via `rendezvous_hash(chunk_idx)`
+5. Contact computed holders, request ALL chunks (any 1 of 3 per chunk)
+6. Concatenate chunks, derive encryption key from ACI (HKDF)
+7. Decrypt, verify signature with ACI identity, resume
+
+---
+
+## Summary
+
+**Remember**: The entire persistence layer exists so that:
+
+> A crashed bot recovers its trust map from adversarial peers who cannot read that data.
+
+Every feature connects to this goal. If it doesn't, question whether it's needed.

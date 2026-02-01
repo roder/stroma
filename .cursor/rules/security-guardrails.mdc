@@ -172,13 +172,87 @@ if alice_flags_bob {
 - Block all other network access
 - Static MUSL binary required
 
+## Logging Security (Three-Layer Model)
+
+**Threat Model**: Compromised bot logs must NOT enable trust map reconstruction or state recovery.
+
+### Four Layers of Log Protection
+
+| Layer | What's Protected | Rule |
+|-------|------------------|------|
+| **PII** | Signal IDs, phone numbers, names | ❌ NEVER log |
+| **Trust Map** | Who vouched/flagged whom, relational data | ❌ NEVER log |
+| **Persistence** | Chunk holder locations, attestations | ❌ NEVER log (even if computable) |
+| **Federation** | Federated group IDs, names, URIs, overlap data | ❌ NEVER log |
+
+### Logging Violations (BLOCK)
+
+```rust
+// ❌ FORBIDDEN - reveals trust map
+tracing::info!("Vouch recorded: {} vouched for {}", voucher_hash, target_hash);
+tracing::debug!("Flag from {} to {}", flagger_hash, target_hash);
+tracing::info!("Ejecting {} (standing: {})", member_hash, standing);
+
+// ❌ FORBIDDEN - reveals persistence locations  
+tracing::info!("Chunk stored at peer {}", holder_hash);
+tracing::debug!("Attestation received from {}", holder_hash);
+
+// ❌ FORBIDDEN - reveals PII
+tracing::info!("Processing message from {}", signal_id);
+
+// ❌ FORBIDDEN - reveals federation relationships
+tracing::info!("Federated with group {}", group_hash);
+tracing::debug!("PSI-CA overlap: {} members", overlap_count);
+tracing::info!("Discovery: found group at {}", uri);
+```
+
+### Allowed Logging Patterns
+
+```rust
+// ✅ ALLOWED - operation types only (no identifiers)
+tracing::info!("Vouch recorded");
+tracing::info!("Member admitted");
+tracing::info!("Member ejected");
+tracing::info!("Chunk distribution completed (all chunks 3/3)");
+
+// ✅ ALLOWED - aggregate counts (no identifiers)
+tracing::info!("Network: {} members", count);
+tracing::debug!("Clusters detected: {}", cluster_count);
+tracing::info!("Federated groups: {}", count);  // count only
+
+// ✅ ALLOWED - errors without identifiers
+tracing::error!("Signal API failed: {}", error_type);
+tracing::warn!("Chunk distribution partial: 7/8 chunks fully replicated");
+```
+
+### Compromised Bot Test
+
+Before merging logging code, verify:
+> If adversary has full access to bot logs, can they reconstruct:
+> 1. Who is in the group? **Must be NO**
+> 2. Who vouched for whom? **Must be NO**
+> 3. Where are persistence chunks? **Computable** (deterministic assignment - security comes from encryption, not obscurity)
+> 4. Which groups are federated? **Must be NO**
+
+**Note on #3**: Chunk holder locations are computable via rendezvous hashing (deterministic assignment). Still don't log them - defense in depth, unnecessary operational info.
+
+### Log Levels
+
+| Level | Audience | Content |
+|-------|----------|---------|
+| ERROR | Operators | Failures (no identifiers) |
+| WARN | Operators | Recoverable issues (no identifiers) |
+| INFO | Operators | Operations completed (counts only) |
+| DEBUG | Contributors | Internal flow (no sensitive data) |
+
+**See**: `.beads/architectural-decisions-open.bead` Decision #9
+
 ## Error Handling Security
 
 ### Information Leakage Prevention
-- Never log sensitive identifiers
 - Never expose internal state in error messages
 - Use generic error messages for security-critical failures
-- Log security events without revealing member identities
+- Error messages must pass "Compromised Bot Test"
 
 ## Testing Security
 
@@ -345,3 +419,83 @@ let manager = Manager::with_store(store, options).await?;
 ```
 
 **See**: `.beads/technology-stack.bead` for implementation guidance
+
+## Persistence Peer Security (BLOCK - Reciprocal Persistence Network)
+
+### Why This Exists
+
+**Problem**: Freenet data falls off if no peers subscribed.
+**Solution**: Bots replicate each other's encrypted chunks.
+**Threat**: Persistence peers are adversaries who may be malicious.
+
+**See**: `.beads/persistence-model.bead` for full architecture.
+
+### Adversarial Peer Model (CRITICAL)
+
+ALL persistence peers are assumed to be adversaries:
+- May be malicious actors trying to reconstruct trust maps
+- May refuse to return chunks during recovery (DoS)
+- May collude with other peers
+- May be fake bots (Sybil attack)
+- May delete chunks without notice
+
+### Persistence Security Violations (BLOCK)
+
+- ❌ **NEVER** allow chunk owner to choose holders (collusion risk)
+- ❌ **NEVER** store chunks unencrypted (adversaries can read)
+- ❌ **NEVER** use single replica (3 copies per chunk required)
+- ❌ **NEVER** store per-chunk relationships in registry (scaling, attack surface)
+- ❌ **NEVER** trust federated peers more than random peers (same adversarial model)
+- ❌ **NEVER** conflate persistence discovery with federation discovery
+
+### Correct Architecture (Zero Trust + Chunking + Deterministic Assignment)
+
+- ✅ **DO** encrypt with key derived from Signal ACI identity before chunking
+- ✅ **DO** use 64KB chunks, 3 copies each (1 local + 2 remote)
+- ✅ **DO** use deterministic holder selection per-chunk (rendezvous hashing, not owner-chosen)
+- ✅ **DO** keep registry minimal (O(N) bot list, not per-chunk relationships)
+- ✅ **DO** verify holders actually have chunks (challenge-response)
+- ✅ **DO** treat ALL persistence peers as adversaries
+- ✅ **DO** use Signal protocol store as single cryptographic identity
+
+**Why deterministic is acceptable**: Anyone can compute who holds whose chunks. But chunks are encrypted (holder can't read), and attack requires compromising ALL chunk holders + ACI key. Larger states = more chunks = more distribution = harder to seize. Deterministic assignment removes registry as high-value attack target.
+
+### Write-Blocking States
+
+| State | Condition | Writes |
+|-------|-----------|--------|
+| ACTIVE | All chunks have 2+ replicas | Allowed |
+| PROVISIONAL | No suitable peers available | Allowed (warned) |
+| DEGRADED | Any chunk ≤1 replica, peers available | **BLOCKED** |
+| ISOLATED | N=1 network | Allowed (at risk) |
+
+- ❌ **NEVER** write in DEGRADED state (must restore chunk replicas first)
+- ✅ **DO** block writes until persistence confirmed
+
+### Separate Concerns: Security vs Fairness
+
+**Chunk holders and fairness partners are DIFFERENT bots (by algorithm).**
+
+```
+Bot-A's perspective (500KB state = 8 chunks):
+  FAIRNESS: I hold chunks FOR Bot-B, Bot-C, ... (~2x my state size)
+  SECURITY: ~8-16 bots hold MY chunks (deterministic per-chunk assignment)
+  
+  Note: Anyone can COMPUTE who holds whose chunks (rendezvous hashing)
+        But chunks are ENCRYPTED (need ALL chunks + ACI key to reconstruct)
+```
+
+- ❌ **NEVER** combine security and fairness in same bot set (collusion risk)
+- ✅ **DO** keep them as separate, independent concerns (algorithm ensures separation)
+
+### Recovery Requires Signal Store Backup
+
+**No separate keypair file needed.** The Signal protocol store IS the cryptographic identity.
+
+- ❌ **NEVER** skip Signal store backup in operator documentation
+- ❌ **NEVER** create a separate keypair file (use Signal ACI key)
+- ✅ **DO** warn operator: Signal store is ONLY recovery path
+- ✅ **DO** document Signal store backup procedure prominently in OPERATOR-GUIDE
+- ✅ **DO** derive all encryption keys from Signal ACI identity via HKDF
+
+**See**: `.beads/contract-encryption.bead`, `.beads/discovery-protocols.bead`

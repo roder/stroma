@@ -1,0 +1,470 @@
+# Contract Encryption Model (IMMUTABLE)
+
+**Status**: Pinned - Cannot be modified without explicit unpinning ceremony
+**Last Updated**: 2026-01-31
+**Applies To**: State encryption, persistence fragments, Agent-Crypto
+
+---
+
+## WHY: Encryption is Required
+
+### The Threat Model
+
+Persistence peers are **adversaries**. They hold your encrypted fragments but should learn nothing.
+
+| Without Encryption | With Encryption |
+|-------------------|-----------------|
+| Peer sees your members | Peer sees random bytes |
+| Peer learns vouch graph | Peer learns nothing |
+| Peer can reconstruct state | Peer cannot decrypt |
+| Trust map seizure possible | Trust map protected |
+
+### Connection to Core Goal
+
+> A crashed bot recovers its trust map from **adversarial peers who cannot read** that data.
+
+Encryption is what makes "adversarial peers" safe to use.
+
+### Why Full State Encryption (Not Delta Encryption)
+
+Analysis of delta-then-encrypt vs full-state encryption:
+
+| Approach | Recovery Complexity | Update Efficiency | Security |
+|----------|--------------------|--------------------|----------|
+| Full state per update | Simple (get latest) | Acceptable (infrequent) | Strong |
+| Delta encryption | Complex (replay all) | Better | Complex analysis needed |
+
+**Decision:** Full state encryption because:
+- Trust state changes are **infrequent** (human timescale: ~10-100/month)
+- Chunk creation is fast (< 100ms for typical state)
+- Encryption nonces produce different ciphertext each time
+- No deduplication benefit from content-addressing
+- Simplicity > optimization for rare operations
+
+---
+
+## Encrypted State Structure (REQUIRED)
+
+```rust
+pub struct EncryptedTrustNetworkState {
+    // Encrypted payload
+    ciphertext: Vec<u8>,           // AES-256-GCM encrypted trust state
+    nonce: [u8; 12],               // GCM nonce (unique per encryption)
+    
+    // Authority (uses Signal ACI identity)
+    signature: Vec<u8>,            // Signature by Signal ACI identity key
+    aci_pubkey: Vec<u8>,           // Signal ACI public key for verification
+    
+    // Public commitment (for ZK-proof verification)
+    member_merkle_root: Hash,      // Generated on-demand from BTreeSet
+    
+    // Versioning (recovery + anti-replay)
+    version: u64,                  // Monotonic, increments on each write
+    previous_hash: Hash,           // Chain integrity
+    timestamp: Timestamp,          // When state was created
+}
+```
+
+### Field Requirements
+
+| Field | Requirement | Rationale |
+|-------|-------------|-----------|
+| `ciphertext` | AES-256-GCM | Industry standard authenticated encryption |
+| `nonce` | Random, never reuse | GCM security requires unique nonce |
+| `signature` | Signal ACI identity | Signs using bot's Signal identity key |
+| `aci_pubkey` | From Signal protocol store | Identifies authoritative writer (ACI public key) |
+| `member_merkle_root` | Generated on demand | Public for ZK-proofs, doesn't leak membership |
+| `version` | Strictly monotonic | Anti-replay, recovery ordering |
+| `previous_hash` | Hash of previous state | Chain integrity detection |
+| `timestamp` | Wall clock time | Debugging, freshness hints |
+
+---
+
+## Encryption Algorithm (FIXED)
+
+### AES-256-GCM
+
+```rust
+use ring::aead::{Aead, AES_256_GCM, Nonce, UnboundKey, LessSafeKey};
+
+fn encrypt_state(plaintext: &[u8], key: &[u8; 32]) -> Result<(Vec<u8>, [u8; 12])> {
+    // Generate random nonce (NEVER reuse)
+    let nonce_bytes: [u8; 12] = rand::random();
+    let nonce = Nonce::assume_unique_for_key(nonce_bytes);
+    
+    // Create cipher
+    let unbound_key = UnboundKey::new(&AES_256_GCM, key)?;
+    let key = LessSafeKey::new(unbound_key);
+    
+    // Encrypt with authentication tag
+    let mut ciphertext = plaintext.to_vec();
+    key.seal_in_place_append_tag(nonce, Aad::empty(), &mut ciphertext)?;
+    
+    Ok((ciphertext, nonce_bytes))
+}
+
+fn decrypt_state(ciphertext: &[u8], nonce: &[u8; 12], key: &[u8; 32]) -> Result<Vec<u8>> {
+    let nonce = Nonce::assume_unique_for_key(*nonce);
+    let unbound_key = UnboundKey::new(&AES_256_GCM, key)?;
+    let key = LessSafeKey::new(unbound_key);
+    
+    let mut plaintext = ciphertext.to_vec();
+    key.open_in_place(nonce, Aad::empty(), &mut plaintext)?;
+    
+    // Remove auth tag
+    plaintext.truncate(plaintext.len() - AES_256_GCM.tag_len());
+    Ok(plaintext)
+}
+```
+
+### Why AES-256-GCM
+
+- **Authenticated**: Detects tampering (AEAD)
+- **Standard**: Widely audited, well-understood
+- **Performance**: Hardware acceleration (AES-NI)
+- **Key size**: 256-bit provides long-term security
+
+---
+
+## Signature Algorithm (FIXED)
+
+### Signal ACI Identity Key
+
+The bot signs state using its Signal ACI identity key (from the protocol store):
+
+```rust
+use libsignal_protocol::IdentityKeyPair;
+
+fn sign_state(state_hash: &Hash, aci_identity: &IdentityKeyPair) -> Vec<u8> {
+    // Sign using Signal ACI private key
+    aci_identity.private_key()
+        .calculate_signature(state_hash.as_bytes())
+        .to_vec()
+}
+
+fn verify_signature(state_hash: &Hash, signature: &[u8], aci_pubkey: &[u8]) -> bool {
+    // Verify using Signal ACI public key
+    let pubkey = libsignal_protocol::PublicKey::deserialize(aci_pubkey).ok()?;
+    pubkey.verify_signature(state_hash.as_bytes(), signature).is_ok()
+}
+```
+
+### What Gets Signed
+
+**Sign the hash of**: `(ciphertext || nonce || version || previous_hash || timestamp)`
+
+```rust
+fn compute_state_hash(state: &EncryptedTrustNetworkState) -> Hash {
+    let mut hasher = Sha256::new();
+    hasher.update(&state.ciphertext);
+    hasher.update(&state.nonce);
+    hasher.update(&state.version.to_le_bytes());
+    hasher.update(&state.previous_hash);
+    hasher.update(&state.timestamp.to_le_bytes());
+    Hash(hasher.finalize().into())
+}
+```
+
+### Why Ed25519
+
+- **Fast**: 15,000+ verifications/second
+- **Compact**: 64-byte signatures
+- **Secure**: No known attacks
+- **Deterministic**: Same input = same signature (testable)
+
+---
+
+## Key Derivation (REQUIRED)
+
+### Signal ACI Identity as Cryptographic Foundation
+
+**No separate keypair or group pepper needed.** The bot uses the Signal account's **ACI (Account Identity) key** for ALL cryptographic operations.
+
+| Purpose | Key Source | HKDF Info |
+|---------|------------|-----------|
+| Signing | Signal ACI identity key (Ed25519-compatible) | (direct use) |
+| Encryption | HKDF from ACI private key | `"aes-256-gcm-key"` |
+| Identity Masking | HKDF from ACI private key | `"hmac-sha256-key"` |
+| Bot Identity | ACI public key | (direct use) |
+
+```rust
+use libsignal_protocol::IdentityKeyPair;
+use hkdf::Hkdf;
+use sha2::Sha256;
+
+/// Derive encryption key from Signal ACI identity
+fn derive_encryption_key(aci_identity: &IdentityKeyPair) -> [u8; 32] {
+    let hk = Hkdf::<Sha256>::new(
+        Some(b"stroma-state-encryption-v1"),
+        aci_identity.private_key().serialize().as_slice()
+    );
+    let mut key = [0u8; 32];
+    hk.expand(b"aes-256-gcm-key", &mut key).unwrap();
+    key
+}
+
+/// Derive identity masking key from Signal ACI identity
+/// This REPLACES the "group pepper" — single source for all crypto
+fn derive_identity_masking_key(aci_identity: &IdentityKeyPair) -> [u8; 32] {
+    let hk = Hkdf::<Sha256>::new(
+        Some(b"stroma-identity-masking-v1"),
+        aci_identity.private_key().serialize().as_slice()
+    );
+    let mut key = [0u8; 32];
+    hk.expand(b"hmac-sha256-key", &mut key).unwrap();
+    key
+}
+
+fn sign_state(state_hash: &Hash, aci_identity: &IdentityKeyPair) -> Vec<u8> {
+    // Sign using Signal's identity key
+    aci_identity.private_key().calculate_signature(state_hash.as_bytes())
+}
+```
+
+### Why Use Signal ACI Key for Everything
+
+| Benefit | Explanation |
+|---------|-------------|
+| **Simpler backup** | Signal store backup covers everything |
+| **No extra secrets** | No separate keypair or group pepper to manage |
+| **Already secure** | Signal keys stored in secure protocol store |
+| **Single identity** | Signal identity = persistence identity = masking identity |
+| **Consistent derivation** | All keys derived from same source via HKDF |
+
+**Key Insight**: Operators only need to back up their Signal protocol store. The ACI identity keypair inside is used for:
+1. State encryption (AES-256-GCM key via HKDF)
+2. State signing (Ed25519 signature)
+3. Identity masking (HMAC-SHA256 key via HKDF)
+4. Bot identification in persistence network
+
+**Group pepper is DEPRECATED**: Previously, identity masking used a separate "group pepper." This is now replaced by an ACI-derived key. Same security properties, simpler key management.
+
+---
+
+## Version Chain (REQUIRED)
+
+### Monotonic Versioning
+
+```rust
+impl EncryptedTrustNetworkState {
+    pub fn new(plaintext: &TrustState, previous: Option<&Self>, aci_identity: &IdentityKeyPair) -> Self {
+        let version = previous.map(|p| p.version + 1).unwrap_or(1);
+        let previous_hash = previous.map(|p| p.hash()).unwrap_or(Hash::zero());
+        
+        let key = derive_encryption_key(aci_identity);
+        let (ciphertext, nonce) = encrypt_state(&serialize(plaintext), &key).unwrap();
+        
+        let mut state = Self {
+            ciphertext,
+            nonce,
+            signature: Vec::new(),
+            aci_pubkey: aci_identity.public_key().serialize().to_vec(),
+            member_merkle_root: plaintext.compute_merkle_root(),
+            version,
+            previous_hash,
+            timestamp: now(),
+        };
+        
+        state.signature = sign_state(&state.hash(), aci_identity);
+        state
+    }
+}
+```
+
+### Anti-Replay Properties
+
+| Attack | Prevention |
+|--------|------------|
+| Replay old state | Version must be strictly > previous |
+| Fork chain | previous_hash must match |
+| Tamper timestamp | Signature covers all fields |
+
+### Recovery Ordering
+
+During recovery, version determines which state is authoritative:
+- Collect fragments from multiple holders
+- If versions differ, use highest version
+- Verify chain integrity (previous_hash links)
+
+---
+
+## Merkle Root (PUBLIC COMMITMENT)
+
+### Purpose
+
+The `member_merkle_root` is PUBLIC (not encrypted). It allows:
+
+1. **ZK-proof verification**: Prove membership without decryption
+2. **Cross-mesh verification**: Other bots can verify membership claims
+3. **No privacy leak**: Root doesn't reveal individual members
+
+### Generation
+
+```rust
+impl TrustState {
+    pub fn compute_merkle_root(&self) -> Hash {
+        // Members are HMAC-hashed identities (already anonymous)
+        let leaves: Vec<Hash> = self.members.iter().cloned().collect();
+        merkle_root(&leaves)
+    }
+}
+```
+
+### What Merkle Root Reveals
+
+| Reveals | Does NOT Reveal |
+|---------|-----------------|
+| Number of members (indirectly via tree depth) | Individual member identities |
+| State version changed | Vouch/flag relationships |
+| Something about membership | Who vouched for whom |
+
+---
+
+## Chunk Structure (AFTER ENCRYPTION)
+
+```rust
+pub struct Chunk {
+    data: Vec<u8>,             // 64KB of encrypted state
+    chunk_index: u32,          // Position in sequence (0, 1, 2, ...)
+    chunk_hash: Hash,          // For integrity verification
+    version: u64,              // Must match across chunks
+}
+```
+
+### Chunking Flow
+
+```
+TrustState (plaintext)
+     │
+     ▼ serialize
+Raw bytes
+     │
+     ▼ AES-256-GCM encrypt
+EncryptedTrustNetworkState
+     │
+     ▼ serialize (full struct)
+Encrypted bytes (e.g., 500KB)
+     │
+     ▼ split into 64KB chunks
+Chunk[0], Chunk[1], ... Chunk[7]
+     │
+     ▼ for each chunk: compute 2 holders via rendezvous hashing
+     ▼ distribute 2 replicas per chunk
+Holder-X,Y (chunk 0), Holder-Z,W (chunk 1), ... Holder-P,Q (chunk 7)
+```
+
+### Security Properties
+
+| Layer | Protection |
+|-------|------------|
+| Encryption | Holders can't read even if they have all chunks |
+| Distribution | Need ALL chunks + ACI key to reconstruct |
+| Combined | Defense in depth: need encryption key AND all chunks |
+
+---
+
+## Nonce Management (CRITICAL)
+
+### Never Reuse Nonces
+
+GCM security **requires** unique nonces. Reusing a nonce with the same key is catastrophic.
+
+```rust
+// ❌ NEVER
+fn bad_encrypt() {
+    let nonce = [0u8; 12]; // Fixed nonce
+    encrypt(&key, &nonce, &data); // BROKEN SECURITY
+}
+
+// ✅ ALWAYS
+fn good_encrypt() {
+    let nonce: [u8; 12] = rand::random(); // Random nonce
+    encrypt(&key, &nonce, &data); // Secure
+}
+```
+
+### Nonce Storage
+
+Nonce is stored alongside ciphertext (it's not secret):
+
+```rust
+pub struct EncryptedTrustNetworkState {
+    ciphertext: Vec<u8>,
+    nonce: [u8; 12],  // Public, stored with ciphertext
+    // ...
+}
+```
+
+---
+
+## Constraints Checklist (VERIFY BEFORE MERGE)
+
+| Constraint | Verification |
+|------------|--------------|
+| AES-256-GCM | No other symmetric cipher |
+| Ed25519 | No other signature scheme |
+| Random nonces | Never hardcoded or sequential |
+| Version monotonic | Strictly increasing |
+| Chain integrity | previous_hash links states |
+| Sign all fields | Hash covers ciphertext, nonce, version, previous_hash, timestamp |
+| Merkle root public | Not encrypted, for ZK-proofs |
+| Zeroization | Keys zeroized after use |
+
+---
+
+## Anti-Patterns (BLOCK)
+
+### ❌ NEVER
+
+- Reuse nonces (catastrophic GCM failure)
+- Use ECB mode (no authentication)
+- Skip signature verification (allows forgery)
+- Store encryption key in plaintext (defeats purpose)
+- Use predictable nonces (counter, timestamp alone)
+- Sign only ciphertext (version/timestamp tamperable)
+- Encrypt merkle root (breaks ZK-proofs)
+
+### ✅ ALWAYS
+
+- Generate random nonces for each encryption
+- Use authenticated encryption (GCM, not CBC)
+- Verify signature before decryption
+- Derive encryption key from Signal ACI identity via HKDF
+- Include version in signed hash
+- Keep merkle root unencrypted (public commitment)
+- Zeroize sensitive key material after use
+- Use Signal protocol store as single source of cryptographic identity
+
+---
+
+## Implementation Dependencies
+
+```toml
+[dependencies]
+ring = "0.17"               # AES-256-GCM, HKDF
+libsignal-protocol = "0.1"  # Signal ACI identity key operations
+zeroize = "1.7"             # Secure key erasure
+```
+
+---
+
+## Related Constraints
+
+- **persistence-model.bead**: Overall persistence architecture
+- **security-constraints.bead**: Zeroization, identity masking
+- **technology-stack.bead**: Approved cryptographic libraries
+
+---
+
+## Summary
+
+Encryption makes the adversarial peer model safe:
+
+1. **Encrypt** trust state with AES key derived from Signal ACI identity
+2. **Sign** the encrypted state using Signal ACI identity key
+3. **Chunk** the encrypted state into 64KB pieces
+4. **Distribute** 2 replicas per chunk to deterministic holders
+
+Peers hold encrypted chunks. Even with all chunks, they cannot decrypt without the bot's Signal protocol store (which contains the ACI identity key). Need ALL chunks + ACI key to reconstruct.
+
+**Key Simplification**: No separate keypair file needed. The Signal protocol store IS the cryptographic identity.

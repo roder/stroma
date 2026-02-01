@@ -1,8 +1,41 @@
 # Federation Roadmap (IMMUTABLE - North Star)
 
 **Status**: Pinned - Cannot be modified without explicit unpinning ceremony
-**Last Updated**: 2026-01-26
+**Last Updated**: 2026-01-31
 **Purpose**: Guide all design decisions toward ultimate goal
+
+---
+
+## CRITICAL: Federation is DISTINCT from Persistence
+
+### Two Different Systems
+
+| System | Purpose | Trust Model | Timing |
+|--------|---------|-------------|--------|
+| **Persistence** | State durability via chunk replication | ADVERSARIAL (zero trust) | Immediate (Phase 0) |
+| **Federation** | Trust network growth via group linking | ESTABLISHED TRUST (shared validators) | Later (Phase 4+) |
+
+**DO NOT CONFLATE THESE.** They serve different purposes and have different trust models.
+
+### Persistence Discovery vs Federation Discovery
+
+| Aspect | Persistence Discovery | Federation Discovery |
+|--------|----------------------|---------------------|
+| **Purpose** | Find bots to hold encrypted fragments | Find groups with shared trust |
+| **Peers** | Random adversarial bots | Groups with overlapping validators |
+| **Trust** | Zero (encrypt everything) | Established (PSI-CA verified) |
+| **Human vote** | Not required | Required (Signal Poll) |
+| **When** | Immediately, before federation | Phase 4+, optional |
+
+### Why This Matters
+
+A bot can participate in the **Persistence Network** (holding/being-held encrypted fragments) with bots it has NEVER federated with and NEVER will federate with.
+
+Persistence is for durability. Federation is for trust network growth. They are independent.
+
+**See**: `discovery-protocols.bead` for detailed protocol specifications.
+
+---
 
 ## Ultimate Objective
 
@@ -130,11 +163,11 @@ Enable multiple independent Stroma groups to discover each other and federate wi
 
 **Solution**: Bots discover each other organically via "social frequency."
 
-**Method**: Social Anchor Hashing
-- Hash of top-N validators (percentile-based, not fixed)
-- Groups with shared validators have similar social anchors
-- Discovery URI derived from social anchor
-- No pre-shared keys needed
+**Method**: Social Anchor Hashing with Fixed Fibonacci Buckets
+- Hash of top-N validators at FIXED bucket sizes: [3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987]
+- Groups publish at ALL buckets they can fill
+- Different-sized groups discover each other at lower buckets
+- **See**: `.beads/discovery-protocols.bead` for canonical protocol specification
 
 #### 2. Blind Rendezvous (Privacy-Preserving)
 **Problem**: Calculating overlap reveals member identities.
@@ -180,41 +213,41 @@ Enable multiple independent Stroma groups to discover each other and federate wi
 
 ### Federation Discovery Protocol (Phase 4)
 
-#### Step 1: Social Anchor Calculation
+**Canonical Source**: See `.beads/discovery-protocols.bead` for the authoritative specification.
+
+#### Step 1: Social Anchor Calculation (Fixed Fibonacci Buckets)
 ```rust
-fn calculate_social_anchor(
-    members: &[Member],
-    validator_percentile: u32,
-) -> SocialAnchor {
-    // Sort members by vouch count
-    let mut sorted = members.clone();
-    sorted.sort_by_key(|m| m.vouch_count);
+// Fixed rendezvous buckets (Fibonacci sequence for natural scaling)
+const RENDEZVOUS_BUCKETS: &[usize] = &[
+    3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987
+];
+
+fn compute_social_anchors(validators: &[Hash]) -> Vec<(Hash, usize)> {
+    // Validators must be sorted deterministically (by hash value)
+    let mut sorted_validators = validators.to_vec();
+    sorted_validators.sort();
     
-    // Take top percentile (e.g., top 20%)
-    let threshold_idx = (members.len() * validator_percentile / 100).max(3);
-    let top_validators = &sorted[threshold_idx..];
-    
-    // Hash top validators to create social anchor
-    let mut hasher = Sha256::new();
-    for validator in top_validators {
-        hasher.update(validator.hash.as_bytes());
-    }
-    
-    SocialAnchor::from(hasher.finalize())
+    // Generate anchors for each bucket we have enough validators to fill
+    RENDEZVOUS_BUCKETS.iter()
+        .filter(|&&bucket_size| sorted_validators.len() >= bucket_size)
+        .map(|&bucket_size| {
+            let top_validators: Vec<_> = sorted_validators.iter().take(bucket_size).collect();
+            (hash(&serialize(&top_validators)), bucket_size)
+        })
+        .collect()
 }
 ```
 
-#### Step 2: Discovery URI Generation
+#### Step 2: Discovery URI Generation (Fixed Buckets)
 ```rust
-fn generate_discovery_uris(anchor: &SocialAnchor) -> Vec<Uri> {
-    // Generate multiple URIs using different percentiles
-    // Increases chance of discovery
-    vec![
-        format!("freenet://stroma/discovery/{}:10", anchor),  // Top 10%
-        format!("freenet://stroma/discovery/{}:20", anchor),  // Top 20%
-        format!("freenet://stroma/discovery/{}:30", anchor),  // Top 30%
-        format!("freenet://stroma/discovery/{}:50", anchor),  // Top 50%
-    ]
+fn discovery_uris(anchors: &[(Hash, usize)]) -> Vec<Uri> {
+    // Publish at ALL buckets the group can fill
+    // Groups of different sizes discover each other at matching lower buckets
+    anchors.iter()
+        .map(|(anchor, bucket_size)| {
+            format!("freenet://stroma/discovery/{}-{}", anchor, bucket_size)
+        })
+        .collect()
 }
 ```
 

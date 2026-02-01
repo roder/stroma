@@ -113,24 +113,40 @@ cargo install --path crates/core
 ### Identity Masking: HMAC-SHA256 (ring)
 - **Library**: ring crate
 - **Algorithm**: HMAC-SHA256
-- **Method**: Keyed hashing with group-secret pepper (NOT deterministic)
+- **Method**: Keyed hashing with ACI-derived key (NOT deterministic)
 
 **Why HMAC (not deterministic hashing):**
-- Different groups = different hashes for same person
+- Different groups = different hashes for same person (different bot = different ACI key)
 - Enables privacy-preserving federation (PSI-CA)
 - No global identifier correlation
-- Group pepper acts as namespace isolation
+- Each bot's ACI key acts as namespace isolation
 
 **Implementation:**
 ```rust
 use ring::hmac;
+use hkdf::Hkdf;
+use sha2::Sha256;
 
-pub fn mask_identity(signal_id: &str, group_pepper: &[u8]) -> Hash {
-    let key = hmac::Key::new(hmac::HMAC_SHA256, group_pepper);
+/// Derive HMAC key from Signal ACI identity (replaces group pepper)
+fn derive_identity_masking_key(aci_identity: &IdentityKeyPair) -> [u8; 32] {
+    let hk = Hkdf::<Sha256>::new(
+        Some(b"stroma-identity-masking-v1"),
+        aci_identity.private_key().serialize().as_slice()
+    );
+    let mut key = [0u8; 32];
+    hk.expand(b"hmac-sha256-key", &mut key).unwrap();
+    key
+}
+
+pub fn mask_identity(signal_id: &str, aci_identity: &IdentityKeyPair) -> Hash {
+    let key_bytes = derive_identity_masking_key(aci_identity);
+    let key = hmac::Key::new(hmac::HMAC_SHA256, &key_bytes);
     let tag = hmac::sign(&key, signal_id.as_bytes());
     Hash::from_bytes(tag.as_ref())
 }
 ```
+
+**Note**: Group pepper is DEPRECATED. Use ACI-derived key for simpler backup (Signal store only).
 
 ### Memory Hygiene: zeroize
 - **Library**: zeroize crate
@@ -505,30 +521,35 @@ src/
 
 ## Freenet Contract Schema (Mergeable & Federation-Ready)
 
-### Key Insight: ComposableState Requirement
-**Critical Discovery**: Freenet contracts must implement `ComposableState` trait for summary-delta synchronization. This requires **mergeable state structures** (CRDT-like semantics).
+### Key Insight: ContractInterface Requirement
+**Critical Discovery**: Freenet contracts must implement `ContractInterface` trait from `freenet-stdlib` for summary-delta synchronization. This requires **mergeable state structures** (CRDT-like semantics).
 
 **References:**
-- [freenet-scaffold](https://github.com/freenet/freenet-scaffold) - Contract development utilities
+- [freenet-stdlib](https://docs.rs/freenet-stdlib) - ContractInterface trait for Wasm contracts
+- [freenet crate](https://docs.rs/freenet) - Node embedding (SimNetwork for testing, NodeConfig for production)
 - [Understanding Delta-Sync](https://freenet.org/news/summary-delta-sync/) - Synchronization approach
+
+**Note**: `freenet-scaffold` is outdated. Use `freenet-stdlib` for contracts.
 
 ### TrustNetworkState (MVP - Mergeable Design)
 ```rust
-use freenet_scaffold_macro::composable;
-use std::collections::{BTreeSet, HashMap};
+use freenet_stdlib::prelude::*;
+use serde::{Serialize, Deserialize};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
-// === Individual Composable Types ===
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct MemberSet {
-    active: BTreeSet<MemberHash>,      // Mergeable via set union
-    removed: BTreeSet<MemberHash>,     // Tombstones (never re-add)
-}
+// === Core State Structure ===
+// Note: Use plain structs with serde, not freenet-scaffold macros
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct VouchGraph {
-    // member -> set of vouchers (mergeable via map union)
-    vouches: HashMap<MemberHash, BTreeSet<MemberHash>>,
+pub struct TrustNetworkState {
+    members: BTreeSet<MemberHash>,          // Mergeable via set union
+    ejected: BTreeSet<MemberHash>,          // Can return (not permanent)
+    vouches: HashMap<MemberHash, HashSet<MemberHash>>,  // vouchee -> vouchers
+    flags: HashMap<MemberHash, HashSet<MemberHash>>,    // flagged -> flaggers
+    config: GroupConfigV1,
+    schema_version: u64,
+    #[serde(default)]
+    federation_contracts: Vec<ContractHash>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -673,13 +694,15 @@ pub struct GroupConfig {
 
 **Key Decisions**:
 - Single `config_change_threshold` for ALL group decisions (configuration changes, federation proposals)
-- Set-based membership (BTreeSet) with tombstones for removed members
+- Set-based membership (BTreeSet) with ejected state (can return, flags persist)
 - Merkle Tree generated on-demand (not stored in contract state)
-- ComposableState trait implementation required (freenet-scaffold)
+- ContractInterface trait implementation required (freenet-stdlib)
 - CRDT-like merge semantics for all state fields
 
-### ComposableState Implementation
-Each field in TrustNetworkState must implement ComposableState:
+**Note**: `freenet-scaffold` is outdated. Use `freenet-stdlib` for contracts.
+
+### ContractInterface Implementation
+Contracts implement the ContractInterface trait from freenet-stdlib:
 
 1. **verify()**: Validate state invariants (vouch count >= 2, standing >= 0)
 2. **summarize()**: Create compact summary for comparison
@@ -730,15 +753,17 @@ Each field in TrustNetworkState must implement ComposableState:
 
 ### Configuration
 - Environment variables (not hardcoded)
-- Group pepper stored securely (never committed)
+- Signal protocol store backup required (contains ACI identity for all crypto)
 - Signal credentials via environment or config file
 - Freenet node address (localhost or remote)
+- **Note**: Group pepper is DEPRECATED — all crypto keys derived from Signal ACI identity
 
 ### Monitoring
 - Structured logging (tracing crate)
 - Log security events (no cleartext IDs)
-- Monitor heartbeat (ejection checks every 60 min)
-- Monitor Freenet state stream health
+- Monitor Freenet state stream (real-time, not polling)
+- Check trust standing on every state change
+- **Note**: No periodic heartbeat (see persistence-model.bead)
 
 ## Distribution Strategy (Architectural Decision #10)
 

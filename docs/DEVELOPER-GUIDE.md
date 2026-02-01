@@ -45,7 +45,7 @@ This guide explains Stroma's architecture, technical stack, and development work
 | **Language** | Rust 1.93+ | musl 1.2.5, improved DNS, memory safety |
 | **Embedded Node** | [freenet](https://docs.rs/freenet/latest/freenet/) v0.1.107+ | In-process node (NodeConfig::build()) |
 | **Contract Framework** | [freenet-stdlib](https://docs.rs/freenet-stdlib) v0.1.30+ | Wasm contracts (ComposableState trait) |
-| **Contract Utilities** | [freenet-scaffold](https://github.com/freenet/freenet-scaffold) v0.2+ | ComposableState utilities |
+| **Contract SDK** | [freenet-stdlib](https://docs.rs/freenet-stdlib) v0.1+ | ContractInterface trait, Wasm contract development |
 | **ZK-Proofs** | winterfell | STARKs (no trusted setup) |
 | **Identity Hashing** | ring (HMAC-SHA256) | Group-scoped masking |
 | **Memory Hygiene** | zeroize | Immediate buffer purging |
@@ -80,7 +80,7 @@ src/
 ├── main.rs                          # Event loop, CLI entry point
 ├── kernel/                          # Identity Masking
 │   ├── mod.rs
-│   ├── hmac.rs                      # HMAC-based hashing with group pepper
+│   ├── hmac.rs                      # HMAC-based hashing with ACI-derived key
 │   └── zeroize_helpers.rs           # Immediate buffer purging
 ├── freenet/                         # Freenet Integration
 │   ├── mod.rs
@@ -110,6 +110,14 @@ src/
 ├── config/                          # Group Configuration
 │   ├── mod.rs
 │   └── group_config.rs              # GroupConfig struct (Freenet contract)
+├── persistence/                     # Reciprocal Persistence Network
+│   ├── mod.rs                       # Public API
+│   ├── encryption.rs                # AES-256-GCM, Ed25519 signatures
+│   ├── chunking.rs                  # Split/join encrypted state into 64KB chunks
+│   ├── registry.rs                  # Persistence peer discovery
+│   ├── verification.rs              # Challenge-response verification (Q13)
+│   ├── recovery.rs                  # State recovery from chunks
+│   └── write_blocking.rs            # State machine (ACTIVE/DEGRADED/etc.)
 └── federation/                      # Federation Logic (DISABLED IN MVP)
     ├── mod.rs                       # Feature flag: #[cfg(feature = "federation")]
     ├── shadow_beacon.rs             # Social Anchor Hashing (Phase 4+)
@@ -119,6 +127,7 @@ src/
 ```
 
 **Key Design**: `federation/` exists but is disabled via feature flag in MVP (validates architecture scales).
+**Key Design**: `persistence/` ensures trust state durability even if Freenet data falls off.
 
 **See**: [ALGORITHMS.md](ALGORITHMS.md) for detailed MST algorithm, PSI-CA protocol, and complexity analysis.
 
@@ -131,6 +140,91 @@ The `shadow_handover.rs` module will implement cryptographic bot identity rotati
 - **Use Cases**: Signal ban recovery, periodic rotation, operational security
 
 See `.beads/federation-roadmap.bead` for protocol specification.
+
+## Two-Layer Architecture (Trust State + Persistence)
+
+Stroma uses a two-layer architecture to ensure trust state durability:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  LAYER 1: TRUST STATE (Freenet-native)                                       │
+│  ──────────────────────────────────────                                       │
+│  Storage: BTreeSet (members), HashMap (vouches, flags) - mergeable           │
+│  Sync: Native Freenet ComposableState (Q1 validated)                         │
+│  Updates: Small deltas (~100-500 bytes) - INFREQUENT (human timescale)       │
+│  Security: Contract validates via update_state() + validate_state() (Q2)     │
+│                                                                              │
+│  LAYER 2: PERSISTENCE CHUNKS (Reciprocal Persistence Network)               │
+│  ──────────────────────────────────────────────────────────────              │
+│  Purpose: Durability against Freenet data loss, server seizure protection   │
+│  Method: Encrypt full state, chunk into 64KB pieces, replicate 3x each      │
+│  Distribution: Deterministic per-chunk (rendezvous hashing, zero trust)     │
+│  Frequency: Same as trust state updates (infrequent)                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Why Two Layers?
+
+**Layer 1 Problem**: Freenet data falls off if no peers are subscribed.
+
+**Layer 2 Solution**: Bots replicate each other's encrypted chunks so any bot can recover after crash.
+
+### Key Persistence Types
+
+```rust
+/// Encrypted trust state ready for chunking
+pub struct EncryptedTrustNetworkState {
+    ciphertext: Vec<u8>,           // AES-256-GCM (key from Signal ACI)
+    signature: Vec<u8>,            // Signed with Signal ACI identity key
+    bot_pubkey: Vec<u8>,           // Signal ACI public key
+    member_merkle_root: Hash,      // Public for ZK-proofs
+    version: u64,                  // Monotonic, anti-replay
+    previous_hash: Hash,           // Chain integrity
+    timestamp: Timestamp,
+}
+// Note: No separate keypair file - uses Signal ACI identity from protocol store
+
+/// A single chunk of encrypted state
+pub struct Chunk {
+    data: Vec<u8>,                 // 64KB of encrypted data
+    chunk_index: u32,              // Position in sequence
+    chunk_hash: Hash,              // For integrity verification
+    version: u64,                  // Must match other chunks
+}
+```
+
+### Adversarial Peer Model
+
+ALL persistence peers are treated as adversaries:
+- Cannot read trust map (AES-256-GCM encrypted)
+- Cannot reconstruct state (need ALL chunks + ACI key)
+- Can compute whose chunks they hold (deterministic assignment)
+- Security comes from encryption, not obscurity
+
+### Subscription Layer: Two Separate Concerns
+
+**CRITICAL:** Outbound (fairness) and Inbound (security) subscriptions are SEPARATE:
+
+| Subscription Type | Purpose | Selection | Registry |
+|-------------------|---------|-----------|----------|
+| **OUTBOUND** | I hold others' fragments | Comparable-size (fairness) | PUBLIC accounting |
+| **INBOUND** | Others hold MY fragments | RANDOM (security) | ENCRYPTED (only I decrypt) |
+
+**Why Separate:**
+- Bot-B (whose fragments I hold) ≠ holder of MY fragments
+- Correlating these would leak network topology
+- Maximum collusion resistance
+
+### Contract Authority Models
+
+| Contract Type | Authority Model | Rationale |
+|--------------|-----------------|-----------|
+| Trust Map | Single-writer (bot) | Core trust graph |
+| Federation | Single-writer (each side) | Each group records own state |
+| Replication | Single-writer + shared validation | Bot authority, peers validate |
+| Registry | Shared (distributed) | Handles stale bots |
+
+See [PERSISTENCE.md](PERSISTENCE.md) for full architecture and recovery procedures.
 
 ## Freenet Contract Design
 
@@ -178,23 +272,31 @@ pub struct TrustNetworkState {
 ### Stroma Contract Schema
 
 ```rust
-use freenet_scaffold_macro::composable;
-use std::collections::{BTreeSet, HashMap};
+use freenet_stdlib::prelude::*;
+use serde::{Serialize, Deserialize};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
-#[composable]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct TrustNetworkState {
-    // Field order matters! Dependencies go later.
-    config: GroupConfigV1,        // No dependencies
-    members: MemberSet,            // Depends on config
-    vouches: VouchGraph,           // Depends on members
-    flags: FlagGraph,              // Depends on members
+    // Core membership (set-based, commutative)
+    pub members: BTreeSet<MemberHash>,
+    pub ejected: BTreeSet<MemberHash>,  // Can return (not permanent ban)
+    
+    // Trust graph (set-based, commutative)
+    pub vouches: HashMap<MemberHash, HashSet<MemberHash>>,
+    pub flags: HashMap<MemberHash, HashSet<MemberHash>>,
+    
+    // Configuration
+    pub config: GroupConfigV1,
+    pub schema_version: u64,
     
     // Federation hooks (Phase 4+, disabled in MVP)
-    #[cfg(feature = "federation")]
-    federation_contracts: FederationSet,
+    #[serde(default)]
+    pub federation_contracts: Vec<ContractHash>,
 }
 ```
+
+**Note**: `freenet-scaffold` is outdated. Use `freenet-stdlib` for contract development.
 
 **See**: `.cursor/rules/freenet-contract-design.mdc` for complete patterns and examples
 
@@ -733,11 +835,25 @@ async fn proposal_monitoring_stream(
 
 ```rust
 use ring::hmac;
-use zeroize::Zeroize;
+use hkdf::Hkdf;
+use sha2::Sha256;
+use libsignal_protocol::IdentityKeyPair;
 
-pub fn mask_identity(signal_id: &str, group_pepper: &[u8]) -> Hash {
-    // Use HMAC-SHA256 (NOT deterministic hashing)
-    let key = hmac::Key::new(hmac::HMAC_SHA256, group_pepper);
+/// Derive HMAC key from Signal ACI identity (replaces group pepper)
+fn derive_identity_masking_key(aci_identity: &IdentityKeyPair) -> [u8; 32] {
+    let hk = Hkdf::<Sha256>::new(
+        Some(b"stroma-identity-masking-v1"),
+        aci_identity.private_key().serialize().as_slice()
+    );
+    let mut key = [0u8; 32];
+    hk.expand(b"hmac-sha256-key", &mut key).unwrap();
+    key
+}
+
+pub fn mask_identity(signal_id: &str, aci_identity: &IdentityKeyPair) -> Hash {
+    // Use HMAC-SHA256 with ACI-derived key (NOT deterministic hashing)
+    let key_bytes = derive_identity_masking_key(aci_identity);
+    let key = hmac::Key::new(hmac::HMAC_SHA256, &key_bytes);
     let tag = hmac::sign(&key, signal_id.as_bytes());
     
     Hash::from_bytes(tag.as_ref())
@@ -747,25 +863,24 @@ pub fn mask_identity(signal_id: &str, group_pepper: &[u8]) -> Hash {
 }
 ```
 
-**Critical**: Different groups → different hashes for same person (enables PSI-CA privacy)
+**Critical**: Different bots → different hashes for same person (enables PSI-CA privacy). All crypto keys derived from Signal ACI identity.
 
 #### Immediate Zeroization (REQUIRED)
 
 ```rust
 use zeroize::{Zeroize, ZeroizeOnDrop};
+use libsignal_protocol::IdentityKeyPair;
 
 #[derive(ZeroizeOnDrop)]
 struct SensitiveData {
     signal_id: String,
-    pepper: Vec<u8>,
 }
 
-fn process_sensitive_data(mut data: SensitiveData) -> Hash {
-    let hash = mask_identity(&data.signal_id, &data.pepper);
+fn process_sensitive_data(mut data: SensitiveData, aci_identity: &IdentityKeyPair) -> Hash {
+    let hash = mask_identity(&data.signal_id, aci_identity);
     
     // Explicit zeroization
     data.signal_id.zeroize();
-    data.pepper.zeroize();
     
     hash
     // data dropped here, ZeroizeOnDrop ensures cleanup
@@ -1039,21 +1154,22 @@ mod tests {
 #[cfg(test)]
 mod property_tests {
     use proptest::prelude::*;
+    use libsignal_protocol::IdentityKeyPair;
     
     proptest! {
         #[test]
-        fn test_different_pepper_different_hash(
+        fn test_different_aci_different_hash(
             signal_id in ".*",
-            pepper1 in prop::collection::vec(any::<u8>(), 16..32),
-            pepper2 in prop::collection::vec(any::<u8>(), 16..32),
         ) {
-            let hash1 = mask_identity(&signal_id, &pepper1);
-            let hash2 = mask_identity(&signal_id, &pepper2);
+            // Different ACI identities MUST produce different hashes
+            let aci1 = IdentityKeyPair::generate(&mut rand::thread_rng());
+            let aci2 = IdentityKeyPair::generate(&mut rand::thread_rng());
             
-            // Same ID with different pepper MUST produce different hashes
-            if pepper1 != pepper2 {
-                assert_ne!(hash1, hash2);
-            }
+            let hash1 = mask_identity(&signal_id, &aci1);
+            let hash2 = mask_identity(&signal_id, &aci2);
+            
+            // Same ID with different ACI identity MUST produce different hashes
+            assert_ne!(hash1, hash2);
         }
     }
 }
@@ -1088,9 +1204,9 @@ async fn test_admission_flow() {
 #[test]
 fn test_no_cleartext_in_memory_dump() {
     let signal_id = "alice_signal_id";
-    let pepper = b"secret_pepper";
+    let aci_identity = IdentityKeyPair::generate(&mut rand::thread_rng());
     
-    let hash = mask_identity(signal_id, pepper);
+    let hash = mask_identity(signal_id, &aci_identity);
     
     // Simulate memory dump
     let memory_dump = capture_memory_dump();
@@ -1143,9 +1259,15 @@ jobs:
       - run: cargo llvm-cov nextest --html
 ```
 
-## Outstanding Questions (Spike Week) — ✅ ALL COMPLETE
+## Outstanding Questions (Spike Week)
 
-All questions answered. Ready for Phase 0 implementation.
+### Spike Week 1 (Q1-Q6) — ✅ ALL COMPLETE
+
+All Spike Week 1 questions answered. Ready for Phase 0 implementation.
+
+### Spike Week 2 (Q7-Q14) — ⏳ PENDING
+
+Persistence-related questions are pending validation. See [SPIKE-WEEK-2-BRIEFING.md](spike/SPIKE-WEEK-2-BRIEFING.md) for details.
 
 ### Q1: Freenet Conflict Resolution — ✅ COMPLETE (GO)
 **Answer**: Freenet applies all deltas via commutative set union. Use set-based state (BTreeSet) with tombstones.
@@ -1183,7 +1305,7 @@ All questions answered. Ready for Phase 0 implementation.
 
 **See**: [spike/q6/RESULTS.md](spike/q6/RESULTS.md)
 
-### Summary: Proceed to Phase 0
+### Summary: Spike Week 1 (Q1-Q6) - Proceed to Phase 0
 
 | Question | Decision | Implementation |
 |----------|----------|----------------|
@@ -1194,7 +1316,23 @@ All questions answered. Ready for Phase 0 implementation.
 | Q5: Merkle | GO | On-demand |
 | Q6: Storage | Outcomes | No proof storage |
 
-**See**: [Spike Week Briefing](spike/SPIKE-WEEK-BRIEFING.md) for complete analysis
+**See**: [Spike Week Briefing](spike/SPIKE-WEEK-BRIEFING.md) for Spike Week 1 analysis
+
+### Spike Week 2 (Q7-Q14) — Persistence Network
+
+These questions must be validated before persistence implementation:
+
+| Question | Status | Fallback if Fails |
+|----------|--------|-------------------|
+| Q7: Bot Discovery | PENDING | Manual bootstrap list |
+| Q8: Fake Bot Defense | PENDING | Rate limiting + reputation |
+| Q9: Chunk Verification | PENDING | Trust-on-first-verify |
+| Q11: Rendezvous Hashing | PENDING | Simple modulo distribution |
+| Q12: Chunk Size | PENDING | Fixed 64KB |
+| Q13: Fairness Verification | PENDING | Honor system initially |
+| Q14: Chunk Protocol | PENDING | Simple request/response |
+
+**See**: [Spike Week 2 Briefing](spike/SPIKE-WEEK-2-BRIEFING.md) for persistence validation plan
 
 ## Development Standards
 
@@ -1271,7 +1409,7 @@ Add vouch invalidation logic to trust model
 - Prevents logical inconsistency
 - Aligns with fluid identity philosophy
 
-Co-authored-by: Claude <claude@anthropic.com>
+Co-authored-by: Claude <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -1330,13 +1468,18 @@ This project uses **Gastown** - multi-agent coordination with specialized roles:
 - [User Guide](USER-GUIDE.md) - For group members
 - [Operator Guide](OPERATOR-GUIDE.md) - For bot administrators
 - [Trust Model](TRUST-MODEL.md) - Mathematical details
+- [Persistence](PERSISTENCE.md) - State durability & recovery
 - [Federation Roadmap](FEDERATION.md) - Phase 4+ vision
 - [Spike Week Briefing](spike/SPIKE-WEEK-BRIEFING.md) - Technology validation
+- [Spike Week 2 Briefing](spike/SPIKE-WEEK-2-BRIEFING.md) - Persistence validation
 - [TODO Checklist](todo/TODO.md) - Implementation tasks
 
 ### Constraint Beads (Immutable)
 - [Security Constraints](../.beads/security-constraints.bead)
 - [Architecture Decisions](../.beads/architecture-decisions.bead)
+- [Persistence Model](../.beads/persistence-model.bead)
+- [Contract Encryption](../.beads/contract-encryption.bead)
+- [Discovery Protocols](../.beads/discovery-protocols.bead)
 - [Federation Roadmap](../.beads/federation-roadmap.bead)
 
 ### Development Rules
@@ -1347,8 +1490,8 @@ This project uses **Gastown** - multi-agent coordination with specialized roles:
 - [Security Guardrails](../.cursor/rules/security-guardrails.mdc)
 
 ### External References
-- [freenet-core](https://github.com/freenet/freenet-core) - State storage
-- [freenet-scaffold](https://github.com/freenet/freenet-scaffold) - Contract utilities
+- [freenet-core](https://github.com/freenet/freenet-core) - State storage and node embedding
+- [freenet-stdlib](https://docs.rs/freenet-stdlib) - ContractInterface trait for Wasm contracts
 - [winterfell](https://github.com/facebook/winterfell) - STARK proofs
 - [libsignal-service-rs](https://github.com/whisperfish/libsignal-service-rs) - Signal integration
 

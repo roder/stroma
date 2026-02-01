@@ -1,6 +1,6 @@
 # Pre-Gastown Audit: Human Review Checklist
 
-**Date**: 2026-01-28  
+**Date**: 2026-01-31  
 **Purpose**: Final human audit before turning Stroma over to Gastown agents for implementation  
 **Status**: Planning phase
 
@@ -29,15 +29,20 @@ Gastown agents will follow beads, rules, and documentation **literally**. Any in
 
 **Key Beads to Audit**:
 - [ ] `architecture-decisions.bead` - Core decisions
+- [ ] `architectural-decisions-open.bead` - Open architectural questions (NEW)
 - [ ] `bot-deployment-model.bead` - 1:1 bot-to-group
+- [ ] `contract-encryption.bead` - Encryption key derivation (NEW)
 - [ ] `cross-cluster-requirement.bead` - Diversity requirement (uses "cluster" not "friend circles")
+- [ ] `discovery-protocols.bead` - Bot discovery protocols (NEW)
 - [ ] `governance-model.bead` - Bot execute-only
 - [ ] `mesh-health-metric.bead` - DVR metric
 - [ ] `blind-matchmaker-dvr.bead` - Algorithm enhancement
+- [ ] `persistence-model.bead` - Reciprocal Persistence Network (NEW)
 - [ ] `philosophical-foundations.bead` - Core principles
 - [ ] `poll-implementation-gastown.bead` - Signal Polls
 - [ ] `proposal-system.bead` - Consensus mechanism
 - [ ] `security-constraints.bead` - Security model
+- [ ] `serialization-format.bead` - CBOR serialization (NEW)
 - [ ] `technology-stack.bead` - Tech decisions
 - [ ] `terminology.bead` - Canonical definitions
 - [ ] `voting-mechanism.bead` - Anonymous voting
@@ -90,8 +95,10 @@ Gastown agents will follow beads, rules, and documentation **literally**. Any in
 - [ ] `docs/TRUST-MODEL.md` - Trust logic
 - [ ] `docs/DEVELOPER-GUIDE.md` - Technical implementation
 - [ ] `docs/ALGORITHMS.md` - Graph algorithms
+- [ ] `docs/PERSISTENCE.md` - State durability & recovery (NEW)
 - [ ] `docs/THREAT-MODEL-AUDIT.md` - Security analysis
-- [ ] `docs/spike/SPIKE-WEEK-BRIEFING.md` - Validation questions
+- [ ] `docs/spike/SPIKE-WEEK-BRIEFING.md` - Spike Week 1 validation
+- [ ] `docs/spike/SPIKE-WEEK-2-BRIEFING.md` - Spike Week 2 persistence validation (NEW)
 - [ ] `docs/FEDERATION.md` - Future federation
 - [ ] `docs/OPERATOR-GUIDE.md` - Running the bot
 
@@ -248,23 +255,39 @@ Gastown agents will follow beads, rules, and documentation **literally**. Any in
 
 ## Spike Week Alignment
 
-### Outstanding Questions
-**Question**: Do beads and rules reflect Spike Week Q1-Q6?
+### Spike Week 1 (Q1-Q6) — ✅ COMPLETE
+**Status**: All questions answered, ready for Phase 0 implementation.
+
+**Results**:
+- ✅ Q1: Freenet merge conflicts — GO (commutative deltas)
+- ✅ Q2: Contract validation — GO (trustless model viable)
+- ✅ Q3: Cluster detection — GO (Bridge Removal algorithm)
+- ✅ Q4: STARK verification — PARTIAL (bot-side for Phase 0)
+- ✅ Q5: Merkle Tree performance — GO (0.09ms @ 1000 members)
+- ✅ Q6: Proof storage — Store outcomes only
+
+**Verification**:
+- [x] `docs/spike/SPIKE-WEEK-BRIEFING.md` - 6 questions answered
+- [x] Beads updated with Q3 findings (Bridge Removal)
+- [x] Rules reflect Q1-Q6 decisions
+
+### Spike Week 2 (Q7-Q14) — ⏳ PENDING
+**Status**: Persistence network validation pending. Must complete before persistence implementation.
 
 **Where to Check**:
-- [ ] `docs/spike/SPIKE-WEEK-BRIEFING.md` - 6 outstanding questions
-- [ ] Relevant beads for each question
-- [ ] Rules that depend on Q6 (cluster detection)
+- [ ] `docs/spike/SPIKE-WEEK-2-BRIEFING.md` - 8 persistence questions
+- [ ] `docs/PERSISTENCE.md` - Reciprocal Persistence Network design
+- [ ] `.beads/persistence-model.bead` - Persistence constraints
 
-**Q6 Dependencies**:
-- Cross-cluster requirement enforcement
-- DVR optimization algorithm
-- Bootstrap exception logic
+**Q7 Dependencies** (BLOCKING):
+- Bot discovery mechanism for persistence network
+- Chunk distribution and recovery
+- Write-blocking states (DEGRADED, ACTIVE, etc.)
 
 **Expected Alignment**:
-- Beads note Q6 dependency where relevant
-- Rules provide fallback if Q6 fails
-- Spike Week tests validate Q6
+- Beads note Spike Week 2 dependencies
+- Persistence implementation blocked until Q7-Q14 validated
+- Fallback strategies documented for each question
 
 ---
 

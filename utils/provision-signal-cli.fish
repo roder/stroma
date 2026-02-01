@@ -3,13 +3,28 @@
 # provision-signal-cli.fish - Standalone Signal Bot Number Provisioning Utility
 #
 # ⚠️  IMPORTANT: This script is NOT part of Stroma.
-#     It is a standalone convenience tool for operators to obtain Signal numbers.
-#     It has NO integration with Stroma and should NOT be used in production.
+#     It is a standalone convenience tool for operators who want to obtain
+#     a DEDICATED phone number for their bot via SMSpool.
+#
+# ℹ️  RECOMMENDATION: Most operators should use "Link as Secondary Device" instead.
+#     See docs/OPERATOR-GUIDE.md § "Signal Registration" for details.
+#     - Link Device: Simpler, no dedicated phone needed, full capabilities
+#     - Primary Device: Use this script only if you need a separate identity
 #
 # Purpose:
 #   - Provision a temporary phone number via SMSpool (Phase 1)
 #   - Register with Signal using provided CAPTCHA token (Phase 2)
 #   - Automatically retrieve SMS code and complete verification
+#
+# When to Use This Script:
+#   - You want the bot to have its OWN phone number (not your personal)
+#   - You don't have access to a prepaid SIM card
+#   - Testing with disposable numbers
+#
+# When NOT to Use This Script:
+#   - Production deployments (use prepaid SIM instead)
+#   - Most operators (just link to existing Signal account)
+#   - Privacy-sensitive deployments (SMSpool is a third party)
 #
 # Requirements:
 #   - xh (modern HTTP client, preferred) or curl
@@ -33,6 +48,7 @@
 #   - Never commit SMSPOOL_API_KEY to git
 #   - Store credentials securely after generation
 #   - Consider this number disposable (SMSpool numbers can be recycled)
+#   - For production: use a dedicated prepaid SIM instead
 #
 
 # Configuration
@@ -394,22 +410,30 @@ function output_credentials
     
     echo ""
     echo -e "$GREEN━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$NC"
-    echo -e "$GREEN✅ Bot Signal Account Provisioned$NC"
+    echo -e "$GREEN✅ Signal Account Created$NC"
     echo -e "$GREEN━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$NC"
     echo ""
     echo -e "📱 Phone Number: $GREEN$phone$NC"
     echo ""
     echo -e "$YELLOW━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$NC"
-    echo -e "$YELLOW⚠️  IMPORTANT NEXT STEPS$NC"
+    echo -e "$YELLOW⚠️  NEXT STEP: Link Stroma Bot to This Account$NC"
     echo -e "$YELLOW━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$NC"
     echo ""
-    echo "1. Credentials Location:"
-    echo "   signal-cli stores credentials in:"
-    echo "   ~/.local/share/signal-cli/data/$phone/"
+    echo "1. This signal-cli session is your PRIMARY device."
+    echo "   Credentials stored in: ~/.local/share/signal-cli/data/$phone/"
     echo ""
-    echo "2. For Stroma Usage:"
-    echo "   - Configure Stroma with this number: $phone"
-    echo "   - Follow docs/OPERATOR-GUIDE.md for deployment"
+    echo "2. Link Stroma as secondary device:"
+    echo ""
+    echo "   # Start Stroma linking process"
+    echo "   stroma link-device --device-name \"Stroma Bot\""
+    echo ""
+    echo "   # A QR code will appear. To scan it with signal-cli:"
+    echo "   signal-cli -a $phone addDevice --uri \"sgnl://linkdevice?...\""
+    echo ""
+    echo "   # Or use Signal mobile app (if you have one linked):"
+    echo "   # Signal → Settings → Linked Devices → Link New Device"
+    echo ""
+    echo "3. After linking, follow docs/OPERATOR-GUIDE.md for bootstrap"
     echo ""
     echo "3. SMSpool Number Notes:"
     echo "   ⚠️  Temporary/disposable number (may be recycled)"

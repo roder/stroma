@@ -35,7 +35,7 @@ cargo run --bin stroma-bootstrap -- \
 fn bootstrap_new_group(
     name: String,              // REQUIRED - group name
     seed_members: [SignalId; 3],
-    group_pepper: &[u8],
+    aci_identity: &IdentityKeyPair,  // Signal ACI identity (replaces group pepper)
 ) -> Result<StromaGroup> {
     // Validate group name
     if name.is_empty() {
@@ -50,9 +50,9 @@ fn bootstrap_new_group(
         signal_client.add_to_group(signal_group.id, member)?;
     }
     
-    // 3. Hash identifiers
+    // 3. Hash identifiers (using ACI-derived key)
     let hashes: Vec<_> = seed_members.iter()
-        .map(|id| mask_identity_hmac(id, group_pepper))
+        .map(|id| mask_identity_hmac(id, aci_identity))
         .collect();
     
     // 4. Create initial Freenet contract with group name and mutual vouches

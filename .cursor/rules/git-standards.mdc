@@ -19,7 +19,7 @@ Commit message title
 
 Optional detailed description of changes.
 
-Co-authored-by: Claude <claude@anthropic.com>
+Co-authored-by: Claude <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -27,7 +27,7 @@ EOF
 **Requirements**:
 - Co-authored-by line at the END of commit message
 - Blank line before Co-authored-by
-- Exact format: `Co-authored-by: Claude <claude@anthropic.com>`
+- Exact format: `Co-authored-by: Claude <noreply@anthropic.com>`
 - Use HEREDOC for multi-line commit messages (ensures proper formatting)
 
 ### Commit Message Style
@@ -62,7 +62,7 @@ Rationale:
 
 Resolves Outstanding Question Q3 from Spike Week.
 
-Co-authored-by: Claude <claude@anthropic.com>
+Co-authored-by: Claude <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -112,7 +112,7 @@ Title: Brief description
 
 Detailed description if needed.
 
-Co-authored-by: Claude <claude@anthropic.com>
+Co-authored-by: Claude <noreply@anthropic.com>
 EOF
 )"
 

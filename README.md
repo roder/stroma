@@ -75,7 +75,7 @@ The bot acts as a **"Blind Matchmaker"** - it optimizes the trust mesh using gra
  
 **For privacy advocates & security auditors**: **Trust map protection** via three independent defense layers:
 1. **No centralized storage**: Trust map in decentralized Freenet network (distributed across peers, no single seizure point)
-2. **Cryptographic privacy**: All identities hashed (HMAC-SHA256 with group-secret pepper), trust verified with ZK-proofs (STARKs), memory zeroized, minimal protocol-only store (~100KB encrypted file, NO message history)
+2. **Cryptographic privacy**: All identities hashed (HMAC-SHA256 with ACI-derived key — each bot's Signal identity), trust verified with ZK-proofs (STARKs), memory zeroized, minimal protocol-only store (~100KB encrypted file, NO message history)
 3. **Metadata isolation**: All vetting in 1-on-1 PMs (no Signal group metadata), bot operator least-privilege (service runner only), vetting conversations ephemeral (never persisted to disk)
 Together: **Even if adversary seizes the bot server, they get: small encrypted file (~100KB protocol state), hashes (not identities), topology (not relationship context), NO vetting conversations, NO message history.**
 
@@ -146,8 +146,10 @@ Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/propose`, 
 - **Eventual consistency**: Summary-delta synchronization (no consensus algorithms)
 - **Set-based membership**: BTreeSet with on-demand Merkle Tree generation
 - **Anonymous routing**: Dark mode (no IP exposure)
+- **Durability**: Reciprocal Persistence Network — bots hold encrypted fragments of each other's state
 
-→ **[Developer Guide](docs/DEVELOPER-GUIDE.md)** - Architecture, contract design, tech stack
+→ **[Developer Guide](docs/DEVELOPER-GUIDE.md)** - Architecture, contract design, tech stack  
+→ **[Persistence](docs/PERSISTENCE.md)** - State durability & recovery
 
 ---
 
@@ -163,15 +165,30 @@ Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/propose`, 
 
 → **[Full Trust Model](docs/TRUST-MODEL.md)** with examples and edge cases
 
-### Network Health: Distinct Validator Ratio (DVR)
-Network health is measured by **Distinct Validator Ratio** — the fraction of maximum possible Validators with non-overlapping voucher sets. This graph-theory-grounded metric directly measures resilience against coordinated attacks.
+### Trust Health: Distinct Validator Ratio (DVR)
+Trust health is measured by **Distinct Validator Ratio** — the fraction of maximum possible Validators with non-overlapping voucher sets. This graph-theory-grounded metric directly measures resilience against coordinated attacks.
 
 **Formula**: `DVR = Distinct_Validators / (N / 4)` where N = network size
 
-**Three-tier health status (thirds)**:
+**Three-tier status**:
 - 🔴 **Unhealthy** (0-33%): Trust concentrated — actively suggest improvements
 - 🟡 **Developing** (33-66%): Growing toward optimal
 - 🟢 **Healthy** (66-100%): **THE GOAL** - strong distributed trust
+
+### Replication Health: Is My Data Resilient?
+**Replication Health** answers a critical question: "If the bot crashes, can the trust network be recovered?"
+
+Stroma uses a **Reciprocal Persistence Network** — bots hold encrypted chunks of each other's state, but can't read them (64KB chunks, 3 copies each).
+
+**Status (measured at write time)**:
+- 🟢 **Replicated** (all chunks 3/3): Fully resilient — all chunks available
+- 🟡 **Partial** (some chunks 2/3): Recoverable, but degraded
+- 🔴 **At Risk** (any chunk ≤1/3): Cannot recover — writes blocked until fixed
+- 🔵 **Initializing**: New bot establishing persistence
+
+**Check with**: `/mesh replication`
+
+→ **[Persistence Documentation](docs/PERSISTENCE.md)** - Full durability architecture
 
 ### Federation (Phase 4+ - Future)
 - **Emergent discovery**: Bots find each other via shared validators
@@ -228,7 +245,7 @@ _For detailed specifications on Trust Model, Mesh Health, Federation, Technical 
 | **Language** | Rust 1.93+ | musl 1.2.5, improved DNS, static binaries |
 | **Embedded Node** | freenet v0.1.107+ | In-process node (NodeConfig::build()) |
 | **Contract Framework** | freenet-stdlib v0.1.30+ | Wasm contracts (ComposableState) |
-| **Contracts** | freenet-scaffold v0.2+ | ComposableState, summary-delta sync |
+| **Contracts** | freenet-stdlib v0.1+ | ContractInterface trait, summary-delta sync |
 | **ZK-Proofs** | STARKs (winterfell) | No trusted setup, post-quantum |
 | **Identity** | HMAC-SHA256 (ring) | Group-scoped hashing |
 | **Signal (high-level)** | Presage | High-level Rust API, group management, polls |
@@ -292,7 +309,7 @@ cargo build --release --target x86_64-unknown-linux-musl
 - ✅ Unit tests pass (21 tests: 16 existing + 5 new)
 - ✅ Integrated into Stroma via Cargo.toml patch
 
-### ✅ Completed: Spike Week (Technology Validation)
+### ✅ Completed: Spike Week 1 (Technology Validation)
 **All 6 critical architecture questions answered — GO decision**
 
 **Validations Complete:**
@@ -306,6 +323,17 @@ cargo build --release --target x86_64-unknown-linux-musl
 **Decision**: ✅ **PROCEED TO PHASE 0**
 
 → **[Spike Week Briefing](docs/spike/SPIKE-WEEK-BRIEFING.md)** - Complete analysis with all findings
+
+### ⏳ Pending: Spike Week 2 (Persistence Validation)
+**Q7-Q14 validate the Reciprocal Persistence Network** — must complete before persistence implementation.
+
+**Pending Validations:**
+- ⏳ **Q7**: Bot discovery mechanisms (🔴 BLOCKING)
+- ⏳ **Q8**: Fake bot defense (Sybil resistance)
+- ⏳ **Q9**: Chunk verification protocols
+- ⏳ **Q11-Q14**: Rendezvous hashing, chunk size, fairness, communication protocol
+
+→ **[Spike Week 2 Briefing](docs/spike/SPIKE-WEEK-2-BRIEFING.md)** - Persistence network validation plan
 
 ### Development Phases
 - **Phase -1** (Weeks 1-2): Protocol v8 Polls (Agent-Signal priority task)
@@ -355,4 +383,4 @@ Co-authored-by: Claude <noreply@anthropic.com>
 
 **Status**: Architectural foundation complete. Gastown landing zone ready. Next: Agent-Signal implements protocol v8 poll support.
 
-**Last Updated**: 2026-01-28
+**Last Updated**: 2026-01-31

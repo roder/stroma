@@ -70,10 +70,15 @@ Stroma Bot
 - **Purpose**: High-level Signal client library (wraps libsignal-service-rs)
 - **License**: AGPL-3.0
 - **Usage**: 
+  - **Link as secondary device** (operator provides Signal account)
   - Bot commands and message handling
   - Group management (create, add/remove members, settings)
   - 1-on-1 PMs for vetting
-  - Registration and authentication
+- **Device Model**:
+  - Stroma links as **secondary device** via `Manager::link_secondary_device()`
+  - Operator is responsible for having a Signal account (how they get it is their concern)
+  - Linked devices have **full group management capabilities**
+  - **No primary registration** (`Manager::register()`) — not implemented in Stroma
 - **Features**:
   - `Manager` API for high-level operations
   - **Custom Store Required** (NOT SqliteStore - server seizure risk)
@@ -86,8 +91,13 @@ Stroma Bot
   
   use stroma::store::StromaProtocolStore;  // ✅ Custom minimal store
   
-  let store = StromaProtocolStore::new()?;
-  let manager = Manager::with_store(store, options).await?;
+  // Link as secondary device (operator scans QR code with their Signal app)
+  let (tx, rx) = oneshot::channel();
+  let manager = Manager::link_secondary_device(store, servers, device_name, tx).await?;
+  let url = rx.await?;
+  qr2term::print_qr(url.to_string())?;  // Display QR for operator
+  
+  // After linking, use normally
   manager.send_message_to_group(master_key, message, timestamp).await?;
   ```
 
@@ -165,6 +175,49 @@ Default Presage SqliteStore stores ALL messages - this is a critical vulnerabili
 - **Pattern**: Set-based state (BTreeSet) with tombstones for remove-wins
 - **Merkle Trees**: Generate on-demand from sets (not stored in contract)
 - **See**: `docs/spike/q1/RESULTS.md` for validated patterns
+
+### Serialization
+
+#### `serde`
+- **Purpose**: Serialization framework
+- **Usage**: Derive `Serialize`/`Deserialize` for all state structs
+- **Requirement**: All Freenet state must be serializable
+- **Pattern**:
+  ```rust
+  use serde::{Deserialize, Serialize};
+  
+  #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+  pub struct TrustNetworkState {
+      pub members: BTreeSet<Hash>,
+      pub vouches: HashMap<Hash, HashSet<Hash>>,
+      // ...
+  }
+  ```
+
+#### `ciborium`
+- **Purpose**: CBOR serialization for Freenet contracts
+- **Usage**: All Freenet contract state and delta serialization
+- **Why CBOR**: Compact (60% smaller than JSON), deterministic, cross-language
+- **Requirement**: Use for ALL Freenet state (not JSON)
+- **Pattern**:
+  ```rust
+  use ciborium::{from_reader, into_writer};
+  
+  impl TrustNetworkState {
+      /// Serialize to CBOR bytes for Freenet storage
+      pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+          let mut bytes = Vec::new();
+          into_writer(self, &mut bytes)?;
+          Ok(bytes)
+      }
+      
+      /// Deserialize from CBOR bytes
+      pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+          from_reader(bytes).map_err(Into::into)
+      }
+  }
+  ```
+- **See**: `.beads/serialization-format.bead` for full rationale
 
 ### Storage & Caching
 
@@ -306,12 +359,23 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# Cryptography
 ring = { version = "...", features = ["std"] }
 zeroize = { version = "...", features = ["zeroize_derive"] }
 arkworks = { version = "..." }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+ciborium = "0.2"  # CBOR for Freenet contracts (NOT JSON)
+
+# Signal integration
 libsignal-service-rs = { version = "..." }
+
+# Freenet integration
+freenet-stdlib = { version = "...", features = ["full"] }
+
+# Optional storage
 sled = { version = "...", optional = true }
-freenet-scaffold = { version = "..." }
 
 [dev-dependencies]
 cargo-nextest = "..."

@@ -64,7 +64,7 @@ A **service runner** who maintains the bot infrastructure.
 ### Recommended for All Methods
 - **Monitoring** (journalctl, logs, or prometheus)
 - **Backup phone number** (in case of Signal ban)
-- **Backup strategy** (for pepper.secret)
+- **Backup strategy** (for Signal protocol store — see below)
 
 ## Installation
 
@@ -198,27 +198,158 @@ data_dir = "/var/lib/stroma/signal"
 node_address = "127.0.0.1:8080"
 contract_key = ""  # Will be set after bootstrap
 
-[group]
-pepper_file = "/var/lib/stroma/pepper.secret"  # Group-secret for HMAC
-
 [logging]
 level = "info"
 file = "/var/log/stroma/bot.log"
 EOF
 ```
 
-### Generate Group Pepper (CRITICAL)
+### Signal Protocol Store (CRITICAL for Recovery)
+
+**Your Signal protocol store IS your recovery identity.** No separate keypair or group pepper needed.
+
+The bot uses the Signal account's **ACI (Account Identity) key** for ALL cryptographic operations:
+- Chunk encryption (AES-256-GCM key derived via HKDF)
+- State signatures (using ACI identity key)
+- Identity masking (HMAC key derived via HKDF)
+- Persistence network identification
+
+**Note**: Group pepper is DEPRECATED. All cryptographic keys are now derived from the Signal ACI identity, simplifying backup to just the Signal protocol store.
 
 ```bash
-# Generate random pepper (KEEP THIS SECRET)
-mkdir -p /var/lib/stroma
-openssl rand -base64 32 > /var/lib/stroma/pepper.secret
-chmod 600 /var/lib/stroma/pepper.secret
+# Signal protocol store location (created during registration)
+/var/lib/stroma/signal-store/
 
-# NEVER commit this file to git
-# NEVER share this file
-# Backup securely (if lost, member hashes won't match)
+# CRITICAL: Backup this directory securely
+tar -czf /secure-backup/stroma-signal-store-$(date +%Y%m%d).tar.gz /var/lib/stroma/signal-store/
+
+# Store backup in:
+# - Encrypted USB drive in safe location
+# - Hardware security module (HSM)
+# - Secure cloud backup (encrypted)
+# - NOT on the same server as the bot
 ```
+
+**If you lose this Signal store, you CANNOT recover your trust network.** The ACI identity key inside is the ONLY way to decrypt your fragments.
+
+**What's in the Signal store:**
+- ACI identity keypair (your cryptographic identity)
+- PNI identity keypair (phone number identity)
+- Session keys (for encrypted conversations)
+- Pre-keys (for establishing new sessions)
+
+**What's NOT stored (and doesn't need backup):**
+- Message history (ephemeral by design)
+- Contact database (not used)
+
+See [PERSISTENCE.md](PERSISTENCE.md) for details on the recovery process.
+
+### Persistence Configuration
+
+The Reciprocal Persistence Network ensures your trust map survives bot crashes:
+
+```toml
+# Add to config.toml
+[persistence]
+# Chunk size for state distribution (default: 64KB)
+chunk_size = 65536
+# Replication factor - copies per chunk (default: 3)
+replication_factor = 3
+
+# Signal protocol store location (contains your identity)
+signal_store_path = "/var/lib/stroma/signal-store"
+```
+
+**Note**: No separate keypair file needed — your Signal identity IS your persistence identity. No heartbeat mechanism required. Replication Health is measured at write time based on successful chunk distribution acknowledgments.
+
+## Signal Account Setup (One-Time)
+
+Before linking Stroma, you need a Signal account. **How you obtain the Signal account is your responsibility** — Stroma only needs to link to it as a secondary device.
+
+### Step 1: Create or Prepare a Signal Account
+
+Choose how you want to set up the Signal account the bot will use:
+
+| Option | Description | Best For |
+|--------|-------------|----------|
+| **Dedicated phone** | Install Signal on a separate phone with its own number | Production (recommended) |
+| **VoIP service** | Register Signal using a virtual number (Twilio, Google Voice) | Testing (may be blocked) |
+| **Existing account** | Use your personal Signal account | Development only |
+
+**For production**, we recommend a dedicated Signal account (not your personal one). How you register that account is up to you:
+- Prepaid SIM card in a cheap phone
+- Dual-SIM phone with second number
+- Virtual number via Twilio, Google Voice, etc. (may be blocked by Signal)
+
+---
+
+### Step 2: Link Stroma as Secondary Device
+
+Once you have a Signal account (on any phone), link Stroma to it:
+
+```bash
+# 1. Start linking process
+stroma link-device \
+  --device-name "Stroma Bot" \
+  --servers production
+
+# 2. QR code appears in terminal
+# ┌───────────────────┐
+# │  █▀▀▀▀▀▀▀▀▀▀▀█   │
+# │  █ ▄▄▄▄▄ █▀█ █   │
+# │  ...QR CODE...   │
+# │  █▄▄▄▄▄▄▄▄▄▄▄█   │
+# └───────────────────┘
+# Alternatively, use the URL: sgnl://linkdevice?uuid=...
+
+# 3. On your phone (the one with the Signal account):
+#    Signal → Settings → Linked Devices → Link New Device
+#    Scan the QR code
+
+# 4. Linking complete!
+# Output: "Device linked. ACI: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+```
+
+**After Linking**:
+- The bot inherits the Signal account's identity (ACI)
+- Contacts and groups sync from the primary device
+- **BACKUP the Signal store immediately** (see section above)
+- The bot can perform ALL operations needed for Stroma
+
+---
+
+### Understanding the Device Model
+
+Signal supports **one primary device** (Android/iOS phone) with **up to 5 linked devices**:
+
+| Aspect | Primary Device | Linked Device (Stroma) |
+|--------|----------------|------------------------|
+| Registration | SMS/Voice verification | QR code scan |
+| Identity | Owns phone number | Shares identity |
+| Capabilities | Full (incl. link/unlink) | Full messaging & groups |
+| What Stroma uses | N/A | ✅ This one |
+
+**Key insight**: Linked devices have **full messaging and group management capabilities** — they can send messages, create groups, add/remove members, and perform admin operations. The only limitation is they cannot link/unlink other devices (which Stroma doesn't need).
+
+---
+
+### Signal Account Considerations
+- **Prepaid SIM card** - Most reliable, works anywhere, ~$10-20/month
+- **Dual-SIM phone** - Use second slot for bot number
+- **VoIP service** (Twilio, Google Voice) - May be blocked by Signal
+
+**Signal Terms of Service**:
+- Signal allows bots/automated clients
+- Avoid spamming or abusive behavior
+- Rate limit your messages (the bot does this automatically)
+
+**If Signal Bans Your Number**:
+1. Your trust network data is **safe** (fragments on persistence network)
+2. Get a new phone number
+3. Link new number as new device to existing Signal account (if possible)
+4. If account fully banned: This requires a new ACI identity, see "Signal Ban" in Disaster Recovery section
+
+**CRITICAL**: Your Signal protocol store contains the ACI identity key used to encrypt your persistence fragments. A NEW ACI identity CANNOT decrypt fragments encrypted with the OLD identity. Backup your Signal store before any issues arise.
 
 ## Bootstrap Process (One-Time)
 
@@ -249,7 +380,7 @@ stroma bootstrap \
 
 # Bootstrap process:
 # 1. Initializes embedded Freenet kernel (dark mode)
-# 2. Hashes all 3 Signal IDs with group pepper
+# 2. Hashes all 3 Signal IDs with ACI-derived key
 # 3. Creates initial vouch graph (triangle: everyone vouches everyone)
 # 4. Deploys TrustNetworkState contract to embedded kernel
 # 5. Writes contract_key to config.toml
@@ -307,7 +438,7 @@ services:
     volumes:
       - stroma-data:/data
       - ./config.toml:/data/config.toml:ro
-      - ./pepper.secret:/data/pepper.secret:ro
+      - ./signal-store:/data/signal-store  # Signal protocol store (backup this!)
     environment:
       - SIGNAL_PHONE=+1234567890
     security_opt:
@@ -485,7 +616,7 @@ sudo nano /etc/stroma/groups/mutual-aid-sf/config.toml
 
 # Each config has its own:
 # - signal_phone (different number per group)
-# - pepper_file (different pepper per group)
+# - signal_store_path (different Signal store per group)
 # - freenet data_dir (different dir per group)
 # - group_name (different name per group)
 ```
@@ -607,6 +738,39 @@ systemctl status stroma
 
 # Active check
 systemctl is-active stroma
+```
+
+### Persistence Monitoring
+
+Monitor the Reciprocal Persistence Network health:
+
+```bash
+# Check persistence status
+stroma persistence-status
+
+# Output:
+# ✅ Persistence State: ACTIVE
+# ✅ Chunks Replicated: 8/8 (all 3/3 copies)
+# ✅ Last Verification: 2h ago
+# ✅ Network Size: 47 bots
+# ✅ Fragments Held By Us: 5 (from 2 bots)
+```
+
+**Persistence States to Watch:**
+
+| Alert | Meaning | Action |
+|-------|---------|--------|
+| `state=ACTIVE` | Normal operation | None required |
+| `state=PROVISIONAL` | No suitable peers (yet) | Wait for network growth |
+| `state=DEGRADED` | Lost holder, writes blocked | Bot auto-recovers |
+| `state=ISOLATED` | Only bot in network | Consider adding peers |
+| `holders<2` | Insufficient fragments | Check network connectivity |
+| `verification_failed` | Holder may have deleted | Bot finds replacement |
+
+**Recovery Monitoring:**
+```bash
+# View recovery logs
+journalctl -u stroma | grep -i "persistence\|chunk\|recovery"
 ```
 
 ### Restart Service
@@ -819,12 +983,13 @@ sudo systemctl restart freenet-core
 - ✅ Regular security updates (OS packages)
 - ✅ Monitor for unauthorized access
 
-### Pepper Security
-- ✅ Store pepper in secure location (`/var/lib/stroma/pepper.secret`)
-- ✅ Set restrictive permissions (600)
-- ✅ Backup securely (encrypted off-server)
+### Signal Protocol Store Security
+- ✅ Store in secure location (`/var/lib/stroma/signal-store/`)
+- ✅ Set restrictive permissions (700 on directory, 600 on files)
+- ✅ Backup securely (encrypted off-server) — THIS IS YOUR ONLY RECOVERY PATH
 - ❌ NEVER commit to git
 - ❌ NEVER share with anyone
+- ❌ NEVER lose this backup (you cannot decrypt fragments without it)
 
 ### Signal Credentials
 - ✅ Store securely (environment variable or config file with restricted permissions)
@@ -835,7 +1000,7 @@ sudo systemctl restart freenet-core
 
 ### Bot Goes Offline
 
-**Impact**: Temporary disruption, state preserved in embedded Freenet kernel
+**Impact**: Temporary disruption
 
 **Recovery:**
 
@@ -851,8 +1016,10 @@ sudo systemctl restart stroma
 
 **Process:**
 1. Bot restarts with embedded Freenet kernel
-2. Kernel re-syncs from Freenet network automatically
-3. No data loss (Freenet persistence embedded)
+2. Bot reconnects to Freenet network and Signal
+3. Trust state recovered from Reciprocal Persistence Network (other bots hold your encrypted fragments)
+
+**Note**: Freenet does NOT guarantee persistence on its own. Data can "fall off" if no peers are subscribed. Stroma's Reciprocal Persistence Network ensures your trust map survives by distributing encrypted fragments to other bots.
 
 **Time to Recovery**: < 5 minutes
 
@@ -863,17 +1030,18 @@ sudo systemctl restart stroma
 **Recovery:**
 1. Set up new server
 2. Install Stroma (container or binary)
-3. Restore `pepper.secret` from backup (CRITICAL)
+3. Restore Signal protocol store from backup (CRITICAL — your only recovery path)
 4. Restore `config.toml` from backup
 5. Start service
-6. Embedded kernel re-syncs state from Freenet network
+6. Bot recovers trust state from Reciprocal Persistence Network
 
 **Time to Recovery**: 30-60 minutes
 
 **Critical Requirements:**
-- ✅ MUST have `pepper.secret` backup (member hashes won't match without it)
+- ✅ MUST have Signal protocol store backup (contains ACI identity for decryption)
 - ✅ MUST have `config.toml` backup (contract key needed)
-- ⚠️ Network must have other nodes with contract state (or state is lost)
+- ⚠️ Persistence network must have your fragments (other bots hold them)
+- ❌ Without Signal store backup, you CANNOT decrypt your fragments
 
 ### Embedded Kernel Data Loss
 
@@ -893,7 +1061,7 @@ sudo systemctl stop stroma
 # Remove corrupted data
 rm -rf /var/lib/stroma/freenet
 
-# Restart (kernel will re-sync from network)
+# Restart (bot recovers from Reciprocal Persistence Network)
 # Container:
 docker start stroma
 
@@ -901,37 +1069,47 @@ docker start stroma
 sudo systemctl start stroma
 ```
 
-**Time to Recovery**: 10-30 minutes (depends on network size and peer availability)
+**Process:**
+1. Bot starts with fresh Freenet kernel
+2. Bot fetches encrypted fragments from other bots in persistence network
+3. Bot decrypts using ACI identity from Signal store
+4. Trust state fully recovered
+
+**CRITICAL**: This only works if you have your Signal protocol store (contains ACI key for decryption).
+
+**Time to Recovery**: 10-30 minutes (depends on network size and fragment availability)
 
 ### Signal Ban
 
 **Impact**: Bot cannot send/receive messages
 
 **MVP Recovery (Manual):**
+
+**Option A: If only phone number is banned (account survives)**
+1. Get new phone number
+2. Link new device to existing Signal account
+3. Update config if needed
+4. Restart bot — same ACI identity, can decrypt fragments
+
+**Option B: If account is fully terminated (new ACI identity required)**
 1. Register new Signal account (backup phone number)
 2. Update config.toml with new credentials
-3. Restart bot
-4. Bot continues with new Signal identity
+3. Restart bot with NEW Signal store
+4. **CRITICAL**: New ACI identity CANNOT decrypt old fragments
+5. Trust network must be rebuilt from scratch (re-bootstrap)
+
+**Why Option B requires rebuild**: Your persistence fragments are encrypted with a key derived from your ACI identity. A new Signal account = new ACI = new key. Old fragments cannot be decrypted.
+
+**Prevention**: 
+- Follow Signal's terms of service
+- Avoid spam-like behavior
+- Keep Signal store backup secure (for Option A scenarios)
 
 **Note**: May require group notification and re-adding bot to Signal group
 
 **Future (Phase 4+): Shadow Handover Protocol**
 
-In Phase 4+, Stroma will support automated bot identity rotation via the Shadow Handover Protocol:
-
-```bash
-# Future command (not available in MVP)
-stroma rotate \
-  --config /etc/stroma/config.toml \
-  --new-phone "+0987654321" \
-  --reason "Signal ban recovery"
-```
-
-**Shadow Handover Benefits**:
-- Cryptographic proof of succession (old bot signs handover to new bot)
-- Trust context preserved (members' vouches unchanged)
-- Freenet contract validates transition (decentralized, not operator assertion)
-- Seamless for members (bot announces identity change automatically)
+In Phase 4+, Stroma will support automated bot identity rotation via the Shadow Handover Protocol. This will provide cryptographic succession that allows trust context to transfer to a new identity.
 
 See `.beads/federation-roadmap.bead` for protocol specification.
 
@@ -993,18 +1171,26 @@ docker run -d --name stroma-group-b -v data-b:/data ghcr.io/roder/stroma:latest
 ```
 
 **Binary/systemd**: Yes, but need separate services
-- Each bot needs separate config.toml and pepper.secret
+- Each bot needs separate config.toml and Signal protocol store
 - Create multiple systemd units (stroma-group-a.service, stroma-group-b.service)
 - Each bot has embedded Freenet kernel (no sharing)
 
 ### Can I move the bot to a new server?
-Yes. Stop service, backup `pepper.secret` and `config.toml`, move to new server, restore, restart. Embedded Freenet kernel will re-sync state from network.
+Yes. Stop service, backup Signal protocol store and `config.toml`, move to new server, restore, restart. Bot will recover state from Reciprocal Persistence Network (other bots hold your encrypted fragments).
 
-### What if I lose the pepper.secret file?
-**Critical failure**. All member hashes will be different, breaking the trust network. **Always backup pepper.secret!**
+### What if I lose the Signal protocol store?
+**Critical failure**. Your ACI identity key is used to:
+1. Derive the encryption key for your persistence fragments
+2. Derive the HMAC key for identity masking
 
-### Can I change the pepper later?
-No. Changing pepper invalidates all existing hashes. The pepper must remain constant for the group's lifetime.
+Without it, you CANNOT decrypt your fragments or match member hashes. **Always backup your Signal protocol store!**
+
+### Can I change the Signal account later?
+No (in MVP). Changing Signal accounts means a new ACI identity, which:
+1. Cannot decrypt fragments encrypted with the old identity
+2. Produces different hashes for the same members
+
+The Signal identity must remain constant for the group's lifetime. Phase 4+ Shadow Handover Protocol will address this limitation.
 
 ### How do I upgrade without downtime?
 Currently not supported in MVP. Brief downtime (< 5 minutes) acceptable for updates. Federation (Phase 4+) will enable zero-downtime updates.
@@ -1051,7 +1237,7 @@ services:
     volumes:
       - stroma-data:/data
       - ./config.toml:/data/config.toml:ro
-      - ./pepper.secret:/data/pepper.secret:ro
+      - ./signal-store:/data/signal-store  # Signal protocol store (backup this!)
     environment:
       - TZ=UTC
     security_opt:
@@ -1067,10 +1253,10 @@ volumes:
     driver: local
 ```
 
-**3. Generate pepper**
+**3. Create Signal store directory**
 ```bash
-openssl rand -base64 32 > pepper.secret
-chmod 600 pepper.secret
+mkdir -p signal-store
+chmod 700 signal-store
 ```
 
 **4. Create config.toml** (use template from Configuration section)
@@ -1120,10 +1306,11 @@ gpg --verify stroma-x86_64-musl.asc stroma-x86_64-musl
 sudo install -m 755 stroma-x86_64-musl /usr/local/bin/stroma
 ```
 
-**3. Generate pepper**
+**3. Create Signal store directory**
 ```bash
-sudo -u stroma openssl rand -base64 32 > /var/lib/stroma/pepper.secret
-sudo chmod 600 /var/lib/stroma/pepper.secret
+sudo mkdir -p /var/lib/stroma/signal-store
+sudo chown stroma:stroma /var/lib/stroma/signal-store
+sudo chmod 700 /var/lib/stroma/signal-store
 ```
 
 **4. Create config** (use template, save to `/etc/stroma/config.toml`)

@@ -14,7 +14,7 @@ alwaysApply: false
 - `arkworks`: For ZK-SNARK circuit implementation
 - `libsignal-service-rs`: For Signal protocol integration
 - `sled`: For encrypted local cache (if needed)
-- `freenet-scaffold`: For Freenet Wasm contract development
+- `freenet-stdlib`: For Freenet Wasm contract development (ContractInterface trait)
 
 ### Supply Chain Security
 - **Mandatory**: Use `cargo-deny` for dependency auditing

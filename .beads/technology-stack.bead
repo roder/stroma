@@ -27,7 +27,7 @@ Stroma Bot (our implementation)
 - Built on: libsignal-service-rs
 - Maintained by: Whisperfish
 - License: AGPL-3.0
-- Provides: Manager, registration, message handling, connection lifecycle
+- Provides: Manager, device linking, message handling, connection lifecycle
 
 **When Presage is insufficient:**
 - Drop to libsignal-service-rs directly
@@ -35,6 +35,20 @@ Stroma Bot (our implementation)
 - Implement custom message handling
 
 **Both are Rust. Presage wraps libsignal-service-rs.**
+
+### Signal Device Model
+
+Stroma links as a **secondary device** to an existing Signal account:
+
+- Operator is responsible for having a Signal account (prepaid SIM, SMSpool, etc.)
+- Stroma links via QR code using `Manager::link_secondary_device()`
+- Linked devices have **full group management capabilities**
+- No primary registration (`Manager::register()`) implemented in Stroma
+
+**Rationale:**
+- Keeps Stroma's scope minimal (doesn't need SMS/captcha integration)
+- Operator controls account creation (their choice of number source)
+- Linked devices can do everything Stroma needs (messaging, groups, admin ops)
 
 ### What Presage Provides
 
@@ -46,9 +60,13 @@ use presage::Manager;
 
 use stroma::store::StromaProtocolStore;  // ✅ Custom minimal store
 
-// High-level operations
-let store = StromaProtocolStore::new()?;
-let manager = Manager::with_store(store, options).await?;
+// Link as secondary device (operator scans QR code)
+let (tx, rx) = oneshot::channel();
+let manager = Manager::link_secondary_device(store, servers, device_name, tx).await?;
+let url = rx.await?;
+qr2term::print_qr(url.to_string())?;
+
+// After linking, full capabilities available
 let messages = manager.receive_messages().await?;
 manager.send_message_to_group(master_key, message, timestamp).await?;
 ```
@@ -74,7 +92,7 @@ let reaction = DataMessage {
 ### When to Use Each
 
 **Use Presage for:**
-- Registration
+- Device linking (link_secondary_device)
 - Message sending/receiving
 - Group management
 - Contact handling
@@ -143,6 +161,63 @@ let manager = Manager::with_store(stroma_store, options).await?;
 - Protocol state (~100KB) sufficient for encryption continuity
 
 **See**: `.beads/security-constraints.bead` section 10
+
+---
+
+## Serialization: CBOR (Not JSON)
+
+### Decision
+
+**Freenet works with raw bytes** (`Vec<u8>`). Serialization is our responsibility.
+
+**Format**: CBOR via `ciborium` crate
+
+### Why CBOR
+
+| Criterion | JSON | CBOR |
+|-----------|------|------|
+| Size | Large (baseline) | **60% smaller** |
+| Deterministic | No* | **Yes** (canonical mode) |
+| Speed | Slow | **Fast** |
+| Cross-language | Yes | **Yes** |
+
+*JSON key ordering varies between serializers
+
+### Dependencies
+
+```toml
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+ciborium = "0.2"
+```
+
+### Pattern
+
+```rust
+use ciborium::{from_reader, into_writer};
+
+impl TrustNetworkState {
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let mut bytes = Vec::new();
+        into_writer(self, &mut bytes)?;
+        Ok(bytes)
+    }
+    
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        from_reader(bytes).map_err(Into::into)
+    }
+}
+```
+
+### Rules
+
+- ✅ **CBOR**: All Freenet state, deltas, persistence snapshots
+- ✅ **Protobuf**: Signal messages (Signal's format, non-negotiable)
+- ❌ **JSON**: NOT for Freenet state (too large, non-deterministic)
+
+**See**: `.beads/serialization-format.bead` for full rationale
+
+---
 
 ### Code Constraints
 

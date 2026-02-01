@@ -235,13 +235,14 @@ systemd services:
 ## Federation Model
 
 ### Discovery Process
-1. **Multiple Discovery URIs**: Bot generates URIs using percentile-based validator thresholds (10%, 20%, 30%, 50%)
-2. **Bloom Filter Broadcast**: Bot publishes encrypted summary at multiple URIs
-3. **Discovery Match**: Bots scan multiple URIs to find shared validator overlap
-4. **PSI-CA Handshake**: Bots calculate exact overlap without revealing identities
-5. **Threshold Exchange**: Bots exchange group sizes and threshold requirements
-6. **BidirectionalMin Evaluation**: Both groups evaluate if overlap meets their own threshold
-7. **Federation Proposal**: If both thresholds satisfied, propose to respective groups
+1. **Fibonacci Bucket URIs**: Bot generates URIs at Fibonacci counts [3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987] (scales to Signal's 1000-member limit)
+2. **Deterministic Ordering**: Validators sorted by hash before bucket selection (ensures matching)
+3. **Bloom Filter Broadcast**: Bot publishes encrypted summary at all bucket URIs it can fill
+4. **Discovery Match**: Bots scan bucket URIs → matching hash means potential shared validators
+5. **PSI-CA Handshake**: Bots calculate EXACT overlap count without revealing identities
+6. **Threshold Evaluation**: BOTH must pass: min_shared_validators AND min_intersection_density
+7. **BidirectionalMin**: Each group evaluates against its OWN configured threshold
+8. **Federation Proposal**: If both thresholds satisfied, propose to respective groups
 
 ### Federation Decision
 - **Human Control**: Members vote via Signal Poll on federation proposal
@@ -271,9 +272,9 @@ pub struct GroupConfig {
     config_change_threshold: f32,          // e.g., 0.70 (70%) - used for all proposals
     default_poll_timeout: Duration,        // e.g., 48h - default if not specified
     
-    // Federation parameters
-    min_intersection_density: f32,         // e.g., 0.10-0.30 (configurable per-group)
-    validator_percentile: u32,             // e.g., 20 (top 20%)
+    // Federation parameters (dual threshold model)
+    min_shared_validators: usize,          // e.g., 3 (minimum absolute overlap count)
+    min_intersection_density: f32,         // e.g., 0.10 (10% of smaller group's validators)
     
     // Trust parameters
     min_vouch_threshold: usize,            // Default: 2 (minimum vouches to stay in group)

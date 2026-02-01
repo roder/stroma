@@ -20,8 +20,11 @@ todos:
   - id: protocol-v8-poll
     content: Agent-Signal implements protocol v8 poll support in forked libsignal-service-rs
     status: pending
-  - id: spike-week
-    content: Run spike week to validate core technologies (freenet-core, Presage, STARKs)
+  - id: spike-week-1
+    content: Spike Week 1 - Validate core technologies (Q1-Q6 ALL COMPLETE)
+    status: completed
+  - id: spike-week-2
+    content: Spike Week 2 - Validate persistence network (Q7-Q14 PENDING)
     status: pending
   - id: scaffold-rust-modules
     content: Create Rust module structure (kernel, freenet, signal, crypto, proposals)
@@ -55,7 +58,7 @@ isProject: false
 
 ---
 
-## Current State (2026-01-28)
+## Current State (2026-01-31)
 
 ### ✅ Completed
 
@@ -247,19 +250,23 @@ Stroma Bot
 
 ### Key Architectural Patterns
 
-**1. ComposableState for Freenet Contracts:**
+**1. ContractInterface for Freenet Contracts:**
 ```rust
-use freenet_scaffold::ComposableState;
+// Note: freenet-scaffold is outdated. Use freenet-stdlib.
+use freenet_stdlib::prelude::*;
+use serde::{Serialize, Deserialize};
 
-#[derive(ComposableState)]
-pub struct GroupState {
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct TrustNetworkState {
     members: BTreeSet<Hash>,              // Naturally mergeable
-    vouch_graph: HashMap<Hash, BTreeSet<Hash>>,  // Naturally mergeable
-    config: GroupConfig,                  // Last-write-wins with version
+    ejected: BTreeSet<Hash>,              // Can return (not permanent)
+    vouches: HashMap<Hash, HashSet<Hash>>,  // Naturally mergeable
+    flags: HashMap<Hash, HashSet<Hash>>,
+    config: GroupConfig,
 }
 
 // Merkle Trees generated on-demand (not stored in contract)
-impl GroupState {
+impl TrustNetworkState {
     pub fn generate_merkle_tree(&self) -> MerkleTree {
         MerkleTree::from_leaves(self.members.iter())
     }
@@ -336,12 +343,16 @@ let poll = DataMessage {
 - Benchmark on-demand Merkle Tree generation
 - Test state stream monitoring (real-time updates)
 
-**Outstanding Questions to Answer:**
-- Q1: Can we verify STARK proofs in contract `verify()`?
-- Q2: Should we store proofs or just outcomes?
-- Q3: How expensive is on-demand Merkle Tree generation?
-- Q4: How does Freenet handle merge conflicts?
-- Q5: Can we add custom validation beyond ComposableState?
+**Outstanding Questions (Spike Week 1 — ALL COMPLETE):**
+- ✅ Q1: Freenet merge conflicts — GO (commutative deltas with set-based state + tombstones)
+- ✅ Q2: Contract validation — GO (update_state + validate_state enforce invariants)
+- ✅ Q3: Cluster detection — GO (Bridge Removal algorithm, Tarjan's)
+- ✅ Q4: STARK verification — PARTIAL (bot-side for Phase 0, Wasm experimental)
+- ✅ Q5: Merkle Tree performance — GO (0.09ms @ 1000 members)
+- ✅ Q6: Proof storage — Store outcomes only (not proofs)
+
+**Outstanding Questions (Spike Week 2 — PENDING):**
+- ⏳ Q7-Q14: Persistence network validation (see SPIKE-WEEK-2-BRIEFING.md)
 
 **Spike 2: Presage + Polls (2 days)**
 - Test Presage group management
@@ -364,7 +375,7 @@ let poll = DataMessage {
 ```
 src/
 ├── kernel/                   # Identity Masking
-│   ├── hmac.rs               # HMAC-SHA256 with group pepper
+│   ├── hmac.rs               # HMAC-SHA256 with ACI-derived key (replaces group pepper)
 │   └── zeroize_helpers.rs    # Immediate buffer purging
 ├── freenet/                  # Freenet Integration  
 │   ├── node.rs               # Node lifecycle
@@ -571,8 +582,10 @@ presage = { git = "https://github.com/whisperfish/presage" }
 # ❌ DO NOT ADD: presage-store-sqlite (stores message history - server seizure risk)
 # Implement custom StromaProtocolStore instead (see security-constraints.bead § 10)
 
-# Freenet
-freenet-scaffold = "0.2"
+# Freenet (node embedding + contracts)
+# Note: freenet-scaffold is outdated. Use freenet + freenet-stdlib.
+freenet = "0.1"
+freenet-stdlib = { version = "0.1", features = ["contract", "net"] }
 
 # Crypto
 ring = "0.17"
@@ -582,7 +595,7 @@ winterfell = "0.9"
 # Async runtime
 tokio = { version = "1.35", features = ["full"] }
 
-# Serialization
+# Serialization (CBOR for Freenet contracts)
 serde = { version = "1.0", features = ["derive"] }
 
 [patch.crates-io]
@@ -745,4 +758,4 @@ All architectural constraints captured in beads for agent guidance:
 
 **Status**: ✅ Ready for Gastown agent implementation  
 **Next Action**: Agent-Signal implements protocol v8 poll support  
-**Last Updated**: 2026-01-28
+**Last Updated**: 2026-01-31

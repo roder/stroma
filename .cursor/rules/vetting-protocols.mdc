@@ -42,10 +42,10 @@ The group is always in a "fully vetted" state — everyone maintains appropriate
 **Bootstrap Logic:**
 ```rust
 // One-time initialization
-fn bootstrap_seed_group(seed_members: [SignalId; 3]) {
-    // Hash identifiers
+fn bootstrap_seed_group(seed_members: [SignalId; 3], aci_identity: &IdentityKeyPair) {
+    // Hash identifiers using ACI-derived key (replaces group pepper)
     let hashes: Vec<_> = seed_members.iter()
-        .map(|id| mask_identity_hmac(id, group_pepper))
+        .map(|id| mask_identity_hmac(id, aci_identity))
         .collect();
     
     // Create mutual vouches (full triangle)

@@ -73,6 +73,29 @@
    - **Result**: Compromising one voucher set doesn't cascade to multiple Validators
    - **See**: `.beads/blind-matchmaker-dvr.bead`, `.beads/mesh-health-metric.bead`
 
+5. **Persistence Peer Attacks**: Adversary becomes chunk holder
+   - **Attack**: Register fake bots to become chunk holders (DoS recovery)
+   - **Attack**: Refuse to return chunks during recovery
+   - **Attack**: Collude with other holders to reconstruct state
+   - **Defense**: Need ALL chunks + ACI private key to reconstruct
+   - **Defense**: AES-256-GCM encryption (even with all chunks, can't decrypt without ACI key)
+   - **Defense**: Deterministic holder selection per-chunk (spreads chunks across many bots)
+   - **Defense**: Challenge-response verification (prove chunk possession)
+   - **Defense**: 3 copies per chunk (any 1 of 3 sufficient for that chunk)
+   - **Result**: Even if adversary holds all chunks, they can't read trust map (need ACI key)
+   - **Result**: Larger states = more chunks = more distribution = harder to seize
+   - **Note**: Holder identities are computable (rendezvous hashing), but security comes from encryption, not obscurity
+   - **See**: `.beads/persistence-model.bead`, `docs/PERSISTENCE.md`
+
+6. **Freenet Data Loss**: Trust state falls off network
+   - **Attack**: Wait for all subscribed peers to leave
+   - **Attack**: Target bot's Freenet peers
+   - **Defense**: Reciprocal Persistence Network (guaranteed minimum replicas)
+   - **Defense**: Write-blocking prevents changes without backup
+   - **Defense**: Recovery from encrypted fragments
+   - **Result**: Trust state survives even if Freenet data falls off
+   - **See**: `.beads/persistence-model.bead`
+
 ## Files Requiring Updates
 
 ### Priority 1: Core Security Documents ✅ COMPLETE

@@ -18,31 +18,53 @@ These constraints are **NON-NEGOTIABLE**. Any code that violates these constrain
 - ❌ **NEVER** cache Signal IDs in memory longer than necessary
 
 ### HMAC-Based Identity Masking (REQUIRED)
+
+**Use Signal ACI-derived key for identity masking** — no separate group pepper needed.
+
 ```rust
 // ✅ REQUIRED PATTERN
 use ring::hmac;
+use hkdf::Hkdf;
+use sha2::Sha256;
 use zeroize::Zeroize;
+use libsignal_protocol::IdentityKeyPair;
 
-pub fn mask_identity(signal_id: &str, group_pepper: &[u8]) -> Hash {
-    // Use HMAC-SHA256 with group-secret pepper (NOT deterministic hashing)
-    let key = hmac::Key::new(hmac::HMAC_SHA256, group_pepper);
+/// Derive HMAC key from Signal ACI identity
+/// This replaces the "group pepper" — single cryptographic identity for everything
+fn derive_identity_masking_key(aci_identity: &IdentityKeyPair) -> [u8; 32] {
+    let hk = Hkdf::<Sha256>::new(
+        Some(b"stroma-identity-masking-v1"),
+        aci_identity.private_key().serialize().as_slice()
+    );
+    let mut key = [0u8; 32];
+    hk.expand(b"hmac-sha256-key", &mut key).unwrap();
+    key
+}
+
+pub fn mask_identity(signal_id: &str, aci_identity: &IdentityKeyPair) -> Hash {
+    // Derive HMAC key from Signal ACI identity
+    let hmac_key_bytes = derive_identity_masking_key(aci_identity);
+    let key = hmac::Key::new(hmac::HMAC_SHA256, &hmac_key_bytes);
     let tag = hmac::sign(&key, signal_id.as_bytes());
     
-    // Convert to hash
-    let hash = Hash::from_bytes(tag.as_ref());
+    // Zeroize derived key immediately
+    // (hmac_key_bytes is on stack, will be overwritten)
     
-    // Zeroize the input buffer if mutable
-    // (In this case signal_id is borrowed, but pattern applies to owned data)
-    
-    hash
+    Hash::from_bytes(tag.as_ref())
 }
 ```
 
 **Key Requirements:**
 - Use HMAC-SHA256 (ring crate)
-- Use group-secret pepper (unique per group, never shared)
-- NOT deterministic hashing (same ID = different hash with different pepper)
-- Group pepper stored securely (environment variable, never in code)
+- Derive HMAC key from Signal ACI identity via HKDF (replaces group pepper)
+- NOT deterministic hashing (same ID = different hash with different bot)
+- Single cryptographic identity: Signal ACI used for encryption, signing, AND identity masking
+
+**Why Signal ACI (not separate group pepper):**
+- Simpler backup: Signal store backup covers everything
+- No extra secrets: No separate pepper file to manage
+- Already secure: Signal keys stored in secure protocol store
+- Consistent identity: One key derivation source for all crypto operations
 
 ### Immediate Zeroization (MANDATORY)
 - ✅ **ALWAYS** use `zeroize` crate for sensitive buffers
@@ -277,9 +299,10 @@ fn can_vouch_forbidden(member: &Member) -> bool {
 async fn process_invite(
     inviter_hash: Hash,
     invitee: SignalId,
+    aci_identity: &IdentityKeyPair,
 ) -> Result<(), Error> {
-    // Hash invitee identity immediately
-    let invitee_hash = mask_identity(&invitee, &group_pepper);
+    // Hash invitee identity immediately (using ACI-derived key)
+    let invitee_hash = mask_identity(&invitee, aci_identity);
     invitee.zeroize(); // Zeroize immediately
     
     // Record invitation as FIRST VOUCH
@@ -471,7 +494,7 @@ mod tests {
 ### Co-Authorship Attribution (MANDATORY)
 - ✅ **ALWAYS** include Co-authored-by trailer in commits authored by Claude
 - ✅ **ALWAYS** use HEREDOC for proper formatting
-- ✅ Format: `Co-authored-by: Claude <claude@anthropic.com>`
+- ✅ Format: `Co-authored-by: Claude <noreply@anthropic.com>`
 - ✅ Position: At END of commit message with blank line before
 
 ### Example
@@ -483,7 +506,7 @@ Add vouch invalidation logic to trust model
 - Prevents logical inconsistency (can't both trust and distrust)
 - Aligns with fluid identity philosophy
 
-Co-authored-by: Claude <claude@anthropic.com>
+Co-authored-by: Claude <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -596,7 +619,86 @@ impl presage::Store for StromaProtocolStore {
 - [ ] Bot restart recovers sessions (encryption continuity)
 - [ ] Server seizure simulation reveals no sensitive data
 
-## Summary: The Six Absolutes
+## 11. Persistence Security (RECIPROCAL PERSISTENCE NETWORK)
+
+### Why Persistence Exists
+
+**Core Problem**: Freenet data falls off if no peers are subscribed.
+
+**Solution**: Bots replicate each other's **encrypted state chunks** so any bot can recover after crash.
+
+**See**: `.beads/persistence-model.bead` for full architecture.
+
+### Adversarial Peer Model (CRITICAL)
+
+**ALL persistence peers are ADVERSARIES.** Zero trust.
+
+| Assumption | Implication |
+|------------|-------------|
+| Peer may be malicious | Encrypt all chunks |
+| Peer may refuse to return | 3 copies per chunk (any 1 of 3 works) |
+| Peers may collude | Chunks encrypted; need ALL chunks + ACI key |
+| Peer may be fake (Sybil) | Defense mechanisms required (Q8 spike) |
+| Peer may delete chunks | Verification required (Q9, Q13 spike) |
+
+### Persistence Security Violations (BLOCK)
+
+- ❌ **NEVER** allow chunk owner to choose holders (collusion risk)
+- ❌ **NEVER** store chunks unencrypted
+- ❌ **NEVER** use single replica (need 3 copies per chunk for resilience)
+- ❌ **NEVER** store per-chunk relationships in registry (scaling, attack surface)
+- ❌ **NEVER** trust federation peers more (same adversarial model)
+- ❌ **NEVER** conflate persistence discovery with federation discovery
+
+### Correct Patterns
+
+- ✅ **ALWAYS** encrypt with key derived from Signal ACI identity
+- ✅ **ALWAYS** use 64KB chunks with 3 copies each (1 local + 2 remote)
+- ✅ **ALWAYS** use deterministic holder selection per-chunk (rendezvous hashing)
+- ✅ **ALWAYS** keep registry minimal (O(N) bot list, not per-chunk relationships)
+- ✅ **ALWAYS** verify holders actually have chunks (Q9, Q13)
+- ✅ **ALWAYS** treat all persistence peers as adversaries
+- ✅ **ALWAYS** use Signal protocol store as single cryptographic identity
+
+### Separate Concerns: Security vs Fairness
+
+**Chunk holders and fairness partners are DIFFERENT bots (by algorithm).**
+
+```
+Bot-A's perspective (500KB state = 8 chunks):
+  FAIRNESS: I hold chunks FOR Bot-B, Bot-C, ... (~2x my state size)
+  SECURITY: ~8-16 bots hold MY chunks (deterministic per-chunk)
+  
+  Chunk holders:
+  - Assigned via rendezvous hashing per-chunk (not chosen by Bot-A)
+  - Anyone CAN compute who holds whose chunks (public algorithm)
+  - BUT: Chunks are ENCRYPTED (holder can't read content)
+  - Need ALL chunks + ACI key to reconstruct (not just 2 of 3)
+```
+
+**Why deterministic is OK**: Knowing "Bot-X holds Bot-A's chunk[3]" doesn't help read encrypted data. Attack still requires compromising ALL chunk holders + ACI key.
+
+### Write-Blocking (MANDATORY)
+
+- ❌ **NEVER** write state in DEGRADED mode (lost holder, peers available)
+- ✅ **ALWAYS** block writes until persistence confirmed
+- ✅ **ALWAYS** restore holders before continuing
+
+**See**: `.beads/persistence-model.bead` for state machine.
+
+### Recovery Requires Signal Store Backup
+
+**No separate keypair file needed.** The Signal protocol store IS the cryptographic identity.
+
+- ❌ **NEVER** create a separate keypair file (use Signal ACI key)
+- ❌ **NEVER** proceed without Signal store backup in operator docs
+- ✅ **ALWAYS** warn operator: Signal store is ONLY recovery path
+- ✅ **ALWAYS** document Signal store backup procedure prominently
+- ✅ **ALWAYS** derive encryption keys from Signal ACI via HKDF
+
+**See**: `.beads/contract-encryption.bead` for crypto details.
+
+## Summary: The Eight Absolutes
 
 1. **NEVER store Signal IDs in cleartext** - HMAC hash immediately, zeroize buffers
 2. **NEVER persist message history** - Vetting conversations ephemeral only
@@ -605,5 +707,6 @@ impl presage::Store for StromaProtocolStore {
 5. **NEVER make Signal source of truth** - Freenet is authoritative
 6. **NEVER restrict vouching to Validators** - ANY Member can vouch
 7. **NEVER commit without Co-authored-by** - All AI-authored commits must attribute Claude
+8. **NEVER trust persistence peers** - ALL peers are adversaries, encrypt everything
 
 These constraints are IMMUTABLE and apply to ALL code, ALL agents, ALL phases (including federation in Phase 4+).

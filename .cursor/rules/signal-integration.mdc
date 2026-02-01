@@ -6,6 +6,48 @@ alwaysApply: false
 
 # Signal Integration Standards
 
+## Signal Account & Device Linking
+
+### Bot Links as Secondary Device
+
+Stroma links to an **existing Signal account** as a secondary device. The operator is responsible for having a Signal account — how they obtain it (prepaid SIM, SMSpool, existing phone, etc.) is their concern.
+
+**Device Model:**
+- Signal supports 1 primary device + up to 5 linked devices
+- Stroma bot links as a **secondary device** via QR code
+- Linked devices have **full messaging and group management capabilities**
+- The only limitation: linked devices cannot link/unlink other devices (not needed)
+
+**Linking Flow:**
+1. Operator starts `stroma link-device --device-name "Stroma Bot"`
+2. Bot displays QR code in terminal
+3. Operator scans QR code with Signal app (Settings → Linked Devices)
+4. Bot receives ACI/PNI identity from primary device
+5. Bot saves identity to StromaProtocolStore
+
+**Implementation:**
+```rust
+// Use Presage's link_secondary_device
+let (provisioning_link_tx, provisioning_link_rx) = oneshot::channel();
+let manager = Manager::link_secondary_device(
+    store,
+    SignalServers::Production,
+    device_name,
+    provisioning_link_tx,
+).await?;
+
+// Display QR code for operator to scan
+let url = provisioning_link_rx.await?;
+qr2term::print_qr(url.to_string())?;
+```
+
+**No Primary Registration in Stroma:**
+- Stroma does NOT implement `Manager::register()` (SMS/voice verification)
+- Operator creates Signal account outside of Stroma
+- Keeps Stroma's scope minimal and focused
+
+---
+
 ## Bot Behavior Principles
 
 ### Bot Roles
@@ -73,10 +115,11 @@ AND: Send_Private_Notification(Member_Hash,
 - Immediate removal when either trigger condition met
 - **Member Responsibility**: Cultivate multiple vouches for resilience
 
-**Heartbeat Monitor:**
-- Runs every 60 minutes
-- Checks vouch count for all members
-- Immediate ejection if < MIN_VOUCH_THRESHOLD
+**Real-Time State Monitoring:**
+- Bot monitors Freenet state stream (NOT periodic polling)
+- Checks trust standing on every state change
+- Immediate ejection if thresholds violated
+- **Note**: No 60-minute heartbeat (see persistence-model.bead)
 - No manual intervention required
 
 **Re-Entry Path:**
@@ -97,10 +140,10 @@ AND: Send_Private_Notification(Member_Hash,
 - `/propose <subcommand> [args]` - Propose group decision (config, federation, etc.)
 - `/status` - View personal trust standing and vouch count
 - `/status @username` - View another member's standing (if visible)
-- `/mesh` - View network health and topology
-- `/mesh strength` - View mesh density histogram
+- `/mesh` - View network overview (trust health + replication health)
+- `/mesh strength` - View Distinct Validator Ratio and trust distribution
+- `/mesh replication` - View replication health (is data resilient?)
 - `/mesh config` - View group configuration
-- `/propose <subcommand> [args]` - Propose group decision (unified command)
 - `/audit operator` - View operator action history
 
 **Who Can Use:**

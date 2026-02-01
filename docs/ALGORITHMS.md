@@ -95,30 +95,85 @@ NodeType(m) =
 
 ### Cluster Detection
 
-**Definition**: A cluster is a **connected component** in the undirected version of G.
+**Definition**: A cluster is a **tight community** — members who are densely connected to each other but connected to other clusters only through bridge members.
 
-**Algorithm**: Union-Find (Disjoint Set Union)
+**Problem with Union-Find**: Standard Union-Find finds connected components, but fails to distinguish tight clusters connected by bridges. It sees one large cluster when there are actually multiple tight communities connected by bridge members. (Validated in Spike Week Q3.)
+
+**Algorithm**: Bridge Removal (Tarjan's Algorithm)
+
+Bridge Removal identifies **articulation edges** (edges whose removal would disconnect the graph) and removes them to find tight components.
 
 ```
-function FIND_CLUSTERS(G):
-    parent = {}
-    rank = {}
+function FIND_CLUSTERS_BRIDGE_REMOVAL(G):
+    // Step 1: Find all articulation edges (bridges)
+    bridges = TARJAN_BRIDGES(G)
     
-    // Initialize each member as its own cluster
-    for m in V:
-        parent[m] = m
-        rank[m] = 0
+    // Step 2: Create subgraph without bridges
+    G' = G.remove_edges(bridges)
     
-    // Union members who vouch for each other
-    for (i, j) in E:
-        union(i, j, parent, rank)
+    // Step 3: Find connected components in subgraph
+    clusters = CONNECTED_COMPONENTS(G')
     
-    // Group members by root parent
-    clusters = group_by(V, lambda m: find(m, parent))
-    return clusters
+    // Step 4: Bridge members form their own "cluster"
+    // (They can vouch but don't form tight cluster with either side)
+    bridge_members = members_incident_to(bridges)
+    
+    return (clusters, bridge_members)
+
+function TARJAN_BRIDGES(G):
+    // Tarjan's algorithm for finding bridges
+    // An edge (u, v) is a bridge if removing it disconnects the graph
+    
+    time = 0
+    disc = {}      // Discovery time
+    low = {}       // Lowest reachable discovery time
+    bridges = []
+    
+    function dfs(u, parent):
+        nonlocal time
+        disc[u] = low[u] = time
+        time += 1
+        
+        for v in neighbors(u):
+            if v not in disc:
+                dfs(v, u)
+                low[u] = min(low[u], low[v])
+                
+                // If lowest reachable from v is beyond u, edge is a bridge
+                if low[v] > disc[u]:
+                    bridges.append((u, v))
+            elif v != parent:
+                low[u] = min(low[u], disc[v])
+    
+    for node in V:
+        if node not in disc:
+            dfs(node, None)
+    
+    return bridges
 ```
 
-**Complexity**: O(N × α(N)) where α is inverse Ackermann (nearly constant)
+**Example (from Q3 Spike):**
+```
+Input Graph:
+  Cluster A (tight):  Alice ←→ Bob ←→ Carol (all vouch each other)
+  Bridge:             Charlie (vouched by Carol + Dave, vouches back)
+  Cluster B (tight):  Dave ←→ Eve ←→ Frank (all vouch each other)
+
+Bridge Removal Result:
+  Cluster A: [Alice, Bob, Carol]
+  Cluster B: [Dave, Eve, Frank]
+  Bridge Members: [Charlie]  // Can vouch but doesn't form tight cluster
+```
+
+**Why Bridge Removal Works:**
+- Automatically detects bridges without threshold tuning
+- Correct semantics: bridges are members who connect otherwise-disconnected communities
+- Predictable: same input always produces same output
+- Well-understood: Tarjan's algorithm is O(V+E), widely used
+
+**Complexity**: O(V + E) where V = members, E = vouch edges
+
+**See**: `docs/spike/q3/RESULTS.md` for validation results
 
 ### Centrality Measures
 
@@ -310,7 +365,7 @@ Output: List of strategic introduction pairs (DVR-optimal where possible)
 **Given:**
 - Two Stroma groups: Group A (size N_A), Group B (size N_B)
 - No shared knowledge (different bots, different contracts)
-- Both groups use HMAC hashing with **different group peppers**
+- Both groups use HMAC hashing with **different ACI-derived keys** (each bot has unique Signal identity)
 
 **Goal:**
 - Calculate overlap |A ∩ B| without revealing member identities
@@ -318,13 +373,13 @@ Output: List of strategic introduction pairs (DVR-optimal where possible)
 - Maintain complete anonymity (zero knowledge of graph structure)
 
 **Constraint:**
-- Different groups → same person has different hashes (privacy requirement)
+- Different bots → same person has different hashes (privacy requirement)
 
 ### Challenge: Different Hash Spaces
 
-**Problem**: Alice in Group A has hash H_A(alice) = HMAC(alice, pepper_A)
-            Alice in Group B has hash H_B(alice) = HMAC(alice, pepper_B)
-            Since pepper_A ≠ pepper_B, H_A(alice) ≠ H_B(alice)
+**Problem**: Alice in Group A has hash H_A(alice) = HMAC(alice, key_A)
+            Alice in Group B has hash H_B(alice) = HMAC(alice, key_B)
+            Since key_A ≠ key_B (different ACI identities), H_A(alice) ≠ H_B(alice)
 
 **Solution**: Use **Social Anchor Hashing** + **Private Set Intersection with Cardinality (PSI-CA)**
 
@@ -511,7 +566,7 @@ Output: Federation contract (if both groups vote yes)
 |-----------|-----------|-------|
 | Graph construction | O(N + E) | N = members, E = vouch edges |
 | Node classification | O(N) | Single pass over vertices |
-| Cluster detection (Union-Find) | O(N × α(N)) | α(N) ≈ 4 for practical N |
+| Cluster detection (Bridge Removal) | O(N + E) | Tarjan's algorithm |
 | Centrality calculation | O(N × E) | Betweenness centrality (Brandes) |
 | Bridge strengthening | O(B × V) | B = Bridges (2 vouches), V = Validators |
 | Cluster linking | O(K²) | K = clusters (usually K << N) |
@@ -587,7 +642,7 @@ Output: Federation contract (if both groups vote yes)
 | **Timing Analysis** | Infer group size from response latency | Add random delays (constant-time operations) |
 | **Sybil Attack** | Flood with fake members to boost overlap | Require ZK-proof of existing vouches before federation |
 | **Replay Attack** | Reuse captured PSI-CA messages | Ephemeral keys destroyed after handshake |
-| **Cross-Group Tracking** | Correlate same person across groups | Different group peppers = different hashes |
+| **Cross-Group Tracking** | Correlate same person across groups | Different ACI keys = different hashes |
 | **Bloom Filter Analysis** | Deduce members from filter patterns | Multi-threshold publishing (adds noise) |
 
 **Three-Layer Defense (Applied to Federation):**
@@ -686,31 +741,88 @@ impl StrategicMatcher {
     }
     
     fn detect_clusters(&self) -> Vec<HashSet<MemberHash>> {
-        // Union-Find implementation
-        let mut parent = HashMap::new();
-        let mut rank = HashMap::new();
+        // Bridge Removal (Tarjan's algorithm) - NOT Union-Find
+        // Union-Find fails to distinguish tight clusters connected by bridges (Q3 Spike)
+        
+        // Step 1: Find articulation edges (bridges) using Tarjan's algorithm
+        let bridges = self.find_bridges();
+        
+        // Step 2: Create subgraph without bridge edges
+        let mut subgraph = self.graph.clone();
+        for (u, v) in &bridges {
+            if let Some(edge) = subgraph.find_edge(*u, *v) {
+                subgraph.remove_edge(edge);
+            }
+        }
+        
+        // Step 3: Find connected components in subgraph (these are tight clusters)
+        let mut visited = HashSet::new();
+        let mut clusters = Vec::new();
+        
+        for node in subgraph.node_indices() {
+            if !visited.contains(&node) {
+                let mut cluster = HashSet::new();
+                let mut stack = vec![node];
+                
+                while let Some(current) = stack.pop() {
+                    if visited.insert(current) {
+                        cluster.insert(subgraph[current]);
+                        for neighbor in subgraph.neighbors(current) {
+                            if !visited.contains(&neighbor) {
+                                stack.push(neighbor);
+                            }
+                        }
+                    }
+                }
+                clusters.push(cluster);
+            }
+        }
+        
+        clusters
+    }
+    
+    fn find_bridges(&self) -> Vec<(NodeIndex, NodeIndex)> {
+        // Tarjan's algorithm for finding bridge edges
+        let mut time = 0;
+        let mut disc: HashMap<NodeIndex, usize> = HashMap::new();
+        let mut low: HashMap<NodeIndex, usize> = HashMap::new();
+        let mut bridges = Vec::new();
+        
+        fn dfs(
+            graph: &Graph<MemberHash, ()>,
+            u: NodeIndex,
+            parent: Option<NodeIndex>,
+            time: &mut usize,
+            disc: &mut HashMap<NodeIndex, usize>,
+            low: &mut HashMap<NodeIndex, usize>,
+            bridges: &mut Vec<(NodeIndex, NodeIndex)>,
+        ) {
+            disc.insert(u, *time);
+            low.insert(u, *time);
+            *time += 1;
+            
+            for v in graph.neighbors(u) {
+                if !disc.contains_key(&v) {
+                    dfs(graph, v, Some(u), time, disc, low, bridges);
+                    low.insert(u, low[&u].min(low[&v]));
+                    
+                    // If lowest reachable from v is beyond u, edge is a bridge
+                    if low[&v] > disc[&u] {
+                        bridges.push((u, v));
+                    }
+                } else if parent != Some(v) {
+                    low.insert(u, low[&u].min(disc[&v]));
+                }
+            }
+        }
         
         for node in self.graph.node_indices() {
-            let hash = self.graph[node];
-            parent.insert(hash, hash);
-            rank.insert(hash, 0);
+            if !disc.contains_key(&node) {
+                dfs(&self.graph, node, None, &mut time, &mut disc, &mut low, &mut bridges);
+            }
         }
         
-        // Union connected nodes
-        for edge in self.graph.edge_indices() {
-            let (a, b) = self.graph.edge_endpoints(edge).unwrap();
-            self.union(self.graph[a], self.graph[b], &mut parent, &mut rank);
-        }
-        
-        // Group by root
-        let mut clusters: HashMap<MemberHash, HashSet<MemberHash>> = HashMap::new();
-        for node in self.graph.node_indices() {
-            let hash = self.graph[node];
-            let root = self.find(hash, &parent);
-            clusters.entry(root).or_default().insert(hash);
-        }
-        
-        clusters.into_values().collect()
+        bridges
     }
     
     fn compute_betweenness_centrality(
@@ -771,36 +883,6 @@ impl StrategicMatcher {
         bridges
     }
     
-    // Union-Find helpers
-    fn find(&self, x: MemberHash, parent: &HashMap<MemberHash, MemberHash>) -> MemberHash {
-        if parent[&x] == x {
-            x
-        } else {
-            self.find(parent[&x], parent)
-        }
-    }
-    
-    fn union(
-        &self,
-        x: MemberHash,
-        y: MemberHash,
-        parent: &mut HashMap<MemberHash, MemberHash>,
-        rank: &mut HashMap<MemberHash, usize>
-    ) {
-        let root_x = self.find(x, parent);
-        let root_y = self.find(y, parent);
-        
-        if root_x != root_y {
-            if rank[&root_x] < rank[&root_y] {
-                parent.insert(root_x, root_y);
-            } else if rank[&root_x] > rank[&root_y] {
-                parent.insert(root_y, root_x);
-            } else {
-                parent.insert(root_y, root_x);
-                rank.insert(root_x, rank[&root_x] + 1);
-            }
-        }
-    }
 }
 ```
 
@@ -1390,7 +1472,7 @@ DVR = 3 / 5 = 60% → 🟡 Developing
 ### Graph Theory
 - Cormen et al., "Introduction to Algorithms" (MST algorithms)
 - Brandes, "A Faster Algorithm for Betweenness Centrality" (2001)
-- Tarjan, "Efficiency of a Good But Not Linear Set Union Algorithm" (Union-Find)
+- Tarjan, "A Note on Finding the Bridges of a Graph" (Bridge Detection)
 
 ### Cryptography
 - Pinkas et al., "Scalable Private Set Intersection" (PSI-CA protocols)

@@ -38,7 +38,7 @@ alwaysApply: false
 **Major Architectural Discovery**: Freenet contracts require `ComposableState` trait for summary-delta synchronization.
 
 **References:**
-- [freenet-scaffold](https://github.com/freenet/freenet-scaffold) - Contract development utilities
+- [freenet-stdlib](https://docs.rs/freenet-stdlib) - ContractInterface trait for Wasm contracts
 - [Understanding Delta-Sync](https://freenet.org/news/summary-delta-sync/) - Synchronization approach
 - `.cursor/rules/freenet-contract-design.mdc` - Complete ComposableState patterns
 
@@ -132,11 +132,6 @@ async fn run_bot_event_loop(
                 handle_signal_command(message, &node).await?;
             }
             
-            // Periodic health check (heartbeat)
-            _ = health_check_interval.tick() => {
-                check_all_trust_standings(&node, &signal).await?;
-            }
-            
             // Graceful shutdown
             _ = shutdown_signal() => {
                 shutdown.shutdown();
@@ -167,8 +162,9 @@ impl ContractInterface for TrustNetworkContract {
         state: State<'static>,
         related: RelatedContracts<'static>,
     ) -> Result<ValidateResult, ContractError> {
-        // Deserialize and validate state
-        let trust_state: TrustNetworkState = serde_json::from_slice(&state)?;
+        // Deserialize from CBOR (NOT JSON — see .beads/serialization-format.bead)
+        let trust_state = TrustNetworkState::from_bytes(&state)
+            .map_err(|_| ContractError::InvalidState)?;
         trust_state.verify()?;
         Ok(ValidateResult::Valid)
     }
@@ -178,14 +174,16 @@ impl ContractInterface for TrustNetworkContract {
         state: State<'static>,
         data: Vec<UpdateData<'static>>,
     ) -> Result<UpdateModification<'static>, ContractError> {
-        let mut trust_state: TrustNetworkState = serde_json::from_slice(&state)?;
+        // Deserialize from CBOR
+        let mut trust_state = TrustNetworkState::from_bytes(&state)?;
         
         for update in data {
             // Apply delta (must be commutative!)
             trust_state.apply_delta(&update)?;
         }
         
-        let new_state = serde_json::to_vec(&trust_state)?;
+        // Serialize back to CBOR
+        let new_state = trust_state.to_bytes()?;
         Ok(UpdateModification::valid(State::from(new_state)))
     }
     
@@ -226,7 +224,7 @@ Trustless model is achievable. See `docs/spike/q2/RESULTS.md`.
 
 ### Group Configuration (Last-Write-Wins)
 ```rust
-use freenet_scaffold::ComposableState;
+use freenet_stdlib::prelude::*;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct GroupConfigV1 {
@@ -304,6 +302,109 @@ impl ComposableState for TrustNetworkState {
 
 **Key Change**: Verification uses **effective vouches** (total minus voucher-flaggers), not total vouches.
 ```
+
+## Two-Layer Architecture (Trust State + Persistence)
+
+### Layer 1: Trust State (Freenet-Native)
+
+The trust state (members, vouches, flags) is stored natively in Freenet using ComposableState:
+
+| Aspect | Specification |
+|--------|---------------|
+| Storage | BTreeSet (members), HashMap (vouches, flags) |
+| Sync | Native Freenet ComposableState |
+| Updates | Small deltas (~100-500 bytes), infrequent (human timescale) |
+| Security | Contract validates via `update_state()` + `validate_state()` |
+
+### Layer 2: Persistence Fragments (Reciprocal Persistence Network)
+
+Because Freenet data can fall off if no peers are subscribed, we add a persistence layer:
+
+| Aspect | Specification |
+|--------|---------------|
+| Purpose | Durability against Freenet data loss, server seizure protection |
+| Method | Encrypt full state, chunk into 64KB pieces, replicate 3x each |
+| Distribution | Deterministic per-chunk (rendezvous hashing, zero trust) |
+| Frequency | Same as trust state updates (infrequent) |
+
+### Freenet Native Capabilities (Leveraged)
+
+| Capability | How Stroma Uses It |
+|------------|-------------------|
+| Summary-Delta Sync | Trust state merges commutatively (Q1 validated) |
+| Subscription Trees | Bots subscribe to contract state changes |
+| Eventual Consistency | Trust state converges across network |
+| Small-World Topology | Efficient propagation of updates |
+
+### What Freenet Does NOT Provide (We Add)
+
+| Gap | Stroma's Solution |
+|-----|-------------------|
+| Persistence (data falls off) | Reciprocal Persistence Network |
+| Encryption at rest | Application-level AES-256-GCM |
+| Seizure resistance | Chunks distributed across N bots (deterministic) |
+| Member count privacy | Size buckets, encrypted attestations |
+
+### Delta Update Flow (Simplified)
+
+Since trust network changes are **infrequent** (human timescale), the model simplifies:
+
+```
+On each trust state change (vouch, flag, etc.):
+
+1. Apply delta to Freenet contract (native delta-sync)
+   - Small: ~100-500 bytes per operation
+   - Freenet handles propagation efficiently
+
+2. Encrypt current state snapshot
+   - AES-256-GCM with key derived from Signal ACI
+   - Include version number + previous hash
+
+3. Chunk encrypted state (64KB chunks)
+   - Split into N chunks (e.g., 500KB → 8 chunks)
+   - For each chunk: compute 2 holders via rendezvous hashing
+   - Distribute 2 replicas per chunk to computed holders
+
+4. Verify holders received chunks
+   - Holders sign attestations confirming receipt
+   - Anyone can compute holder identities (chunks still encrypted)
+   - Need ALL chunks + ACI key to reconstruct
+```
+
+### Why Full State (Not Delta Chunks)
+
+Analysis showed delta-chunking provides no benefit:
+
+| Question | Finding |
+|----------|---------|
+| Chunk deduplication? | Not useful - encryption uses nonces (different ciphertext each time) |
+| Delta deduplication? | Not useful - encryption uses nonces (different ciphertext) |
+| Registry deduplication? | Not useful - records change frequently, need stable addressing |
+
+**Decision:** Full state re-chunking because:
+- Updates are infrequent (human timescale) - complexity not justified
+- Encryption nonces produce different ciphertext each time (no dedup benefit)
+- Simplicity > optimization for rare operations
+
+### Single-Writer Model
+
+Each bot is the **authoritative writer** for its own trust contract:
+
+```rust
+pub struct EncryptedTrustNetworkState {
+    ciphertext: Vec<u8>,           // AES-256-GCM encrypted
+    signature: Signature,           // Ed25519 by bot keypair
+    bot_pubkey: PublicKey,         // Identifies authoritative writer
+    member_merkle_root: Hash,      // Public for ZK-proofs
+    version: u64,                  // Monotonic, anti-replay
+    previous_hash: Hash,           // Chain integrity
+    timestamp: Timestamp,
+}
+```
+
+**Peers validate via signature**, not content (they can't decrypt).
+
+**See**: `.beads/persistence-model.bead`, `.beads/contract-encryption.bead`
 
 ## Emergent Discovery (Shadow Beacons)
 

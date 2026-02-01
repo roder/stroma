@@ -203,7 +203,8 @@ async fn proposal_monitoring_stream(
 ```
 
 **Key Points:**
-- Check every 60 seconds (not too aggressive)
+- Use real-time state stream (NOT polling with sleep loops)
+- React to `StateChange::ProposalExpired` events immediately
 - Only check proposals that haven't been checked AND are expired
 - After timeout: check ONCE, record result, mark checked
 - Never check same proposal twice

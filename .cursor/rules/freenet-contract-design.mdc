@@ -11,9 +11,12 @@ alwaysApply: false
 Freenet contracts are **WebAssembly (Wasm) code that defines how to merge conflicting states** across a decentralized network. Unlike traditional databases, Freenet achieves eventual consistency through **summary-delta synchronization** rather than consensus algorithms.
 
 **References:**
-- [freenet-scaffold](https://github.com/freenet/freenet-scaffold) - Contract development utilities
+- [freenet-stdlib](https://docs.rs/freenet-stdlib) - ContractInterface trait for Wasm contracts
+- [freenet crate](https://docs.rs/freenet) - Node embedding (SimNetwork for testing, NodeConfig for production)
 - [Understanding Delta-Sync](https://freenet.org/news/summary-delta-sync/) - Deep dive on synchronization approach
 - [Freenet Manual](https://docs.freenet.org/components/contracts.html) - Official documentation
+
+**Note**: `freenet-scaffold` is outdated. Use `freenet-stdlib` for contracts and `freenet` for node embedding.
 
 ## Core Concepts
 
@@ -106,26 +109,22 @@ pub struct VouchGraph {
 
 #### Pattern 1: Set-Based Membership with Tombstones
 ```rust
-use freenet_scaffold::ComposableState;
+use freenet_stdlib::prelude::*;
 use std::collections::BTreeSet;
+use serde::{Serialize, Deserialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct MemberSet {
     active: BTreeSet<MemberHash>,      // Current members
-    removed: BTreeSet<MemberHash>,     // Tombstones (never re-add)
+    ejected: BTreeSet<MemberHash>,     // Ejected (can return with new vouches)
 }
 
-impl ComposableState for MemberSet {
-    type ParentState = TrustNetworkState;
-    type Summary = (BTreeSet<MemberHash>, BTreeSet<MemberHash>);
-    type Delta = MemberSetDelta;
-    type Parameters = Params;
-    
-    fn verify(&self, _parent: &Self::ParentState, _params: &Self::Parameters) -> Result<(), String> {
+impl MemberSet {
+    fn verify(&self) -> Result<(), String> {
         // Verify invariants
         for member in &self.active {
-            if self.removed.contains(member) {
-                return Err(format!("Member {} in both active and removed sets", member));
+            if self.ejected.contains(member) {
+                return Err(format!("Member {} in both active and ejected sets", member));
             }
         }
         Ok(())
@@ -286,28 +285,40 @@ impl ComposableState for GroupConfigV1 {
 }
 ```
 
-#### Pattern 4: Main State with #[composable] Macro
+#### Pattern 4: Main State Structure
 ```rust
-use freenet_scaffold_macro::composable;
+use freenet_stdlib::prelude::*;
+use serde::{Serialize, Deserialize};
 
-#[composable]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct TrustNetworkState {
-    // All fields must implement ComposableState
-    members: MemberSet,
-    vouches: VouchGraph,
-    flags: FlagGraph,      // Similar to VouchGraph
+    // Core trust data
+    members: BTreeSet<MemberHash>,
+    ejected: BTreeSet<MemberHash>,
+    vouches: HashMap<MemberHash, HashSet<MemberHash>>,
+    flags: HashMap<MemberHash, HashSet<MemberHash>>,
     config: GroupConfigV1,
     
+    // Schema version for migration
+    schema_version: u64,
+    
     // Federation hooks (Phase 4+, disabled in MVP)
-    #[cfg(feature = "federation")]
-    federation_contracts: FederationSet,
+    #[serde(default)]
+    federation_contracts: Vec<ContractHash>,
 }
 
-// The #[composable] macro auto-generates:
-// - TrustNetworkStateSummary
-// - TrustNetworkStateDelta
-// - ComposableState implementation for TrustNetworkState
+// Implement ContractInterface trait from freenet-stdlib
+impl ContractInterface for StromaContract {
+    fn validate_state(state: &[u8]) -> Result<ValidateResult, ContractError> {
+        let trust_state = TrustNetworkState::from_bytes(state)?;
+        trust_state.verify()?;
+        Ok(ValidateResult::Valid)
+    }
+    
+    fn update_state(state: &mut [u8], delta: &[u8]) -> Result<UpdateResult, ContractError> {
+        // ... apply delta commutatively
+    }
+}
 ```
 
 ## Merkle Tree Generation (On-Demand)
@@ -440,27 +451,33 @@ Start with **Approach 1** (client-side verification) for MVP. Reason:
 ### Complete Mergeable Schema
 
 ```rust
-use freenet_scaffold_macro::composable;
-use std::collections::{BTreeSet, HashMap};
+use freenet_stdlib::prelude::*;
+use serde::{Serialize, Deserialize};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
-// === Individual Composable Types ===
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct MemberSet {
-    active: BTreeSet<MemberHash>,
-    removed: BTreeSet<MemberHash>,  // Tombstones
-}
+// === Core State Types ===
+// Note: freenet-scaffold is outdated. Use plain structs with serde.
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct VouchGraph {
-    // member -> set of vouchers
-    vouches: HashMap<MemberHash, BTreeSet<MemberHash>>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct FlagGraph {
-    // member -> set of flaggers
-    flags: HashMap<MemberHash, BTreeSet<MemberHash>>,
+pub struct TrustNetworkState {
+    // Membership (set-based, commutative)
+    pub members: BTreeSet<MemberHash>,
+    pub ejected: BTreeSet<MemberHash>,  // Can return (not permanent tombstone)
+    
+    // Trust graph (set-based, commutative)
+    pub vouches: HashMap<MemberHash, HashSet<MemberHash>>,  // vouchee -> vouchers
+    pub flags: HashMap<MemberHash, HashSet<MemberHash>>,    // flagged -> flaggers
+    
+    // Config (last-write-wins with timestamp)
+    pub config: GroupConfigV1,
+    pub config_timestamp: u64,
+    
+    // Version tracking
+    pub schema_version: u64,
+    
+    // Federation (Phase 4+)
+    #[serde(default)]
+    pub federation_contracts: Vec<ContractHash>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -693,14 +710,21 @@ impl MeshHealthStatus {
 
 ## Contract Deployment
 
-### Using freenet-scaffold
+### Using freenet-stdlib
+
+**Note**: `freenet-scaffold` is outdated and not used. Use `freenet-stdlib` for contract development.
 
 ```toml
-# Cargo.toml
+# Cargo.toml for Wasm contract
+[package]
+name = "stroma-contract"
+version = "0.1.0"
+edition = "2021"
+
 [dependencies]
-freenet-scaffold = "0.2"
-freenet-scaffold-macro = "0.2"
+freenet-stdlib = { version = "0.1", features = ["contract"] }
 serde = { version = "1.0", features = ["derive"] }
+ciborium = "0.2"  # CBOR serialization
 
 [lib]
 crate-type = ["cdylib"]  # For Wasm compilation
@@ -880,35 +904,36 @@ fn validate_state(...) -> Result<ValidateResult, ContractError> {
 
 ## Best Practices
 
-### Field Order Matters
-From freenet-scaffold docs:
-> "Ensure that fields are ordered such that any field depending on another appears after it."
+### Use Set-Based State for Commutativity
+From Q1 Spike: Delta operations MUST be commutative. Use set-based state:
 
-**For Stroma**:
 ```rust
-#[composable]
+// ✅ GOOD: Set-based state (commutative)
 pub struct TrustNetworkState {
-    config: GroupConfigV1,    // First (no dependencies)
-    members: MemberSet,        // Second (depends on config)
-    vouches: VouchGraph,       // Third (depends on members)
-    flags: FlagGraph,          // Fourth (depends on members)
+    members: BTreeSet<MemberHash>,
+    ejected: BTreeSet<MemberHash>,
+    vouches: HashMap<MemberHash, HashSet<MemberHash>>,
+    flags: HashMap<MemberHash, HashSet<MemberHash>>,
+}
+
+// ❌ BAD: Order-dependent state
+pub struct TrustNetworkState {
+    members: Vec<MemberHash>,  // Order matters, not commutative
 }
 ```
 
-### Tombstones for Deletions
-Always use tombstones (grow-only sets) rather than actual deletions:
+### Ejected State (Not Tombstones)
+Per architectural decision: Use "ejected" state, not permanent tombstones.
+Members can return with new vouches. Flags persist across ejection.
 
 ```rust
-// ✅ GOOD: Tombstone prevents re-addition
-pub struct MemberSet {
-    active: BTreeSet<MemberHash>,
-    removed: BTreeSet<MemberHash>,  // Once removed, never re-add
+// ✅ GOOD: Ejected allows re-entry
+pub struct TrustNetworkState {
+    members: BTreeSet<MemberHash>,
+    ejected: BTreeSet<MemberHash>,  // Can return with new vouches
 }
 
-// ❌ BAD: Actual deletion allows re-addition
-pub struct MemberSet {
-    active: BTreeSet<MemberHash>,  // Just remove from set
-}
+// See: .beads/architectural-decisions-open.bead Decision #10
 ```
 
 ### Testing Merge Semantics (Q1 Validated Pattern)
@@ -975,8 +1000,11 @@ fn test_delta_commutativity() {
 
 ## References
 
-- [freenet-scaffold GitHub](https://github.com/freenet/freenet-scaffold)
+- [freenet-stdlib docs.rs](https://docs.rs/freenet-stdlib) - ContractInterface trait for Wasm contracts
+- [freenet crate docs.rs](https://docs.rs/freenet) - Node embedding (SimNetwork, NodeConfig)
 - [freenet-core GitHub](https://github.com/freenet/freenet-core)
 - [Understanding Delta-Sync](https://freenet.org/news/summary-delta-sync/)
 - [Freenet Manual - Contracts](https://docs.freenet.org/components/contracts.html)
 - [CRDT Resources](https://crdt.tech/) - Similar merge semantics
+
+**Note**: `freenet-scaffold` is outdated and not used in Stroma. Use `freenet-stdlib` for contracts.

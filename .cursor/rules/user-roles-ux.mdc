@@ -709,16 +709,20 @@ Standing: +2 (positive)
 #### `/mesh`
 **Who Can Use**: Any Member
 
-**Effect**: Shows network overview and your position
+**Effect**: Shows network overview including trust health and replication health
 
 **Bot Response** (1-on-1 PM):
 ```
 "🌐 Network Overview
 
 Total Members: 47
-Mesh Density: 38%
+Trust Health: 🟢 Healthy (DVR: 75%)
+Replication Health: 🟢 Replicated (3/3)
 Federation: Connected to 1 other group (Group-B)
-..."
+
+Use /mesh strength for trust details
+Use /mesh replication for durability details
+Use /mesh config for group settings"
 ```
 
 #### `/mesh strength`
@@ -740,6 +744,67 @@ Vouch Distribution:
   3+ vouches (Validators): ███████░░░░░ 25 members (53%)
 ..."
 ```
+
+#### `/mesh replication`
+**Who Can Use**: Any Member
+
+**Effect**: Shows Replication Health — whether trust network data is safely backed up
+
+**UX Note**: Answers the fundamental question: "Is my trust network data resilient?" Based on successful chunk distribution at write time, NOT continuous heartbeats. See `.beads/persistence-model.bead` for design rationale.
+
+**Bot Response** (1-on-1 PM) — Healthy:
+```
+"💾 Replication Health: 🟢 Replicated
+
+Last State Change: 3 hours ago (Alice joined)
+State Size: 512KB (8 chunks)
+Chunks Replicated: 8/8 (all 3 copies per chunk) ✅
+State Version: 47
+
+Recovery Confidence: ✅ Yes — all chunks available from multiple holders
+
+💡 Your trust network is resilient. If this bot goes offline,
+the state can be recovered from chunk holders."
+```
+
+**Bot Response** (1-on-1 PM) — Partial:
+```
+"💾 Replication Health: 🟡 Partial
+
+Last State Change: 1 hour ago (Bob vouched for Carol)
+State Size: 512KB (8 chunks)
+Chunks Replicated: 7/8 fully, 1/8 degraded (2/3 copies) ⚠️
+State Version: 48
+
+Recovery Confidence: ✅ Yes — all chunks recoverable
+
+⚠️ One chunk has degraded replication. Recovery is still possible,
+but resilience is reduced. Bot will retry distribution."
+```
+
+**Bot Response** (1-on-1 PM) — At Risk:
+```
+"💾 Replication Health: 🔴 At Risk
+
+Last State Change: 30 minutes ago (Dave flagged Eve)
+State Size: 512KB (8 chunks)
+Chunks Replicated: 7/8 fully, 1/8 at risk (≤1/3 copies) ❌
+State Version: 49
+
+Recovery Confidence: ❌ No — missing chunk cannot be recovered
+
+⛔ Trust network is NOT resilient. Bot is blocked from making
+further changes until replication succeeds. Retrying..."
+```
+
+**Replication Health States**:
+
+| Status | Chunk Health | Recovery | Write Permission |
+|--------|--------------|----------|------------------|
+| 🟢 **Replicated** | All chunks 3/3 | ✅ Guaranteed | Yes |
+| 🟡 **Partial** | Some chunks 2/3 | ✅ Possible | Yes |
+| 🔴 **At Risk** | Any chunk ≤1/3 | ❌ Not possible | **Blocked** |
+| 🔵 **Initializing** | Establishing | — | Limited |
 
 #### `/mesh config`
 **Who Can Use**: Any Member

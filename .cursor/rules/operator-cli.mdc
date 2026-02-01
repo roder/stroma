@@ -24,7 +24,7 @@ Commands:
   run          Run bot service (normal operation)
   status       Show bot health and embedded kernel status
   verify       Verify configuration and state integrity
-  export-pepper Export group pepper for backup (encrypted)
+  backup-store Export Signal protocol store for backup (encrypted)
   version      Show version information
   help         Show help message
 ```
@@ -51,13 +51,15 @@ stroma bootstrap \
 - `--group-name <NAME>` - Human-readable group name (required)
 
 **What It Does:**
-1. Generates group pepper (if not exists) and writes to pepper_file
-2. Initializes embedded Freenet kernel in dark mode
-3. Hashes all 3 seed member Signal IDs with pepper
+1. Initializes embedded Freenet kernel in dark mode
+2. Loads Signal ACI identity from protocol store
+3. Hashes all 3 seed member Signal IDs with ACI-derived key
 4. Creates initial vouch graph (triangle: all vouch each other)
 5. Deploys TrustNetworkState contract to embedded kernel
 6. Writes contract_key to config.toml
 7. Outputs confirmation and contract details
+
+**Note**: Group pepper is DEPRECATED. All cryptographic keys derived from Signal ACI identity.
 
 **Validation:**
 - Exactly 3 seed members (no more, no less)
@@ -79,7 +81,7 @@ Seed Members:
 - @Carol (hash: 0x789...)
 
 All members have 2 vouches each (initial triangle).
-Group pepper: /var/lib/stroma/pepper.secret (BACKUP THIS!)
+Signal store: /var/lib/stroma/signal-store/ (BACKUP THIS!)
 
 Ready to start bot service: stroma run --config /etc/stroma/config.toml
 ```
@@ -88,7 +90,7 @@ Ready to start bot service: stroma run --config /etc/stroma/config.toml
 - Signal authentication failure → clear error message with remediation
 - Invalid seed members count → show usage, require exactly 3
 - Config file not writable → show permission error
-- Pepper already exists → ask for confirmation before overwriting
+- Signal store already exists → ask for confirmation before overwriting
 
 ---
 
@@ -204,7 +206,7 @@ stroma verify --config <PATH>
 **Checks:**
 - Config file exists and is readable
 - All required fields present
-- Pepper file exists and is readable (600 permissions)
+- Signal protocol store exists and is readable (700 permissions on directory)
 - Contract key is valid format
 - Data directories exist and are writable
 - Signal phone number is valid format
@@ -214,7 +216,7 @@ stroma verify --config <PATH>
 ✅ Configuration Valid
 
 Config: /etc/stroma/config.toml
-Pepper: /var/lib/stroma/pepper.secret ✅ (600 permissions)
+Signal store: /var/lib/stroma/signal-store/ ✅ (700 permissions)
 Contract: 0x123abc... ✅ (valid format)
 Data dirs: ✅ (exist and writable)
 Signal phone: +1234567890 ✅
@@ -227,24 +229,24 @@ Ready to run: stroma run --config /etc/stroma/config.toml
 ❌ Configuration Invalid
 
 Config: /etc/stroma/config.toml ✅
-Pepper: /var/lib/stroma/pepper.secret ❌ (not found)
+Signal store: /var/lib/stroma/signal-store/ ❌ (not found)
 Contract: (empty) ⚠️  (run bootstrap first)
 Data dirs: /var/lib/stroma ❌ (not writable)
 
 Errors:
-- Pepper file not found: Generate with `openssl rand -base64 32 > pepper.secret`
+- Signal store not found: Run bootstrap or restore from backup
 - Data directory not writable: Check permissions with `ls -la /var/lib/stroma`
 ```
 
 ---
 
-### `export-pepper` - Backup Group Pepper
+### `backup-store` - Backup Signal Protocol Store
 
-**Purpose**: Export pepper for secure backup (encrypted)
+**Purpose**: Export Signal protocol store for secure backup (encrypted)
 
 **Usage:**
 ```bash
-stroma export-pepper \
+stroma backup-store \
   --config <PATH> \
   --output <FILE> \
   --encrypt
@@ -252,32 +254,32 @@ stroma export-pepper \
 
 **Options:**
 - `--config <PATH>` - Path to config.toml (required)
-- `--output <FILE>` - Output file for encrypted pepper (required)
+- `--output <FILE>` - Output file for encrypted backup (required)
 - `--encrypt` - Encrypt with passphrase (recommended)
 
 **Interactive:**
 ```bash
-stroma export-pepper --config config.toml --output pepper.backup --encrypt
+stroma backup-store --config config.toml --output signal-store.backup --encrypt
 
 Enter passphrase for encryption: ********
 Confirm passphrase: ********
 
-✅ Pepper exported and encrypted
+✅ Signal protocol store exported and encrypted
 
-Source: /var/lib/stroma/pepper.secret
-Output: pepper.backup (encrypted)
+Source: /var/lib/stroma/signal-store/
+Output: signal-store.backup (encrypted)
 
 Store this file in a secure location!
-To restore: stroma import-pepper --input pepper.backup
+To restore: stroma restore-store --input signal-store.backup
 ```
 
 **Warning:**
 ```
-⚠️  WARNING: The pepper is the cryptographic root of your group's identity.
+⚠️  WARNING: The Signal protocol store IS your cryptographic identity.
 
-- If lost: All member hashes become invalid (breaks group)
-- If leaked: Group privacy could be compromised
-- If changed: All existing members cannot be re-hashed
+- If lost: ALL trust map data is unrecoverable (no decryption possible)
+- If leaked: Group privacy could be compromised (identity masking key exposed)
+- ACI identity is used for: encryption, signing, AND identity masking
 
 BACKUP SECURELY AND NEVER LOSE THIS FILE!
 ```
@@ -441,8 +443,8 @@ enum Commands {
         config: PathBuf,
     },
     
-    /// Export group pepper for backup
-    ExportPepper {
+    /// Backup Signal protocol store (contains all cryptographic identity)
+    BackupStore {
         /// Path to config file
         #[arg(short, long)]
         config: PathBuf,
@@ -478,8 +480,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Verify { config } => {
             cli::utils::verify(config).await?;
         }
-        Commands::ExportPepper { config, output, encrypt } => {
-            cli::utils::export_pepper(config, output, encrypt).await?;
+        Commands::BackupStore { config, output, encrypt } => {
+            cli::utils::backup_store(config, output, encrypt).await?;
         }
     }
     
@@ -494,10 +496,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 // ✅ GOOD: Clear, actionable, helpful
 return Err(format!(
-    "Pepper file not found: {}\n\n\
-     Generate with: openssl rand -base64 32 > pepper.secret\n\
-     Or run: stroma bootstrap --config config.toml ...",
-    pepper_path.display()
+    "Signal protocol store not found: {}\n\n\
+     Run: stroma bootstrap --config config.toml ...\n\
+     Or restore from backup: stroma restore-store --input backup.tar.gz",
+    store_path.display()
 ).into());
 
 // ✅ GOOD: Explains why and how to fix
@@ -534,7 +536,7 @@ println!("✅ Bootstrap Complete");
 eprintln!("❌ Configuration Invalid");
 
 // ⚠️  Warning
-println!("⚠️  Pepper file has insecure permissions (should be 600)");
+println!("⚠️  Signal store has insecure permissions (should be 700 on directory)");
 
 // 🔍 Info
 println!("🔍 Verifying configuration...");
@@ -673,7 +675,7 @@ Commands:
   run            Run bot service (normal operation)
   status         Show bot health and embedded kernel status
   verify         Verify configuration and state integrity
-  export-pepper  Export group pepper for backup
+  backup-store   Backup Signal protocol store (CRITICAL for recovery)
   version        Show version information
   help           Print this message or the help of the given subcommand(s)
 

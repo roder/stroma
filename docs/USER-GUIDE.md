@@ -173,13 +173,13 @@ Same info as `/status` but for specified member (privacy settings may apply)
 
 Returns:
 - Total members
-- Mesh health score
+- Trust health (DVR percentage)
+- Replication health (chunk status)
 - Federation status
-- Your position in network
-- Network health summary
+- Subcommand hints (`/mesh strength`, `/mesh replication`, `/mesh config`)
 
 #### `/mesh strength`
-**Shows detailed network health metrics**
+**Shows detailed network health metrics (trust)**
 
 Returns:
 - Distinct Validator Ratio (DVR) percentage
@@ -187,6 +187,31 @@ Returns:
 - Distinct Validators count vs maximum possible
 - Vouch distribution histogram
 - Improvement suggestions
+
+#### `/mesh replication`
+**Shows replication health (is data resilient?)**
+
+Returns:
+- Replication status (🟢 Replicated / 🟡 Partial / 🔴 At Risk / 🔵 Initializing)
+- Last state change timestamp
+- Fragments distributed (e.g., "3/3")
+- Recovery confidence (Yes/No)
+- Write permission status
+
+Example response:
+```
+"💾 Replication Health: 🟢 Replicated
+
+Last State Change: 3 hours ago (Alice joined)
+State Size: 512KB (8 chunks)
+Chunks Replicated: 8/8 (all 3/3 copies) ✅
+State Version: 47
+
+Recovery Confidence: ✅ Yes — all chunks available from multiple holders
+
+💡 Your trust network is resilient. If this bot goes offline,
+the state can be recovered from chunk holders."
+```
 
 #### `/mesh config`
 **Shows current group configuration**
@@ -424,6 +449,12 @@ Yes, the `/status` command shows your vouchers (as hashes, not full identities f
 
 ### How do I build more trust?
 Ask for strategic introductions via `/mesh` suggestions, or ask members to vouch for you (`/vouch @You`).
+
+### What does "Replication Health: 🟢 Replicated" mean?
+This means your trust network data is safely backed up across multiple peers. If the bot crashes, the data can be fully recovered. Check with `/mesh replication` for details.
+
+### What if Replication Health shows 🔴 At Risk?
+This means the trust data couldn't be fully replicated after the last change. The bot is blocked from making further changes until replication succeeds. This is automatic — the bot will keep retrying. If it persists, there may be network connectivity issues.
 
 ### Why isn't cross-cluster required in my small group?
 Cross-cluster vouching is enforced once your group has 2+ distinct clusters (typically 6+ members). During bootstrap phase (3-5 members), everyone is in the same cluster, so cross-cluster isn't possible yet. As your group grows and develops separate "friend circles," the bot will start enforcing cross-cluster vouches to prevent infiltration.
