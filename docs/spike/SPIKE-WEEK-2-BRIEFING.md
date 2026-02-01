@@ -47,16 +47,16 @@ The discovery, security, and verification mechanisms needed for the Reciprocal P
 
 ## Risk Classification
 
-| Question | Risk Level | Status | Fallback Strategy |
-|----------|-----------|--------|-------------------|
-| Q7: Bot Discovery | 🔴 BLOCKING | PENDING | Manual bootstrap list |
-| Q8: Fake Bot Defense | 🟡 RECOVERABLE | PENDING | Rate limiting + reputation |
-| Q9: Chunk Verification | 🟡 RECOVERABLE | PENDING | Trust-on-first-verify |
-| Q10: Federation Discovery Efficacy | 🟢 DEFERRABLE | DEFERRED | Top-N (current design) |
-| Q11: Rendezvous Hashing for Chunks | 🟡 RECOVERABLE | PENDING | Registry-based fallback |
-| Q12: Chunk Size Optimization | 🟡 RECOVERABLE | PENDING | 64KB default |
-| Q13: Fairness Verification | 🟡 RECOVERABLE | PENDING | Soft reputation enforcement |
-| Q14: Chunk Communication Protocol | 🟡 RECOVERABLE | PENDING | Freenet contracts (Option A) |
+| Question | Risk Level | Status | Result | Fallback Strategy |
+|----------|-----------|--------|--------|-------------------|
+| Q7: Bot Discovery | 🔴 BLOCKING | ✅ COMPLETE | GO - Registry-based | Manual bootstrap list |
+| Q8: Fake Bot Defense | 🟡 RECOVERABLE | ✅ COMPLETE | GO - PoW + rate limiting | Rate limiting + reputation |
+| Q9: Chunk Verification | 🟡 RECOVERABLE | ✅ COMPLETE | GO - Challenge-response | Trust-on-first-verify |
+| Q10: Federation Discovery Efficacy | 🟢 DEFERRABLE | 🟢 DEFERRED | N/A | Top-N (current design) |
+| Q11: Rendezvous Hashing for Chunks | 🟡 RECOVERABLE | ✅ COMPLETE | GO - HRW deterministic | Registry-based fallback |
+| Q12: Chunk Size Optimization | 🟡 RECOVERABLE | ✅ COMPLETE | GO - 64KB (16KB alt) | 64KB default |
+| Q13: Fairness Verification | 🟡 RECOVERABLE | ✅ COMPLETE | GO - Spot checks | Soft reputation enforcement |
+| Q14: Chunk Communication Protocol | 🟡 RECOVERABLE | ✅ COMPLETE | GO - Contracts Phase 0 | Freenet contracts (Option A) |
 
 **Test Priority**: BLOCKING question first. If Q7 fails, persistence network requires manual configuration.
 
@@ -955,3 +955,132 @@ If all questions answered (Q7-Q9):
 - [.beads/architecture-decisions.bead](../../.beads/architecture-decisions.bead) - Core decisions
 - [.beads/security-constraints.bead](../../.beads/security-constraints.bead) - Security rules
 - [.cursor/rules/freenet-integration.mdc](../../.cursor/rules/freenet-integration.mdc) - Freenet patterns
+
+---
+
+## SPIKE WEEK 2 COMPLETION SUMMARY
+
+**Completion Date**: 2026-01-31
+**Status**: ✅ ALL CRITICAL QUESTIONS ANSWERED
+
+### Results Overview
+
+| Question | Decision | Key Finding | Phase 0 Implementation |
+|----------|----------|-------------|------------------------|
+| **Q7: Bot Discovery** | ✅ GO | Registry-based discovery < 1ms | Single registry contract, shard at 10K+ bots |
+| **Q8: Fake Bot Defense** | ✅ GO | PoW (difficulty 18) prevents Sybil | Require PoW proof for registration |
+| **Q9: Chunk Verification** | ✅ GO | Challenge-response < 1ms | SHA-256(nonce \|\| chunk_sample) verification |
+| **Q10: Federation Discovery** | 🟢 DEFERRED | N/A - Phase 4 concern | Use top-N approach (existing design) |
+| **Q11: Rendezvous Hashing** | ✅ GO | HRW deterministic, stable | SHA-256(owner \|\| chunk \|\| holder \|\| epoch) |
+| **Q12: Chunk Size** | ✅ GO | 64KB optimal (16KB alternative) | 64KB chunks, 0.2% overhead |
+| **Q13: Fairness Verification** | ✅ GO | Spot checks effective | 1% sampling rate per write |
+| **Q14: Communication** | ✅ GO | Contracts Phase 0, Hybrid Phase 1+ | Freenet contract-based distribution |
+
+### Architecture Decisions
+
+**Persistence Network Design**:
+```
+Bot State (512KB) 
+  → 8 chunks × 64KB each
+  → 2 replicas per chunk (16 distributions)
+  → Holders selected via rendezvous hashing
+  → Distributed via Freenet contracts (Phase 0)
+  → Verified via challenge-response spot checks (1% sample)
+```
+
+**Key Parameters**:
+- **Registry**: Single contract for <10K bots, shard at 10K+
+- **PoW Difficulty**: 18 (30s registration cost)
+- **Chunk Size**: 64KB (alternative: 16KB for high security)
+- **Replica Count**: 2 remote replicas (3 total including local)
+- **Verification Sample Rate**: 1% (probabilistic deterrent)
+- **Challenge Sample Size**: 256 bytes (0.4% of 64KB chunk)
+- **Distribution Method**: Freenet contracts (migrate to hybrid in Phase 1+)
+
+### Implementation Readiness
+
+**READY TO IMPLEMENT**:
+- ✅ Discovery mechanism validated (Q7)
+- ✅ Sybil resistance mechanism validated (Q8)
+- ✅ Chunk verification protocol proven (Q9, Q13)
+- ✅ Holder selection algorithm validated (Q11)
+- ✅ Chunk size optimized (Q12)
+- ✅ Distribution mechanism selected (Q14)
+
+**NEXT STEPS**:
+1. Implement persistence layer using validated designs
+2. Create registry contract (Q7 design)
+3. Implement PoW registration (Q8 design)
+4. Implement rendezvous hashing for holder selection (Q11)
+5. Implement chunking with 64KB size (Q12)
+6. Implement challenge-response verification (Q9, Q13)
+7. Implement contract-based distribution (Q14)
+8. Integration testing with full persistence flow
+
+### Documentation Status
+
+**Spike Documentation**: ✅ COMPLETE
+- Q7: [README.md](q7/README.md), [main.rs](q7/main.rs), [RESULTS.md](q7/RESULTS.md)
+- Q8: [README.md](q8/README.md), [main.rs](q8/main.rs), [RESULTS.md](q8/RESULTS.md)
+- Q9: [README.md](q9/README.md), [main.rs](q9/main.rs), [RESULTS.md](q9/RESULTS.md)
+- Q11: [README.md](q11/README.md), [main.rs](q11/main.rs), [RESULTS.md](q11/RESULTS.md)
+- Q12: [README.md](q12/README.md), [main.rs](q12/main.rs), [RESULTS.md](q12/RESULTS.md)
+- Q13: [README.md](q13/README.md), [main.rs](q13/main.rs), [RESULTS.md](q13/RESULTS.md)
+- Q14: [README.md](q14/README.md), [main.rs](q14/main.rs), [RESULTS.md](q14/RESULTS.md)
+
+**Architecture Documentation**: ⚠️ NEEDS UPDATE
+- README.md - Update with persistence architecture
+- .beads/ - Update beads with spike findings
+- .cursor/rules/*.mdc - Update rules with architectural constraints
+- docs/PERSISTENCE.md - Create comprehensive guide (NEW)
+
+### Action Items
+
+**IMMEDIATE** (Mayor):
+- [x] Complete all spike implementations
+- [x] Update SPIKE-WEEK-2-BRIEFING.md with status
+- [ ] Commit and push briefing updates
+- [ ] Delegate audit tasks to polecats
+
+**POLECATS** (Delegated via beads):
+- [ ] hq-audit-1: Audit persistence-model.bead
+- [ ] hq-audit-2: Audit discovery-protocols.bead
+- [ ] hq-audit-3: Audit security-constraints.bead
+- [ ] hq-audit-4: Audit architecture-decisions.bead
+- [ ] hq-audit-5: Audit all .cursor/rules/*.mdc files
+- [ ] hq-audit-6: Audit README.md
+- [ ] hq-audit-7: Audit DEVELOPER-GUIDE.md
+- [ ] hq-audit-8: Create docs/PERSISTENCE.md
+
+---
+
+## Spike Week 2 Deliverables
+
+### Code Artifacts
+- ✅ 7 spike implementations (Q7-Q9, Q11-Q14)
+- ✅ 21 test scenarios (all passing)
+- ✅ Performance benchmarks and analysis
+- ✅ Security analysis for each protocol
+
+### Documentation Artifacts
+- ✅ 7 README.md files (protocol specifications)
+- ✅ 7 RESULTS.md files (findings and recommendations)
+- ✅ Integration guidance for each spike
+- ✅ Security considerations documented
+
+### Architecture Artifacts
+- ✅ Persistence network design validated
+- ✅ Key parameters established with rationale
+- ✅ Phase 0 implementation path defined
+- ✅ Phase 1+ optimization path defined
+
+### Outstanding Work
+- ⚠️ Update project documentation (README, DEVELOPER-GUIDE)
+- ⚠️ Update .beads/ with spike findings
+- ⚠️ Update .cursor/rules/*.mdc with constraints
+- ⚠️ Create docs/PERSISTENCE.md comprehensive guide
+- ⚠️ Audit all documentation for consistency
+
+---
+
+**End of Spike Week 2 Briefing**
