@@ -9,12 +9,13 @@
 ## Core Dependencies
 
 ### Required Crates
-- `ring`: For HMAC generation and cryptographic operations
+- `ring`: For HMAC-SHA256 identity masking with ACI-derived key
 - `zeroize`: For memory hygiene (purge raw buffers immediately after hashing)
-- `arkworks`: For ZK-SNARK circuit implementation
+- `winterfell`: For STARK proof generation and verification (not arkworks)
+- `hkdf`: For key derivation from Signal ACI identity
 - `libsignal-service-rs`: For Signal protocol integration
-- `sled`: For encrypted local cache (if needed)
 - `freenet-stdlib`: For Freenet Wasm contract development (ContractInterface trait)
+- **See**: `.beads/technology-stack.bead` for complete dependency list
 
 ### Supply Chain Security
 - **Mandatory**: Use `cargo-deny` for dependency auditing
@@ -27,19 +28,35 @@
 
 ### Identity Masking Pattern
 ```rust
-use ring::digest;
+use ring::hmac;
+use hkdf::Hkdf;
+use sha2::Sha256;
 use zeroize::Zeroize;
+use libsignal_protocol::IdentityKeyPair;
 
-pub fn mask_identity(signal_id: &str, pepper: &[u8]) -> [u8; 32] {
-    let mut hasher = digest::Context::new(&digest::SHA256);
-    hasher.update(pepper);
-    hasher.update(signal_id.as_bytes());
-    let hash = hasher.finish();
+/// Derive HMAC key from Signal ACI identity (replaces deprecated group pepper)
+fn derive_identity_masking_key(aci_identity: &IdentityKeyPair) -> [u8; 32] {
+    let hk = Hkdf::<Sha256>::new(
+        Some(b"stroma-identity-masking-v1"),
+        aci_identity.private_key().serialize().as_slice()
+    );
+    let mut key = [0u8; 32];
+    hk.expand(b"hmac-sha256-key", &mut key).unwrap();
+    key
+}
+
+pub fn mask_identity(signal_id: &str, aci_identity: &IdentityKeyPair) -> [u8; 32] {
+    let key_bytes = derive_identity_masking_key(aci_identity);
+    let key = hmac::Key::new(hmac::HMAC_SHA256, &key_bytes);
+    let tag = hmac::sign(&key, signal_id.as_bytes());
     let mut result = [0u8; 32];
-    result.copy_from_slice(hash.as_ref());
+    result.copy_from_slice(tag.as_ref());
+    // Note: key_bytes is stack-allocated and will be overwritten
     result
 }
 ```
+
+**See**: `.beads/security-constraints.bead` for complete pattern with zeroization
 
 ### Unsafe Code Policy
 - **Audit all `unsafe` blocks**: Review manually before merging

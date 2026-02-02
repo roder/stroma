@@ -1,6 +1,6 @@
 ---
 description: Vetting and admission protocols for Stroma trust network
-globs: **/*vetting*.rs,**/*admission*.rs,**/*matchmaker*.rs
+globs: **/*vetting*.rs,**/*admission*.rs,**/*matchmaker*.rs,**/*ejection*.rs
 alwaysApply: false
 ---
 
@@ -8,28 +8,50 @@ alwaysApply: false
 
 **Canonical Source**: `.beads/vetting-protocols.bead`
 
-Complete vetting protocols, admission flow, Blind Matchmaker logic, health monitoring, and architectural principles are defined in the vetting-protocols bead. Read that file for complete specifications.
+## Related Beads (Read These)
+
+| Topic | Bead |
+|-------|------|
+| Terminology | `terminology.bead` |
+| Cross-Cluster | `cross-cluster-requirement.bead` |
+| Bootstrap | `bootstrap-seed.bead` |
+| Blind Matchmaker | `blind-matchmaker-dvr.bead` |
+| Mesh Health | `mesh-health-metric.bead` |
+| Security/Ejection | `security-constraints.bead` |
+| Decisions | `architectural-decisions-open.bead` |
 
 ## Core Invariant
 
 Signal Group = Fully Vetted Members Only
 
-Cross-cluster vouches required:
-- Bridge (2 vouches): 2 different clusters
-- Validator (3+): min(vouch_count, available_clusters)
+## Member Lifecycle
 
-## Admission Flow
+```
+Outside → Invitee (1 vouch) → Bridge (2 vouches) → Validator (3+)
+                                    ↓
+                              Ejected (flags persist)
+                                    ↓
+                              Re-entry possible (need 2+ new vouches)
+```
 
-1. **Invitation**: `/invite @user` (counts as first vouch)
-2. **Matching**: Bot selects validator from different cluster
-3. **Introduction**: 3-person chat for vetting
-4. **Admission**: After 2 cross-cluster vouches verified in Freenet
+## Ejection Triggers (Two Independent)
 
-## Key Principles
+1. `Standing < 0` (Effective_Vouches - Regular_Flags < 0)
+2. `Effective_Vouches < 2` (voucher left OR voucher flagged)
 
-- Waiting room = outside Signal group (not separate chat)
-- Invitees = 1 vouch, OUTSIDE group
-- Bridges = 2 vouches, IN group
-- Validators = 3+ vouches, IN group
-- ANY Member can vouch
-- Immediate ejection when threshold violated
+**No Grace Periods**: Immediate ejection when threshold violated.
+
+## Re-Admission
+
+- Previous flags persist (not reset)
+- Need enough new vouches to overcome flags
+- Example: 3 flags = need 4+ vouches for positive standing
+- No cooldown
+
+## Anti-Patterns
+
+- ❌ Restricting vouching to Validators only
+- ❌ Adding grace periods or warnings
+- ❌ Polling instead of state stream
+- ❌ Storing Signal IDs in cleartext
+- ❌ Persisting vetting data after admission

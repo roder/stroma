@@ -2,6 +2,8 @@
 
 **Type**: Gastown Agent Task  
 **Created**: 2026-01-28  
+**Updated**: 2026-02-01  
+**Status**: ✅ Phase 1 COMPLETE, Phase 2+ PENDING  
 **Assigned To**: Agent-Signal (libsignal expertise)  
 **Priority**: High (blocks proposal system)
 
@@ -13,137 +15,30 @@ Add Signal protocol v8 poll support to libsignal-service-rs via fork and upstrea
 
 ---
 
-## Context
+## Current State (2026-02-01)
 
-**Current State:**
-- Signal protocol v8 includes polls (PollCreate, PollTerminate, PollVote)
-- Signal-Desktop, Android, iOS support polls
-- libsignal-service-rs is on protocol v7 (missing polls)
-- Stroma needs polls for anonymous voting in proposal system
+**Fork Status**: ✅ COMPLETE
+- Repository: `github.com/roder/libsignal-service-rs`
+- Branch: `feature/protocol-v8-polls-fixed`
+- Commits:
+  - `91805d38c` - feat: Add protocol v8 poll support
+  - `532a8d64e` - test: Add unit tests for protocol v8 poll types
 
-**Why Critical:**
-- Anonymity: Polls don't expose who voted what
-- Multiple choices: Better than binary reactions
-- Native UX: Signal's built-in poll UI
+**Implemented Protocol v8 Types:**
+- ✅ `PollCreate` (field 24) - question, options, allowMultiple
+- ✅ `PollTerminate` (field 25) - targetSentTimestamp
+- ✅ `PollVote` (field 26) - targetAuthorAciBinary, targetSentTimestamp, optionIndexes, voteCount
+- ✅ `PinMessage` (field 27) - with duration options
+- ✅ `UnpinMessage` (field 28)
+- ✅ `ProtocolVersion::POLLS = 8`, `CURRENT = 8`
+
+**Tests**: ✅ Unit tests added for all poll types (serialization roundtrip)
 
 ---
 
-## Tasks
+## Remaining Tasks
 
-### Phase 1: Fork and Implement (Weeks 1-2)
-
-**Task 1.1: Create Fork**
-```fish
-# Fork on GitHub
-gh repo fork whisperfish/libsignal-service-rs --clone=true
-
-# Setup remotes
-cd libsignal-service-rs
-git remote add upstream https://github.com/whisperfish/libsignal-service-rs
-git checkout -b feature/protocol-v8-polls
-```
-
-**Task 1.2: Copy Poll Definitions**
-
-Source: Signal-Desktop `protos/SignalService.proto`
-
-Add to libsignal-service-rs `protobuf/SignalService.proto`:
-
-```protobuf
-message DataMessage {
-  // ... existing fields 1-22 ...
-  optional GiftBadge giftBadge = 22;
-  
-  // ADD THESE:
-  optional PollCreate pollCreate = 24;
-  optional PollTerminate pollTerminate = 25;
-  optional PollVote pollVote = 26;
-  optional PinMessage pinMessage = 27;
-  optional UnpinMessage unpinMessage = 28;
-  // NEXT ID: 29
-}
-
-// ADD THESE MESSAGE TYPES:
-
-message PollCreate {
-  optional string question = 1;
-  optional bool allowMultiple = 2;
-  repeated string options = 3;
-}
-
-message PollTerminate {
-  optional uint64 targetSentTimestamp = 1;
-}
-
-message PollVote {
-  optional bytes targetAuthorAciBinary = 1;
-  optional uint64 targetSentTimestamp = 2;
-  repeated uint32 optionIndexes = 3;
-  optional uint32 voteCount = 4;
-}
-
-message PinMessage {
-  optional bytes targetAuthorAciBinary = 1;
-  optional uint64 targetSentTimestamp = 2;
-  oneof pinDuration {
-    uint32 pinDurationSeconds = 3;
-    bool pinDurationForever = 4;
-  }
-}
-
-message UnpinMessage {
-  optional bytes targetAuthorAciBinary = 1;
-  optional uint64 targetSentTimestamp = 2;
-}
-```
-
-**Task 1.3: Update Protocol Version**
-```protobuf
-enum ProtocolVersion {
-  // ... existing ...
-  PAYMENTS = 7;
-  POLLS = 8;           // ADD THIS
-  CURRENT = 8;         // CHANGE from 7 to 8
-}
-```
-
-**Task 1.4: Build and Test**
-```fish
-cargo build
-cargo test
-
-# Test against Signal staging servers
-cargo run --example create_poll  # If example doesn't exist, create it
-```
-
-**Task 1.5: Commit to Fork**
-```fish
-git add protobuf/SignalService.proto
-git commit -m "feat: Add protocol v8 poll support (PollCreate, PollTerminate, PollVote)
-
-Adds Signal protocol v8 poll support to bring libsignal-service-rs
-to parity with Signal-Desktop.
-
-Changes:
-- Add PollCreate message type (field 24)
-- Add PollTerminate message type (field 25)  
-- Add PollVote message type (field 26)
-- Add PinMessage and UnpinMessage (fields 27-28)
-- Update protocol version from v7 to v8
-
-Copied from Signal-Desktop protos/SignalService.proto.
-
-Enables anonymous voting for group decision-making.
-
-Testing:
-- Builds successfully
-- Protobuf generation works
-- No breaking changes to existing API"
-
-git push origin feature/protocol-v8-polls
-```
-
-### Phase 2: Use Fork in Stroma (Week 2)
+### Phase 2: Use Fork in Stroma
 
 **Task 2.1: Patch Stroma's Cargo.toml**
 ```toml
@@ -156,7 +51,7 @@ presage = { git = "https://github.com/whisperfish/presage" }
 # Use our fork with poll support
 libsignal-service = { 
     git = "https://github.com/roder/libsignal-service-rs", 
-    branch = "feature/protocol-v8-polls" 
+    branch = "feature/protocol-v8-polls-fixed" 
 }
 
 # Required for presage
@@ -173,7 +68,7 @@ cargo build
 # Should use our forked libsignal-service-rs with polls
 ```
 
-### Phase 2.5: Validate Poll Lifecycle (Week 2-3)
+### Phase 2.5: Validate Poll Lifecycle
 
 **CRITICAL**: Protobuf tests verify wire format, but end-to-end validation required before upstream PR.
 
@@ -200,7 +95,7 @@ cargo build
 
 ---
 
-### Phase 3: Submit Upstream PR (Week 3+, AFTER validation)
+### Phase 3: Submit Upstream PR (AFTER validation)
 
 **BLOCKING**: Do NOT submit PR until Phase 2.5 validation complete.
 
@@ -298,7 +193,7 @@ impl Manager<S, Registered> {
         ).await
     }
     
-    /// Get poll results (aggregated, anonymous)
+    /// Get poll results
     pub async fn get_poll_results(
         &self,
         poll_message_timestamp: u64,
@@ -322,26 +217,26 @@ impl Manager<S, Registered> {
 
 ## Timeline
 
-| Phase | Duration | Blocking? |
-|-------|----------|-----------|
-| Fork & implement | 1-2 weeks | No (use fork) |
-| Use in Stroma | Immediate | No |
-| PR review | 2-8 weeks | No (use fork) |
-| Upstream merge | Unknown | No (fork works) |
-
-**Total Time to Stroma Having Polls**: 1-2 weeks (via fork)
+| Phase | Duration | Status |
+|-------|----------|--------|
+| Fork & implement | 1-2 weeks | ✅ COMPLETE |
+| Use in Stroma | Immediate | ⏳ PENDING |
+| Validate end-to-end | 1 week | ⏳ PENDING |
+| Submit upstream PR | After validation | ⏳ PENDING |
+| PR review | 2-8 weeks | ⏳ PENDING |
+| Upstream merge | Unknown | ⏳ PENDING |
 
 ---
 
 ## Success Criteria
 
 **libsignal-service-rs fork:**
-- [ ] Protocol v8 protobuf definitions added
-- [ ] Builds successfully
-- [ ] Tests pass
-- [ ] No breaking changes
-- [ ] Tested against Signal staging servers
-- [ ] PR submitted to Whisperfish
+- [x] Protocol v8 protobuf definitions added
+- [x] Builds successfully
+- [x] Tests pass (unit tests for poll types)
+- [x] No breaking changes
+- [ ] Tested against Signal staging servers (Phase 2.5)
+- [ ] PR submitted to Whisperfish (Phase 3)
 
 **Stroma integration:**
 - [ ] Cargo.toml patches fork
@@ -360,25 +255,30 @@ impl Manager<S, Registered> {
 
 ## Gastown Agent Guidance
 
-**Agent-Signal Tasks:**
-1. Fork libsignal-service-rs on GitHub (roder/libsignal-service-rs)
-2. Create branch: `feature/protocol-v8-polls`
-3. Copy poll protobuf definitions from Signal-Desktop
-4. Update protocol version
-5. Build and verify
-6. Push to fork
-7. Submit PR to upstream
-8. Update Stroma's Cargo.toml to use fork
+**Phase 1 COMPLETE** (Agent-Signal):
+- [x] Fork libsignal-service-rs on GitHub (roder/libsignal-service-rs)
+- [x] Create branch: `feature/protocol-v8-polls-fixed`
+- [x] Copy poll protobuf definitions from Signal-Desktop
+- [x] Update protocol version to v8
+- [x] Build and verify
+- [x] Add unit tests for poll types
+- [x] Push to fork
+
+**Next Steps** (Agent-Signal or Mayor):
+1. Update Stroma's Cargo.toml to use fork (branch: `feature/protocol-v8-polls-fixed`)
+2. Validate end-to-end poll lifecycle with real Signal group
+3. Submit PR to upstream Whisperfish
 
 **Do NOT wait for upstream merge** - use fork immediately.
 
 **Testing Checklist:**
-- [ ] cargo build succeeds
-- [ ] cargo test passes
-- [ ] Protobuf files compile correctly
-- [ ] No breaking API changes
-- [ ] Can create PollCreate message
-- [ ] Can create PollVote message
+- [x] cargo build succeeds
+- [x] cargo test passes
+- [x] Protobuf files compile correctly
+- [x] No breaking API changes
+- [x] Can create PollCreate message
+- [x] Can create PollVote message
+- [ ] End-to-end validation with real Signal group (Phase 2.5)
 
 **Storage Security Requirement:**
 
@@ -398,10 +298,70 @@ When implementing Presage integration in Stroma:
 
 ## References
 
+- **Our Fork**: https://github.com/roder/libsignal-service-rs (branch: `feature/protocol-v8-polls-fixed`)
 - Signal-Desktop protos: https://github.com/signalapp/Signal-Desktop/blob/main/protos/SignalService.proto
-- libsignal-service-rs: https://github.com/whisperfish/libsignal-service-rs
+- libsignal-service-rs upstream: https://github.com/whisperfish/libsignal-service-rs
 - Presage: https://github.com/whisperfish/presage
 - Investigation: docs/POLL-INVESTIGATION-RESULTS.md (will be removed after this task)
+
+## Implementation Details (Committed)
+
+**Commits in fork:**
+```
+532a8d64e test: Add unit tests for protocol v8 poll types
+91805d38c feat: Add protocol v8 poll support
+```
+
+**Proto changes** (in `protobuf/SignalService.proto`):
+```protobuf
+message DataMessage {
+  // ... existing fields ...
+  optional PollCreate pollCreate = 24;
+  optional PollTerminate pollTerminate = 25;
+  optional PollVote pollVote = 26;
+  optional PinMessage pinMessage = 27;
+  optional UnpinMessage unpinMessage = 28;
+  // NEXT ID: 29
+
+  message PollCreate {
+    optional string question = 1;
+    optional bool allowMultiple = 2;
+    repeated string options = 3;
+  }
+
+  message PollTerminate {
+    optional uint64 targetSentTimestamp = 1;
+  }
+
+  message PollVote {
+    optional bytes targetAuthorAciBinary = 1;
+    optional uint64 targetSentTimestamp = 2;
+    repeated uint32 optionIndexes = 3;
+    optional uint32 voteCount = 4;
+  }
+
+  message PinMessage {
+    optional bytes targetAuthorAciBinary = 1;
+    optional uint64 targetSentTimestamp = 2;
+    oneof pinDuration {
+      uint32 pinDurationSeconds = 3;
+      bool pinDurationForever = 4;
+    }
+  }
+
+  message UnpinMessage {
+    optional bytes targetAuthorAciBinary = 1;
+    optional uint64 targetSentTimestamp = 2;
+  }
+}
+
+enum ProtocolVersion {
+  // ...
+  PAYMENTS = 7;
+  POLLS = 8;
+  CURRENT = 8;
+}
+```
 
 ---
 

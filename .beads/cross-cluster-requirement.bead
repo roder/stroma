@@ -41,12 +41,12 @@ fn should_require_cross_cluster(state: &TrustNetworkState) -> bool {
 
 **Key insight**: No member count threshold needed. The algorithm detects actual social structure:
 - 10 tight friends = 1 cluster → no cross-cluster needed
-- 6 from 2 friend groups = 2 clusters → cross-cluster required
+- 6 from 2 peer groups = 2 clusters → cross-cluster required
 
 **Grandfathering**: When trigger activates, existing members are NOT required to get new vouches. Only new admissions must meet cross-cluster requirement.
 
 **Announcement**: When triggered, bot notifies group:
-> "📊 Network update: Your group now has distinct sub-communities! Cross-cluster vouching is now required for new members. This means new members need vouches from people in different friend circles. Existing members are grandfathered."
+> "📊 Network update: Your group now has distinct sub-communities! Cross-cluster vouching is now required for new members. This means new members need vouches from people in different peer circles. Existing members are grandfathered."
 
 **Timing**: Run cluster detection on every membership change (fast: <1ms per Q3 Spike).
 
@@ -101,8 +101,8 @@ on_vouch(invitee, voucher_2):
 
 ### Human Protocol (Without Bot)
 When someone is being vetted:
-1. Note which "friend circle" the inviter belongs to
-2. The second voucher MUST be from a different friend circle
+1. Note which "peer circle" the inviter belongs to
+2. The second voucher MUST be from a different peer circle
 3. If unsure, ask: "How do you know [inviter]?" — if the answer involves the same social context, find someone else
 
 ### Edge Cases
@@ -153,7 +153,7 @@ When someone is being vetted:
 Your invitation counts as the first vouch. You MUST introduce the invitee to someone from a different part of the network for their second vouch. You cannot just ask your close friends to vouch — that won't count.
 
 ### For Potential Members
-You need vouches from two people who know you from different contexts to join. If you only know people in one friend circle, you'll need to meet someone from another part of the network.
+You need vouches from two people who know you from different contexts to join. If you only know people in one peer circle, you'll need to meet someone from another part of the network.
 
 ### For Existing Members
 You must maintain vouches from at least 2 different clusters at all times. Additional vouches from any cluster strengthen your standing, but if you ever drop to vouches from only 1 cluster, you'll need a cross-cluster replacement to stay.

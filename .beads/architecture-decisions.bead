@@ -88,10 +88,12 @@ Since Q4 chose bot-side verification: **Store outcomes only** (not proofs)
 
 **Bot Discovery (Q7 Spike Finding):**
 Persistence network uses registry-based discovery for bot coordination:
-- **Single registry contract** (Phase 0, <10K bots): All Stroma bots register in well-known contract
-- **Discovery latency**: <1ms (100 bots validated)
+- **Registry Metadata Contract**: Well-known address, tracks shard count and global epoch
+- **Single registry** (Phase 0, <5K bots): All Stroma bots register in single shard
+- **Discovery latency**: <1ms per shard (100 bots validated)
 - **Registration overhead**: ~100 bytes per bot
-- **Sharding trigger**: 10K+ bots → 256 shards (by contract hash prefix)
+- **Fibonacci-triggered scaling**: 5K → 8K → 13K → 21K → 34K... bot thresholds
+- **Powers-of-2 shard counts**: 1 → 2 → 4 → 8 → 16... shards
 - **No heartbeat mechanism**: Stale bots detected during chunk distribution failures
 
 **Key Implications**:
@@ -393,7 +395,7 @@ Bot State (512KB encrypted)
 **Key Parameters (All Spike-Validated)**:
 - **Chunk size**: 64KB (Q12) - balance distribution vs coordination
 - **Replication factor**: 3 (1 local + 2 remote) - resilience requirement
-- **Discovery mechanism**: Registry-based (Q7) - <1ms latency, <10K bots unsharded
+- **Discovery mechanism**: Registry-based (Q7) - <1ms latency, Fibonacci-triggered sharding
 - **Anti-Sybil**: PoW difficulty 18 (Q8) - ~30s registration cost
 - **Holder selection**: Rendezvous hashing (Q11) - deterministic, stable under churn
 - **Verification protocol**: Challenge-response (Q9) - <1ms, SHA-256(nonce || sample)
@@ -432,9 +434,10 @@ Bot State (512KB encrypted)
 - N≥5: Recommended for production
 
 **Scalability Path**:
-- Phase 0: Single registry (<10K bots)
-- Phase 1+: Sharded registry (256 shards by contract hash prefix)
-- Sharding trigger: Approaching 10K bots
+- Phase 0: Single registry (<5K bots)
+- Fibonacci-triggered splits: 5K → 8K → 13K → 21K → 34K... bot thresholds
+- Powers-of-2 shard counts: 1 → 2 → 4 → 8 → 16 → 32 → 64 → 128 → 256...
+- Vector clocks for dual-read migration (24h transition window)
 - Theoretical capacity: Millions of bots (O(N) registry, deterministic holders)
 
 **See**: `.beads/persistence-model.bead` for complete specification and `docs/spike/SPIKE-WEEK-2-BRIEFING.md` for validation results.
@@ -644,20 +647,26 @@ Signal messages are authenticated (SenderCertificate validates against trust roo
 ```
 src/
 ├── main.rs                          # Event loop, CLI entry point
+├── cli/                             # Operator CLI (service management only)
+│   ├── mod.rs
+│   ├── link_device.rs               # Link to Signal account (one-time)
+│   ├── run.rs                       # Run bot service (awaits member-initiated bootstrap)
+│   └── utils.rs                     # status, verify, backup-store, version
 ├── kernel/                          # Identity Masking
 │   ├── mod.rs
 │   ├── hmac.rs                      # HMAC-based hashing with ACI-derived key
 │   └── zeroize_helpers.rs           # Immediate buffer purging
 ├── freenet/                         # Freenet Integration
 │   ├── mod.rs
-│   ├── node.rs                      # freenet-core node management
+│   ├── node.rs                      # Embedded Freenet kernel management
 │   ├── contract.rs                  # Wasm contract deployment
 │   └── state_stream.rs              # Real-time state monitoring
 ├── signal/                          # Signal Integration
 │   ├── mod.rs
 │   ├── bot.rs                       # Bot authentication & commands
 │   ├── group.rs                     # Group management (add/remove)
-│   └── pm.rs                        # 1-on-1 PM handling
+│   ├── pm.rs                        # 1-on-1 PM handling
+│   └── bootstrap.rs                 # Member-initiated bootstrap (/create-group, /add-seed)
 ├── crypto/                          # ZK-Proofs & Trust Verification
 │   ├── mod.rs
 │   ├── stark_circuit.rs             # STARK circuit for vouching
@@ -696,7 +705,9 @@ src/
 **Key Design**: `persistence/` ensures trust state durability even if Freenet data falls off.
 
 **Key Design Notes:**
-- Added `cli/` module for operator interface
+- `cli/` module for operator interface (service management only, no trust ops)
+- `signal/bootstrap.rs` handles member-initiated bootstrap via Signal commands
+- Bootstrap is NOT a CLI command - members control seed group via `/create-group`, `/add-seed`
 - `freenet/node.rs` uses `freenet` crate (NodeConfig::build())
 - `freenet/contract.rs` uses `freenet-stdlib` (ContractInterface trait)
 - No separate freenet-core service management
@@ -745,7 +756,9 @@ pub struct FlagGraph {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct GroupConfigV1 {
-    config_change_threshold: f32,
+    config_change_threshold: f32,       // % of votes to pass
+    min_quorum: f32,                    // % of members who must vote
+    default_poll_timeout: Duration,     // e.g., 48h
     min_intersection_density: f32,
     min_vouch_threshold: usize,
     validator_percentile: u32,
@@ -861,7 +874,9 @@ impl TrustNetworkState {
 ```rust
 pub struct GroupConfig {
     // Consensus thresholds
-    config_change_threshold: f32,      // e.g., 0.70 (70%) - used for ALL decisions
+    config_change_threshold: f32,      // e.g., 0.70 (70%) - % of votes to pass
+    min_quorum: f32,                   // e.g., 0.50 (50%) - % of members who must vote
+    default_poll_timeout: Duration,    // e.g., 48h - default if not specified
     // NOTE: No ejection_appeal_threshold - appeals handled via re-invite path (outside group)
     
     // Federation parameters (configured but not used in MVP)
@@ -899,7 +914,7 @@ Contracts implement the ContractInterface trait from freenet-stdlib:
 3. **delta()**: Calculate minimal changes needed to sync
 4. **apply_delta()**: Apply changes to current state (merge logic)
 
-**See**: `.cursor/rules/freenet-contract-design.mdc` for complete patterns and examples.
+**See**: `.beads/freenet-contract-design.bead` for complete patterns and examples.
 
 ## Development Workflow
 
@@ -1009,33 +1024,42 @@ ENTRYPOINT ["/stroma"]
 
 ### CLI Interface (Operator UX)
 
-**Bootstrap Commands:**
+**Device Linking (One-Time):**
 ```bash
-stroma bootstrap \
-  --signal-phone "+1234567890" \
-  --seed-members @Alice,@Bob,@Carol \
-  --group-name "My Network"
+stroma link-device --device-name "Stroma Bot"
+# Displays QR code for operator to scan with Signal app
 ```
 
 **Runtime Commands:**
 ```bash
 stroma run --config /etc/stroma/config.toml
+# Bot starts in "awaiting bootstrap" state if no group exists
+# Bootstrap is member-initiated via Signal commands
 ```
 
 **Utility Commands (Service Management Only):**
 ```bash
 stroma status          # Show bot + freenet health
 stroma verify          # Verify config integrity
-stroma backup-identity # Backup Signal store (encrypted)
+stroma backup-store    # Backup Signal store (encrypted)
 stroma version         # Version info
 ```
 
+**Member-Initiated Bootstrap (Via Signal, NOT CLI):**
+```
+Member → Bot (PM): /create-group "My Network"
+Member → Bot (PM): /add-seed @Bob
+Member → Bot (PM): /add-seed @Carol
+# Bot completes bootstrap automatically
+```
+
 **Forbidden Commands (Operator Least Privilege):**
+- ❌ No `bootstrap --seed-members` (member-initiated only)
 - ❌ No `add-member` or `remove-member` (automatic only)
 - ❌ No `override-ejection` or `bypass-protocol`
 - ❌ No trust operations (vouch, flag, etc.)
 
-**Design**: CLI is for service management only, not trust operations.
+**Design**: CLI is for service management only, not trust operations. Bootstrap is member-controlled.
 
 ## Architectural Decision #12: Shadow Handover Protocol (Phase 4+)
 

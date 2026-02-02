@@ -8,25 +8,36 @@ alwaysApply: false
 
 **Canonical Source**: `.beads/testing-standards.bead`
 
-Complete TDD workflow, nextest configuration, deterministic testing patterns, security testing requirements, and domain-specific test patterns are defined in the testing-standards bead. Read that file for complete specifications.
+Complete TDD workflow, property-based testing, integration testing patterns, and domain-specific test requirements are defined in the testing-standards bead. Read that file for complete specifications.
 
-## Key Requirements
+## Core Requirements
 
-- **Framework**: `cargo-nextest`
-- **Coverage**: 100% required
-- **Determinism**: Fixed seeds, fixed data, mock time
-- **Security**: Property-based tests for crypto operations
+| Requirement | Status |
+|-------------|--------|
+| TDD (test-first) | REQUIRED for entire project |
+| 100% code coverage | REQUIRED (enforced in CI) |
+| Property-based tests | REQUIRED for trust-critical code |
+| Deterministic tests | REQUIRED (fixed seeds, mock time) |
 
-## TDD Cycle
+## Property-Based Testing (CRITICAL)
 
-1. Red: Write failing test
-2. Green: Minimal code to pass
-3. Refactor: Improve with tests green
-4. Repeat
+Use `proptest` crate for all trust-critical code:
+- HMAC determinism
+- Standing calculation
+- Ejection invariants
+- Vouch/flag commutativity
+
+## Integration Testing
+
+| Layer | Signal | Freenet |
+|-------|--------|---------|
+| Unit | MockSignalClient | `Executor::new_mock_in_memory()` |
+| Integration | Mock + Recording | `SimNetwork` |
+| E2E | Manual (pre-release) | Local node |
 
 ## Anti-Patterns
 
+- ❌ Tests requiring real Signal accounts
+- ❌ Skipping property tests for trust-critical code
+- ❌ Direct Signal/Freenet calls without trait abstraction
 - ❌ Non-deterministic tests (random data, real time)
-- ❌ Incomplete coverage (missing error paths)
-- ❌ Production-like test data (`+15551234567`)
-- ❌ Vague test names (`test_hmac`)

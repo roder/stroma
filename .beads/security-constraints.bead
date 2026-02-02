@@ -1,7 +1,7 @@
 # Security Constraints (IMMUTABLE)
 
 **Status**: Pinned - Cannot be modified without explicit unpinning ceremony
-**Last Updated**: 2026-01-31
+**Last Updated**: 2026-02-01
 **Applies To**: All agents, all code, all phases
 
 ## Critical Principle
@@ -100,6 +100,29 @@ impl SensitiveData {
 - Memory dump MUST contain ONLY hashed identifiers
 - No cleartext Signal IDs in core dumps, crash logs, or debug output
 - Test with intentional panic to verify zeroization
+
+### Vote Privacy (Persistence Constraint)
+
+**⚠️ CRITICAL**: Individual votes MUST NEVER be persisted.
+
+**What MAY be persisted (Freenet contract):**
+- ✅ Aggregate vote counts (approve: N, reject: M)
+- ✅ Proposal outcome (passed/failed)
+- ✅ Quorum/threshold status
+
+**What MUST NEVER be persisted:**
+- ❌ Who voted for what
+- ❌ Individual vote records
+- ❌ Voter identities (hashed or cleartext)
+- ❌ Vote timestamps per voter
+
+**Rationale:**
+- Signal shows votes to group members during poll (ephemeral, E2E encrypted)
+- Stroma stores only outcomes in Freenet (permanent, potentially seizable)
+- Protects members from retroactive identification of dissent
+- Even with state seizure, voting history cannot be reconstructed
+
+**See**: `.beads/voting-mechanism.bead` for full voting design
 
 ## 2. Trust Model Enforcement
 
@@ -402,6 +425,42 @@ async fn bot_event_loop(freenet: &FreenetClient, signal: &SignalClient) {
 - Group size and topology (not relationship details)
 - Vouch counts (not who vouched for whom in cleartext)
 
+### Secondary Threats (Complete Enumeration)
+
+Beyond trust map seizure, these threats are documented with defenses:
+
+| # | Threat | Defense | See |
+|---|--------|---------|-----|
+| 1 | Sybil Attack | Cross-cluster vouching mandatory | `cross-cluster-requirement.bead` |
+| 2 | Infiltration | Distributed vetting, immediate ejection | § 2 Trust Model |
+| 3 | Vouch Bombing | Vouch invalidation (flag invalidates vouch) | § 2 Trust Model |
+| 4 | Coordinated Infiltration | Cross-cluster + DVR optimization | `blind-matchmaker-dvr.bead` |
+| 5 | Persistence Peer Attacks | Encryption + challenge-response | § 11 Persistence |
+| 6 | Freenet Data Loss | Reciprocal Persistence Network | `persistence-model.bead` |
+| 7 | Registry DDoS | PoW + rate limiting + sharding | `persistence-model.bead` |
+| 8 | Signal Storage Exposure | Custom `StromaProtocolStore` | § 10 Bot Storage |
+| 9 | Supply Chain Attack | cargo-deny, cargo-crev, reproducible builds | § 9 Supply Chain |
+| 10 | Signal Protocol Dependency | Inherit Signal's security model | Accepted risk |
+| 11 | Operator Account Compromise | Operator OPSEC, revocable linking | Accepted risk |
+| 12 | Bot-Level DoS | Rate limiting (Phase 1+) | To be implemented |
+| 13 | Social Engineering | Cross-cluster, DVR, vigilance | Accepted risk |
+| 14 | Poll/Voting Manipulation | Timeouts, quorum, one-vote-per-account | `voting-mechanism.bead` |
+| 15 | Traffic/Timing Analysis | Freenet onion routing | Accepted risk |
+
+### Accepted Risks (Explicit)
+
+These risks are **accepted** as outside Stroma's control:
+
+| Risk | Rationale |
+|------|-----------|
+| Operator OPSEC failures | Operator security practices outside Stroma's control |
+| Signal protocol vulnerabilities | Inherit Signal's security model (well-audited) |
+| Social engineering attacks | Fundamentally a human problem, not solvable by technology |
+| Sophisticated traffic analysis | Requires global network adversary; Freenet provides baseline protection |
+| Supply chain attacks on operators | Operators must verify binary authenticity |
+
+**Full threat model documentation**: `docs/THREAT-MODEL.md`
+
 ### All Operations in 1-on-1 PMs (MANDATORY)
 - ❌ **NEVER** expose vetting operations in group chat
 - ❌ **NEVER** announce who vouched for whom
@@ -409,12 +468,18 @@ async fn bot_event_loop(freenet: &FreenetClient, signal: &SignalClient) {
 - ✅ **ALWAYS** use hashes (not names) in group announcements
 
 ### Trust Map Never in Seizeable Form
-- ❌ **NEVER** reveal who vouched for whom in cleartext
+- ❌ **NEVER** reveal who vouched for whom to third parties
 - ❌ **NEVER** expose relationship structure to external parties
-- ❌ **NEVER** allow queries like "who vouched for X?" with cleartext
+- ❌ **NEVER** allow queries like "who vouched for X?" about OTHER members
+- ❌ **NEVER** persist vouch/flag relationships in bot storage (resolve at display time)
 - ✅ Bot knows topology for optimization (Blind Matchmaker)
 - ✅ Bot does NOT store relationship content or reasons
 - ✅ Bot operates on hashed identifiers only
+- ✅ User MAY query their OWN vouchers/flaggers (self-query, no new info leaked)
+
+**Self-Query Exception**: A user can see who vouched for them via `/status` because they already participated in those conversations. The threat model protects against *third-party* discovery, not self-knowledge. Display names are resolved ephemerally from Signal API, never persisted.
+
+**See**: `.beads/architectural-decisions-open.bead` § 8 for full rationale
 
 ## 7. Node Type Definitions (CRITICAL TERMINOLOGY)
 
@@ -530,12 +595,15 @@ EOF
 
 ### Message Persistence Violations (BLOCK)
 
+**CRITICAL**: SqliteStore CANNOT be used for message storage or anything that would help identify bot users (members). Server seizure would expose the entire membership.
+
 - ❌ **NEVER** persist message history to disk
 - ❌ **NEVER** store vetting conversation content
-- ❌ **NEVER** use default Presage SqliteStore (stores ALL messages)
+- ❌ **NEVER** use default Presage SqliteStore (stores ALL messages and contacts)
 - ❌ **NEVER** store invitation context or relationship reasons
 - ❌ **NEVER** persist Signal IDs in database (even encrypted)
 - ❌ **NEVER** maintain contact database on disk
+- ❌ **NEVER** use ANY storage mechanism that links Signal IDs to group membership
 
 ### Correct Architecture: Minimal Custom Store
 

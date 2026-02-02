@@ -31,7 +31,7 @@ This guide explains Stroma's architecture, technical stack, and development work
 - **Contract Development** (`freenet-stdlib`) - ContractInterface trait for Wasm contracts
 - **STARKs** (winterfell) - No trusted setup, post-quantum secure
 - **On-Demand Merkle Trees** - Generated from BTreeSet for ZK-proofs (not stored)
-- **Commutative Deltas** - Contract's responsibility (Q1 validated) - set-based state with tombstones
+- **Commutative Deltas** - Contract's responsibility (Q1 validated) - set-based state with ejected set
 - **Contract Validation** - Trustless model (Q2 validated) - `update_state()` and `validate_state()` can reject invalid deltas/state
 - **Vouch Invalidation** - Logical consistency (can't both trust and distrust)
 - **Minimum Spanning Tree** - Optimal mesh topology with maximum anonymity (see [ALGORITHMS.md](ALGORITHMS.md))
@@ -49,7 +49,7 @@ This guide explains Stroma's architecture, technical stack, and development work
 | **ZK-Proofs** | winterfell | STARKs (no trusted setup) |
 | **Identity Hashing** | ring (HMAC-SHA256) | Group-scoped masking |
 | **Memory Hygiene** | zeroize | Immediate buffer purging |
-| **Signal Integration** | libsignal-service-rs | Protocol-level Signal |
+| **Signal Integration** | Presage + libsignal-service-rs | High-level API + protocol (custom store, no SqliteStore) |
 | **Async Runtime** | tokio 1.35+ | Event-driven execution |
 | **CLI Framework** | clap 4+ | Operator interface |
 | **Supply Chain** | cargo-deny, cargo-crev | Security audits |
@@ -78,20 +78,27 @@ This guide explains Stroma's architecture, technical stack, and development work
 ```
 src/
 ├── main.rs                          # Event loop, CLI entry point
+├── cli/                             # Operator CLI (service management only)
+│   ├── mod.rs
+│   ├── link_device.rs               # Link to Signal account (one-time)
+│   ├── run.rs                       # Run bot service (awaits member-initiated bootstrap)
+│   └── utils.rs                     # status, verify, backup-store, version
 ├── kernel/                          # Identity Masking
 │   ├── mod.rs
 │   ├── hmac.rs                      # HMAC-based hashing with ACI-derived key
 │   └── zeroize_helpers.rs           # Immediate buffer purging
 ├── freenet/                         # Freenet Integration
 │   ├── mod.rs
-│   ├── node.rs                      # freenet-core node management
+│   ├── node.rs                      # Embedded Freenet kernel management
 │   ├── contract.rs                  # Wasm contract deployment
 │   └── state_stream.rs              # Real-time state monitoring
 ├── signal/                          # Signal Integration
 │   ├── mod.rs
+│   ├── store.rs                     # StromaProtocolStore (custom, NOT SqliteStore)
 │   ├── bot.rs                       # Bot authentication & commands
 │   ├── group.rs                     # Group management (add/remove)
-│   └── pm.rs                        # 1-on-1 PM handling
+│   ├── pm.rs                        # 1-on-1 PM handling
+│   └── bootstrap.rs                 # Member-initiated bootstrap (/create-group, /add-seed)
 ├── crypto/                          # ZK-Proofs & Trust Verification
 │   ├── mod.rs
 │   ├── stark_circuit.rs             # STARK circuit for vouching
@@ -799,13 +806,15 @@ async fn main() -> Result<(), Error> {
     let cli = Cli::parse();
     
     match cli.command {
-        Commands::Run { config, .. } => {
-            run_bot_service(config).await?;
+        Commands::LinkDevice { device_name, .. } => {
+            link_secondary_device(device_name).await?;
         }
-        Commands::Bootstrap { .. } => {
-            // Bootstrap handled separately
+        Commands::Run { config, bootstrap_contact, .. } => {
+            // Bot handles bootstrap via Signal commands (/create-group, /add-seed)
+            // NOT via CLI - see .beads/bootstrap-seed.bead
+            run_bot_service(config, bootstrap_contact).await?;
         }
-        // ... other commands
+        // ... other commands (status, verify, backup-store, version)
     }
     
     Ok(())
@@ -894,7 +903,7 @@ async fn poll_state() {
 }
 ```
 
-### Proposal System & Anonymous Voting
+### Proposal System & Voting
 
 **Governance**: Bot is Signal admin (technical) but execute-only (no decision power)
 
@@ -972,7 +981,9 @@ async fn create_proposal(
 ```rust
 async fn check_proposal_results(
     manager: &Manager,
+    freenet: &FreenetClient,
     proposal: &ActiveProposal,
+    config: &GroupConfig,
 ) -> Result<ProposalResult> {
     // Fetch aggregated poll results from Signal
     // NOTE: Signal provides only vote counts, NOT who voted what
@@ -984,21 +995,47 @@ async fn check_proposal_results(
     let reject_count = poll_data.options[1].vote_count;   // 👎
     let total_votes = approve_count + reject_count;
     
+    // Get total members from Freenet (source of truth)
+    let total_members = freenet.get_member_count().await?;
+    
     if total_votes == 0 {
-        return Ok(ProposalResult::NoVotes);
+        return Ok(ProposalResult {
+            approved: false,
+            quorum_met: false,
+            threshold_met: false,
+            approve_count: 0,
+            reject_count: 0,
+            approval_ratio: 0.0,
+            participation_rate: 0.0,
+        });
     }
     
-    let approval_ratio = approve_count as f32 / total_votes as f32;
+    // Quorum: % of members who voted (abstainers count against quorum)
+    let participation_rate = total_votes as f32 / total_members as f32;
+    let quorum_met = participation_rate >= config.min_quorum;
     
+    // Threshold: % of votes cast that approved (abstainers don't affect threshold)
+    let approval_ratio = approve_count as f32 / total_votes as f32;
+    let threshold_met = approval_ratio >= config.config_change_threshold;
+    
+    // BOTH quorum AND threshold must be met
     Ok(ProposalResult {
-        approved: approval_ratio >= proposal.threshold,
+        approved: quorum_met && threshold_met,
+        quorum_met,
+        threshold_met,
         approve_count,
         reject_count,
         approval_ratio,
+        participation_rate,
         // NO individual votes - preserves anonymity
     })
 }
 ```
+
+**Result Messaging:**
+- If `!quorum_met`: "Proposal failed: Quorum not met (X% participated, Y% required)"
+- If `quorum_met && !threshold_met`: "Proposal failed: Threshold not met (X% approved, Y% required)"
+- If `approved`: "Proposal passed: X% approved (quorum: Y%, threshold: Z%)"
 
 **Execute Approved Actions:**
 
@@ -1051,7 +1088,7 @@ async fn proposal_monitoring_stream(
                 // Fetch proposal details
                 let proposal = freenet.get_proposal(proposal_id).await?;
                 
-                // Fetch poll results (anonymous)
+                // Fetch poll results
                 let result = check_proposal_results(manager, &proposal).await?;
                 
                 // Execute if approved
@@ -1198,25 +1235,8 @@ let store = StromaProtocolStore::new(encrypted_file, passphrase)?;
 let manager = Manager::with_store(store, options).await?;
 ```
 
-**Why This Wasn't Caught Earlier:**
 
-Our security-guardrails.mdc focused on:
-- Identity masking (application layer)
-- Zeroization (memory layer)
-- Operator privileges (access control layer)
 
-**But missed:**
-- Signal client's persistence layer
-- Message history storage threat
-- Difference between "protocol state" vs "message content"
-
-**Gap**: Rules said "don't store Signal IDs" but didn't extend to "don't store message content" or specifically address what bot's Signal client persists.
-
-**This gap is now fixed** in:
-- `.beads/security-constraints.bead` section 10
-- `.beads/technology-stack.bead`
-- `.cursor/rules/security-guardrails.mdc`
-- This document
 
 ### Threat Model
 
@@ -1478,208 +1498,48 @@ fn test_no_cleartext_in_memory_dump() {
 
 ## CI/CD Pipeline
 
-### Required Checks (Must Pass)
+**Canonical Source**: [SECURITY-CI-CD.md](SECURITY-CI-CD.md)
 
-```yaml
-# .github/workflows/ci.yml
-name: CI
+All PRs to `main` are automatically blocked if they violate security constraints. See SECURITY-CI-CD.md for complete workflow details.
 
-on: [push, pull_request]
+### Required Checks (Must ALL Pass)
 
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.93
-      - run: cargo test --all-features
-      
-  clippy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.93
-      - run: cargo clippy -- -D warnings
-      
-  security:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: cargo install cargo-deny
-      - run: cargo deny check
-      
-  coverage:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: cargo install cargo-llvm-cov
-      - run: cargo llvm-cov nextest --html
+| Check | Tool | Requirement |
+|-------|------|-------------|
+| Supply chain | `cargo-deny` | No vulnerabilities, no banned crates |
+| Static analysis | CodeQL | No high/critical findings |
+| Linting | `cargo clippy` | Zero warnings (`-D warnings`) |
+| Formatting | `cargo fmt` | No deviations |
+| Test coverage | `cargo-llvm-cov` | **100% mandatory** |
+| Binary size | musl build | No bloat (10% / 1MB limit) |
+| Security constraints | grep patterns | No cleartext IDs, no SqliteStore |
+| Unsafe blocks | grep patterns | All must have `// SAFETY:` comments |
+
+### Running Locally (Before PR)
+
+**Quick check (2-3 minutes):**
+```bash
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo deny check
 ```
 
-## Outstanding Questions (Spike Week)
+**Full check (5-10 minutes):**
+```bash
+cargo llvm-cov nextest --all-features   # 100% coverage required
+cargo build --release --target x86_64-unknown-linux-musl
+```
 
-### Spike Week 1 (Q1-Q6) — ✅ ALL COMPLETE
+### Critical Violations (Auto-Reject)
 
-All Spike Week 1 questions answered. Trust network primitives validated.
+- ❌ Cleartext Signal IDs (use `mask_identity()` + zeroize)
+- ❌ `presage-store-sqlite` (use `StromaProtocolStore`)
+- ❌ Grace periods in ejection logic
+- ❌ Unsafe blocks without `// SAFETY:` comments
+- ❌ Test coverage below 100%
 
-### Spike Week 2 (Q7-Q14) — ✅ ALL COMPLETE
+See [SECURITY-CI-CD.md](SECURITY-CI-CD.md) for fix patterns and detailed guidance.
 
-All Spike Week 2 questions answered. Persistence network validated with concrete parameters:
-
-**Validated Parameters:**
-- **PoW Difficulty**: 18 (production), ~30s registration (~60s on RPi 4)
-- **Chunk Size**: 64KB (0.2% overhead, 32% distribution)
-- **Verification**: Challenge-response, 128 bytes overhead
-- **Spot Check Rate**: 1% sample per write
-- **Distribution**: Contract-based (Phase 0), Hybrid P2P (Phase 1+)
-- **Holder Selection**: Rendezvous hashing (deterministic, uniform)
-
-**Implementation Status**: Ready for Phase 0 development
-
-**See**: [SPIKE-WEEK-2-BRIEFING.md](spike/SPIKE-WEEK-2-BRIEFING.md) for complete analysis
-
-### Q1: Freenet Conflict Resolution — ✅ COMPLETE (GO)
-**Answer**: Freenet applies all deltas via commutative set union. Use set-based state (BTreeSet) with tombstones.
-
-**See**: [spike/q1/RESULTS.md](spike/q1/RESULTS.md)
-
-### Q2: Contract Validation — ✅ COMPLETE (GO)
-**Answer**: Contracts CAN enforce trust invariants via `update_state()` and `validate_state()`. Trustless model viable.
-
-**See**: [spike/q2/RESULTS.md](spike/q2/RESULTS.md)
-
-### Q3: Cluster Detection — ✅ COMPLETE (GO)
-**Answer**: Bridge Removal algorithm (Tarjan's) distinguishes tight clusters. Standard Union-Find fails (1 cluster), Bridge Removal correctly separates A, B, and bridge Charlie.
-
-**See**: [spike/q3/RESULTS.md](spike/q3/RESULTS.md)
-
-### Q4: STARK Verification in Wasm — ✅ COMPLETE (PARTIAL)
-**Answer**: winterfell Wasm is experimental. **Bot-side verification** for Phase 0 (native winterfell). Can migrate to contract-side when Wasm improves.
-
-**See**: [spike/q4/RESULTS.md](spike/q4/RESULTS.md)
-
-### Q5: Merkle Tree Performance — ✅ COMPLETE (GO)
-**Answer**: 1000 members = **0.09ms** (1000x faster than threshold). **Generate on demand** — no caching needed.
-
-| Members | Root (ms) |
-|---------|-----------|
-| 100 | 0.01 |
-| 1000 | 0.09 |
-| 5000 | 0.45 |
-
-**See**: [spike/q5/RESULTS.md](spike/q5/RESULTS.md)
-
-### Q6: Proof Storage Strategy — ✅ COMPLETE
-**Answer**: **Store outcomes only** (not proofs). Proofs are ephemeral (10-100KB). Contract stores "Alice vouched for Bob", not the proof.
-
-**See**: [spike/q6/RESULTS.md](spike/q6/RESULTS.md)
-
-### Q7: Bot Discovery — ✅ COMPLETE (GO)
-**Answer**: Registry contract at well-known address (`hash("stroma-persistence-registry-v1")`). Discovery < 1ms, registration ~100 bytes overhead.
-
-**Implementation**: Single registry for < 10K bots, shard at scale.
-
-**See**: [spike/q7/RESULTS.md](spike/q7/RESULTS.md)
-
-### Q8: Fake Bot Defense — ✅ COMPLETE (GO)
-**Answer**: Multi-layer defense: **PoW (difficulty 18)** + **Reputation (7-day minimum)** + **Capacity verification (100MB)**. Detection rate > 90%, false positive < 1%.
-
-**Cost**: Attacker needs 7 days + 100GB storage + operational infrastructure for 1000 fake bots.
-
-**See**: [spike/q8/RESULTS.md](spike/q8/RESULTS.md)
-
-### Q9: Chunk Verification — ✅ COMPLETE (GO)
-**Answer**: Challenge-response with SHA-256. Holder proves possession by computing `hash(nonce || chunk_sample)`. Protocol overhead: 128 bytes, latency < 1ms.
-
-**Security**: Replay-resistant, content-private, cryptographically sound.
-
-**See**: [spike/q9/RESULTS.md](spike/q9/RESULTS.md)
-
-### Q11: Rendezvous Hashing — ✅ COMPLETE (GO)
-**Answer**: HRW (Highest Random Weight) algorithm for deterministic holder selection. `score = hash(owner || chunk_idx || candidate || epoch)`. Select top-N scoring candidates.
-
-**Properties**: Deterministic, uniform distribution, minimal churn, zero-trust.
-
-**See**: [spike/q11/main.rs](spike/q11/main.rs)
-
-### Q12: Chunk Size — ✅ COMPLETE (GO)
-**Answer**: **64KB chunks** optimal balance. Coordination overhead 0.2%, distribution 32% of network (100 bots). Alternative: 16KB for 82.5% distribution, 0.6% overhead.
-
-**Rationale**: Low overhead, simple bookkeeping, scales to large states.
-
-**See**: [spike/q12/RESULTS.md](spike/q12/RESULTS.md)
-
-### Q13: Spot Check Verification — ✅ COMPLETE (GO)
-**Answer**: **1% sample rate** before each write. Challenge-response verification with 256-byte samples. Overhead ~0.16ms per write, detection rate > 95%, false positive < 1%.
-
-**Phase 1+**: Add reputation scoring, increase to 5% if free-riding detected.
-
-**See**: [spike/q13/RESULTS.md](spike/q13/RESULTS.md)
-
-### Q14: Chunk Distribution Protocol — ✅ COMPLETE (GO)
-**Answer**: **Contract-based for Phase 0** (simple, proven). **Hybrid P2P for Phase 1+** (5x faster, 9x cheaper).
-
-**Phase 0**: ~1.6s, 160 units per 512KB update
-**Phase 1+**: ~320ms, 18 units per 512KB update
-
-**See**: [spike/q14/RESULTS.md](spike/q14/RESULTS.md)
-
-### Summary: Spike Week 1 (Q1-Q6) - Proceed to Phase 0
-
-| Question | Decision | Implementation |
-|----------|----------|----------------|
-| Q1: Conflict | GO | Set-based CRDT |
-| Q2: Validation | GO | Trustless contract |
-| Q3: Clusters | GO | Bridge Removal |
-| Q4: STARK | PARTIAL | Bot-side |
-| Q5: Merkle | GO | On-demand |
-| Q6: Storage | Outcomes | No proof storage |
-
-**See**: [Spike Week Briefing](spike/SPIKE-WEEK-BRIEFING.md) for Spike Week 1 analysis
-
-### Summary: Spike Week 2 (Q7-Q14) - Persistence Network Ready
-
-| Question | Decision | Implementation |
-|----------|----------|----------------|
-| Q7: Discovery | GO | Registry contract |
-| Q8: Sybil Defense | GO | PoW 18 + Reputation |
-| Q9: Verification | GO | Challenge-response |
-| Q11: Hashing | GO | Rendezvous (HRW) |
-| Q12: Chunk Size | GO | 64KB chunks |
-| Q13: Spot Check | GO | 1% sample rate |
-| Q14: Protocol | GO | Contract (Phase 0) |
-
-**Validated Constants**:
-- PoW difficulty: **18** (production)
-- Chunk size: **64KB** (constant)
-- Verification sample: **1%** per write
-- Reputation age: **7 days** minimum
-- Capacity: **100MB** minimum
-
-**See**: [Spike Week 2 Briefing](spike/SPIKE-WEEK-2-BRIEFING.md) for persistence analysis
-
-### Spike Week 2 (Q7-Q14) — Persistence Network
-
-All persistence questions validated. Implementation ready:
-
-| Question | Decision | Implementation Details |
-|----------|----------|----------------------|
-| Q7: Bot Discovery | ✅ GO | Registry contract at well-known address |
-| Q8: Fake Bot Defense | ✅ GO | PoW (difficulty 18) + Reputation + Capacity verification |
-| Q9: Chunk Verification | ✅ GO | Challenge-response with SHA-256 (128 bytes) |
-| Q11: Rendezvous Hashing | ✅ GO | HRW algorithm (deterministic holder selection) |
-| Q12: Chunk Size | ✅ GO | 64KB chunks (0.2% overhead, 32% distribution) |
-| Q13: Spot Check | ✅ GO | 1% sample rate per write (0.16ms overhead) |
-| Q14: Chunk Protocol | ✅ GO | Contract-based (Phase 0), Hybrid P2P (Phase 1+) |
-
-**See**:
-- [Q7 Results](spike/q7/RESULTS.md) - Registry-based discovery
-- [Q8 Results](spike/q8/RESULTS.md) - Multi-layer Sybil defense
-- [Q9 Results](spike/q9/RESULTS.md) - Challenge-response verification
-- [Q11 Spike](spike/q11/main.rs) - Rendezvous hashing algorithm
-- [Q12 Results](spike/q12/RESULTS.md) - Chunk size optimization
-- [Q13 Results](spike/q13/RESULTS.md) - Fairness verification protocol
-- [Q14 Results](spike/q14/RESULTS.md) - Distribution protocol comparison
 
 ## Development Standards
 
@@ -1729,18 +1589,36 @@ pub fn risky_operation() {
 
 ### Logging
 
+**Canonical Source**: `.beads/architectural-decisions-open.bead` § 9 (Logging Verbosity & Security)
+
+**Four-Layer Log Security** - Never log identifiers that could link to real-world identity:
+
+| Layer | What's Protected | Logging Rule |
+|-------|------------------|--------------|
+| Layer 1 (PII) | Signal IDs, phone numbers, names | **NEVER log** |
+| Layer 2 (Hashes) | Member hashes, group hashes | Log at DEBUG only |
+| Layer 3 (Aggregates) | Counts, percentages, status | Log at INFO |
+| Layer 4 (Errors) | Error types (no identifiers) | Log at ERROR/WARN |
+
 ```rust
 use tracing::{info, warn, error, debug};
 
-// ✅ Structured logging
-info!(member = %member_hash, "Member admitted to group");
+// ✅ Layer 3: Aggregates at INFO
+info!("Member admitted");
+info!("Network state: {} members, {} pending invites", count, pending);
 
-// ✅ Log hashes, not cleartext
-warn!(member = %member_hash, standing = -1, "Member ejected");
+// ✅ Layer 2: Hashes at DEBUG only
+debug!(member = %member_hash, "Vouch recorded");
 
-// ❌ Never log cleartext Signal IDs
-error!("Failed to add {}", signal_id); // ❌ BAD - leaks identity
+// ✅ Layer 4: Errors without identifiers
+error!("Signal API failed: {}", error_type);
+
+// ❌ Layer 1: NEVER log PII
+error!("Failed to add {}", signal_id); // ❌ FORBIDDEN - leaks identity
+debug!("Adding member: {}", phone_number); // ❌ FORBIDDEN
 ```
+
+**Audit Question**: If logs were seized, could an adversary identify WHO is in the group? If YES, logging is too verbose.
 
 ## Git Workflow
 
@@ -1788,7 +1666,6 @@ This project uses **Gastown** - multi-agent coordination with specialized roles:
 1. Read [TODO.md](todo/TODO.md) for current tasks
 2. Check Spike Week status (are Outstanding Questions answered?)
 3. Review `.beads/` for immutable constraints
-4. Review `.cursor/rules/` for development standards
 
 ### Making Changes
 
@@ -1846,4 +1723,4 @@ This project uses **Gastown** - multi-agent coordination with specialized roles:
 
 **Status**: Technology validation complete (Spike Week 1 & 2). Ready for Phase 0 implementation.
 
-**Last Updated**: 2026-01-31
+**Last Updated**: 2026-02-01

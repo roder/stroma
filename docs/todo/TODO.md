@@ -2,7 +2,22 @@
 
 ## 📊 Project Status Overview
 
-**Last Updated**: 2026-01-31
+**Last Updated**: 2026-02-01
+
+### Roadmap Overview
+
+| Phase | Focus | Duration | Status |
+|-------|-------|----------|--------|
+| **Spike Week 1** | Freenet/STARK validation (Q1-Q6) | Week 0 | ✅ Complete |
+| **Spike Week 2** | Persistence validation (Q7-Q14) | Week 0.5 | ✅ Complete |
+| **Phase -1** | Protocol v8 Poll Support | 1-2 weeks | ✅ Complete |
+| **Pre-Gastown Audit** | Human review before agent handoff | 6-9 hours | ✅ Complete |
+| **Phase 0** | Foundation (HMAC, Freenet, Signal, STARK) | Weeks 1-2 | 📋 Next |
+| **Phase 1** | Bootstrap & Core Trust | Weeks 3-4 | 📋 Planned |
+| **Phase 2** | Proposals & Mesh Optimization | Weeks 5-6 | 📋 Planned |
+| **Phase 2.5** | Persistence Implementation | Week 6-7 | 📋 Planned |
+| **Phase 3** | Federation Preparation | Week 7-8 | 📋 Planned |
+| **Phase 4+** | Federation (Future) | TBD | 📋 Future |
 
 ### ✅ Completed (Architectural Foundation)
 - [X] Git repository initialized (6 commits on signal-bot branch)
@@ -26,7 +41,7 @@
 ### ✅ Completed: Protocol v8 Poll Support
 **Objective**: Agent-Signal implements protocol v8 poll support in forked libsignal-service-rs
 
-**Why Critical**: Native polls provide anonymous voting (reactions expose voters)
+**Why Critical**: Native polls provide structured voting with multiple choice options (reactions are binary only)
 
 **Timeline**: 1-2 weeks ✅ **COMPLETED**
 
@@ -53,7 +68,7 @@ All six outstanding questions answered:
 **Objective**: Foundation implementation with federation-ready design
 
 **Next Actions**: 
-1. ✅ Run Pre-Gastown Audit (see PRE-GASTOWN-AUDIT.md)
+1. Run Pre-Gastown Audit (see PRE-GASTOWN-AUDIT.md) — human review before agent handoff
 2. Begin Phase 0 implementation (HMAC, Freenet integration, Signal bot, STARK circuits, Contract schema)
 3. Track progress in Beads (bd)
 
@@ -140,7 +155,7 @@ All six outstanding questions answered:
 1. ✅ **Q1: Freenet Conflict Resolution** — COMPLETE (GO)
    - Freenet applies deltas via commutative set union
    - Contract's responsibility to ensure commutativity
-   - Use set-based state with tombstones (remove-wins)
+   - Use set-based state with ejected set (members can re-enter per Decision #10)
    - See: `docs/spike/q1/RESULTS.md`
 
 2. ✅ **Q2: Contract Validation** — COMPLETE (GO)
@@ -189,6 +204,7 @@ See [SPIKE-WEEK-2-BRIEFING.md](../spike/SPIKE-WEEK-2-BRIEFING.md) for full brief
 | Q7: Bot Discovery | 🔴 BLOCKING | ✅ COMPLETE | Registry-based, <1ms latency, PoW registration |
 | Q8: Fake Bot Defense | 🟡 RECOVERABLE | ✅ COMPLETE | PoW difficulty 18 (~30s), >90% detection |
 | Q9: Chunk Verification | 🟡 RECOVERABLE | ✅ COMPLETE | Challenge-response SHA-256, <1ms verification |
+| Q10: Federation Discovery | 🟢 DEFERRABLE | ⏸️ DEFERRED | Phase 4 uses Fibonacci buckets; revisit if needed |
 | Q11: Rendezvous Hashing | 🟡 RECOVERABLE | ✅ COMPLETE | Deterministic, stable under churn, uniform |
 | Q12: Chunk Size Optimization | 🟡 RECOVERABLE | ✅ COMPLETE | 64KB confirmed optimal (0.2% overhead) |
 | Q13: Fairness Verification | 🟡 RECOVERABLE | ✅ COMPLETE | 1% spot checks, 100% detection, 0% FP |
@@ -214,14 +230,14 @@ See [SPIKE-WEEK-2-BRIEFING.md](../spike/SPIKE-WEEK-2-BRIEFING.md) for full brief
 
 ### Why Polls Are Critical
 
-**Anonymity** (Non-Negotiable):
-- ✅ Signal Polls: Votes are anonymous (Signal doesn't expose who voted what)
-- ❌ Emoji Reactions: Public (everyone sees who reacted with what emoji)
-- Stroma's philosophy: Privacy-first, non-hierarchical decision-making
-
 **Better Decision Making:**
-- Polls support multiple choice options
-- Reactions are binary only (👍/👎)
+- ✅ Signal Polls: Multiple choice options, structured voting
+- ❌ Emoji Reactions: Binary only (👍/👎), harder to tally
+- Native Signal UX (familiar interface for users)
+
+**Accountability:**
+- Group members can see who voted for what
+- Signal identity separate from real-world identity
 
 ### Completed Tasks
 
@@ -277,7 +293,7 @@ Poll end-to-end testing belongs in Phase 2.5 validation (when we have Stroma bot
 
 ### ✅ Day 1-2: Embedded Freenet Kernel & Contract Design (COMPLETE)
 - [X] Test embedded Freenet kernel (in-process, not external service)
-  - [X] **Q1 Spike**: Freenet merge conflicts — use commutative deltas with set-based state + tombstones
+  - [X] **Q1 Spike**: Freenet merge conflicts — use commutative deltas with set-based state
   - [X] **Q2 Spike**: Contract validation — `update_state()` and `validate_state()` can enforce invariants
   
 - [X] Test ComposableState trait (CRITICAL - architectural risk)
@@ -286,11 +302,11 @@ Poll end-to-end testing belongs in Phase 2.5 validation (when we have Stroma bot
   - [X] Verify merge is commutative (order-independent)
   
 - [X] Test set-based membership (Stroma-specific)
-  - [X] Implement MemberSet with BTreeSet (active + removed tombstones)
+  - [X] Implement MemberSet with BTreeSet (active + ejected sets)
   - [X] Test adding members to set
-  - [X] Test removing members (tombstone pattern)
+  - [X] Test removing members (ejection pattern)
   - [X] Test merging two divergent member sets
-  - [X] Verify tombstones prevent re-addition
+  - [X] Note: Stroma uses "ejected" set allowing re-entry (see Decision #10 in architectural-decisions-open.bead)
   
 - [X] Test on-demand Merkle Tree generation
   - [X] **Q5 Spike**: On-demand Merkle generation — 0.09ms at 1000 members (GO)
@@ -305,7 +321,7 @@ Poll end-to-end testing belongs in Phase 2.5 validation (when we have Stroma bot
   - [X] Verify other node receives update via stream
   
 - [X] **Answer Outstanding Questions** (CRITICAL - these determine architecture)
-  - [X] **Q1: Freenet Conflict Resolution** — GO — Use commutative deltas with set-based state + tombstones
+  - [X] **Q1: Freenet Conflict Resolution** — GO — Use commutative deltas with set-based state + ejected set
   - [X] **Q2: Contract Validation** — GO — Trustless model viable (`update_state()` + `validate_state()`)
   - [X] **Q3: Cluster Detection** — GO — Bridge Removal algorithm (Tarjan's) for tight cluster separation
   - [X] **Q4: STARK Verification in Wasm** — PARTIAL — Bot-side verification for Phase 0 (Wasm experimental)
@@ -316,7 +332,7 @@ Poll end-to-end testing belongs in Phase 2.5 validation (when we have Stroma bot
   - [X] Merkle Tree approach: Store set, generate tree on-demand (Q5)
   - [X] ZK-proof strategy: Bot-side verification for Phase 0 (Q4, upgrade later)
   - [X] Cluster detection: Bridge Removal algorithm (Q3)
-  - [X] Merge semantics: CRDT-like patterns with tombstones (Q1)
+  - [X] Merge semantics: CRDT-like patterns with ejected set (Q1)
   - [X] Contract validation: Two-layer model (update_state + validate_state) (Q2)
 
 ### ✅ Day 5: STARK Proof Generation (Architectural Risk) (COMPLETE)
@@ -363,7 +379,7 @@ Poll end-to-end testing belongs in Phase 2.5 validation (when we have Stroma bot
 
 ### Audit Phases
 - [ ] **Phase 1**: Terminology sweep (1-2h)
-  - [ ] Search all files for "cluster" vs "friend circles"
+  - [ ] Search all files for "cluster" vs "peer circles"
   - [ ] Categorize by audience (user-facing vs technical)
   - [ ] Decide on Option A, B, or C (see audit doc)
   - [ ] Update inconsistent files
@@ -419,9 +435,9 @@ Poll end-to-end testing belongs in Phase 2.5 validation (when we have Stroma bot
 ### Module Structure
 - [ ] Create `src/cli/` directory (Operator CLI interface)
   - [ ] `src/cli/mod.rs`
-  - [ ] `src/cli/bootstrap.rs` - Bootstrap command (seed group)
-  - [ ] `src/cli/run.rs` - Run command (normal operation)
-  - [ ] `src/cli/utils.rs` - Status, verify, version (no export-pepper — use Signal store backup)
+  - [ ] `src/cli/link_device.rs` - Link to Signal account as secondary device
+  - [ ] `src/cli/run.rs` - Run command (awaits member-initiated bootstrap if new)
+  - [ ] `src/cli/utils.rs` - Status, verify, backup-store, version
   
 - [ ] Create `src/kernel/` directory
   - [ ] `src/kernel/mod.rs`
@@ -762,12 +778,14 @@ These tasks implement the 12 resolved architectural decisions.
 **Decision**: CLI for service management only (no trust operations)
 
 **Commands Defined:**
-- `stroma bootstrap` - One-time seed group initialization
-- `stroma run` - Normal operation (embedded kernel)
+- `stroma link-device` - Link to Signal account as secondary device (one-time)
+- `stroma run` - Normal operation (awaits member-initiated bootstrap if new)
 - `stroma status` - Health check
 - `stroma verify` - Config validation
-- ~~`stroma export-pepper`~~ - DEPRECATED (use Signal store backup instead)
+- `stroma backup-store` - Export Signal store for backup
 - `stroma version` - Version info
+
+**Note**: Bootstrap is member-initiated via Signal (`/create-group`, `/add-seed`), NOT via CLI.
 
 **Updated Files:**
 - [X] `.beads/architecture-decisions.bead` - Module structure updated
@@ -832,9 +850,9 @@ These tasks implement the 12 resolved architectural decisions.
   - Status: 📋 Design, gate decision before Phase 4
 
 **Updated Files:**
-- [ ] Create `docs/VALIDATOR-THRESHOLD-STRATEGY.md` - Comprehensive phased approach
-- [ ] Update `.beads/architecture-decisions.bead` - Add validator strategy decision
-- [ ] Update `docs/todo/TODO.md` - Add Phase 2 and Phase 4 gates
+- [X] Create `docs/VALIDATOR-THRESHOLD-STRATEGY.md` - Comprehensive phased approach
+- [X] Update `.beads/architecture-decisions.bead` - Add validator strategy decision
+- [X] Update `docs/todo/TODO.md` - Add Phase 2 and Phase 4 gates
 
 **Implementation Status**: Design complete, gates tracked for Phase 2 and Phase 4+ reviews
 
@@ -844,80 +862,59 @@ These tasks implement the 12 resolved architectural decisions.
 - Phase 4: Large/federated groups benefit from percentage-based validators
 
 ### Phase 0 Beads Issues
-- [ ] Create Bead-01: Operator CLI interface
+
+**Note**: Bead identifiers to be assigned by Gastown Mayor. Listed in logical implementation order.
+
+- [ ] Create Bead: Operator CLI interface
   - [ ] `bd create --title "Implement operator CLI commands"`
-  - [ ] Specify: Bootstrap command (seed group initialization)
-  - [ ] Specify: Run command (normal operation with embedded kernel)
-  - [ ] Specify: Utility commands (status, verify, version)
+  - [ ] Specify: link-device command (Signal account linking)
+  - [ ] Specify: Run command (normal operation, awaits member-initiated bootstrap)
+  - [ ] Specify: Utility commands (status, verify, backup-store, version)
   - [ ] Specify: NO trust operation commands (operator least privilege)
+  - [ ] Note: Bootstrap is member-initiated via Signal (`/create-group`, `/add-seed`)
   - [ ] Use clap for argument parsing
   
-- [ ] Create Bead-02: HMAC identity masking with zeroization
+- [ ] Create Bead: HMAC identity masking with zeroization
   - [ ] `bd create --title "Implement HMAC identity masking"`
   - [ ] Specify: HMAC-SHA256 with ACI-derived key (from Signal identity, replaces group pepper)
   - [ ] Specify: Zeroize buffers immediately
   - [ ] Specify: Unit tests with fixed test ACI identity
   
-- [ ] Create Bead-03: Embedded Freenet kernel integration
+- [ ] Create Bead: Embedded Freenet kernel integration
   - [ ] `bd create --title "Integrate embedded Freenet kernel"`
   - [ ] Specify: Use freenet-stdlib (not external freenet-core service)
   - [ ] Specify: Initialize kernel in-process
   - [ ] Specify: Dark mode (anonymous routing)
   - [ ] Specify: Single event loop for kernel + Signal
-  - [ ] `bd create --title "Integrate freenet-core node"`
   - [ ] Specify: Node lifecycle management
   - [ ] Specify: Wasm contract deployment (stub)
   - [ ] Specify: State stream monitoring (real-time)
   
-- [ ] Create Bead-03: Signal bot authentication and commands
+- [ ] Create Bead: Signal bot authentication and commands
   - [ ] `bd create --title "Implement Signal bot"`
   - [ ] Specify: Bot registration
   - [ ] Specify: Group management
   - [ ] Specify: 1-on-1 PM handling
   - [ ] Specify: Command parsing
   
-- [ ] Create Bead-04: STARK circuits for vouch verification
+- [ ] Create Bead: STARK circuits for vouch verification
   - [ ] `bd create --title "Implement STARK circuits"`
   - [ ] Specify: Circuit design
   - [ ] Specify: Proof generation
   - [ ] Specify: Proof verification
   
-- [ ] Create Bead-05: Contract schema with federation hooks
+- [ ] Create Bead: Contract schema with federation hooks
   - [ ] `bd create --title "Design Freenet contract schema"`
   - [ ] Specify: TrustNetworkState struct
   - [ ] Specify: Federation hooks (unused in MVP)
   - [ ] Specify: GroupConfig struct
 
 ### Phase 0 Success Criteria
-- [ ] freenet-core node runs successfully
+- [ ] Embedded Freenet kernel runs successfully
 - [ ] STARK proof generated (< 100KB, < 10 seconds)
 - [ ] Signal bot can manage group (add/remove members)
 - [ ] HMAC masking works with immediate zeroization
 - [ ] Contract schema supports federation hooks (present but unused)
-
-## 🚪 PHASE 2 GATE: Medium Group Decisions (Before Weeks 5-6)
-
-**Trigger Condition**: Operator feedback indicates stable 30-50 member groups
-
-**Decision Point**:
-- [ ] Review Phase 2 Gate Questions (see `docs/VALIDATOR-THRESHOLD-STRATEGY.md`)
-  - Do small groups naturally reach 30-50 members?
-  - What percentage become Validators at current fixed threshold?
-  - Do operators request min_vouch_threshold changes?
-  - Are there observed downsides to fixed thresholds?
-
-**If Phase 2 Gate Opens (YES, need configurability)**:
-- [ ] Implement configurable `min_vouch_threshold`
-  - [ ] Add to GroupConfig (range 2-4)
-  - [ ] Add `/propose stroma min_vouch_threshold` command
-  - [ ] Require config_change_threshold consensus
-  - [ ] Cannot retroactively eject (new threshold only)
-
-**If Phase 2 Gate Remains Closed (NO, fixed thresholds sufficient)**:
-- [ ] Continue with fixed Bridge=2, Validator=3+
-- [ ] Revisit gate during Phase 3 or before Phase 4
-
----
 
 ## 🌱 Phase 1: Bootstrap & Core Trust (Weeks 3-4)
 
@@ -1015,9 +1012,35 @@ These tasks implement the 12 resolved architectural decisions.
 - [ ] All vetting in 1-on-1 PMs (no group chat exposure)
 - [ ] No cleartext Signal IDs stored anywhere
 
+---
+
+## 🚪 PHASE 2 GATE: Medium Group Decisions (Before Weeks 5-6)
+
+**Trigger Condition**: Operator feedback indicates stable 30-50 member groups
+
+**Decision Point**:
+- [ ] Review Phase 2 Gate Questions (see `docs/VALIDATOR-THRESHOLD-STRATEGY.md`)
+  - Do small groups naturally reach 30-50 members?
+  - What percentage become Validators at current fixed threshold?
+  - Do operators request min_vouch_threshold changes?
+  - Are there observed downsides to fixed thresholds?
+
+**If Phase 2 Gate Opens (YES, need configurability)**:
+- [ ] Implement configurable `min_vouch_threshold`
+  - [ ] Add to GroupConfig (range 2-4)
+  - [ ] Add `/propose stroma min_vouch_threshold` command
+  - [ ] Require quorum met AND config_change_threshold consensus
+  - [ ] Cannot retroactively eject (new threshold only)
+
+**If Phase 2 Gate Remains Closed (NO, fixed thresholds sufficient)**:
+- [ ] Continue with fixed Bridge=2, Validator=3+
+- [ ] Revisit gate during Phase 3 or before Phase 4
+
+---
+
 ## 🎯 Phase 2: Proposals & Mesh Optimization (Weeks 5-6)
 
-**Objective**: Anonymous voting system, graph analysis, strategic introductions, MST
+**Objective**: Proposal voting system, graph analysis, strategic introductions, MST
 
 ### Blind Matchmaker
 - [ ] Implement graph topology analysis
@@ -1057,11 +1080,11 @@ These tasks implement the 12 resolved architectural decisions.
   
 - [ ] Implement `/mesh config` (configuration view)
   - [ ] Show `group_name`
-  - [ ] Show `config_change_threshold`
+  - [ ] Show `config_change_threshold` (% of votes to pass)
+  - [ ] Show `min_quorum` (% of members who must vote)
   - [ ] Show `default_poll_timeout`
   - [ ] Show `min_intersection_density`
   - [ ] Show `validator_percentile`
-  - [ ] Show `min_vouch_threshold`
   - [ ] Show `min_vouch_threshold`
   
 ### Proposal System (`/propose`)
@@ -1069,7 +1092,7 @@ These tasks implement the 12 resolved architectural decisions.
 - [ ] Implement `/propose` command parser
   - [ ] Parse subcommand: config, stroma, federate
   - [ ] Parse arguments and options
-  - [ ] Parse `--timeout` flag (optional, uses config default)
+  - [ ] Parse `--timeout` flag (defaults to `GroupConfig.default_poll_timeout` if not specified)
   - [ ] Validate parameters
   
 - [ ] Implement `config` subcommand (Signal group settings)
@@ -1081,6 +1104,7 @@ These tasks implement the 12 resolved architectural decisions.
 - [ ] Implement `stroma` subcommand (Stroma trust config)
   - [ ] `/propose stroma min_vouch_threshold 3`
   - [ ] `/propose stroma config_change_threshold 0.80`
+  - [ ] `/propose stroma min_quorum 0.50`
   - [ ] `/propose stroma default_poll_timeout 72h`
   - [ ] Validate Stroma config keys
   
@@ -1091,8 +1115,8 @@ These tasks implement the 12 resolved architectural decisions.
 
 - [ ] Implement proposal creation
   - [ ] Create Proposal struct in Freenet contract
-  - [ ] Store proposal with timeout, threshold, action
-  - [ ] Create Signal Poll for voting (anonymous)
+  - [ ] Store proposal with timeout (REQUIRED), threshold, quorum, action
+  - [ ] Create Signal Poll for voting
   - [ ] Poll options: "👍 Approve", "👎 Reject"
   
 - [ ] Implement poll monitoring
@@ -1124,142 +1148,40 @@ These tasks implement the 12 resolved architectural decisions.
 - [ ] Graph topology correctly identifies Bridges and Validators
 - [ ] Strategic introductions suggested for MST
 - [ ] Mesh density histogram displayed correctly
-- [ ] Configuration changes via Signal Poll (70% threshold)
+- [ ] Configuration changes via Signal Poll (quorum + threshold required)
 - [ ] Operator audit trail queryable
 - [ ] Bot proactively suggests mesh optimization
 
-## 🔧 Phase 3: Federation Preparation (Week 7)
-
-### Phase 3 Pre-Implementation Review
-- [ ] Validator Threshold Strategy review
-  - [ ] **If Phase 2 Gate was closed**: Continue with fixed Bridge=2, Validator=3+
-  - [ ] **If Phase 2 Gate was open**: Review configurable min_vouch_threshold implementation
-  - [ ] Document feedback: Did configurability help medium groups?
-
----
-
-## 🚪 PHASE 4 GATE: Large Group Decisions (Before Q2 2026)
-
-**Trigger Condition**: Multiple federated groups request percentage-based validator scaling
-
-**Decision Point**:
-- [ ] Review Phase 4 Gate Questions (see `docs/VALIDATOR-THRESHOLD-STRATEGY.md`)
-  - How many groups exceed 200 members?
-  - Do federated groups report scaling issues?
-  - Is fixed 3+ validator threshold limiting MST optimization?
-  - Would percentage-based validator selection improve bridge density?
-
-**If Phase 4 Gate Opens (YES, need percentage-based validators)**:
-- [ ] Implement percentage-based `validator_percentile`
-  - [ ] Add to GroupConfig (formula: `max(3, group_size * validator_percentile / 100)`)
-  - [ ] Add `/propose stroma validator_percentile` command
-  - [ ] Require elevated consensus (85%+ threshold)
-  - [ ] Limit changes to once per quarter
-  - [ ] Cannot retroactively change existing validators
-
-**If Phase 4 Gate Remains Closed (NO, configurable threshold sufficient)**:
-- [ ] Continue with current approach (fixed or configurable min_vouch_threshold)
-- [ ] Revisit if large federated networks emerge
-
----
-
-## 🔧 Phase 3: Federation Preparation (Week 7)
-
-**Objective**: Validate federation infrastructure (locally, no broadcast)
-
-### Shadow Beacon (Compute Locally)
-- [ ] Implement Social Anchor hashing
-  - [ ] Calculate top-N validators (percentile-based)
-  - [ ] Generate discovery URI from validator hashes
-  - [ ] Store locally (DO NOT broadcast in MVP)
-  
-- [ ] Implement validator percentile calculation
-  - [ ] Sort members by vouch count
-  - [ ] Calculate percentile threshold
-  - [ ] Identify top validators
-  
-- [ ] Implement discovery URI generation
-  - [ ] Hash social anchor
-  - [ ] Generate multiple URIs (10%, 20%, 30%, 50%)
-  - [ ] Store for future Phase 4 use
-
-### PSI-CA (Test Locally)
-- [ ] Implement Bloom filter generation
-  - [ ] Create Bloom filter from member hashes
-  - [ ] Optimize filter size/false positive rate
-  - [ ] Serialize filter
-  
-- [ ] Implement commutative encryption
-  - [ ] Encrypt Bloom filter (double-blinding)
-  - [ ] Test encryption is commutative
-  - [ ] Prepare for anonymous handshake
-  
-- [ ] Implement intersection density calculation
-  - [ ] Calculate overlap: `|A ∩ B|`
-  - [ ] Calculate union: `|A ∪ B|`
-  - [ ] Calculate density: `|A ∩ B| / |A ∪ B|`
-  - [ ] Test with mock data (simulate two groups)
-
-### Contract Schema Validation
-- [ ] Test federation hooks (present but unused)
-  - [ ] Verify `federation_contracts` field exists
-  - [ ] Verify `validator_anchors` field exists
-  - [ ] Confirm they're empty in MVP
-  
-- [ ] Verify identity hashes are re-computable
-  - [ ] Test HMAC hashing with different peppers
-  - [ ] Confirm PSI-CA can work with hashes
-  - [ ] Validate privacy preservation
-
-### Documentation
-- [ ] Create federation design document
-  - [ ] Emergent discovery protocol
-  - [ ] PSI-CA handshake protocol
-  - [ ] BidirectionalMin threshold evaluation
-  - [ ] Cross-mesh vouching protocol
-
----
-
-## 💾 Persistence & Replication Health (Spike Week 2+)
+## 💾 Phase 2.5: Persistence Implementation (Week 6-7)
 
 **Objective**: Ensure trust network durability via Reciprocal Persistence Network
 
 **Bead**: `.beads/persistence-model.bead`  
 **Docs**: `docs/PERSISTENCE.md`
 
-### Spike Week 2: Outstanding Questions
+**Note**: Persistence is implemented between Phase 2 and Phase 3 because:
+1. Spike Week 2 validated the approach (Q7-Q14)
+2. Trust state durability is critical before federation
+3. Write-blocking states require persistence infrastructure
 
-- [ ] **Q7**: Bot discovery mechanism (registry contract, sharding for scale, stale bot handling)
-  - Phase 0: Single registry (sufficient for <10K bots)
-  - Scale trigger: Sharded registry (256 shards by hash prefix) for 10K+ bots
-  - Test: Single vs sharded performance at 10K simulated bots
-- [ ] **Q8**: Fake bot registration defense (proof of work, stake, reputation)
-- [ ] **Q9**: Chunk holder verification (cryptographic attestation without content reveal)
-- [ ] **Q10**: Federation discovery efficacy (top-N vs any-N overlap)
-  - Current: Content-addressed URIs with top-N validators (O(1) lookup, simple)
-  - Alternative: Bloom Filter scan for any-N overlap (O(N) scan, more discovery)
-  - Question: Does any-N find significantly more valid federation candidates?
-  - Method: Simulate realistic social graphs, compare discovery rates
-  - Decision: If <10% more, stay with top-N; if >50% more, implement Bloom funnel
-  - **Deferred**: Phase 4 uses top-N; revisit in Spike Week 2 if needed
-- [ ] **Q11**: Rendezvous hashing for chunk assignment
-  - Current proposal: Deterministic assignment via rendezvous hashing per-chunk
-  - Benefit: O(N) registry (bot list only) vs O(N × chunks × replicas)
-  - Tradeoff: Anyone can compute holder identities (but chunks still encrypted)
-  - Validate: Distribution uniformity, churn stability, security equivalence
-  - Fallback: Registry-based with encrypted holder records
-- [ ] **Q12**: Chunk size optimization
-  - Default: 64KB chunks
-  - Tradeoffs: Smaller = more distribution (security) vs more coordination (overhead)
-  - Test: Recovery latency, distribution uniformity at different sizes
-  - Validate: 64KB is appropriate, or adjust based on benchmarks
-- [ ] **Q13**: Fairness verification (challenge-response)
-  - Problem: How to verify bots actually store chunks they claim?
-  - Solution: Challenge-response protocol (hash(chunk || nonce))
-  - Validate: Replay resistance, no content leakage, low false positives
-  - Enforcement: Spot checks, reputation scoring, soft exclusion
+### Spike Week 2: ✅ VALIDATED
 
-**See**: `docs/spike/SPIKE-WEEK-2-BRIEFING.md`
+All persistence questions validated in Spike Week 2 (Q7-Q14). See `docs/spike/SPIKE-WEEK-2-BRIEFING.md`.
+
+- [x] **Q7**: Bot discovery — Registry-based, <1ms latency
+- [x] **Q8**: Sybil resistance — PoW difficulty 18 (~30s registration)
+- [x] **Q9**: Chunk verification — Challenge-response <1ms, zero content leak
+- [x] **Q11**: Rendezvous hashing — Deterministic, stable, uniform distribution
+- [x] **Q12**: Chunk size — 64KB optimal (0.2% overhead, 32% distribution)
+- [x] **Q13**: Fairness verification — 1% spot checks, 100% detection, 0% false positives
+- [x] **Q14**: Distribution — Contract-based for Phase 0, hybrid for Phase 1+
+
+**Registry Scaling Strategy** (updated 2026-02-01):
+- Phase 0: Single registry (<5K bots)
+- Fibonacci-triggered splits: 5K → 8K → 13K → 21K → 34K... bot thresholds
+- Powers-of-2 shard counts: 1 → 2 → 4 → 8 → 16 → 32...
+- Registry Metadata Contract tracks global epoch and shard count
+- Vector clocks for dual-read migration (24h transition window)
 
 ### Replication Health Metric
 
@@ -1296,7 +1218,8 @@ These tasks implement the 12 resolved architectural decisions.
   - [ ] Generate chunk hashes (for verification)
 
 - [ ] Implement deterministic holder selection (rendezvous hashing)
-  - [ ] Query persistence registry for bot list + epoch
+  - [ ] Query Registry Metadata Contract for shard_count + global_epoch
+  - [ ] Query all shards for bot list (parallelizable)
   - [ ] For each chunk: compute 2 holders via `rendezvous_hash(chunk_idx, bots, epoch)`
   - [ ] Assignment is deterministic (anyone can verify)
 
@@ -1324,21 +1247,28 @@ These tasks implement the 12 resolved architectural decisions.
   - [ ] Retry distribution in DEGRADED state
   - [ ] Transition to ACTIVE when distribution succeeds
 
-### Privacy-Preserving Registry
+### Registry Architecture
 
-- [ ] Implement FairnessRecord (PUBLIC)
-  - [ ] holder_bot: ContractHash
-  - [ ] fragments_held_count: u32
-  - [ ] size_bucket: SizeBucket (range, not exact)
+- [ ] Implement Registry Metadata Contract
+  - [ ] Well-known address: `sha256("stroma-registry-metadata-v1")`
+  - [ ] Track: version, shard_count, global_epoch, total_bots, migration_status
+  - [ ] Support MigrationStatus: Stable | Splitting { old_count, new_count, deadline }
 
-- [ ] Implement SecurityRecord (ENCRYPTED)
-  - [ ] owner_bot: ContractHash
-  - [ ] fragment_holder_count: u8
-  - [ ] encrypted_holder_attestations: Vec<EncryptedAttestation>
-  - [ ] Only owner can decrypt
+- [ ] Implement Per-Shard Registry Contracts
+  - [ ] Deterministic addresses: `sha256("stroma-registry-v1-shards-{count}-id-{id}")`
+  - [ ] Track: bots (BTreeSet), tombstones, clock (vector clock)
+  - [ ] RegistryEntry: contract_hash, size_bucket, num_chunks, registered_at, clock
 
-- [ ] Ensure records are non-correlatable
-  - [ ] Different record types
+- [ ] Implement Fibonacci-triggered scaling
+  - [ ] Monitor total_bots in metadata contract
+  - [ ] Trigger split at thresholds: 5K, 8K, 13K, 21K, 34K...
+  - [ ] New shard_count = current × 2 (powers of 2)
+
+- [ ] Implement migration protocol
+  - [ ] Announce split in metadata contract
+  - [ ] 24h dual-read transition window
+  - [ ] Writes to new shard, reads from both (merge with vector clocks)
+  - [ ] Complete migration: update shard_count, bump global_epoch
   - [ ] No cross-referencing
 
 ### Recovery
@@ -1352,7 +1282,8 @@ These tasks implement the 12 resolved architectural decisions.
 - [ ] Implement recovery procedure
   - [ ] Restore Signal protocol store from backup
   - [ ] Load ACI identity keypair from restored store
-  - [ ] Query registry for bot list, epoch, my num_chunks
+  - [ ] Query Registry Metadata Contract for shard_count, global_epoch
+  - [ ] Query all shards for bot list + my num_chunks
   - [ ] For each chunk: compute holders via rendezvous hashing
   - [ ] Collect ALL chunks (any 1 of 3 copies per chunk)
   - [ ] Concatenate chunks, derive encryption key from ACI via HKDF
@@ -1366,7 +1297,79 @@ These tasks implement the 12 resolved architectural decisions.
 - [ ] Write-blocking enforced in DEGRADED state (any chunk ≤1 replica)
 - [ ] Recovery succeeds when all chunks available (any 1 of 3 per chunk)
 - [X] Signal store backup procedure documented (replaces keypair backup)
+
+---
+
+## 🔧 Phase 3: Federation Preparation (Week 7-8)
+
+**Objective**: Validate federation infrastructure (locally, no broadcast)
+
+### Phase 3 Pre-Implementation Review
+- [ ] Validator Threshold Strategy review
+  - [ ] **If Phase 2 Gate was closed**: Continue with fixed Bridge=2, Validator=3+
+  - [ ] **If Phase 2 Gate was open**: Review configurable min_vouch_threshold implementation
+  - [ ] Document feedback: Did configurability help medium groups?
+
+### Shadow Beacon (Compute Locally)
+- [ ] Implement Social Anchor hashing
+  - [ ] Calculate top-N validators at fixed Fibonacci bucket sizes
+  - [ ] Generate discovery URI from validator hashes
+  - [ ] Store locally (DO NOT broadcast in MVP)
   
+- [ ] Implement validator selection for buckets
+  - [ ] Sort validators by hash (deterministic ordering)
+  - [ ] Select top-N for each Fibonacci bucket the group can fill
+  - [ ] Identify validators at each bucket level
+  
+- [ ] Implement discovery URI generation
+  - [ ] Hash social anchor at each bucket size
+  - [ ] Generate URIs at Fibonacci buckets [3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987]
+  - [ ] Store for future Phase 4 use
+
+### PSI-CA (Test Locally)
+- [ ] Implement Bloom filter generation
+  - [ ] Create Bloom filter from member hashes
+  - [ ] Optimize filter size/false positive rate
+  - [ ] Serialize filter
+  
+- [ ] Implement commutative encryption
+  - [ ] Encrypt Bloom filter (double-blinding)
+  - [ ] Test encryption is commutative
+  - [ ] Prepare for anonymous handshake
+  
+- [ ] Implement intersection density calculation
+  - [ ] Calculate overlap: `|A ∩ B|`
+  - [ ] Calculate union: `|A ∪ B|`
+  - [ ] Calculate density: `|A ∩ B| / |A ∪ B|`
+  - [ ] Test with mock data (simulate two groups)
+
+### Contract Schema Validation
+- [ ] Test federation hooks (present but unused)
+  - [ ] Verify `federation_contracts` field exists
+  - [ ] Verify `validator_anchors` field exists
+  - [ ] Confirm they're empty in MVP
+  
+- [ ] Verify identity hashes are re-computable
+  - [ ] Test HMAC hashing with ACI-derived keys (each bot has unique key from Signal identity)
+  - [ ] Confirm PSI-CA can work with hashes
+  - [ ] Validate privacy preservation
+
+### Documentation
+- [ ] Create federation design document
+  - [ ] Emergent discovery protocol
+  - [ ] PSI-CA handshake protocol
+  - [ ] BidirectionalMin threshold evaluation
+  - [ ] Cross-mesh vouching protocol
+
+### Phase 3 Success Criteria
+- [ ] Social Anchor hash computed correctly
+- [ ] PSI-CA overlap calculated locally (test with mock data)
+- [ ] Federation hooks in contract validated
+- [ ] Documentation complete for Phase 4
+- [ ] MVP ready for production deployment
+
+### Phase 4+ Roadmap Items (Track for Future)
+
 - [ ] Create Phase 4+ roadmap
   - [ ] Shadow Beacon broadcast
   - [ ] Bot-to-bot discovery
@@ -1381,12 +1384,32 @@ These tasks implement the 12 resolved architectural decisions.
     - [ ] Bot-New startup with succession verification
     - [ ] Signal group membership transfer logic
 
-### Phase 3 Success Criteria
-- [ ] Social Anchor hash computed correctly
-- [ ] PSI-CA overlap calculated locally (test with mock data)
-- [ ] Federation hooks in contract validated
-- [ ] Documentation complete for Phase 4
-- [ ] MVP ready for production deployment
+---
+
+## 🚪 PHASE 4 GATE: Large Group Decisions (Before Q2 2026)
+
+**Trigger Condition**: Multiple federated groups request percentage-based validator scaling
+
+**Decision Point**:
+- [ ] Review Phase 4 Gate Questions (see `docs/VALIDATOR-THRESHOLD-STRATEGY.md`)
+  - How many groups exceed 200 members?
+  - Do federated groups report scaling issues?
+  - Is fixed 3+ validator threshold limiting MST optimization?
+  - Would percentage-based validator selection improve bridge density?
+
+**If Phase 4 Gate Opens (YES, need percentage-based validators)**:
+- [ ] Implement percentage-based `validator_percentile`
+  - [ ] Add to GroupConfig (formula: `max(3, group_size * validator_percentile / 100)`)
+  - [ ] Add `/propose stroma validator_percentile` command
+  - [ ] Require elevated consensus (85%+ threshold)
+  - [ ] Limit changes to once per quarter
+  - [ ] Cannot retroactively change existing validators
+
+**If Phase 4 Gate Remains Closed (NO, configurable threshold sufficient)**:
+- [ ] Continue with current approach (fixed or configurable min_vouch_threshold)
+- [ ] Revisit if large federated networks emerge
+
+---
 
 ## 🚢 Launch Phase 0 Convoy
 
@@ -1430,7 +1453,7 @@ These tasks implement the 12 resolved architectural decisions.
 
 ### Architecture
 - [ ] Static MUSL binary produced
-- [ ] freenet-core node runs successfully
+- [ ] Embedded Freenet kernel runs successfully
 - [ ] Signal bot authenticates and manages group
 - [ ] STARK proofs < 100KB, generation < 10 seconds
 - [ ] Federation infrastructure present (disabled in MVP)
@@ -1450,7 +1473,7 @@ These tasks implement the 12 resolved architectural decisions.
 
 | Question | Status | Decision | Date Resolved |
 |----------|--------|----------|---------------|
-| Q1: Freenet Conflict Resolution | ✅ Complete | GO — commutative deltas with set-based state + tombstones | 2026-01-29 |
+| Q1: Freenet Conflict Resolution | ✅ Complete | GO — commutative deltas with set-based state + ejected set | 2026-01-29 |
 | Q2: Contract Validation | ✅ Complete | GO — trustless model viable (update_state + validate_state) | 2026-01-30 |
 | Q3: Cluster Detection | ✅ Complete | GO — Bridge Removal algorithm distinguishes tight clusters | 2026-01-30 |
 | Q4: STARK verification in Wasm | ✅ Complete | PARTIAL — Bot-side verification for Phase 0 (Wasm experimental) | 2026-01-30 |

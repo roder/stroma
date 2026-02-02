@@ -8,7 +8,7 @@
 
 ## Project Identity
 
-**Project Name**: Stroma (code name) - also known as **Nexus-Mesh Protocol**  
+**Project Name**: Stroma (code name) 
 **Type**: Privacy-first, decentralized trust network  
 **Architecture**: Rust Static Binary | Signal Protocol | Freenet (Dark) | ZK-Proofs  
 **User Base**: Designed for non-technical users with Signal; technical complexity abstracted by bot
@@ -122,9 +122,9 @@ systemd services:
 ### 1. User Interface Layer: Signal
 - **Client Library**: Presage (high-level Rust API built on libsignal-service-rs)
 - **Role**: Human-facing interface for trust operations
-- **Features**: Bot commands (`/vouch`, `/status`, `/mesh`, `/flag`, `/propose`)
+- **Features**: Bot commands (`/vouch`, `/status`, `/mesh`, `/flag`, `/propose`, `/invite`)
 - **Privacy**: All vetting/vouching in 1-on-1 PMs (never group chat)
-- **Voting**: Native Signal Polls for anonymous group decisions
+- **Voting**: Native Signal Polls for group decisions
 - **Constraint**: Bot never stores Signal IDs in cleartext
 
 ### 2. Trust Logic Layer: Rust Bot
@@ -136,7 +136,7 @@ systemd services:
   - **Zero-Knowledge Witness**: Sees members but blind to social graph
   - **Diplomat**: Proposes federation and maintains bridge density
 - **Functions**:
-  - Identity masking (HMAC hashing with group-secret pepper)
+  - Identity masking (HMAC-SHA256 with Signal ACI-derived key)
   - ZK-proof generation (bot generates all STARK/ZK proofs)
   - ZK-proof verification (bot verifies all proofs)
   - Merkle tree generation (on-demand from member sets)
@@ -165,7 +165,7 @@ systemd services:
 
 ### A. The Kernel (Identity Masking)
 - **Purpose**: Never store Signal IDs
-- **Method**: HMAC-based hashing with group-secret pepper (not deterministic hashing)
+- **Method**: HMAC-SHA256 with Signal ACI-derived key
 - **Security**: Zeroize buffers immediately after hashing
 - **Ephemeral State**: Vetting session data deleted after admission
 - **Blinded Identifiers**: Public ID for bot, private ID for ZK-math
@@ -180,11 +180,14 @@ systemd services:
 
 ### B. The Shadow Beacon (Emergent Discovery)
 - **Purpose**: Bots find each other without admin coordination
-- **Method**: Social Anchor Hashing (hash of top-N validators, dynamic threshold based on group size)
+- **Method**: Social Anchor Hashing using Fixed Fibonacci Buckets [3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987]
 - **Discovery**: Bloom Filters + PSI-CA (Private Set Intersection Cardinality) for overlap detection
-- **Threshold**: Federation proposed if `|A ∩ B| / |A ∪ B| > 10%` (intersection density)
+- **Threshold**: BidirectionalMin with dual thresholds — BOTH must pass:
+  - `overlap_count >= min_shared_validators` (e.g., 3 absolute minimum)
+  - `overlap / min(our_validators, their_validators) >= min_intersection_density` (e.g., 10%)
 - **Commutative Encryption**: Double-blinding for PSI handshake ensures anonymous overlap calculation
 - **Emergent Rendezvous**: Discovery URI derived from group's social frequency, not pre-shared keys
+- **See**: `.beads/discovery-protocols.bead` and `.beads/cryptography-zk.bead` for full specification
 
 ### C. The Gatekeeper (Signal Admin Bot)
 - **Purpose**: Enforce trust-based membership
@@ -215,7 +218,8 @@ systemd services:
 - **Verification**: `zk-Proof(Voucher_A IN Tree AND Voucher_B IN Tree AND Voucher_A != Voucher_B AND Cluster(A) != Cluster(B) AND Invitee NOT_IN Tree)`
 - **Privacy**: Vouchers remain anonymous (ZK-proof)
 - **First Vouch**: Invitation itself counts as first vouch
-- **Bootstrap Exception**: First 3-5 members exempt (single cluster exists)
+- **Bootstrap Exception**: First 3 seed members exempt (single cluster exists). Cross-cluster becomes mandatory when Bridge Removal algorithm detects `clusters >= 2`.
+- **See**: `.beads/cross-cluster-requirement.bead` for full specification
 
 **Why Cross-Cluster Required**: Prevents coordinated infiltration. If same-cluster vouching were allowed, a compromised cluster could self-amplify by rubber-stamping confederates. Cross-cluster forces verification from independent social contexts.
 
@@ -229,7 +233,7 @@ systemd services:
   2. `Effective_Vouches < 2` (voucher left group OR voucher flagged you)
 - **No Grace Period**: Ejection is instant when either trigger activated
 - **Continuous Evaluation**: Trust monitored in real-time via Freenet state stream
-- **Re-Entry Path**: Secure 2 new vouches from members in different clusters (reset, not permanent ban)
+- **Re-Entry Path**: Secure 2+ new vouches from members in different clusters (flags persist, no permanent ban)
 - **No Cooldown**: Can re-enter immediately after securing new vouches
 
 **Why Vouch Invalidation**: Prevents logical inconsistency where someone both trusts and distrusts you. Aligns with "fluid identity" philosophy - trust is current state, not fixed history.
@@ -288,7 +292,8 @@ pub struct GroupConfig {
     group_name: String,                    // "Mission Control" - changeable via consensus
     
     // Consensus thresholds
-    config_change_threshold: f32,          // e.g., 0.70 (70%) - used for all proposals
+    config_change_threshold: f32,          // e.g., 0.70 (70%) - % of votes to pass
+    min_quorum: f32,                       // e.g., 0.50 (50%) - % of members who must vote
     default_poll_timeout: Duration,        // e.g., 48h - default if not specified
     
     // Federation parameters (dual threshold model)
@@ -320,7 +325,7 @@ pub struct GroupConfig {
 - `federate <group-id>` - Propose federation with another group
 
 **Voting:**
-- Native Signal Polls (anonymous voting)
+- Native Signal Polls (structured voting)
 - Timeout: Configurable per proposal (default from config)
 - Threshold: Always from `config_change_threshold` (not per-proposal)
 
@@ -400,7 +405,7 @@ pub struct GroupConfig {
 ### Technical Foundation
 - **Language**: Rust (static binary, MUSL)
 - **Protocols**: Signal (UI), Freenet (state), ZK-Proofs (verification)
-- **Cryptography**: ring (HMAC), arkworks (ZK-SNARKs), zeroize (memory hygiene)
+- **Cryptography**: ring (HMAC-SHA256), winterfell (STARKs), zeroize (memory hygiene)
 - **Tooling**: cargo-deny, cargo-crev (supply chain security)
 
 ---

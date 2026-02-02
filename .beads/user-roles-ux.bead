@@ -8,6 +8,11 @@
 
 ## Role Definitions
 
+**Canonical Source**: `.beads/terminology.bead` (Member Roles section)
+
+This section provides UX-focused summaries. For complete definitions, trust calculations, 
+and edge cases, see the terminology bead.
+
 ### Operator
 - Bot administrator who runs the bot as a service
 - **Least Privilege**: Cannot manually execute membership changes
@@ -63,16 +68,16 @@
 
 ---
 
-## Voting: Native Signal Polls (Anonymous)
+## Voting: Native Signal Polls
 
-- ✅ Anonymous voting - Signal doesn't expose who voted
 - ✅ Only aggregated results visible
 - ❌ Reactions expose voters - NOT used
 
 **Structure:**
 - Options: Binary (Approve/Reject)
 - Timeout: Configurable per proposal
-- Threshold: From GroupConfig.config_change_threshold
+- Threshold: From GroupConfig.config_change_threshold (% of votes to pass)
+- Quorum: From GroupConfig.min_quorum (% of members who must vote)
 
 ---
 

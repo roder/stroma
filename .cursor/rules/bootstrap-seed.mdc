@@ -14,15 +14,16 @@ The complete bootstrap protocol, seed group requirements, initialization steps, 
 
 - **Seed Size**: 3 members (creates initial trust triangle)
 - **Initial State**: All 3 vouch for each other (each has 2 vouches)
-- **Operator Privilege**: Bootstrap is the ONLY time operator adds members manually
-- **Post-Bootstrap**: Bot takes full control, operator becomes service runner only
+- **Member-Initiated**: Bootstrap via Signal commands, NOT operator CLI
+- **Post-Bootstrap**: Bot takes full control, operator is service runner only
 
-## Bootstrap Flow
+## Bootstrap Flow (Member-Initiated)
 
-1. Operator runs bootstrap command with group name and 3 seed members
-2. Bot creates Signal group and Freenet contract
-3. Bot establishes mutual vouch triangle
-4. Bot takes over - no more manual additions
+1. Operator runs `stroma link-device` then `stroma run`
+2. First seed member sends `/create-group "Group Name"` to bot
+3. First seed member adds others via `/add-seed @MemberB`, `/add-seed @MemberC`
+4. Bot creates Signal group, Freenet contract, mutual vouch triangle
+5. Bot takes over - all future admissions via protocol
 
 ## Security Notes
 

@@ -2,17 +2,12 @@
 
 **Status**: Pinned - Cannot be modified without explicit unpinning ceremony
 **Created**: 2026-01-28
-**Supersedes**: Previous arbitrary 30-60% density metric
 
 ## Architectural Decision
 
 **Decision**: Replace arbitrary percentage-based mesh health with **Distinct Validator Ratio (DVR)** — a graph-theory-grounded metric that directly measures network resilience.
 
-**Rationale**: The previous 30-60% density metric was:
-- Arbitrary (why 30%? why 60%?)
-- Scale-dependent (30% of 10 ≠ 30% of 100 in resilience terms)
-- Structure-blind (high density could all be in one cluster)
-
+**Rationale**: 
 The new DVR metric is:
 - Grounded in graph theory (MST optimization)
 - Directly tied to security model (measures independent verification)
@@ -267,26 +262,13 @@ DVR calculation depends on accurate cluster detection. If cluster detection is u
 
 **Fallback**: If cluster detection fails, use vouch-set overlap only (ignore cluster constraint for Validators).
 
-## Migration from Old Metric
-
-### What Changes
-
-| Old | New |
-|-----|-----|
-| "30-60% density optimal" | "66%+ DVR healthy" |
-| 5 status bands | 3 status bands (thirds) |
-| Density-based calculation | Distinct Validator-based |
-| "Mesh Health: 100/100" | "Network Health: 🟢 75%" |
-
 ### User Communication
 
-Old message: "Mesh Health: 100/100 ✅ (38% density)"
 New message: "Network Health: 🟢 Healthy (75%)"
 
 The new message:
 - Shows color indicator immediately
 - Uses percentage that directly reflects optimization potential
-- Removes confusing "density" concept
 
 ## Related Documents
 

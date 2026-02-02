@@ -6,15 +6,6 @@
 
 ---
 
-## The Critical Finding
-
-**User Question (2026-01-28):**
-> "I do have concerns about using Presage, since it has SQLite, which if the bot's server was seized by an adversary, what records would be at risk? All conversations, and thus all trust records?"
-
-**Answer**: YES - this is a critical security vulnerability that wasn't adequately addressed by our existing rules.
-
----
-
 ## What Default Presage SqliteStore Stores
 
 **From Presage documentation and source:**
@@ -61,44 +52,6 @@ pub struct SqliteStore {
 **This completely undermines Stroma's anonymity-first architecture.**
 
 ---
-
-## Why Existing Rules Didn't Catch This
-
-### What Our Rules Covered
-
-**✅ Identity Layer** (Adequate):
-- "Never store Signal IDs in cleartext"
-- "HMAC hash immediately"
-- "Zeroize buffers"
-
-**✅ Memory Layer** (Adequate):
-- Immediate zeroization
-- Memory dumps contain only hashes
-
-**✅ Application Layer** (Adequate):
-- "Ephemeral state: Relationship data deleted after vetting"
-- Freenet is source of truth
-
-### What Our Rules MISSED
-
-**❌ Signal Client Persistence Layer** (Gap):
-- Didn't specify what bot's Signal client stores
-- Didn't address message history persistence
-- Assumed "ephemeral vetting" meant no persistence anywhere
-- Focused on "don't store Signal IDs" not "don't store messages"
-
-**The Gap:**
-
-Our rules said:
-```
-"Ephemeral State: Relationship data deleted after vetting threshold met"
-```
-
-**But didn't explicitly say:**
-```
-"Bot's Signal client must NOT persist message history"
-"Implement custom Store that stores ONLY protocol state"
-```
 
 ### Why This Happened
 
@@ -253,49 +206,13 @@ The trust map reveals:
 
 ---
 
-## Lesson Learned
+## Implementation Guidance
 
-**Security rules must be comprehensive across ALL layers:**
+Agent implementation guidance for `StromaProtocolStore` is defined in the canonical beads:
 
-| Layer | Constraint |
-|-------|-----------|
-| Application | Don't store Signal IDs in app code ✅ |
-| Memory | Zeroize sensitive buffers ✅ |
-| Freenet | Trust map in decentralized storage ✅ |
-| **Signal Client** | **Don't persist message history** ← WAS MISSING |
-
-**The gap**: We focused on application-level constraints but didn't drill into dependency persistence.
-
-**The fix**: Explicitly constrain ALL persistence layers, including third-party libraries.
-
----
-
-## Action Items (Completed)
-
-- [x] Add Section 10 to security-constraints.bead (Bot Storage)
-- [x] Update security-guardrails.mdc (Storage violations)
-- [x] Update technology-stack.bead (Custom store requirement)
-- [x] Update poll-implementation-gastown.bead (Agent-Signal guidance)
-- [x] Update DEVELOPER-GUIDE.md (Storage security section + gap explanation)
-- [x] Update README.md (Security auditor description)
-- [x] Create this analysis document
-
----
-
-## Gastown Agent Guidance
-
-**Agent-Signal MUST:**
-1. Use Presage Manager API (high-level operations)
-2. Implement custom StromaProtocolStore (minimal persistence)
-3. DO NOT use presage-store-sqlite dependency
-4. Store ONLY protocol state (~100KB encrypted file)
-5. Never persist message content or history
-6. Test: Verify no messages in storage after vetting
-
-**This is now explicitly required in:**
-- `.beads/security-constraints.bead` (immutable constraint)
-- `.beads/technology-stack.bead` (implementation guidance)
-- `.beads/poll-implementation-gastown.bead` (Agent-Signal task)
+- **`.beads/security-constraints.bead`** § 10 - Immutable constraint with full store specification
+- **`.beads/technology-stack.bead`** - Implementation patterns and anti-patterns
+- **`.beads/signal-integration.bead`** - Store requirements for Signal integration
 
 ---
 

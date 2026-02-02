@@ -191,12 +191,29 @@ mkdir -p ~/.config/stroma
 # Create config.toml
 cat > ~/.config/stroma/config.toml <<'EOF'
 [signal]
-phone_number = "+1234567890"  # Bot's Signal phone number
-data_dir = "/var/lib/stroma/signal"
+# Path to Signal protocol store (CRITICAL - this IS your identity)
+# Created during device linking, contains ACI keypair for all crypto operations
+store_path = "/var/lib/stroma/signal-store"
+
+# Device name shown in Signal's linked devices list
+device_name = "Stroma Bot"
 
 [freenet]
-node_address = "127.0.0.1:8080"
-contract_key = ""  # Will be set after bootstrap
+# Freenet node is EMBEDDED - no external service needed
+# These settings configure the embedded node
+
+# Network settings for the embedded Freenet node
+listen_port = 0  # 0 = OS assigns available port
+is_gateway = false
+
+# Gateway nodes to connect to (at least one required)
+# Get current gateway addresses from Freenet documentation
+gateways = [
+    "gateway1.freenetproject.org:12345",
+]
+
+# Contract state directory (stores encrypted trust network state)
+state_dir = "/var/lib/stroma/freenet-state"
 
 [logging]
 level = "info"
@@ -204,9 +221,14 @@ file = "/var/log/stroma/bot.log"
 EOF
 ```
 
+**Important Notes:**
+- **No phone number needed**: The bot links as a secondary device to YOUR existing Signal account via QR code
+- **Freenet is embedded**: No separate Freenet service to run - it's built into Stroma
+- **Contract key is automatic**: Created during member-initiated bootstrap, managed by the bot
+
 ### Signal Protocol Store (CRITICAL for Recovery)
 
-**Your Signal protocol store IS your recovery identity.** No separate keypair or group pepper needed.
+**Your Signal protocol store IS your recovery identity.** No separate keypair needed.
 
 The bot uses the Signal account's **ACI (Account Identity) key** for ALL cryptographic operations:
 - Chunk encryption (AES-256-GCM key derived via HKDF)
@@ -255,12 +277,9 @@ The Reciprocal Persistence Network ensures your trust map survives bot crashes:
 chunk_size = 65536
 # Replication factor - copies per chunk (default: 3)
 replication_factor = 3
-
-# Signal protocol store location (contains your identity)
-signal_store_path = "/var/lib/stroma/signal-store"
 ```
 
-**Note**: No separate keypair file needed — your Signal identity IS your persistence identity. No heartbeat mechanism required. Replication Health is measured at write time based on successful chunk distribution acknowledgments.
+**Note**: No separate keypair file or persistence identity needed — your Signal protocol store (configured in `[signal].store_path`) IS your persistence identity. Encryption keys are derived from your Signal ACI identity via HKDF. No heartbeat mechanism required. Replication Health is measured at write time based on successful chunk distribution acknowledgments.
 
 ## Signal Account Setup (One-Time)
 
@@ -273,13 +292,13 @@ Choose how you want to set up the Signal account the bot will use:
 | Option | Description | Best For |
 |--------|-------------|----------|
 | **Dedicated phone** | Install Signal on a separate phone with its own number | Production (recommended) |
-| **VoIP service** | Register Signal using a virtual number (Twilio, Google Voice) | Testing (may be blocked) |
+| **VoIP service** | Register Signal using a virtual number (SMSPool, Twilio, Google Voice) | Testing (may be blocked) |
 | **Existing account** | Use your personal Signal account | Development only |
 
 **For production**, we recommend a dedicated Signal account (not your personal one). How you register that account is up to you:
 - Prepaid SIM card in a cheap phone
 - Dual-SIM phone with second number
-- Virtual number via Twilio, Google Voice, etc. (may be blocked by Signal)
+- Virtual number via SMSPool, Twilio, Google Voice, etc. (may be blocked by Signal)
 
 ---
 
@@ -336,7 +355,7 @@ Signal supports **one primary device** (Android/iOS phone) with **up to 5 linked
 ### Signal Account Considerations
 - **Prepaid SIM card** - Most reliable, works anywhere, ~$10-20/month
 - **Dual-SIM phone** - Use second slot for bot number
-- **VoIP service** (Twilio, Google Voice) - May be blocked by Signal
+- **VoIP service** (SMSPool, Twilio, Google Voice) - May be blocked by Signal
 
 **Signal Terms of Service**:
 - Signal allows bots/automated clients
@@ -351,80 +370,133 @@ Signal supports **one primary device** (Android/iOS phone) with **up to 5 linked
 
 **CRITICAL**: Your Signal protocol store contains the ACI identity key used to encrypt your persistence fragments. A NEW ACI identity CANNOT decrypt fragments encrypted with the OLD identity. Backup your Signal store before any issues arise.
 
-## Bootstrap Process (One-Time)
+## Bootstrap Process (Member-Initiated)
 
 ### Important: Embedded Freenet
 Stroma includes an **embedded Freenet kernel** - you don't need to install or run freenet-core separately. Everything is in one binary.
 
-### Step 1: Create Seed Group (Manual - 3 Members)
+### Key Principle: Member-Initiated Bootstrap
+
+**Bootstrap is controlled by members, not the operator.** Your role is to start the service - a member will initiate the seed group via Signal commands.
+
+### Step 1: Start the Bot Service
 
 ```bash
-# You need 3 people to start (including yourself)
-# Manually create Signal group and add all 3 members
-```
-
-**Seed Group Requirements:**
-- Must be exactly 3 members
-- All 3 must trust each other
-- All 3 will become initial Validators
-
-### Step 2: Run Bootstrap Command
-
-```bash
-# Bootstrap initializes embedded Freenet kernel + contract
-stroma bootstrap \
-  --config /etc/stroma/config.toml \
-  --signal-phone "+1234567890" \
-  --seed-members @Alice,@Bob,@Carol \
-  --group-name "My Trust Network"
-
-# Bootstrap process:
-# 1. Initializes embedded Freenet kernel (dark mode)
-# 2. Hashes all 3 Signal IDs with ACI-derived key
-# 3. Creates initial vouch graph (triangle: everyone vouches everyone)
-# 4. Deploys TrustNetworkState contract to embedded kernel
-# 5. Writes contract_key to config.toml
-# 6. Outputs contract key and confirmation
-```
-
-**Output:**
-```
-✅ Bootstrap Complete
-
-Embedded Freenet kernel initialized (dark mode)
-Contract deployed: 0x123abc...
-Contract key written to /etc/stroma/config.toml
-
-Seed members:
-- @Alice (hashed: 0xabc...)
-- @Bob (hashed: 0xdef...)  
-- @Carol (hashed: 0x789...)
-
-All 3 members have 2 vouches each (initial triangle).
-
-Ready to start bot service.
-```
-
-### Step 3: Start Bot Service
-
-```bash
-# Run bot (embedded Freenet kernel starts automatically)
+# Run bot - it will await member-initiated bootstrap
 stroma run --config /etc/stroma/config.toml
 
-# Bot is now:
-# - Running embedded Freenet kernel
-# - Monitoring Freenet state stream
-# - Connected to Signal
-# - Ready for member commands
+# Bot starts in "awaiting bootstrap" state:
+# ✅ Signal connected
+# ✅ Embedded Freenet kernel initialized
+# ⏳ Awaiting bootstrap...
+#    A member must initiate with: /create-group "Group Name"
 ```
 
+**Optional**: Prompt a specific user to start bootstrap:
+```bash
+stroma run --config /etc/stroma/config.toml --bootstrap-contact @FirstMember
+```
+
+### Step 2: Member Initiates Bootstrap (Via Signal)
+
+A member (not you) starts the process:
+
+```
+Member → Bot (PM): /create-group "Mission Control"
+
+Bot → Member (PM): 
+"🌱 Creating new Stroma group: 'Mission Control'
+
+You are seed member #1. Invite 2 more trusted people:
+  /add-seed @MemberB
+  /add-seed @MemberC"
+
+Member → Bot (PM): /add-seed @Bob
+Member → Bot (PM): /add-seed @Carol
+
+Bot → Group:
+"🎉 'Mission Control' is now live!
+All 3 seed members have 2 vouches each."
+```
+
+### Step 3: Bot Completes Automatically
+
+Once 3 seed members are added:
+1. Bot creates Signal group with all 3 members
+2. Bot deploys Freenet contract with mutual vouches
+3. Bot enters normal operation mode
+4. Bot announces completion to the group
+
 **After this point, you have NO special privileges. All membership changes are automatic based on Freenet contract state.**
+
+### What You DON'T Do
+
+- ❌ Specify seed members via CLI (member-controlled)
+- ❌ Create the Signal group manually (bot creates it)
+- ❌ Run any "bootstrap" command with member names
+- ✅ Just start the service and let members handle bootstrap
 
 ## Deployment Methods
 
 ### Method 1: Container Deployment (Recommended)
 
-#### Using docker-compose
+Container deployment requires a two-phase process:
+1. **Link device** (interactive, one-time) - Display QR code for you to scan with Signal
+2. **Run service** (daemonized) - Normal operation after linking
+
+#### Phase 1: Link Device (One-Time)
+
+First, link the bot as a secondary device to your Signal account:
+
+```bash
+# Create directories for persistent data
+mkdir -p ./stroma-data/signal-store
+mkdir -p ./stroma-data/freenet-state
+
+# Run linking in interactive mode (displays QR code)
+docker run -it --rm \
+  -v $(pwd)/stroma-data/signal-store:/data/signal-store \
+  ghcr.io/roder/stroma:latest link-device --device-name "Stroma Bot"
+```
+
+This displays a QR code in your terminal. Open Signal on your phone:
+1. Go to **Settings** → **Linked Devices**
+2. Tap **Link New Device**
+3. Scan the QR code displayed in the terminal
+
+Once linked, the container exits. Your Signal identity is now stored in `./stroma-data/signal-store/`.
+
+**⚠️ CRITICAL**: Back up `./stroma-data/signal-store/` immediately. This directory contains your ACI identity keypair — losing it means losing access to your trust network forever.
+
+#### Phase 2: Create Configuration
+
+Create `config.toml` with your settings:
+
+```bash
+cat > ./stroma-data/config.toml <<'EOF'
+[signal]
+store_path = "/data/signal-store"
+device_name = "Stroma Bot"
+
+[freenet]
+listen_port = 0
+is_gateway = false
+gateways = ["gateway1.freenetproject.org:12345"]
+state_dir = "/data/freenet-state"
+
+[logging]
+level = "info"
+file = "/data/logs/bot.log"
+
+[persistence]
+chunk_size = 65536
+replication_factor = 3
+EOF
+```
+
+#### Phase 3: Run Service
+
+##### Using docker-compose (Recommended)
 
 ```yaml
 # docker-compose.yml
@@ -435,12 +507,16 @@ services:
     image: ghcr.io/roder/stroma:latest
     container_name: stroma
     restart: unless-stopped
+    command: run --config /data/config.toml
     volumes:
-      - stroma-data:/data
-      - ./config.toml:/data/config.toml:ro
-      - ./signal-store:/data/signal-store  # Signal protocol store (backup this!)
-    environment:
-      - SIGNAL_PHONE=+1234567890
+      # Signal protocol store - CRITICAL, back this up!
+      - ./stroma-data/signal-store:/data/signal-store
+      # Freenet state directory
+      - ./stroma-data/freenet-state:/data/freenet-state
+      # Configuration (read-only)
+      - ./stroma-data/config.toml:/data/config.toml:ro
+      # Logs
+      - ./stroma-data/logs:/data/logs
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -448,10 +524,6 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-
-volumes:
-  stroma-data:
-    driver: local
 ```
 
 ```bash
@@ -465,24 +537,36 @@ docker-compose logs -f stroma
 docker-compose down
 ```
 
-#### Using docker/podman directly
+##### Using docker/podman directly
 
 ```bash
-# Bootstrap (one-time)
-docker run --rm \
-  -v stroma-data:/data \
-  ghcr.io/roder/stroma:latest bootstrap \
-  --signal-phone "+1234567890" \
-  --seed-members @Alice,@Bob,@Carol \
-  --group-name "My Network"
-
-# Run service
+# Run service (awaits member-initiated bootstrap if new group)
 docker run -d \
   --name stroma \
   --restart unless-stopped \
-  -v stroma-data:/data \
-  ghcr.io/roder/stroma:latest run
+  -v $(pwd)/stroma-data/signal-store:/data/signal-store \
+  -v $(pwd)/stroma-data/freenet-state:/data/freenet-state \
+  -v $(pwd)/stroma-data/config.toml:/data/config.toml:ro \
+  -v $(pwd)/stroma-data/logs:/data/logs \
+  --security-opt no-new-privileges:true \
+  --cap-drop ALL \
+  --read-only \
+  ghcr.io/roder/stroma:latest run --config /data/config.toml
+
+# Optional: prompt a specific user to start bootstrap
+docker run -d \
+  --name stroma \
+  --restart unless-stopped \
+  -v $(pwd)/stroma-data/signal-store:/data/signal-store \
+  -v $(pwd)/stroma-data/freenet-state:/data/freenet-state \
+  -v $(pwd)/stroma-data/config.toml:/data/config.toml:ro \
+  -v $(pwd)/stroma-data/logs:/data/logs \
+  ghcr.io/roder/stroma:latest run --config /data/config.toml --bootstrap-contact @FirstMember
 ```
+
+**Note**: 
+- Bootstrap is member-initiated via Signal commands (`/create-group`, `/add-seed`), not via CLI
+- The embedded Freenet node starts automatically — no separate Freenet service required
 
 ---
 
@@ -541,33 +625,53 @@ sudo systemctl status stroma
 
 If you operate multiple Stroma groups, each requires:
 - Separate bot process
-- Separate Signal phone number
-- Separate Freenet contract
-- Separate configuration
+- Separate Signal account (linked via QR code)
+- Separate Freenet contract (created during bootstrap)
+- Separate configuration and data directories
 
 **Example: Running 3 Groups**
 
-#### Step 1: Provision 3 Signal Numbers
+#### Step 1: Prepare 3 Signal Accounts
 
-```fish
-# Use provisioning tool for each
-cd utils/provision-signal-bot
-set -gx SMSPOOL_API_KEY "your_key"
+Each bot needs its own Signal account. You have several options:
 
-# Group 1
-cargo run -- --provision-number
-cargo run -- --phone +12025551111 --order-id ABC123 --captcha 'signalcaptcha://...'
+**Option A: Use separate phones/SIMs**
+- Get 3 prepaid SIMs
+- Install Signal on 3 phones (or use one phone, register each account, then unlink)
+- Each account can then have the bot linked as a secondary device
 
-# Group 2  
-cargo run -- --provision-number
-cargo run -- --phone +12025552222 --order-id DEF456 --captcha 'signalcaptcha://...'
+**Option B: Use an SMS-to-email service (SMSPool, etc.)**
+- Provision 3 phone numbers for registration
+- Complete Signal registration for each
+- See the [Signal Account Setup](#signal-account-setup-one-time) section for details
 
-# Group 3
-cargo run -- --provision-number
-cargo run -- --phone +12025553333 --order-id GHI789 --captcha 'signalcaptcha://...'
+**Option C: Use existing Signal accounts**
+- If you have team members willing to link their accounts
+- Each person links the bot as a secondary device on their account
+
+#### Step 2: Link Each Bot Instance
+
+For each group, run the device linking process:
+
+```bash
+# Create directories for each group
+sudo mkdir -p /var/lib/stroma/{mission-control,activists-nyc,mutual-aid-sf}/signal-store
+sudo mkdir -p /var/lib/stroma/{mission-control,activists-nyc,mutual-aid-sf}/freenet-state
+
+# Link each bot (run one at a time, scan QR with the corresponding Signal account)
+stroma link-device --device-name "Stroma: Mission Control" \
+  --store-path /var/lib/stroma/mission-control/signal-store
+
+stroma link-device --device-name "Stroma: Activists NYC" \
+  --store-path /var/lib/stroma/activists-nyc/signal-store
+
+stroma link-device --device-name "Stroma: Mutual Aid SF" \
+  --store-path /var/lib/stroma/mutual-aid-sf/signal-store
 ```
 
-#### Step 2: Create systemd Service Template
+**⚠️ CRITICAL**: Back up each `signal-store` directory immediately after linking.
+
+#### Step 3: Create systemd Service Template
 
 ```bash
 # Create template service file
@@ -602,49 +706,48 @@ ReadWritePaths=/var/lib/stroma/%i /var/log/stroma
 WantedBy=multi-user.target
 ```
 
-#### Step 3: Create Per-Group Configurations
+#### Step 4: Create Per-Group Configurations
 
 ```bash
-# Create directories
+# Create config directories
 sudo mkdir -p /etc/stroma/groups/{mission-control,activists-nyc,mutual-aid-sf}
-sudo mkdir -p /var/lib/stroma/{mission-control,activists-nyc,mutual-aid-sf}
 
-# Create config files (one per group)
-sudo nano /etc/stroma/groups/mission-control/config.toml
-sudo nano /etc/stroma/groups/activists-nyc/config.toml
-sudo nano /etc/stroma/groups/mutual-aid-sf/config.toml
+# Example config for mission-control
+cat > /etc/stroma/groups/mission-control/config.toml <<'EOF'
+[signal]
+store_path = "/var/lib/stroma/mission-control/signal-store"
+device_name = "Stroma: Mission Control"
 
-# Each config has its own:
-# - signal_phone (different number per group)
-# - signal_store_path (different Signal store per group)
-# - freenet data_dir (different dir per group)
-# - group_name (different name per group)
+[freenet]
+listen_port = 0
+is_gateway = false
+gateways = ["gateway1.freenetproject.org:12345"]
+state_dir = "/var/lib/stroma/mission-control/freenet-state"
+
+[logging]
+level = "info"
+file = "/var/log/stroma/mission-control.log"
+
+[persistence]
+chunk_size = 65536
+replication_factor = 3
+EOF
+
+# Repeat for other groups with their respective paths
+# activists-nyc uses /var/lib/stroma/activists-nyc/...
+# mutual-aid-sf uses /var/lib/stroma/mutual-aid-sf/...
 ```
 
-#### Step 4: Bootstrap Each Group
+**Each config has its own:**
+- `signal.store_path` — Different Signal store per group (created during linking)
+- `freenet.state_dir` — Different Freenet state directory per group
+- `logging.file` — Different log file per group
 
-```bash
-# Bootstrap each separately
-stroma bootstrap \
-  --config /etc/stroma/groups/mission-control/config.toml \
-  --signal-phone "+12025551111" \
-  --seed-members @Alice,@Bob,@Carol \
-  --group-name "Mission Control"
+#### Step 5: Start All Services (Each Awaits Bootstrap)
 
-stroma bootstrap \
-  --config /etc/stroma/groups/activists-nyc/config.toml \
-  --signal-phone "+12025552222" \
-  --seed-members @Dave,@Eve,@Frank \
-  --group-name "Activists-NYC"
+**Note**: Bootstrap is member-initiated. Each bot starts in "awaiting bootstrap" state until a member initiates via Signal (`/create-group`, `/add-seed`).
 
-stroma bootstrap \
-  --config /etc/stroma/groups/mutual-aid-sf/config.toml \
-  --signal-phone "+12025553333" \
-  --seed-members @Grace,@Heidi,@Ivan \
-  --group-name "Mutual Aid SF"
-```
-
-#### Step 5: Start All Services
+#### Step 6: Enable and Start Services
 
 ```bash
 # Enable and start each service
@@ -656,7 +759,7 @@ sudo systemctl enable --now stroma-bot@mutual-aid-sf
 sudo systemctl status 'stroma-bot@*'
 ```
 
-#### Step 6: Monitor All Groups
+#### Step 7: Monitor All Groups
 
 ```bash
 # View logs for specific group
@@ -1261,16 +1364,17 @@ chmod 700 signal-store
 
 **4. Create config.toml** (use template from Configuration section)
 
-**5. Bootstrap**
+**5. Start service** (awaits member-initiated bootstrap)
 ```bash
-docker-compose run --rm stroma bootstrap \
-  --config /data/config.toml \
-  --signal-phone "+1234567890" \
-  --seed-members @Alice,@Bob,@Carol \
-  --group-name "My Network"
+docker-compose up -d
+
+# View logs to see bootstrap status
+docker-compose logs -f
 ```
 
-**6. Start service**
+**Note**: Bootstrap is member-initiated. Once the service starts, a member initiates via Signal (`/create-group "Name"`, then `/add-seed @User` twice).
+
+**6. Verify running**
 ```bash
 docker-compose up -d
 
@@ -1315,18 +1419,18 @@ sudo chmod 700 /var/lib/stroma/signal-store
 
 **4. Create config** (use template, save to `/etc/stroma/config.toml`)
 
-**5. Bootstrap**
+**5. Create systemd service** (use template from Service Management section)
+
+**6. Start service** (awaits member-initiated bootstrap)
 ```bash
-sudo -u stroma stroma bootstrap \
-  --config /etc/stroma/config.toml \
-  --signal-phone "+1234567890" \
-  --seed-members @Alice,@Bob,@Carol \
-  --group-name "My Network"
+sudo systemctl daemon-reload
+sudo systemctl enable stroma
+sudo systemctl start stroma
 ```
 
-**6. Create systemd service** (use template from Service Management section)
+**Note**: Bootstrap is member-initiated. Once the service starts, a member initiates via Signal (`/create-group "Name"`, then `/add-seed @User` twice).
 
-**7. Start service**
+**7. Verify running**
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable stroma

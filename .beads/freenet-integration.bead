@@ -133,15 +133,17 @@ async fn run_bot_event_loop(node: Node, signal: SignalBot) -> Result<(), Error> 
 
 ## Emergent Discovery (Shadow Beacons)
 
-### Social Anchor Hashing
-- Generate Freenet URI from: `Hash(Sorted(Top-N-Validators))`
-- Dynamic threshold based on group size
-- URI changes as group composition changes (organic discovery)
+### Social Anchor Hashing (Fixed Fibonacci Buckets)
+- Generate Freenet URIs at Fixed Fibonacci Bucket sizes: [3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987]
+- Each bucket: `Hash(Sorted(Top-N-Validators))` where N is the bucket size
+- Groups of ANY size hash to the SAME bucket sizes, enabling cross-size discovery
+- URI changes as top-N validators change (organic discovery)
 
 ### Bloom Filter Strategy (External Federation Only)
-- Publish Bloom Filter at multiple URIs (percentile-based)
-- Use PSI-CA to prove overlap without revealing IDs
-- Both groups check if overlap meets their threshold (BidirectionalMin)
+- Publish Bloom Filter at ALL Fibonacci bucket URIs the group can fill
+- Use PSI-CA to calculate EXACT overlap count without revealing IDs
+- Both groups check dual thresholds (BidirectionalMin): `min_shared_validators` AND `min_intersection_density`
+- **See**: `.beads/discovery-protocols.bead` for complete specification
 
 ---
 

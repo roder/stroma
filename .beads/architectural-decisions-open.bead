@@ -383,7 +383,7 @@ pub struct TrustNetworkState {
 - Federation naturally introduces multiple bots (each group has one)
 - Cross-group operations require bot-to-bot coordination
 
-**Documentation**: "Multi-bot" in Stroma always means federation, never redundancy.
+**Documentation**: "Multi-bot" in Stroma always means federation, never redundancy. Perfer "Federation" over "Multi-bot".
 
 ---
 
@@ -402,11 +402,11 @@ fn should_require_cross_cluster(state: &TrustNetworkState) -> bool {
 
 **Why no member count threshold**:
 - 10 tight friends = 1 cluster → no cross-cluster needed
-- 6 from 2 friend groups = 2 clusters → cross-cluster required
+- 6 from 2 peer groups = 2 clusters → cross-cluster required
 - Algorithm detects actual social structure, not arbitrary numbers
 
 **Announcement**: When triggered, bot posts to group:
-> "📊 Network update: Your group now has distinct sub-communities! Cross-cluster vouching is now required for new members. This means new members need vouches from people in different friend circles. Existing members are grandfathered."
+> "📊 Network update: Your group now has distinct sub-communities! Cross-cluster vouching is now required for new members. This means new members need vouches from people in different peer circles. Existing members are grandfathered."
 
 **Grandfathering**: Existing members at time of trigger are NOT required to get new vouches.
 
@@ -414,23 +414,60 @@ fn should_require_cross_cluster(state: &TrustNetworkState) -> bool {
 
 ---
 
+### 8. Self-Query of Own Vouchers/Flags
+
+**Decision**: **Users MAY see their own vouchers and flaggers by name**
+
+A user can query `/status` to see who vouched for them and who flagged them, displayed with Signal display names (not hashes).
+
+**Rationale**:
+- **No new information leaked**: User already participated in vouching conversations — they know who vouched for them
+- **Actionable UX**: Knowing "Alice vouched for you" lets user assess risk if Alice leaves
+- **No third-party queries**: User CANNOT see who vouched for *other* members
+- **Consistent with threat model**: Threat is adversarial third-party queries, not self-knowledge
+
+**What IS allowed**:
+```
+/status → Shows YOUR vouchers: "Alice, Bob"
+/status → Shows YOUR flaggers: "Carol"
+```
+
+**What is FORBIDDEN**:
+```
+/status @Charlie → ❌ REJECTED (cannot query others)
+/whois vouched @Charlie → ❌ REJECTED (cannot query others' relationships)
+```
+
+**Security Constraint Clarification**:
+
+The existing constraint "NEVER reveal who vouched for whom in cleartext" applies to:
+- ❌ Third-party queries (who vouched for X?)
+- ❌ Group announcements ("Alice vouched for Bob")
+- ❌ Logs or persistent storage of vouch relationships
+
+It does NOT prohibit:
+- ✅ User seeing their own vouchers (self-query)
+- ✅ User seeing their own flaggers (self-query)
+
+**Implementation**:
+```rust
+fn handle_status_command(requester: &MemberId, target: Option<&MemberId>) -> Result<StatusResponse> {
+    match target {
+        Some(other) if other != requester => {
+            // ❌ FORBIDDEN: Cannot query other members' relationships
+            Err(Error::PrivacyViolation("Cannot view other members' vouchers"))
+        }
+        _ => {
+            // ✅ ALLOWED: Self-query
+            let vouchers = get_vouchers_for(requester);
+            let flaggers = get_flaggers_for(requester);
+            Ok(StatusResponse { vouchers, flaggers, ... })
+        }
+    }
+}
+```
+
+**UX Note**: Display names come from Signal (ephemeral, not persisted by bot). Bot resolves hash→name at display time using Signal API, never stores the mapping.
+
 ---
 
-## Summary
-
-| # | Question | Decision | Status |
-|---|----------|----------|--------|
-| 1 | Flag history | Flags persist | ✅ Resolved |
-| 2 | Multiple flags | One per person (set) | ✅ Resolved |
-| 3 | Vouch revocation | Revoke = Flag (no neutral) | ✅ Resolved |
-| 4 | Signal failure | Logarithmic backoff retry | ✅ Resolved |
-| 5 | Rate limiting | Progressive cooldown | ✅ Resolved |
-| 6 | Schema migration | Versioned state (serde default) | ✅ Resolved |
-| 7 | Privacy settings | No hiding (transparent within group) | ✅ Resolved |
-| 8 | Bootstrap grandfathering | Existing members grandfathered | ✅ Resolved |
-| 9 | Logging | NO PII, INFO/DEBUG levels | ✅ Resolved |
-| 10 | Tombstone/ejection | Ejected state, not permanent ban | ✅ Resolved |
-| 11 | Multi-bot | Federation coordination, not redundancy | ✅ Resolved |
-| 12 | Cluster trigger | Automatic when `clusters >= 2` | ✅ Resolved |
-
-**All open architectural questions resolved.**

@@ -14,10 +14,10 @@
 
 **Critical Reasons:**
 
-1. **Anonymity** - Votes are private
-   - ❌ Reactions expose who voted what (public, visible to all)
-   - ✅ Polls keep votes anonymous (only aggregated results)
-   - Aligns with Stroma's privacy-first philosophy
+1. **Accountability** - Votes are transparent to group members
+   - Signal Polls show who voted for what (visible to group during poll)
+   - Members remain accountable for their decisions
+   - Signal identity can still be separate from real-world identity
 
 2. **Multiple Choices** - Better decision making
    - ❌ Reactions are binary (👍/👎 only)
@@ -29,20 +29,47 @@
    - ✅ Familiar interface for users
    - ✅ Vote tracking built-in
 
+### Persistence Constraint: Aggregates Only
+
+**⚠️ CRITICAL**: Stroma MUST NOT persist individual votes.
+
+**What Stroma Persists (Freenet contract):**
+- ✅ Proposal ID, type, action
+- ✅ Aggregate counts (approve: 18, reject: 4)
+- ✅ Result (passed/failed)
+- ✅ Quorum met (yes/no)
+- ✅ Threshold met (yes/no)
+- ✅ Timestamps (created, expired)
+
+**What Stroma NEVER Persists:**
+- ❌ Who voted for what
+- ❌ Individual vote records
+- ❌ Voter identities (hashed or cleartext)
+- ❌ Vote timestamps per voter
+
+**Rationale:**
+- Signal shows votes during poll (ephemeral, in Signal's E2E encrypted channel)
+- Stroma only stores outcomes (permanent, in Freenet contract)
+- If Freenet state is compromised, voting history cannot be reconstructed
+- Protects members from retroactive identification of dissent
+
 ### Current Status
 
+**Canonical Source**: `.beads/poll-implementation-gastown.bead`
+
 **Signal Protocol:**
-- Protocol v8 includes poll support (PollCreate, PollTerminate, PollVote)
+- Protocol v8 includes poll support (PollCreate, PollTerminate, PollVote, PinMessage, UnpinMessage)
 - Signal-Desktop, Signal-Android, Signal-iOS all support polls
 
-**libsignal-service-rs:**
-- Currently protocol v7 (payments)
-- Missing fields 24-26 in DataMessage (polls)
-- Actively maintained (last commit: 2026-01-28)
+**libsignal-service-rs Fork:** ✅ COMPLETE
+- Repository: `github.com/roder/libsignal-service-rs`
+- Branch: `feature/protocol-v8-polls-fixed`
+- Implemented: `PollCreate` (field 24), `PollTerminate` (field 25), `PollVote` (field 26), `PinMessage` (field 27), `UnpinMessage` (field 28)
+- Tests: Unit tests for all poll types (serialization roundtrip)
 
 **Presage:**
 - Built on libsignal-service-rs
-- Will inherit poll support when libsignal-service-rs updated
+- Will use poll support via Cargo patch to our fork
 
 ### Implementation Strategy
 
@@ -53,11 +80,19 @@
 
 [dependencies]
 presage = { git = "https://github.com/whisperfish/presage" }
+# ❌ DO NOT ADD: presage-store-sqlite (stores message history - server seizure risk)
+# ✅ Implement custom StromaProtocolStore instead (see security-constraints.bead)
 
 [patch.crates-io]
 libsignal-service = { 
     git = "https://github.com/roder/libsignal-service-rs", 
-    branch = "feature/protocol-v8-polls" 
+    branch = "feature/protocol-v8-polls-fixed" 
+}
+
+# Required for presage
+curve25519-dalek = { 
+    git = 'https://github.com/signalapp/curve25519-dalek', 
+    tag = 'signal-curve25519-4.1.3' 
 }
 ```
 
@@ -237,8 +272,7 @@ assert!(poll_results.individual_votes.is_none());  // Must be None
 **Must verify:**
 - [ ] Poll creation works
 - [ ] Voting works
-- [ ] Results are anonymous (individual votes not exposed)
-- [ ] Bot can read aggregated results
+- [ ] Bot can read poll results
 - [ ] Timeout enforcement works
 - [ ] Multiple choice polls work (for future features)
 

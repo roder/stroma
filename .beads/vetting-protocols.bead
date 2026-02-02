@@ -2,7 +2,26 @@
 
 **Status**: Immutable Architectural Constraint  
 **Created**: 2026-02-01  
-**Context**: Admission and Vetting Protocols
+**Context**: Admission, Vetting, and Ejection Protocols
+
+---
+
+## Related Beads
+
+This bead provides an overview. For detailed specifications, see:
+
+| Topic | Bead | Purpose |
+|-------|------|---------|
+| **Terminology** | `.beads/terminology.bead` | Canonical definitions (Member, Bridge, Validator, etc.) |
+| **Bootstrap** | `.beads/bootstrap-seed.bead` | One-time seed group creation process |
+| **Cross-Cluster** | `.beads/cross-cluster-requirement.bead` | Formal definition and enforcement |
+| **Mesh Health** | `.beads/mesh-health-metric.bead` | DVR calculation and health tiers |
+| **Blind Matchmaker** | `.beads/blind-matchmaker-dvr.bead` | Strategic introduction algorithm |
+| **Trust Calculations** | `.beads/security-constraints.bead` | Standing formula, ejection triggers |
+| **User Experience** | `.beads/user-roles-ux.bead` | Bot commands, member journey |
+| **Freenet State** | `.beads/freenet-contract-design.bead` | State structure, CRDT merge semantics |
+| **Decisions** | `.beads/architectural-decisions-open.bead` | Flag persistence, ejected state, vouch revocation |
+| **Philosophy** | `.beads/philosophical-foundations.bead` | Accountability vs. forgiveness duality |
 
 ---
 
@@ -10,80 +29,236 @@
 
 **Signal Group = Fully Vetted Members Only**
 
-**Cross-Cluster Requirement** (CONTINUOUS):
-| Role | Requirement |
-|------|-------------|
-| Bridge (2 vouches) | 2 different clusters |
-| Validator (3+ vouches) | min(vouch_count, available_clusters) |
-
-**Bootstrap Exception**: When only 1 cluster exists, cross-cluster not enforced.
+Every member in the Signal group has met the admission requirements. Invitees (being vetted) are OUTSIDE the group until fully admitted.
 
 ---
 
-## Bootstrap: Seed Group (One-Time)
+## Member Lifecycle
 
-- **Size**: 3 members (minimum for triangulation)
-- **Process**: All 3 vouch for each other (creates triangle)
-- **Result**: Initial Merkle Tree with 3 members, each with 2 vouches
-- **After**: Bot enforces gatekeeper protocol, no manual additions
+**Canonical Source**: `.beads/terminology.bead` (Member Roles section)
+
+```
+                    ┌─────────────┐
+                    │   Outside   │  Not in Stroma
+                    └──────┬──────┘
+                           │ /invite (first vouch)
+                           ▼
+                    ┌─────────────┐
+                    │   Invitee   │  1 vouch, OUTSIDE group
+                    │ (Leaf Node) │  Being vetted
+                    └──────┬──────┘
+                           │ Second vouch (cross-cluster)
+                           ▼
+                    ┌─────────────┐
+                    │   Bridge    │  2 vouches, IN group
+                    │  (Member)   │  Minimum requirement
+                    └──────┬──────┘
+                           │ Additional vouches
+                           ▼
+                    ┌─────────────┐
+                    │  Validator  │  3+ vouches, IN group
+                    │  (Member)   │  Used for optimization
+                    └─────────────┘
+                           │
+              ┌────────────┴────────────┐
+              │ Standing < 0            │ Effective_Vouches < 2
+              │ OR                      │
+              ▼                         ▼
+        ┌─────────────┐          ┌─────────────┐
+        │   Ejected   │◄────────►│   Ejected   │
+        │(flags stay) │          │(flags stay) │
+        └──────┬──────┘          └──────┬──────┘
+               │                        │
+               └────────┬───────────────┘
+                        │ Re-entry: 2+ new vouches
+                        │ (flags persist, higher bar)
+                        ▼
+                 ┌─────────────┐
+                 │   Bridge    │  Back in group
+                 └─────────────┘
+```
+
+---
+
+## Cross-Cluster Requirement
+
+**Canonical Source**: `.beads/cross-cluster-requirement.bead`
+
+| Role | Vouch Count | Cluster Requirement |
+|------|-------------|---------------------|
+| Bridge | 2 vouches | 2 different clusters |
+| Validator | 3+ vouches | min(vouch_count, available_clusters) |
+
+**Single-Cluster Exception**: When only 1 cluster exists (bootstrap or organic convergence), cross-cluster requirement is not enforced. Enforcement begins when `clusters >= 2`.
+
+**Why Cross-Cluster**: Prevents coordinated infiltration. Same-cluster vouching allows bad actors to rubber-stamp each other.
+
+---
+
+## Bootstrap: Seed Group
+
+**Canonical Source**: `.beads/bootstrap-seed.bead`
+
+**One-time process** to create the initial 3-member seed group:
+
+1. **Size**: 3 members (minimum for triangulation)
+2. **Process**: Member-initiated via Signal commands (`/create-group`, `/add-seed`)
+3. **Result**: Initial triangle with mutual vouches (each member has 2 vouches)
+4. **Transition**: Bot becomes sole admin, all future admissions via protocol
+
+**Key Constraint**: Operator does NOT manually add members. Bootstrap is member-initiated.
 
 ---
 
 ## Admission Protocol
 
 ### Phase 1: Invitation (First Vouch)
-```
-Member: /invite @PotentialMember "Optional context"
-```
+
+**Command**: `/invite @PotentialMember "Optional context"`
+
 - Invitation counts as first vouch
 - ANY Member can invite (Bridges and Validators)
+- Invitee is OUTSIDE the group (waiting status)
+
+**See**: `.beads/user-roles-ux.bead` for command details
 
 ### Phase 2: Strategic Matching (Blind Matchmaker)
-- Bot selects validator from DIFFERENT cluster than inviter
-- Maximizes intersectional trust diversity
+
+**Canonical Source**: `.beads/blind-matchmaker-dvr.bead`
+
+- Bot selects a member from DIFFERENT cluster than inviter
+- Prioritizes DVR optimization (create distinct Validators)
+- Falls back to MST algorithm if no DVR-optimal match
 
 ### Phase 3: Introduction Facilitation
-- Bot creates 3-person Signal chat (invitee, validator, bot)
-- Validator chats with invitee
-- `/vouch @Invitee` to confirm
+
+- Bot creates 3-person Signal chat (invitee, selected member, bot)
+- Selected member chats with invitee (human vetting)
+- Selected member uses `/vouch @Invitee` to confirm
+
+**Privacy**: Vetting happens in 1-on-1 PMs, not group chat.
 
 ### Phase 4: Admission
-1. Verify 2 vouches from different clusters
-2. Push ZK-proofs to Freenet
-3. After Freenet confirms, add to Signal
-4. Announce in group (using hashes, not names)
-5. Delete ephemeral vetting data
+
+1. **Verify**: 2 vouches from different clusters (or Single-Cluster Exception)
+2. **Record**: Push vouch records with ZK-proofs to Freenet contract
+3. **Wait**: Freenet confirms state update
+4. **Add**: Bot adds member to Signal group
+5. **Announce**: Group notification (using hashes, not names)
+6. **Delete**: Ephemeral vetting session data removed immediately
+
+**See**: `.beads/freenet-contract-design.bead` for state structure
+
+---
+
+## Ejection Protocol
+
+**Canonical Source**: `.beads/security-constraints.bead` (Section 2)
+
+### Two Independent Triggers
+
+| Trigger | Condition | Meaning |
+|---------|-----------|---------|
+| **Standing < 0** | `Effective_Vouches - Regular_Flags < 0` | Too many regular flags |
+| **Effective_Vouches < 2** | Voucher left OR voucher flagged you | Below minimum threshold |
+
+### Standing Calculation
+
+**Canonical Source**: `.beads/terminology.bead` (Trust Calculations)
+
+```
+Voucher-Flaggers = All_Vouchers ∩ All_Flaggers
+Effective_Vouches = |All_Vouchers| - |Voucher_Flaggers|
+Regular_Flags = |All_Flaggers| - |Voucher_Flaggers|
+Standing = Effective_Vouches - Regular_Flags
+```
+
+**Key Insight**: Voucher-flaggers are excluded from BOTH counts (prevents 2-point swings).
+
+### No Grace Periods
+
+**Canonical Source**: `.beads/security-constraints.bead` (Section 2)
+
+- ❌ NO warnings before ejection
+- ❌ NO re-verification windows
+- ❌ NO delayed ejection
+- ✅ Immediate ejection when threshold violated
+
+**Rationale**: Grace periods create exploitable windows. See `.beads/philosophical-foundations.bead` for accountability vs. forgiveness duality.
+
+---
+
+## Edge Cases & Exceptions
+
+### Cluster Depletion During Vetting
+
+If a cluster is destroyed (members ejected) while an invitee is being vetted:
+- Invitee's existing vouch(es) remain valid
+- Bot must find a new member from a different remaining cluster
+- If no other clusters exist, Single-Cluster Exception applies
+
+### Re-Admission After Ejection
+
+**Canonical Source**: `.beads/architectural-decisions-open.bead` (Decisions #1, #10)
+
+Ejected members can be re-admitted through the normal admission process:
+
+| Aspect | Behavior |
+|--------|----------|
+| **Flags** | Previous flags persist (carried over from before ejection) |
+| **Vouches** | Must secure 2+ new cross-cluster vouches from current members |
+| **Standing** | New vouches - Previous flags |
+| **Difficulty** | Higher bar if flagged (3 flags = need 4+ vouches for positive standing) |
+| **Cooldown** | None - re-entry can happen immediately if vouches secured |
+
+**Example**: Alice ejected with 3 flags needs 4+ vouches to re-enter with positive standing.
+
+**Rationale**: Accountability over forgiveness for flag history. Community memory of concerns is preserved. See `.beads/philosophical-foundations.bead`.
 
 ---
 
 ## Internal Mesh-Building (Blind Matchmaker)
 
-**Purpose**: Maintain fully intersectional mesh as group grows.
+**Canonical Source**: `.beads/blind-matchmaker-dvr.bead`
 
-**Priority Algorithm:**
-1. Connect Bridges to Validators from different clusters
-2. Bridge disconnected islands (if any)
+**Purpose**: Suggest strategic cross-cluster introductions to improve network resilience.
 
-**Efficiency**: N(Bridges) + I(Islands) new interactions
+**Priority Algorithm (DVR-Optimized):**
+
+| Phase | Action | Goal |
+|-------|--------|------|
+| **Phase 0 (DVR)** | Suggest introductions that create Distinct Validators | Maximize independently-verified members |
+| **Phase 1 (MST)** | If no DVR-optimal match, accept any cross-cluster vouch | Maintain admission flow |
+| **Phase 2 (Islands)** | Bridge disconnected clusters | Ensure full connectivity |
+
+**Health Metric**: Distinct Validator Ratio (DVR) = Distinct_Validators / (N / 4)
+
+**See**: `.beads/mesh-health-metric.bead` for DVR calculation and three-tier health status (🔴 Unhealthy, 🟡 Developing, 🟢 Healthy).
 
 ---
 
 ## Continuous Health Monitoring
 
+**Canonical Source**: `.beads/freenet-integration.bead` (State Stream)
+
 ### Real-Time State Stream (NOT Polling)
+
 ```rust
-async fn membership_health_monitor() {
+async fn membership_health_monitor(
+    signal: &impl SignalClient,
+    freenet: &impl FreenetClient,
+) {
     let mut stream = freenet.subscribe_to_state_changes().await;
     
     while let Some(change) = stream.next().await {
         match change {
-            StateChange::VouchRemoved { member, .. } => {
-                if effective_vouches < MIN_VOUCH_THRESHOLD {
+            StateChange::VouchRemoved { member, .. } |
+            StateChange::FlagAdded { member, .. } => {
+                let state = freenet.get_member_state(member).await;
+                if state.effective_vouches < MIN_VOUCH_THRESHOLD {
                     signal.remove_member(member).await;
                 }
-            },
-            StateChange::StandingChanged { member, standing } => {
-                if standing < 0 {
+                if state.standing < 0 {
                     signal.remove_member(member).await;
                 }
             },
@@ -93,16 +268,51 @@ async fn membership_health_monitor() {
 }
 ```
 
-**No Grace Periods**: Immediate ejection when threshold violated.
+**Key Points**:
+- ✅ Use real-time Freenet state stream (react to `StateChange` events)
+- ❌ DO NOT use polling with sleep loops
+- ✅ Immediate ejection when either trigger activated
+
+**See**: `.beads/testing-standards.bead` for integration testing patterns with mock Signal/Freenet.
 
 ---
 
 ## Key Architectural Principles
 
-1. **Waiting Room = Outside Signal Group** (not separate chat)
-2. **Invitees = OUTSIDE Group** (1 vouch, being vetted)
-3. **Bridges = IN Group** (2 vouches, minimum)
-4. **Validators = IN Group** (3+ vouches, optimization)
-5. **Gatekeeper**: Bot strictly enforces 2-vouch requirement
-6. **Immediate Ejection**: No grace periods
-7. **Vouch Permissions**: ANY Member can vouch
+| Principle | Description | Reference |
+|-----------|-------------|-----------|
+| **Waiting Room = Outside Group** | Invitees are not in a separate chat; they're simply outside Signal group | `terminology.bead` |
+| **Invitees = OUTSIDE Group** | 1 vouch, being vetted, cannot participate | `terminology.bead` |
+| **Bridges = IN Group** | 2 vouches, minimum requirement for membership | `terminology.bead` |
+| **Validators = IN Group** | 3+ vouches, used for Blind Matchmaker optimization only | `terminology.bead` |
+| **Gatekeeper** | Bot strictly enforces 2-vouch requirement | `signal-integration.bead` |
+| **Immediate Ejection** | No grace periods, no warnings | `security-constraints.bead` |
+| **Vouch Permissions** | ANY Member can vouch (not restricted to Validators) | `security-constraints.bead` |
+| **Flags Persist** | Ejected members keep their flag history on re-entry | `architectural-decisions-open.bead` |
+| **No Permanent Bans** | Ejected members can always re-enter with sufficient vouches | `philosophical-foundations.bead` |
+
+---
+
+## Gastown Agent Instructions
+
+**When implementing vetting/admission:**
+1. Read `.beads/terminology.bead` for canonical definitions
+2. Read `.beads/cross-cluster-requirement.bead` for enforcement logic
+3. Read `.beads/security-constraints.bead` for ejection triggers
+4. Use trait abstractions for Signal/Freenet (see `.beads/testing-standards.bead`)
+
+**When implementing Blind Matchmaker:**
+1. Read `.beads/blind-matchmaker-dvr.bead` for algorithm details
+2. Read `.beads/mesh-health-metric.bead` for DVR calculation
+
+**When implementing health monitoring:**
+1. Use real-time Freenet state stream (NOT polling)
+2. Check BOTH ejection triggers on every state change
+3. Immediate action when threshold violated
+
+**Anti-Patterns to Avoid:**
+- ❌ Restricting vouching to Validators only
+- ❌ Adding grace periods or warnings before ejection
+- ❌ Polling instead of state stream
+- ❌ Storing Signal IDs in cleartext during vetting
+- ❌ Persisting vetting session data after admission

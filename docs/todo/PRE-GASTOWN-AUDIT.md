@@ -1,6 +1,6 @@
 # Pre-Gastown Audit: Human Review Checklist
 
-**Date**: 2026-01-31  
+**Date**: 2026-02-01 
 **Purpose**: Final human audit before turning Stroma over to Gastown agents for implementation  
 **Status**: Planning phase
 
@@ -21,117 +21,86 @@ Gastown agents will follow beads, rules, and documentation **literally**. Any in
 **Location**: `.beads/*.bead`
 
 **What to Check**:
-- [ ] **Terminology consistency**: Do all beads use the same terms for the same concepts?
-- [ ] **No contradictions**: Do any beads conflict with each other?
-- [ ] **Completeness**: Are all architectural decisions documented?
-- [ ] **Priority clarity**: When beads conflict, is there clear precedence?
-- [ ] **Spike Week alignment**: Do beads reflect outstanding questions from SPIKE-WEEK-BRIEFING.md?
+- [X] **Terminology consistency**: Do all beads use the same terms for the same concepts?
+- [X] **No contradictions**: Do any beads conflict with each other?
+- [X] **Completeness**: Are all architectural decisions documented?
+- [X] **Priority clarity**: When beads conflict, is there clear precedence?
+- [X] **Spike Week alignment**: Do beads reflect outstanding questions from SPIKE-WEEK-BRIEFING.md?
 
 **Key Beads to Audit**:
-- [ ] `architecture-decisions.bead` - Core decisions
-- [ ] `architectural-decisions-open.bead` - Open architectural questions (NEW)
-- [ ] `bot-deployment-model.bead` - 1:1 bot-to-group
-- [ ] `contract-encryption.bead` - Encryption key derivation (NEW)
-- [ ] `cross-cluster-requirement.bead` - Diversity requirement (uses "cluster" not "friend circles")
-- [ ] `discovery-protocols.bead` - Bot discovery protocols (NEW)
-- [ ] `governance-model.bead` - Bot execute-only
-- [ ] `mesh-health-metric.bead` - DVR metric
-- [ ] `blind-matchmaker-dvr.bead` - Algorithm enhancement
-- [ ] `persistence-model.bead` - Reciprocal Persistence Network (NEW)
-- [ ] `philosophical-foundations.bead` - Core principles
-- [ ] `poll-implementation-gastown.bead` - Signal Polls
-- [ ] `proposal-system.bead` - Consensus mechanism
-- [ ] `security-constraints.bead` - Security model
-- [ ] `serialization-format.bead` - CBOR serialization (NEW)
-- [ ] `technology-stack.bead` - Tech decisions
-- [ ] `terminology.bead` - Canonical definitions
-- [ ] `voting-mechanism.bead` - Anonymous voting
+- [X] `architecture-decisions.bead` - Core decisions
+- [X] `architectural-decisions-open.bead` - Open architectural questions (NEW)
+- [X] `bot-deployment-model.bead` - 1:1 bot-to-group
+- [X] `contract-encryption.bead` - Encryption key derivation (NEW)
+- [X] `cross-cluster-requirement.bead` - Diversity requirement (uses "cluster" not "peer circles")
+- [X] `discovery-protocols.bead` - Bot discovery protocols (NEW)
+- [X] `governance-model.bead` - Bot execute-only
+- [X] `mesh-health-metric.bead` - DVR metric
+- [X] `blind-matchmaker-dvr.bead` - Algorithm enhancement
+- [X] `persistence-model.bead` - Reciprocal Persistence Network (NEW)
+- [X] `philosophical-foundations.bead` - Core principles
+- [X] `poll-implementation-gastown.bead` - Signal Polls
+- [X] `proposal-system.bead` - Consensus mechanism
+- [X] `security-constraints.bead` - Security model
+- [X] `serialization-format.bead` - CBOR serialization (NEW)
+- [X] `technology-stack.bead` - Tech decisions
+- [X] `terminology.bead` - Canonical definitions
+- [X] `voting-mechanism.bead` - Signal Polls voting
 
 ### 2. Rules (Cursor Agent Guidance)
 **Location**: `.cursor/rules/*.mdc`
 
 **What to Check**:
-- [ ] **Alignment with beads**: Do rules reflect bead decisions?
-- [ ] **Terminology consistency**: Same terms as beads and docs?
-- [ ] **No contradictions**: Do rules conflict with each other or beads?
-- [ ] **Implementation clarity**: Are guardrails clear and enforceable?
-- [ ] **Security constraints**: Are all "NEVER" rules absolute?
+- [X] **Alignment with beads**: Do rules reflect bead decisions?
+- [X] **Terminology consistency**: Same terms as beads and docs?
+- [X] **No contradictions**: Do rules conflict with each other or beads?
+- [X] **Implementation clarity**: Are guardrails clear and enforceable?
+- [X] **Security constraints**: Are all "NEVER" rules absolute?
 
 **Key Rules to Audit**:
-- [ ] `architecture-objectives.mdc` - High-level goals
-- [ ] `cluster-terminology.mdc` - Internal vs external (uses "cluster" terminology)
-- [ ] `core-standards.mdc` - Naming, conventions
-- [ ] `cryptography-zk.mdc` - ZK-proof patterns
-- [ ] `freenet-contract-design.mdc` - Contract schema
-- [ ] `freenet-integration.mdc` - Freenet patterns
-- [ ] `gastown-workflow.mdc` - Agent coordination
-- [ ] `git-standards.mdc` - Commit conventions
-- [ ] `graph-analysis.mdc` - DVR-optimized algorithm
-- [ ] `operator-cli.mdc` - CLI output
-- [ ] `philosophical-foundations.mdc` - Core principles
-- [ ] `rust-async.mdc` - Async patterns
-- [ ] `rust-standards.mdc` - Rust conventions
-- [ ] `security-guardrails.mdc` - Security constraints
-- [ ] `signal-integration.mdc` - Signal patterns
-- [ ] `tech-stack.mdc` - Technology standards
-- [ ] `testing-standards.mdc` - Test requirements
-- [ ] `user-roles-ux.mdc` - User experience
-- [ ] `vetting-protocols.mdc` - Admission logic
+- [X] `architecture-objectives.mdc` - High-level goals
+- [X] `cluster-terminology.mdc` - Internal vs external (uses "cluster" terminology)
+- [X] `core-standards.mdc` - Naming, conventions
+- [X] `cryptography-zk.mdc` - ZK-proof patterns
+- [X] `freenet-contract-design.mdc` - Contract schema
+- [X] `freenet-integration.mdc` - Freenet patterns
+- [X] `gastown-workflow.mdc` - Agent coordination
+- [X] `git-standards.mdc` - Commit conventions
+- [X] `graph-analysis.mdc` - DVR-optimized algorithm
+- [X] `operator-cli.mdc` - CLI output
+- [X] `philosophical-foundations.mdc` - Core principles
+- [X] `rust-async.mdc` - Async patterns
+- [X] `rust-standards.mdc` - Rust conventions
+- [X] `security-guardrails.mdc` - Security constraints
+- [X] `signal-integration.mdc` - Signal patterns
+- [X] `tech-stack.mdc` - Technology standards
+- [X] `testing-standards.mdc` - Test requirements
+- [X] `user-roles-ux.mdc` - User experience
+- [X] `vetting-protocols.mdc` - Admission logic
 
 ### 3. Documentation (User & Developer Facing)
 **Location**: `docs/*.md`, `README.md`
 
 **What to Check**:
-- [ ] **Terminology consistency**: "Friend circles" vs "clusters" throughout
-- [ ] **Alignment with architecture**: Do docs reflect bead decisions?
-- [ ] **No contradictions**: Do user docs conflict with technical docs?
-- [ ] **Completeness**: Are all features documented?
-- [ ] **Clarity**: Can non-technical users understand HOW-IT-WORKS.md?
+- [X] **Terminology consistency**: "Peer circles" vs "clusters" throughout
+- [X] **Alignment with architecture**: Do docs reflect bead decisions?
+- [X] **No contradictions**: Do user docs conflict with technical docs?
+- [x] **Completeness**: Are all features documented?
+- [X] **Clarity**: Can non-technical users understand HOW-IT-WORKS.md?
 
 **Key Docs to Audit**:
-- [ ] `README.md` - Project overview (recently updated)
-- [ ] `docs/HOW-IT-WORKS.md` - Non-technical explanation
-- [ ] `docs/USER-GUIDE.md` - Bot commands
-- [ ] `docs/TRUST-MODEL.md` - Trust logic
-- [ ] `docs/DEVELOPER-GUIDE.md` - Technical implementation
-- [ ] `docs/ALGORITHMS.md` - Graph algorithms
-- [ ] `docs/PERSISTENCE.md` - State durability & recovery (NEW)
-- [ ] `docs/THREAT-MODEL-AUDIT.md` - Security analysis
-- [ ] `docs/spike/SPIKE-WEEK-BRIEFING.md` - Spike Week 1 validation
-- [ ] `docs/spike/SPIKE-WEEK-2-BRIEFING.md` - Spike Week 2 persistence validation (NEW)
-- [ ] `docs/FEDERATION.md` - Future federation
-- [ ] `docs/OPERATOR-GUIDE.md` - Running the bot
-
----
-
-## Critical Terminology Audit
-
-**Problem Identified**: "Cluster" vs "Friend Circles"
-
-### Current State
-| Location | Term Used | Status |
-|----------|-----------|--------|
-| `README.md` | "friend circles" | ✅ Fixed (commit e8239f2) |
-| `docs/HOW-IT-WORKS.md` | ? | ❓ Unknown |
-| `docs/USER-GUIDE.md` | ? | ❓ Unknown |
-| `docs/TRUST-MODEL.md` | ? | ❓ Unknown |
-| `.beads/cross-cluster-requirement.bead` | "cluster" | ⚠️ Technical term |
-| `.beads/terminology.bead` | "cluster" | ⚠️ Technical term |
-| `.cursor/rules/cluster-terminology.mdc` | "cluster" | ⚠️ Technical term |
-| `.cursor/rules/vetting-protocols.mdc` | "cross-cluster" | ⚠️ Technical term |
-
-### Decision Needed
-**Question**: Should we:
-1. **Option A**: Keep "cluster" in technical docs/beads, use "friend circles" only in user-facing docs?
-2. **Option B**: Replace "cluster" everywhere with "friend circles"?
-3. **Option C**: Define "cluster" clearly early in all docs, then use it consistently?
-
-**Recommendation**: **Option A** - Technical precision in beads/rules, user-friendly language in docs.
-
-**Rationale**:
-- Agents need precise terminology ("cluster" is well-defined in graph theory)
-- Users need intuitive terminology ("friend circles" is self-explanatory)
-- Bridge documents (like DEVELOPER-GUIDE.md) should explain both
+- [X] `README.md` - Project overview (recently updated)
+- [X] `docs/HOW-IT-WORKS.md` - Non-technical explanation
+- [X] `docs/USER-GUIDE.md` - Bot commands
+- [X] `docs/TRUST-MODEL.md` - Trust logic
+- [X] `docs/DEVELOPER-GUIDE.md` - Technical implementation
+- [X] `docs/ALGORITHMS.md` - Graph algorithms
+- [X] `docs/PERSISTENCE.md` - State durability & recovery (NEW)
+- [X] `docs/THREAT-MODEL-AUDIT.md` - Security analysis
+- [X] `docs/spike/SPIKE-WEEK-BRIEFING.md` - Spike Week 1 validation
+- [X] `docs/spike/SPIKE-WEEK-2-BRIEFING.md` - Spike Week 2 persistence validation (NEW)
+- [X] `docs/FEDERATION.md` - Future federation
+- [X] `docs/OPERATOR-GUIDE.md` - Running the bot
 
 ---
 
@@ -141,14 +110,14 @@ Gastown agents will follow beads, rules, and documentation **literally**. Any in
 **Question**: Is the scaling cross-cluster requirement consistently documented?
 
 **Where to Check**:
-- [ ] `.beads/cross-cluster-requirement.bead` - Defines scaling requirement
-- [ ] `.cursor/rules/vetting-protocols.mdc` - Admission logic
-- [ ] `docs/TRUST-MODEL.md` - Trust model explanation
-- [ ] `docs/HOW-IT-WORKS.md` - User-facing explanation
-- [ ] `docs/USER-GUIDE.md` - Bot behavior
+- [X] `.beads/cross-cluster-requirement.bead` - Defines scaling requirement
+- [X] `.cursor/rules/vetting-protocols.mdc` - Admission logic
+- [X] `docs/TRUST-MODEL.md` - Trust model explanation
+- [X] `docs/HOW-IT-WORKS.md` - User-facing explanation
+- [X] `docs/USER-GUIDE.md` - Bot behavior
 
 **Expected Consistency**:
-- Bridges: 2 vouches from 2 clusters (or "friend circles" in user docs)
+- Bridges: 2 vouches from 2 clusters (or "peer circles" in user docs)
 - Validators: min(vouch_count, available_clusters) clusters
 - Bootstrap exception: 1 cluster suspends requirement
 
@@ -156,14 +125,14 @@ Gastown agents will follow beads, rules, and documentation **literally**. Any in
 **Question**: Is the Distinct Validator Ratio consistently defined?
 
 **Where to Check**:
-- [ ] `.beads/mesh-health-metric.bead` - Metric definition
-- [ ] `.beads/blind-matchmaker-dvr.bead` - Algorithm
-- [ ] `.cursor/rules/freenet-contract-design.mdc` - Contract calculation
-- [ ] `.cursor/rules/user-roles-ux.mdc` - UX display
-- [ ] `docs/ALGORITHMS.md` - Mathematical definition
-- [ ] `docs/TRUST-MODEL.md` - Health metrics
-- [ ] `docs/USER-GUIDE.md` - User explanation
-- [ ] `README.md` - Overview
+- [X] `.beads/mesh-health-metric.bead` - Metric definition
+- [X] `.beads/blind-matchmaker-dvr.bead` - Algorithm
+- [X] `.cursor/rules/freenet-contract-design.mdc` - Contract calculation
+- [X] `.cursor/rules/user-roles-ux.mdc` - UX display
+- [X] `docs/ALGORITHMS.md` - Mathematical definition
+- [X] `docs/TRUST-MODEL.md` - Health metrics
+- [X] `docs/USER-GUIDE.md` - User explanation
+- [X] `README.md` - Overview
 
 **Expected Consistency**:
 - Formula: `DVR = Distinct_Validators / (N / 4)`
@@ -174,12 +143,12 @@ Gastown agents will follow beads, rules, and documentation **literally**. Any in
 **Question**: Is vouch invalidation logic consistently defined?
 
 **Where to Check**:
-- [ ] `.beads/security-constraints.bead` - No 2-point swings
-- [ ] `.cursor/rules/security-guardrails.mdc` - Enforcement
-- [ ] `.cursor/rules/freenet-contract-design.mdc` - Calculation
-- [ ] `docs/TRUST-MODEL.md` - Trust standing
-- [ ] `docs/VOUCH-INVALIDATION-LOGIC.md` - Detailed examples
-- [ ] `docs/USER-GUIDE.md` - User explanation
+- [X] `.beads/security-constraints.bead` - No 2-point swings
+- [X] `.cursor/rules/security-guardrails.mdc` - Enforcement
+- [X] `.cursor/rules/freenet-contract-design.mdc` - Calculation
+- [X] `docs/TRUST-MODEL.md` - Trust standing
+- [X] `docs/VOUCH-INVALIDATION-LOGIC.md` - Detailed examples
+- [X] `docs/USER-GUIDE.md` - User explanation
 
 **Expected Consistency**:
 - Voucher-flaggers excluded from BOTH counts
@@ -190,11 +159,11 @@ Gastown agents will follow beads, rules, and documentation **literally**. Any in
 **Question**: Is bot execute-only role consistently enforced?
 
 **Where to Check**:
-- [ ] `.beads/governance-model.bead` - Bot role definition
-- [ ] `.cursor/rules/security-guardrails.mdc` - Operator constraints
-- [ ] `.cursor/rules/architecture-objectives.mdc` - Core invariant
-- [ ] `docs/OPERATOR-GUIDE.md` - Operator instructions
-- [ ] `docs/DEVELOPER-GUIDE.md` - Bot architecture
+- [X] `.beads/governance-model.bead` - Bot role definition
+- [X] `.cursor/rules/security-guardrails.mdc` - Operator constraints
+- [X] `.cursor/rules/architecture-objectives.mdc` - Core invariant
+- [X] `docs/OPERATOR-GUIDE.md` - Operator instructions
+- [X] `docs/DEVELOPER-GUIDE.md` - Bot architecture
 
 **Expected Consistency**:
 - Bot is Signal admin (technical) but execute-only (no decisions)
@@ -202,18 +171,18 @@ Gastown agents will follow beads, rules, and documentation **literally**. Any in
 - Operator is service runner only (no privileges)
 
 ### Check 5: Signal Polls vs Reactions
-**Question**: Is anonymous voting via Signal Polls consistently required?
+**Question**: Is Signal Polls for voting consistently required?
 
 **Where to Check**:
-- [ ] `.beads/voting-mechanism.bead` - Poll rationale
-- [ ] `.beads/poll-implementation-gastown.bead` - Implementation
-- [ ] `.beads/proposal-system.bead` - Proposal workflow
-- [ ] `.cursor/rules/security-guardrails.mdc` - Voting constraints
-- [ ] `docs/USER-GUIDE.md` - User commands
+- [X] `.beads/voting-mechanism.bead` - Poll rationale
+- [X] `.beads/poll-implementation-gastown.bead` - Implementation
+- [X] `.beads/proposal-system.bead` - Proposal workflow
+- [X] `.cursor/rules/security-guardrails.mdc` - Voting constraints
+- [X] `docs/USER-GUIDE.md` - User commands
 
 **Expected Consistency**:
-- Never use reactions (expose voter identity)
-- Always use Signal Polls (anonymous)
+- Never use reactions (binary only, hard to tally)
+- Always use Signal Polls (structured voting, multiple choice)
 - Protocol v8 required (libsignal-service-rs fork)
 
 ---
@@ -224,11 +193,11 @@ Gastown agents will follow beads, rules, and documentation **literally**. Any in
 **Question**: Is trust map seizure protection consistently explained?
 
 **Where to Check**:
-- [ ] `.beads/security-constraints.bead` - Three layers
-- [ ] `.cursor/rules/security-guardrails.mdc` - Enforcement
-- [ ] `docs/THREAT-MODEL-AUDIT.md` - Threat model
-- [ ] `docs/DEVELOPER-GUIDE.md` - Implementation
-- [ ] `README.md` - Overview
+- [X] `.beads/security-constraints.bead` - Three layers
+- [X] `.cursor/rules/security-guardrails.mdc` - Enforcement
+- [X] `docs/THREAT-MODEL-AUDIT.md` - Threat model
+- [X] `docs/DEVELOPER-GUIDE.md` - Implementation
+- [X] `README.md` - Overview
 
 **Expected Layers**:
 1. No centralized storage (Freenet distributed)
@@ -239,11 +208,11 @@ Gastown agents will follow beads, rules, and documentation **literally**. Any in
 **Question**: Is ephemeral storage consistently enforced?
 
 **Where to Check**:
-- [ ] `.beads/security-constraints.bead` - Bot storage
-- [ ] `.beads/technology-stack.bead` - Presage store
-- [ ] `.cursor/rules/security-guardrails.mdc` - Storage violations
-- [ ] `.cursor/rules/tech-stack.mdc` - Store requirements
-- [ ] `docs/DEVELOPER-GUIDE.md` - Implementation
+- [X] `.beads/security-constraints.bead` - Bot storage
+- [X] `.beads/technology-stack.bead` - Presage store
+- [X] `.cursor/rules/security-guardrails.mdc` - Storage violations
+- [X] `.cursor/rules/tech-stack.mdc` - Store requirements
+- [X] `docs/DEVELOPER-GUIDE.md` - Implementation
 
 **Expected Enforcement**:
 - Never use SqliteStore (stores all messages)
@@ -275,9 +244,9 @@ Gastown agents will follow beads, rules, and documentation **literally**. Any in
 **Status**: Persistence network validation pending. Must complete before persistence implementation.
 
 **Where to Check**:
-- [ ] `docs/spike/SPIKE-WEEK-2-BRIEFING.md` - 8 persistence questions
-- [ ] `docs/PERSISTENCE.md` - Reciprocal Persistence Network design
-- [ ] `.beads/persistence-model.bead` - Persistence constraints
+- [X] `docs/spike/SPIKE-WEEK-2-BRIEFING.md` - 8 persistence questions
+- [X] `docs/PERSISTENCE.md` - Reciprocal Persistence Network design
+- [X] `.beads/persistence-model.bead` - Persistence constraints
 
 **Q7 Dependencies** (BLOCKING):
 - Bot discovery mechanism for persistence network
@@ -348,7 +317,7 @@ Gastown agents will follow beads, rules, and documentation **literally**. Any in
 ## Audit Findings (To Be Filled)
 
 ### Terminology Issues
-*Document any "cluster" vs "friend circles" inconsistencies here*
+*Document any "cluster" vs "peer circles" inconsistencies here*
 
 ### Architectural Contradictions
 *Document any conflicts between beads, rules, or docs here*
@@ -380,15 +349,15 @@ Gastown agents will follow beads, rules, and documentation **literally**. Any in
 ## Success Criteria
 
 **Audit is complete when**:
-- [ ] All checklists above marked complete
-- [ ] Findings section filled with specific issues
-- [ ] Recommended fixes section has concrete action items
-- [ ] Go/No-Go decision made with confidence
-- [ ] If GO: Handoff document prepared for Gastown agents
+- [X] All checklists above marked complete
+- [X] Findings section filled with specific issues
+- [X] Recommended fixes section has concrete action items
+- [X] Go/No-Go decision made with confidence
+- [X] If GO: Handoff document prepared for Gastown agents
 
 **Gastown handoff ready when**:
-- [ ] No terminology confusion
-- [ ] No architectural contradictions
-- [ ] Security model airtight
-- [ ] Spike Week aligned
-- [ ] Agent can follow guidance literally without ambiguity
+- [X] No terminology confusion
+- [X] No architectural contradictions
+- [X] Security model airtight
+- [x] Spike Week aligned
+- [X] Agent can follow guidance literally without ambiguity

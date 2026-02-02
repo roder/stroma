@@ -54,11 +54,12 @@ When dualities conflict with *each other*, apply this hierarchy:
 
 ### Anonymity-First Design
 - **Never store Signal IDs in cleartext**. All identifiers must be HMAC-hashed immediately.
-- **HMAC-based hashing**: Use keyed hashing with group-secret pepper (not deterministic hashing).
+- **HMAC-SHA256 with Signal ACI-derived key**: Replaces deprecated group pepper. Each bot's ACI identity acts as namespace isolation.
 - **Ephemeral state**: Relationship data deleted after vetting threshold met.
 - **Blinded identifiers**: Public ID for bot, private ID for ZK-math.
 - If memory is dumped, it must contain only hashed identifiers.
 - Use `zeroize` crate to purge raw buffers immediately after hashing.
+- **See**: `.beads/security-constraints.bead` for implementation pattern.
 
 ### Trust as Emergent Property
 - Trust is **mutually arising** across the network, not centrally managed.
@@ -66,9 +67,10 @@ When dualities conflict with *each other*, apply this hierarchy:
 - Federation occurs through **mutual discovery**, not pre-coordinated keys.
 
 ### Zero-Knowledge Architecture
-- Use ZK-SNARKs for all trust verification.
+- Use **STARKs** (winterfell) for all trust verification — no trusted setup, post-quantum secure.
 - Implement **Recursive Zero-Knowledge Vouching** for scalability.
 - Never reveal the social graph structure.
+- **See**: `.beads/architecture-decisions.bead` for rationale on STARKs over SNARKs.
 
 ### Stateless Bot Design
 - Bot presence in Signal group is binary and strictly tied to Freenet state.
@@ -85,7 +87,6 @@ When dualities conflict with *each other*, apply this hierarchy:
 - **Network Terms**: Nexus-Mesh, Social Anchor, Trust Horizon, Blind Vouch, Recursive Vouching
 - **Node Types**: Leaf Node (1 link), Bridge Node (2 links), Validator (3+ links)
 - **Logic Notation**: Use plain-text for formulas (ASSERT, WHERE, AND, etc.) to ensure lossless documentation
-- **Gastown Context**: Use "Beads" for persistent context storage
 
 ---
 

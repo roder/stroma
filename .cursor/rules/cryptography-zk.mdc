@@ -12,15 +12,15 @@ All ZK-proof requirements, PSI patterns, Merkle tree implementation, key managem
 
 ## Key Points
 
-- **ZK-Proofs**: Use arkworks for ZK-SNARK circuits
-- **Verification**: Bot-side for Phase 0 (winterfell native, not Wasm)
+- **ZK-Proofs**: Use `winterfell` for STARKs (no trusted setup, post-quantum)
+- **Verification**: Bot-side for Phase 0 (native winterfell, not Wasm)
 - **Merkle Trees**: Generate on-demand from BTreeSet (0.09ms at 1000 members)
 - **Storage**: Store outcomes only, not proofs (Q6 decision)
 - **PSI-CA**: Commutative encryption for anonymous overlap calculation
 
 ## Spike Week References
 
-- Q4: Bot-side STARK verification (Wasm experimental)
+- Q4: Bot-side STARK verification (winterfell Wasm experimental)
 - Q5: On-demand Merkle generation (0.09ms at 1000 members)
 - Q6: Store outcomes only (proofs are ephemeral)
 

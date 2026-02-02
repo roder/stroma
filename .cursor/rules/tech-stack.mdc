@@ -14,8 +14,10 @@ All technology choices, dependencies, integration patterns, build requirements, 
 **Core Stack:** Rust Static Binary | Signal Protocol | Freenet (Dark) | ZK-Proofs
 
 ### Key Libraries
-- **Cryptography**: `ring` (HMAC), `zeroize` (memory hygiene), `arkworks` (ZK-SNARKs)
+- **Cryptography**: `ring` (HMAC), `zeroize` (memory hygiene), `winterfell` (STARKs)
 - **Signal**: Presage (high-level), libsignal-service-rs (low-level)
+  - ❌ NEVER use `presage-store-sqlite` (stores message history)
+  - ✅ ALWAYS use custom `StromaProtocolStore`
 - **Freenet**: `freenet` (node), `freenet-stdlib` (contracts)
 - **Serialization**: `serde` + `ciborium` (CBOR, NOT JSON)
 

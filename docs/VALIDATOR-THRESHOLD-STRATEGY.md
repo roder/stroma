@@ -1,8 +1,9 @@
 # Validator Threshold Strategy: Phased Approach
 
-**Date**: 2026-01-27  
+**Date**: 2026-01-27 (original), 2026-02-01 (updated for bead alignment)  
 **Status**: Strategic Decision Document  
-**Alignment**: Matches project phased approach (Phases 0-4)
+**Alignment**: Matches project phased approach (Phases 0-4)  
+**Canonical Sources**: `.beads/terminology.bead`, `.beads/cross-cluster-requirement.bead`
 
 ## Executive Summary
 
@@ -18,9 +19,11 @@ Validator thresholds will evolve from **fixed (MVP)** → **configurable safegua
 ### Fixed Validator Threshold
 
 **Configuration**:
-- **Bridge**: Exactly 2 effective vouches (membership minimum)
-- **Validator**: 3+ effective vouches (fixed number)
-- **Invitees**: 1 vouch (being vetted)
+- **Bridge**: 2 cross-cluster vouches (membership minimum, must be from 2 different clusters)
+- **Validator**: 3+ cross-cluster vouches (must be from min(vouch_count, available_clusters) distinct clusters)
+- **Invitees**: 1 vouch (being vetted, OUTSIDE Signal group)
+
+**Note**: Validators have NO special permissions — only higher resilience to ejection and bot optimization preferences (Blind Matchmaker). See `.beads/terminology.bead`.
 
 **Rationale**:
 - Simplest implementation (lowest complexity)
@@ -36,9 +39,16 @@ Validator thresholds will evolve from **fixed (MVP)** → **configurable safegua
 - No expectation of rapid scaling
 
 **Mathematical Properties**:
-- 3-person seed group: 0% Validators (just Bridges)
+- 3-person seed group: 0% Validators (just Bridges, single cluster)
 - 10-person group: 30% Validators on average
 - 20-person group: 20% Validators on average
+
+**Ejection Triggers** (three independent, any one causes immediate ejection):
+1. `Standing < 0` (Effective_Vouches - Regular_Flags < 0)
+2. `Effective_Vouches < min_vouch_threshold` (default: 2)
+3. Cross-cluster violation: vouches from < min(vouch_count, available_clusters) clusters
+
+See `.beads/security-constraints.bead` for standing calculation details.
 
 **Status**: ✅ Implement in MVP
 
@@ -55,21 +65,23 @@ Validator thresholds will evolve from **fixed (MVP)** → **configurable safegua
 
 **Scope**:
 - Allow `/propose stroma min_vouch_threshold` votes
-- Configurable range: 2-4 (must be ≥2)
-- Requires `config_change_threshold` consensus
+- Configurable range: ≥2 (no arbitrary upper bound; groups decide appropriate level)
+- Requires `min_quorum` participation AND `config_change_threshold` approval
 
 **Why Only min_vouch_threshold, NOT validator_percentile**:
-- Lower risk: directly tied to ejection logic (well-understood)
+- Lower risk: directly tied to one ejection trigger (`Effective_Vouches < threshold`)
 - Use case: groups can choose 2 (easier admission) vs 3+ (higher barrier)
 - Governance precedent: easier to add validator threshold later
 - Prevents gaming: validator count remains stable
+
+**Note**: Changing `min_vouch_threshold` only affects the vouch-count ejection trigger. The other triggers (Standing < 0, cross-cluster violation) remain unchanged.
 
 **No Percentage-Based Validators Yet**:
 - Validator threshold remains fixed (3+)
 - Percentile configuration deferred to Phase 4+
 
 **Safeguards**:
-- `min_vouch_threshold` changes require full `config_change_threshold` consensus
+- `min_vouch_threshold` changes require `min_quorum` participation AND `config_change_threshold` approval
 - Cannot retroactively eject members who fell below new threshold
 - New threshold applies to future admissions only
 
@@ -95,9 +107,11 @@ Validator thresholds will evolve from **fixed (MVP)** → **configurable safegua
 - Example: 20% of 20 members = 3 validators (floor)
 
 **Why This Matters at Scale**:
-- **100-person group, fixed 3+ validators**: Only 3% reach validator status (inefficient)
-- **100-person group, 20% validator**: 20 validators available for MST optimization (better)
-- **500-person group**: Fixed 3+ = 0.6% vs 20% = 100 validators (massive difference)
+- **100-person group, fixed 3+ validators**: Only 3% reach validator status (fewer options for Blind Matchmaker)
+- **100-person group, 20% validator**: 20 validators available for MST optimization (better matching)
+- **500-person group**: Fixed 3+ = 0.6% vs 20% = 100 validators (significant difference for mesh health)
+
+**Reminder**: Validators have NO special privileges — increasing their count improves bot optimization (Blind Matchmaker, DVR calculation) but doesn't change governance power.
 
 **Safeguards**:
 - `validator_percentile` changes require **elevated consensus** (85%+ threshold)
@@ -121,12 +135,15 @@ Validator thresholds will evolve from **fixed (MVP)** → **configurable safegua
 | Aspect | MVP (Now) | Phase 2 | Phase 4+ |
 |--------|-----------|---------|---------|
 | **Target Group Size** | 3-30 | 30-200 | 200+ |
-| **Bridge Threshold** | Fixed (2) | Configurable | Configurable |
-| **Validator Threshold** | Fixed (3+) | Fixed (3+) | Percentage-based |
+| **Bridge Threshold** | Fixed (2 cross-cluster) | Configurable | Configurable |
+| **Validator Threshold** | Fixed (3+ cross-cluster) | Fixed (3+ cross-cluster) | Percentage-based |
+| **Cross-Cluster Requirement** | Always enforced | Always enforced | Always enforced |
 | **Configuration Method** | N/A | Signal Poll | Signal Poll |
 | **Governance Overhead** | None | Low | Medium |
 | **Attack Surface** | Minimal | Low | Medium |
 | **Transparency** | High | High | Medium |
+
+**Note**: Cross-cluster requirement is ALWAYS enforced regardless of phase. Validators must have vouches from `min(vouch_count, available_clusters)` distinct clusters.
 
 ---
 
@@ -201,15 +218,16 @@ Validator thresholds will evolve from **fixed (MVP)** → **configurable safegua
 ### MVP (Fixed Thresholds)
 - Cannot game validator count (fixed at 3+)
 - Cannot game via config changes (no configurability)
-- Gaming vector: **Sybil attacks** (addressed by MST, 2-vouch requirement)
+- Gaming vector: **Sybil attacks** (addressed by cross-cluster requirement — vouches must come from different clusters)
+- Gaming vector: **Coordinated infiltration** (addressed by cross-cluster — can't rubber-stamp from same cluster)
 
 ### Phase 2 (Configurable min_vouch_threshold)
 - Can change min_vouch_threshold, but:
-  - Requires group-wide consensus (`config_change_threshold`)
+  - Requires `min_quorum` participation AND `config_change_threshold` approval
   - Cannot retroactively eject existing members
   - Only affects future admissions
 - Gaming vector: **Lower minimum to flood with bad actors**
-- Defense: **Consensus requirement + vetting still requires 2 independent vouches**
+- Defense: **Consensus requirement + vetting still requires 2 cross-cluster vouches (can't bypass cluster diversity)**
 
 ### Phase 4 (Percentage-Based validator_percentile)
 - Can change validator_percentile, but:
@@ -240,17 +258,37 @@ Validator thresholds will evolve from **fixed (MVP)** → **configurable safegua
 
 ## Documentation Anchors
 
-**Related Documents**:
-- `docs/TRUST-MODEL.md` - Current fixed threshold definitions
-- `docs/ALGORITHMS.md` - MST algorithm assuming validator availability
-- `.cursor/rules/architecture-objectives.mdc` - Phased implementation strategy
+**Canonical Sources (Beads)**:
+- `.beads/terminology.bead` - Member roles, trust calculations, ejection triggers
+- `.beads/cross-cluster-requirement.bead` - Cross-cluster enforcement and rationale
+- `.beads/security-constraints.bead` - Standing formula, vouch invalidation
+- `.beads/vetting-protocols.bead` - Admission and ejection protocols
 
-**Key Code References**:
-- `graph-analysis.mdc` (lines 21-42) - Threshold calculation logic
-- `docs/TRUST-MODEL.md` (lines 372-403) - GroupConfig structure
+**Related Documents**:
+- `docs/TRUST-MODEL.md` - Full trust model with GroupConfig structure
+- `docs/ALGORITHMS.md` - MST algorithm and cluster detection
+- `.cursor/rules/architecture-objectives.mdc` - Phased implementation strategy
+- `.cursor/rules/graph-analysis.mdc` - Threshold calculation logic
 
 ---
 
 **Status**: Decision finalized for MVP; Phase 2 and Phase 4 gates to be reviewed as project matures.  
-**Last Updated**: 2026-01-27  
+**Last Updated**: 2026-02-01  
 **Owner**: Project Architecture
+
+---
+
+## Terminology Quick Reference
+
+| Term | Definition | Cross-Cluster Requirement |
+|------|------------|---------------------------|
+| **Invitee** | 1 vouch, OUTSIDE group | N/A (not yet admitted) |
+| **Bridge** | 2 vouches, IN group | 2 different clusters |
+| **Validator** | 3+ vouches, IN group | min(vouch_count, available_clusters) clusters |
+
+**Key Points**:
+- Validators have NO special privileges (used for optimization only)
+- Cross-cluster is ALWAYS enforced (not configurable)
+- Three ejection triggers: Standing < 0, Effective_Vouches < min_vouch_threshold, cross-cluster violation
+
+See `.beads/terminology.bead` for complete definitions.

@@ -10,8 +10,8 @@ This document explains how trust works in Stroma, including the vouch invalidati
 |------|---------|
 | **Vouch** | A personal endorsement — you stake your reputation on someone |
 | **Flag** | The opposite of a vouch — indicates you no longer trust someone |
-| **Cluster** | A friend circle — people who know each other from the same social context |
-| **Cross-cluster** | From *different* friend circles — required for admission and ongoing membership |
+| **Cluster** | A peer circle — people who know each other from the same social context |
+| **Cross-cluster** | From *different* peer circles — required for admission and ongoing membership |
 | **Effective Vouches** | Total vouches minus voucher-flaggers (vouchers who also flagged you) |
 | **Regular Flags** | Flags from people who didn't vouch for you |
 | **Standing** | Effective vouches minus regular flags (must stay ≥ 0) |
@@ -437,7 +437,8 @@ pub struct GroupConfig {
     group_name: String,                // "Mission Control" - changeable via consensus
     
     // Consensus thresholds
-    config_change_threshold: f32,      // e.g., 0.70 (70%) - for all proposals
+    config_change_threshold: f32,      // e.g., 0.70 (70%) - % of votes to pass
+    min_quorum: f32,                   // e.g., 0.50 (50%) - % of members who must vote
     default_poll_timeout: Duration,    // e.g., 48h - default if not specified
 
     // Federation parameters (Phase 4+)
@@ -456,7 +457,8 @@ pub struct GroupConfig {
 ### Configurable vs Fixed
 
 **Configurable (via `/propose stroma <setting> <value>`):**
-- `config_change_threshold`: Consensus required for changes (0.5-1.0)
+- `config_change_threshold`: % of votes needed to pass proposals (0.5-1.0)
+- `min_quorum`: % of members who must vote for quorum (0.3-1.0)
 - `min_vouch_threshold`: Minimum effective vouches to stay in group (≥2)
 - `min_intersection_density`: Federation threshold (0.0-1.0)
 - `validator_percentile`: Top % for validators (1-100)
@@ -503,7 +505,7 @@ If no DVR-optimal voucher available, falls back to any cross-cluster Validator:
 Invitation itself counts as first vouch (no token exchange system).
 
 **Flow**:
-1. Member: `/invite @Friend "Context"`
+1. Member: `/invite @Peer "Context"`
 2. Bot: "Invitation recorded as first vouch"
 3. Bot selects second member from a DIFFERENT CLUSTER for vetting
 4. Second member: `/vouch @Friend`
@@ -708,8 +710,8 @@ Vouches: 1 (new invitation)
   ↓ [Second vouch received]
 
 State: Bridge (In Group)
-Vouches: 2 (fresh start)
-Flags: 0 (or previous flags persist - TBD)
+Vouches: 2 (new vouchers)
+Flags: Previous flags persist (see "Previous History" section)
 ```
 
 ## Attack Scenarios
@@ -766,7 +768,7 @@ Flags: 0 (or previous flags persist - TBD)
 **Scenario**:
 1. Alice (bad actor) joins legitimately with cross-cluster vouches
 2. Alice invites confederate Bob, vouches for Bob
-3. Alice's friend Carol (same cluster as Alice) tries to vouch for Bob
+3. Alice's peer Carol (same cluster as Alice) tries to vouch for Bob
 
 **Without Cross-Cluster Enforcement**:
 - Bob admitted with 2 same-cluster vouches

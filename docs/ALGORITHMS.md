@@ -211,7 +211,7 @@ where:
 ### Algorithm: DVR-Optimized Blind Matchmaker (Hybrid)
 
 The algorithm has three phases:
-- **Phase 0 (NEW)**: DVR Optimization — prioritize distinct Validators
+- **Phase 0**: DVR Optimization — prioritize distinct Validators
 - **Phase 1**: MST Fallback — strengthen remaining Bridges
 - **Phase 2**: Connect Clusters — bridge disconnected components
 
@@ -407,32 +407,40 @@ Output: Social anchor hash (group identifier)
 - **Unique**: Different groups → different validator sets → different anchors
 - **Discoverable**: Groups with shared validators will have related anchors
 
-### Multi-Threshold Discovery
+### Fibonacci Bucket Discovery
 
-**Problem**: Single threshold too rigid (miss potential matches)
+**Problem**: Different-sized groups need to discover each other
 
-**Solution**: Generate multiple discovery URIs at different percentile thresholds
+**Solution**: Generate discovery URIs at fixed Fibonacci bucket sizes
 
 ```
 Algorithm: GENERATE_DISCOVERY_URIS(group)
 
 Input: Group with members
-Output: List of (threshold, anchor, uri)
+Output: List of (bucket_size, anchor, uri)
 
-thresholds = [10%, 20%, 30%, 50%]  // Configurable
+// Fibonacci buckets (up to Signal's 1000-member limit)
+FIBONACCI_BUCKETS = [3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987]
 uris = []
 
-for threshold in thresholds:
-    N = max(3, group_size × threshold)
-    validators = select_top_N_validators(group, N)
-    anchor = COMPUTE_SOCIAL_ANCHOR(validators)
-    uri = "freenet://discovery/" + anchor
-    uris.append((threshold, anchor, uri))
+for bucket_size in FIBONACCI_BUCKETS:
+    if validator_count >= bucket_size:
+        // Sort validators by hash for deterministic ordering
+        top_validators = sorted_validators[:bucket_size]
+        anchor = COMPUTE_SOCIAL_ANCHOR(top_validators)
+        uri = "freenet://discovery/" + anchor
+        uris.append((bucket_size, anchor, uri))
 
 return uris
 ```
 
-**Strategy**: Bot publishes Bloom Filters at ALL thresholds, scans ALL thresholds.
+**Why Fibonacci Buckets**:
+- **Natural scaling** - Growth pattern (3→5→8→13...) reflects organic group expansion
+- **Better granularity at small sizes** - More buckets in 3-89 range where most groups live
+- **Fixed counts** (not percentiles) → groups of different sizes produce MATCHING hashes
+- **Discovery requires overlap** - Must share actual validators, not just similar percentages
+
+**Strategy**: Bot publishes Bloom Filters at ALL buckets it can fill, scans ALL bucket URIs.
 
 ### Private Set Intersection with Cardinality (PSI-CA)
 
@@ -542,7 +550,7 @@ Output: Federation contract (if both groups vote yes)
 
 2. Bot B sends similar proposal to Group B
 
-3. Wait for votes (use config_change_threshold, e.g., 70%)
+3. Wait for votes (require min_quorum participation AND config_change_threshold approval)
 
 4. If BOTH groups approve:
    - Bots sign federation contract on Freenet
@@ -642,7 +650,7 @@ Output: Federation contract (if both groups vote yes)
 | **Timing Analysis** | Infer group size from response latency | Add random delays (constant-time operations) |
 | **Sybil Attack** | Flood with fake members to boost overlap | Require ZK-proof of existing vouches before federation |
 | **Replay Attack** | Reuse captured PSI-CA messages | Ephemeral keys destroyed after handshake |
-| **Cross-Group Tracking** | Correlate same person across groups | Different ACI keys = different hashes |
+| **Cross-Group Tracking** | Correlate same person across groups | Different Signal ACI keys = different hashes |
 | **Bloom Filter Analysis** | Deduce members from filter patterns | Multi-threshold publishing (adds noise) |
 
 **Three-Layer Defense (Applied to Federation):**
@@ -906,7 +914,7 @@ pub struct PSIProtocol {
 impl PSIProtocol {
     /// Phase 1: Encrypt own members with ephemeral key
     /// 
-    /// CRITICAL: This is the ONE exception where cleartext Signal IDs are accessed.
+    /// CRITICAL: This is the ONE exception where bulk cleartext access Signal IDs are accessed.
     /// This is ONLY for PSI-CA federation discovery. In ALL other code paths,
     /// Signal IDs are HMAC-hashed immediately upon receipt and never stored.
     /// See: security-constraints.bead § 1 (Anonymity-First Design)
@@ -1234,8 +1242,8 @@ Bot B sends similar poll to Group B.
 
 **Step 6**: Vote Results
 
-- Group A: 82 approve, 12 reject, 6 abstain → 82% approval (above 70% threshold) ✅
-- Group B: 17 approve, 2 reject, 1 abstain → 85% approval (above 70% threshold) ✅
+- Group A: 82 approve, 12 reject, 6 abstain → 82% approval, 100% participation (quorum + threshold met) ✅
+- Group B: 17 approve, 2 reject, 1 abstain → 85% approval, 100% participation (quorum + threshold met) ✅
 
 **Step 7**: Federation Established
 
@@ -1325,7 +1333,7 @@ Federated Network:
 
 3. **Coordinated Infiltration**: Bad actors rubber-stamp confederates
    - **Attack**: Alice joins legitimately, then vouches for confederate Bob
-   - **Attack**: Alice's friend Carol (same cluster) vouches for Bob
+   - **Attack**: Alice's peer Carol (same cluster) vouches for Bob
    - **Without defense**: Bob admitted with 2 same-cluster vouches → infiltration cluster forms
    - **Mitigation**: Cross-cluster vouching REQUIRED (INVARIANT 2)
    - **Mitigation**: Same-cluster vouches do NOT count toward admission
@@ -1487,6 +1495,6 @@ DVR = 3 / 5 = 60% → 🟡 Developing
 
 **Document Status**: Living document, updated as algorithms are refined
 
-**Last Updated**: 2026-01-27
+**Last Updated**: 2026-02-01
 
 **Next Review**: After Spike Week (Q1-Q5 answered)

@@ -1,0 +1,36 @@
+# MDC Rule Standards
+
+## Core Principle
+
+MDC rules (`.cursor/rules/*.mdc`) must be **minimal and referential**. The canonical source of truth is always a bead file (`.beads/*.bead`).
+
+## Required Structure
+
+```markdown
+# Rule Title
+
+**Canonical Source**: `.beads/<name>.bead`
+
+One-sentence summary of what the bead covers.
+
+## Quick Reference
+- Only essential quick-lookup items
+- Tables or short lists preferred
+
+## Key Principle
+One or two sentences capturing the core constraint.
+```
+
+## Constraints
+
+- **Maximum**: ~20-30 lines
+- **No duplication**: Never copy full content from beads
+- **Always link**: First line after title must be `**Canonical Source**`
+- **Read the bead**: Agents must read the bead for complete specifications
+
+## Anti-Patterns
+
+- ❌ Copying entire bead content into MDC
+- ❌ MDC without corresponding bead
+- ❌ Detailed implementation in MDC (belongs in bead)
+- ❌ MDC longer than 50 lines

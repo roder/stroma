@@ -37,7 +37,8 @@ pub struct GroupGovernance {
     signal_admin: bool,  // Always true (technical requirement)
     
     // But decisions require consensus
-    config_change_threshold: f32,  // e.g., 0.70 (70%)
+    config_change_threshold: f32,  // e.g., 0.70 (70%) - % of votes to pass
+    min_quorum: f32,               // e.g., 0.50 (50%) - % of members who must vote
     
     // Bot never decides, only executes
     auto_enforcement: bool,  // true - bot enforces contract
@@ -52,7 +53,7 @@ Member proposes action
         ↓
 Freenet contract records proposal
         ↓
-Group votes (via Signal Polls - anonymous voting)
+Group votes (via Signal Polls)
         ↓
 Timeout expires
         ↓
@@ -146,7 +147,7 @@ Bot: "📋 Proposal #8
      Threshold: 70%"
 
 [Bot creates Signal Poll with options: "Approve", "Reject"]
-[Group votes via Signal Poll - anonymous, bot sees only aggregate counts]
+[Group votes via Signal Poll]
 
 Bot (after timeout, if approved):
      "✅ Proposal #8 approved (18 Approve, 4 Reject = 82%)

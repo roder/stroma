@@ -69,7 +69,7 @@ fn apply_delta(&mut self, delta: &Delta) {
 - Freenet merge = commutative set union (correct)
 - Trust semantics (vouch invalidation) = Stroma's responsibility
 - Bot must recalculate trust standing after every state change
-- Tombstones are permanent (re-entry requires new identity hash)
+- **Note**: Spike used "tombstones" terminology; Decision #10 renamed to "ejected" set since members CAN return (flags persist). See `.beads/architectural-decisions-open.bead`.
 
 **See**: `q1/RESULTS.md` for full analysis.
 

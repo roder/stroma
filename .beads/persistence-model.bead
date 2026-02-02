@@ -528,64 +528,230 @@ fn compute_fallback_holder(
 
 **Key insight**: Holder redistribution is deterministic. Any bot can compute the same fallback without coordination.
 
-### Sharded Registry (Scalability)
+### Registry Scaling Strategy
 
-**Problem**: Single registry is SPOF and bottleneck at large scale (100K+ bots).
+**Problem**: Single registry is SPOF and bottleneck at large scale.
 
-**Solution**: Shard registry by contract hash prefix.
+**Solution**: Gradual sharding with Fibonacci-triggered splits and powers-of-2 shard counts.
+
+---
+
+#### Registry Metadata Contract
+
+A single, well-known contract tracks global registry state:
 
 ```rust
-/// 256 registry shards (by first byte of contract hash)
-const NUM_SHARDS: usize = 256;
-
-fn get_shard_for_bot(contract: &ContractHash) -> u8 {
-    contract.as_bytes()[0]  // First byte determines shard
+/// Well-known address: sha256("stroma-registry-metadata-v1")
+pub struct RegistryMetadata {
+    version: u32,                       // Schema version
+    shard_count: u32,                   // Current number of active shards (power of 2)
+    global_epoch: u64,                  // All shards reference this epoch
+    total_bots: u64,                    // Approximate count (updated on registration)
+    last_split_timestamp: Timestamp,    // When we last increased shards
+    migration_status: MigrationStatus,  // Current migration state
 }
 
-/// Each shard is a separate Freenet contract
-pub struct ShardedRegistry {
-    shards: [ContractHash; NUM_SHARDS],  // Addresses of shard contracts
+enum MigrationStatus {
+    Stable,
+    Splitting {
+        old_shard_count: u32,
+        new_shard_count: u32,
+        split_started: Timestamp,
+        transition_deadline: Timestamp,  // 24h after split_started
+    },
+}
+```
+
+**Bootstrap flow**:
+1. New bot queries well-known metadata contract address
+2. Reads `shard_count` and `global_epoch`
+3. Computes which shard to register in (hash prefix mod shard_count)
+4. Registers with PoW in appropriate shard
+
+---
+
+#### Fibonacci-Triggered Scaling
+
+Shard splits are triggered at Fibonacci thresholds, but shard counts remain powers-of-2 for simple hash partitioning:
+
+| Bot Count Threshold | Shard Count | Bots/Shard (at trigger) |
+|---------------------|-------------|-------------------------|
+| 0 - 4,999 | 1 | up to 5,000 |
+| 5,000 | 2 | ~2,500 |
+| 8,000 | 4 | ~2,000 |
+| 13,000 | 8 | ~1,625 |
+| 21,000 | 16 | ~1,312 |
+| 34,000 | 32 | ~1,062 |
+| 55,000 | 64 | ~859 |
+| 89,000 | 128 | ~695 |
+| 144,000 | 256 | ~562 |
+| 233,000 | 512 | ~455 |
+
+**Why this approach**:
+- Fibonacci triggers give gradual growth (~1.6x between splits)
+- Powers-of-2 shards = simple bit masking for shard assignment
+- Never more than ~5,000 bots/shard (keeps shard contracts manageable)
+- No premature optimization (start with 1 shard)
+
+```rust
+/// Shard assignment uses high bits of contract hash
+fn get_shard_for_bot(contract: &ContractHash, shard_count: u32) -> u32 {
+    let hash_prefix = u32::from_be_bytes(contract.as_bytes()[0..4].try_into().unwrap());
+    hash_prefix % shard_count  // shard_count is always power of 2
 }
 
-impl ShardedRegistry {
-    /// Register bot in appropriate shard
-    fn register(&self, bot: &RegistryEntry) -> ShardId {
-        let shard = get_shard_for_bot(&bot.contract_hash);
-        // Write to shard contract
-        shard
+/// Shard contract addresses are deterministically derived
+fn shard_contract_address(shard_id: u32, shard_count: u32) -> ContractHash {
+    let seed = format!("stroma-registry-v1-shards-{}-id-{:08x}", shard_count, shard_id);
+    ContractHash::from_bytes(&sha256(seed.as_bytes()))
+}
+```
+
+---
+
+#### Migration Protocol (Dual-Read with Vector Clocks)
+
+When splitting from N shards to 2N shards:
+
+**Phase 1: Announce Split**
+```rust
+// Any bot can propose split when threshold exceeded (requires PoW)
+fn propose_split(metadata: &mut RegistryMetadata, pow_proof: &PowProof) -> Result<()> {
+    if metadata.total_bots < next_fibonacci_threshold(metadata.shard_count) {
+        return Err("Threshold not reached");
     }
     
-    /// Get bot list for holder computation
-    /// Only query shards that COULD contain my holders
-    fn get_relevant_bots(&self, my_contract: &ContractHash) -> Vec<RegistryEntry> {
-        // Rendezvous hashing is deterministic, but holders could be in any shard
-        // For full accuracy: query all shards (can be parallelized)
-        // For optimization: cache shard contents locally, refresh periodically
-        self.shards.par_iter()
-            .flat_map(|shard| query_shard(shard))
-            .collect()
+    metadata.migration_status = MigrationStatus::Splitting {
+        old_shard_count: metadata.shard_count,
+        new_shard_count: metadata.shard_count * 2,
+        split_started: now(),
+        transition_deadline: now() + Duration::hours(24),
+    };
+    
+    Ok(())
+}
+```
+
+**Phase 2: Transition Window (24 hours)**
+
+During transition:
+- **Writes**: Go to NEW shard (by new hash prefix)
+- **Reads**: Query BOTH old and new shard, merge results
+
+```rust
+/// Vector clock for conflict resolution during migration
+pub struct ShardClock {
+    // One entry per shard, tracks latest operation sequence
+    clock: BTreeMap<ShardId, u64>,
+}
+
+fn read_during_migration(
+    contract: &ContractHash,
+    old_count: u32,
+    new_count: u32,
+) -> Vec<RegistryEntry> {
+    let old_shard = get_shard_for_bot(contract, old_count);
+    let new_shard = get_shard_for_bot(contract, new_count);
+    
+    let old_entries = query_shard(old_shard, old_count);
+    let new_entries = query_shard(new_shard, new_count);
+    
+    // Merge with vector clock semantics
+    merge_bot_lists(&old_entries, &new_entries)
+}
+
+fn merge_bot_lists(old: &[RegistryEntry], new: &[RegistryEntry]) -> Vec<RegistryEntry> {
+    let mut result: HashMap<ContractHash, RegistryEntry> = HashMap::new();
+    
+    // Add all from old
+    for entry in old {
+        result.insert(entry.contract_hash, entry.clone());
+    }
+    
+    // Merge from new (newer clock wins, tombstones win ties)
+    for entry in new {
+        match result.get(&entry.contract_hash) {
+            Some(existing) if entry.clock > existing.clock => {
+                result.insert(entry.contract_hash, entry.clone());
+            }
+            Some(existing) if entry.clock == existing.clock && entry.is_tombstone => {
+                result.insert(entry.contract_hash, entry.clone()); // Tombstone wins
+            }
+            None => {
+                result.insert(entry.contract_hash, entry.clone());
+            }
+            _ => {} // Keep existing
+        }
+    }
+    
+    result.into_values().collect()
+}
+```
+
+**Phase 3: Complete Migration**
+
+After 24 hours:
+```rust
+fn complete_migration(metadata: &mut RegistryMetadata) -> Result<()> {
+    if let MigrationStatus::Splitting { new_shard_count, transition_deadline, .. } = metadata.migration_status {
+        if now() < transition_deadline {
+            return Err("Transition window not complete");
+        }
+        
+        metadata.shard_count = new_shard_count;
+        metadata.global_epoch += 1;  // Bump epoch on split
+        metadata.migration_status = MigrationStatus::Stable;
+    }
+    Ok(())
+}
+```
+
+**Phase 4: Cleanup (Optional)**
+
+Old shards become read-only tombstones. Can be garbage collected after extended period (e.g., 30 days) when all bots have updated their caches.
+
+---
+
+#### Global Epoch Coordination
+
+All shards reference the global epoch from RegistryMetadata:
+
+```rust
+impl PersistenceRegistry {
+    fn validate_registration(&self, entry: &RegistryEntry, global_epoch: u64) -> bool {
+        // Registration must reference current global epoch
+        entry.epoch == global_epoch
     }
 }
 ```
 
-**Scaling characteristics**:
+**Epoch bump triggers**:
+- Shard split completion (automatic)
+- Bot count changes by >10% since last bump (requires PoW proposal)
+- Manual bump proposal (requires PoW, for emergency rebalancing)
 
-| Network Size | Shards Needed | Bots per Shard | Shard Size |
-|--------------|---------------|----------------|------------|
-| 10K bots | 1 (unsharded) | 10K | ~1MB |
-| 100K bots | 256 | ~400 | ~40KB |
-| 1M bots | 256 | ~4K | ~400KB |
-| 10M bots | 65536 (2 bytes) | ~150 | ~15KB |
+---
+
+#### Scaling Characteristics
+
+| Network Size | Shards | Bots/Shard | Total Shard Size | Queries for Full List |
+|--------------|--------|------------|------------------|----------------------|
+| 1K bots | 1 | 1,000 | ~100KB | 1 |
+| 5K bots | 2 | ~2,500 | ~250KB each | 2 (parallel) |
+| 20K bots | 16 | ~1,250 | ~125KB each | 16 (parallel) |
+| 100K bots | 128 | ~780 | ~78KB each | 128 (parallel) |
+| 500K bots | 512 | ~975 | ~97KB each | 512 (parallel) |
 
 **Why this works**:
 - Each shard is independently queryable (parallelizable)
-- No single contract holds entire bot list
-- Rendezvous hashing still works (just query all shards)
-- Shard assignment is deterministic (by hash prefix)
-- Can increase shards as network grows (2 bytes for 10M+ bots)
+- No single contract holds entire bot list at scale
+- Rendezvous hashing still works (query all shards, merge)
+- Shard assignment is deterministic (verifiable by anyone)
+- Gradual scaling avoids premature optimization
+- Vector clocks ensure consistency during migration
 
-**Phase 0 approach**: Single registry (sufficient for <10K bots).  
-**Scale trigger**: Implement sharding when approaching 10K bots.
+**Phase 0 approach**: Single registry (sufficient for <5K bots).  
+**Scale trigger**: First split at 5,000 bots (Fibonacci threshold).
 
 ---
 
@@ -612,7 +778,7 @@ impl ShardedRegistry {
 │  │  PUBLIC (deterministic assignment - no relationships stored):          │ │
 │  │  - Network size (N bots exist)                                          │ │
 │  │  - Bot membership (Contract-X is a Stroma bot)                          │ │
-│  │  - Current epoch (monotonic, increments on membership change)          │ │
+│  │  - Current epoch (monotonic, increments on >10% bot count change)      │ │
 │  │  - Size buckets (Contract-X has ~50 members) - optional, for fairness  │ │
 │  │  - Liveness hints (last-seen timestamp) - optional                      │ │
 │  │                                                                          │ │
@@ -805,6 +971,43 @@ async fn distribute_chunk_hybrid(
 ### Design Principle
 
 **Zero Trust**: Every protocol decision assumes peers are actively malicious.
+
+### Registry Availability Attacks (KNOWN THREAT)
+
+The registry contract is a known attack surface for **availability attacks** (DDoS).
+
+**Attack Vectors:**
+| Attack | Mechanism | Impact |
+|--------|-----------|--------|
+| State Bloat | Register fake bots | Registry grows, queries slow |
+| Contract Computation | Expensive queries | Contract execution degrades |
+| Read Amplification | Query flooding | Freenet nodes exhausted |
+| Shard-Targeted | Concentrate on one shard | Subset of bots affected |
+
+**Defense Layers (ALL REQUIRED):**
+
+1. **Freenet Native**: Redundancy, rate-limiting, replication (first line)
+2. **PoW Registration**: ~30s per registration (Sybil prevention)
+3. **Contract Rate Limiting**: Query limits, compute budgets, circuit breakers (Phase 1+)
+4. **Sharding Resilience**: Attack power diluted across shards
+
+**Implementation Constraints (Phase 1+):**
+```rust
+// Registry contract MUST implement
+pub struct RegistryRateLimits {
+    query_rate_limit: u32,        // Max queries/min per source
+    compute_budget_per_op: u64,   // Max cycles per operation
+    circuit_breaker_threshold: f32, // Load threshold for emergency mode
+}
+```
+
+**Accepted Risk:**
+- Registry is inherently discoverable (required for persistence)
+- Defense goal: **degrade gracefully**, not "prevent all DDoS"
+- Disruption is temporary; trust maps remain encrypted
+- Network recovers automatically when attack subsides
+
+**See**: `docs/THREAT-MODEL-AUDIT.md`, `docs/PERSISTENCE.md` for complete analysis
 
 ---
 
@@ -1138,16 +1341,26 @@ pub struct RegistryDelta {
 }
 ```
 
-### Why No Per-Chunk Records
+### Registry Constraints
 
-| Old Design (Registry-Based) | New Design (Deterministic) |
-|-----------------------------|---------------------------|
-| Store N * chunks * 2 relationship records | Store N bot entries only |
-| Query: "Who holds my chunks?" | Compute: `rendezvous_hash(chunk_idx)` |
-| Registry is attack target | No sensitive data in registry |
-| Scaling: O(N × chunks) potential | Scaling: O(N) guaranteed |
+**What the Registry Stores:**
+- Bot entries only (contract_hash, size_bucket, registered_at, epoch)
+- O(N) storage where N = number of bots
 
-**Key insight**: Chunk holder relationships can be computed by anyone. This is acceptable because:
+**What the Registry Does NOT Store:**
+- Per-chunk holder assignments
+- Chunk-to-bot relationship records
+
+**Why Deterministic Holder Selection:**
+
+| Constraint | Rationale |
+|------------|-----------|
+| No per-chunk records | Avoids O(N × chunks × replicas) scaling |
+| Compute via `rendezvous_hash(chunk_idx)` | Any bot can verify holder assignments |
+| Registry contains no sensitive data | Knowing bot list doesn't reveal who holds whose chunks |
+| Holder relationships are public | Chunks are encrypted; metadata exposure is acceptable |
+
+**Security Properties:**
 1. Chunks are encrypted (knowing holder doesn't help read data)
 2. Need ALL chunks + ACI key (single chunk = partial ciphertext)
 3. Attack requires compromising actual holders, not metadata
@@ -1168,6 +1381,8 @@ pub struct RegistryDelta {
 | Minimal registry | O(N) bot list only, no per-chunk relationships |
 | Adversarial peer model | Zero trust in all protocols |
 | Fairness verification | Challenge-response for chunk possession |
+| Registry rate limiting | Query limits, compute budgets (Phase 1+) |
+| Graceful degradation | Bots can operate with cached data under attack |
 
 ---
 
@@ -1184,6 +1399,8 @@ pub struct RegistryDelta {
 - Trust federation peers more than random peers (same adversarial model)
 - Create separate keypair file (use Signal ACI key instead)
 - Trust chunk storage claims without verification (fairness gaming)
+- Assume registry is always available (design for degraded operation)
+- Allow unbounded queries without rate limiting (DDoS vulnerability)
 
 ### ✅ ALWAYS
 
@@ -1196,6 +1413,8 @@ pub struct RegistryDelta {
 - Treat all persistence peers as adversaries
 - Use Signal ACI identity for all persistence cryptography
 - Implement challenge-response for fairness verification
+- Cache registry data locally for degraded operation
+- Implement rate limiting and circuit breakers in registry contract (Phase 1+)
 
 ---
 

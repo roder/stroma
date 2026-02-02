@@ -81,22 +81,31 @@ All vetting/vouching occurs in **1-on-1 PMs** with bot (prevents metadata leakag
 - `/status` - View personal trust standing
 - `/mesh` - View network overview
 
-### Voting: Native Signal Polls (Anonymous)
+### Voting: Native Signal Polls
 
 **Why Polls (Not Reactions):**
-- ✅ Anonymous voting - Signal doesn't expose who voted
-- ✅ Privacy - Only aggregated results visible
-- ❌ Reactions expose voters - violates privacy
+- ✅ Structured voting - Clear options, easy tallying
+- ✅ Multiple choice - Beyond binary approve/reject
+- ✅ Native UX - Signal's built-in poll interface
+- ❌ Reactions - Binary only, harder to tally
 
 **Poll Structure:**
 - Options: Binary (Approve/Reject) or multiple choice
-- Anonymity: Bot sees only totals, never individuals
+- Visibility: Group members can see who voted for what
 - Timeout: Configurable per proposal (48h, 72h, etc.)
-- Threshold: From GroupConfig.config_change_threshold
+- Threshold: From GroupConfig.config_change_threshold (% of votes to pass)
+- Quorum: From GroupConfig.min_quorum (% of members who must vote)
 
 ---
 
 ## Data Handling
+
+### Custom Protocol Store (Security Critical)
+- ❌ **NEVER use `presage-store-sqlite`** - it stores message history (server seizure risk)
+- ✅ **ALWAYS use `StromaProtocolStore`** - stores only Signal protocol state
+- Custom store implements: `IdentityKeyStore`, `PreKeyStore`, `SessionStore`, `SenderKeyStore`
+- No message content, no conversation history, no metadata beyond protocol needs
+- See: `.beads/technology-stack.bead` for implementation details
 
 ### Never Store Signal IDs
 - **Critical**: Bot must never store Signal IDs in cleartext
@@ -115,6 +124,6 @@ All vetting/vouching occurs in **1-on-1 PMs** with bot (prevents metadata leakag
 - Invitees (people being vetted) CANNOT vouch
 
 ### Vouch Validity
-- Vouches must be from members in DIFFERENT CLUSTERS (cross-cluster mandatory)
+- Vouches must be from members in DIFFERENT CLUSTERS (cross-cluster mandatory) to enter a Group
 - Bot verifies via Freenet that voucher is current Member
 - First vouch = invitation itself (no separate token)

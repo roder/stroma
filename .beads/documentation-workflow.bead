@@ -1,0 +1,153 @@
+# Bead: Documentation Workflow
+
+**Status**: Immutable Process Constraint  
+**Created**: 2026-02-01  
+**Context**: Post-Development Documentation Review
+
+---
+
+## Core Principle
+
+**Human-facing documentation (`./docs`) must be reviewed and revised after development is completed, tested, and verified.**
+
+Code-facing artifacts (beads, code comments, tests) are the source of truth during development. Human-facing documents are derived from these and serve different audiences with different needs.
+
+---
+
+## Trigger Condition
+
+Documentation review is REQUIRED when:
+
+1. A feature or module is **completed** (all code written)
+2. Tests are **passing** (100% coverage maintained)
+3. Security gates are **verified** (cargo-deny, clippy, no cleartext IDs)
+4. The change affects **user experience** or **architecture**
+
+---
+
+## Audience-Specific Review
+
+Each document in `./docs` serves a specific audience. Review must consider that audience's perspective:
+
+| Document | Audience | Review Focus |
+|----------|----------|--------------|
+| `USER-GUIDE.md` | End-users (group members) | Commands, UX flow, privacy guarantees, non-technical language |
+| `OPERATOR-GUIDE.md` | Operators (service runners) | Deployment, CLI, maintenance, what operators CAN'T do |
+| `DEVELOPER-GUIDE.md` | Contributors | Architecture, module structure, code patterns, security constraints |
+| `HOW-IT-WORKS.md` | General audience | Conceptual overview, trust model, accessible explanations |
+| `TRUST-MODEL.md` | Security-conscious users | Trust calculations, threat model, guarantees |
+| `ALGORITHMS.md` | Technical auditors | Mathematical foundations, cryptographic protocols, proofs |
+| `FEDERATION.md` | Advanced contributors | Cross-mesh protocols, future architecture |
+| `PERSISTENCE.md` | Contributors/Auditors | State durability, chunk storage, recovery |
+
+---
+
+## Review Checklist
+
+### UX Consistency
+- [ ] Commands match actual implementation
+- [ ] Examples are accurate and runnable
+- [ ] Error messages match what users will see
+- [ ] Flow diagrams reflect current state machines
+
+### Architecture Accuracy
+- [ ] Module structure matches `architecture-decisions.bead`
+- [ ] Data flows are correctly described
+- [ ] Security boundaries are accurately documented
+- [ ] Feature flags reflect current state (e.g., federation disabled)
+
+### Terminology Alignment
+- [ ] Terms match `.beads/terminology.bead`
+- [ ] No ambiguous phrasing (e.g., "2 vouches" vs "2 cross-cluster vouches")
+- [ ] Consistent naming across all documents
+
+### Security Claims
+- [ ] Privacy guarantees are accurate
+- [ ] Threat model reflects implementation
+- [ ] No overstated security claims
+- [ ] Cleartext handling documented correctly
+
+---
+
+## Process
+
+### Step 1: Identify Changed Documents
+
+After completing a feature, determine which documents may need updates:
+
+```bash
+# Check which docs reference the changed module
+rg "matchmaker|strategic.?intro" docs/ --type md
+```
+
+### Step 2: Review Against Source of Truth
+
+Compare human-facing docs against:
+1. **Beads** - Architectural decisions and constraints
+2. **Code** - Actual implementation
+3. **Tests** - Expected behavior
+
+### Step 3: Update for Each Audience
+
+For each affected document:
+1. Read from the audience's perspective
+2. Verify accuracy against implementation
+3. Update examples if needed
+4. Ensure language matches audience's expertise level
+
+### Step 4: Cross-Reference Check
+
+```bash
+# Check for terminology consistency
+rg "waiting room" --type md  # Should say "invitee (outside group)"
+rg "grace period" --type md  # Should not exist
+rg "permanent ban" --type md  # Should not exist
+```
+
+---
+
+## Anti-Patterns
+
+### ❌ Updating Docs During Development
+Human-facing docs should NOT be primary artifacts during development. Use beads and code comments. Update docs after the feature is stable.
+
+### ❌ Copy-Paste from Beads
+Beads are technical specifications. Docs need audience-appropriate language and context.
+
+### ❌ Documenting Aspirational Features
+Only document what is **implemented and tested**. Future features go in beads or roadmap documents, not user guides.
+
+### ❌ Skipping Review for "Small" Changes
+Even small changes can affect UX or security claims. Always review affected docs.
+
+---
+
+## Document Hierarchy
+
+```
+Source of Truth (Development)     Human-Facing (Post-Development)
+─────────────────────────────     ──────────────────────────────
+.beads/*.bead                 →   docs/DEVELOPER-GUIDE.md
+                                  docs/ALGORITHMS.md
+                                  docs/PERSISTENCE.md
+
+Code + Tests                  →   docs/USER-GUIDE.md
+                                  docs/OPERATOR-GUIDE.md
+                                  docs/HOW-IT-WORKS.md
+
+.beads/security-constraints   →   docs/TRUST-MODEL.md
+                                  docs/THREAT-MODEL-AUDIT.md
+```
+
+---
+
+## Integration with Gastown Workflow
+
+In Gastown multi-agent development:
+
+1. **Development agents** work from beads and produce code
+2. **Witness agent** audits for security violations
+3. **After merge**: A documentation review pass updates `./docs`
+4. **Mayor** verifies docs match architecture decisions
+
+Documentation review is a **post-merge** activity, not a blocking gate for feature completion.

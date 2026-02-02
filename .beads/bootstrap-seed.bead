@@ -2,6 +2,7 @@
 
 **Status**: Immutable Architectural Constraint  
 **Created**: 2026-02-01  
+**Updated**: 2026-02-01  
 **Context**: Group Initialization Protocol
 
 ---
@@ -10,103 +11,222 @@
 
 Creating a new Stroma group requires a **3-member seed group** to establish the initial trust triangle.
 
+**Key Principle**: Bootstrap is **member-initiated**, not operator-initiated. The operator's role is limited to linking the device and starting the service. Members control who forms the seed group.
+
 ---
 
 ## Seed Group Requirements
 
-### Minimum Size: 3 Members
+### Size: 3 Members
 - **Why 3**: Smallest number that allows triangulation (all vouch for each other)
 - **Initial Triangle**: Member A ↔ Member B ↔ Member C ↔ Member A
 - **Result**: Each member has 2 vouches (meets minimum threshold)
 
 ---
 
-## Manual Bootstrap Process
+## Bootstrap Process (Member-Initiated)
 
-### Step 1: Operator Creates Group
+### Operator Setup (Service Only)
+
+The operator's role is limited to infrastructure:
+
 ```bash
-# Operator runs bootstrap command (ONLY time operator has special privilege)
-# Group name is REQUIRED
-cargo run --bin stroma-bootstrap -- \
-  --name "Mission Control" \
-  --seed-member-1 "+1234567890" \
-  --seed-member-2 "+0987654321" \
-  --seed-member-3 "+1122334455"
+# Step 1: Link to Signal account (one-time)
+stroma link-device --device-name "Stroma Bot"
+
+# Step 2: Start the bot service (awaits bootstrap)
+stroma run --config /etc/stroma/config.toml
 ```
 
-### Step 2: Bot Initialization
+The bot starts in **awaiting bootstrap** state. It cannot be used until a member initiates the seed group.
+
+---
+
+### Member-Initiated Bootstrap Flow
+
+**Step 1: First Seed Member Contacts Bot**
+
+```
+Member A → Bot (PM): /create-group "Mission Control"
+
+Bot → Member A (PM): 
+"🌱 Creating new Stroma group: 'Mission Control'
+
+You are seed member #1. To complete the seed group, you need 
+2 more trusted people who know each other AND know you.
+
+Invite them with:
+  /add-seed @MemberB
+  /add-seed @MemberC
+
+⚠️ Choose carefully - these 3 people form the foundation of trust.
+   All seed members will automatically vouch for each other."
+```
+
+**Step 2: First Member Adds Two More Seeds**
+
+```
+Member A → Bot (PM): /add-seed @MemberB
+
+Bot → Member A (PM):
+"✅ @MemberB added as seed member #2.
+   Need 1 more seed member to complete the group."
+
+Bot → Member B (PM):
+"👋 You've been added as a seed member to 'Mission Control' by @MemberA.
+
+Waiting for one more seed member before the group is created.
+You'll be notified when the seed group is complete."
+```
+
+```
+Member A → Bot (PM): /add-seed @MemberC
+
+Bot → Member A (PM):
+"✅ @MemberC added as seed member #3.
+   Seed group complete! Creating Signal group and Freenet contract..."
+```
+
+**Step 3: Bot Completes Bootstrap**
+
+```
+Bot → Member A, B, C (Group):
+"🎉 'Mission Control' is now live!
+
+Seed group established:
+- @MemberA ↔ @MemberB ↔ @MemberC (mutual vouches)
+- All members have 2 vouches each
+
+You can now invite others:
+  /invite @NewMember [context]
+
+Type /help for all commands."
+```
+
+---
+
+## Bootstrap Implementation
+
 ```rust
-fn bootstrap_new_group(
-    name: String,              // REQUIRED - group name
-    seed_members: [SignalId; 3],
-    aci_identity: &IdentityKeyPair,  // Signal ACI identity (replaces group pepper)
-) -> Result<StromaGroup> {
+/// Bootstrap state machine
+enum BootstrapState {
+    AwaitingInitiation,
+    CollectingSeeds {
+        group_name: String,
+        initiator: Hash,
+        seeds: Vec<Hash>,  // 1-2 members collected
+    },
+    Complete,
+}
+
+/// Handle /create-group command
+async fn handle_create_group(
+    initiator: SignalId,
+    group_name: String,
+    aci_identity: &IdentityKeyPair,
+) -> Result<()> {
     // Validate group name
-    if name.is_empty() {
+    if group_name.is_empty() {
         return Err("Group name required");
     }
     
-    // 1. Create new Signal group with name
-    let signal_group = signal_client.create_group(&name)?;
+    // Hash initiator immediately
+    let initiator_hash = mask_identity_hmac(&initiator, aci_identity);
+    initiator.zeroize();
     
-    // 2. Add 3 seed members
-    for member in &seed_members {
-        signal_client.add_to_group(signal_group.id, member)?;
+    // Transition to collecting seeds
+    state.bootstrap = BootstrapState::CollectingSeeds {
+        group_name,
+        initiator: initiator_hash,
+        seeds: vec![initiator_hash],
+    };
+    
+    // Send instructions to initiator
+    send_pm(initiator_hash, "You are seed member #1...").await?;
+    
+    Ok(())
+}
+
+/// Handle /add-seed command
+async fn handle_add_seed(
+    from: SignalId,
+    new_seed: SignalId,
+    aci_identity: &IdentityKeyPair,
+) -> Result<()> {
+    let from_hash = mask_identity_hmac(&from, aci_identity);
+    
+    // Only initiator can add seeds
+    let BootstrapState::CollectingSeeds { initiator, seeds, group_name } = &mut state.bootstrap else {
+        return Err("No bootstrap in progress");
+    };
+    
+    if from_hash != *initiator {
+        return Err("Only the group creator can add seed members");
     }
     
-    // 3. Hash identifiers (using ACI-derived key)
-    let hashes: Vec<_> = seed_members.iter()
-        .map(|id| mask_identity_hmac(id, aci_identity))
-        .collect();
+    // Hash and add new seed
+    let new_seed_hash = mask_identity_hmac(&new_seed, aci_identity);
+    new_seed.zeroize();
     
-    // 4. Create initial Freenet contract with group name and mutual vouches
+    seeds.push(new_seed_hash);
+    
+    if seeds.len() == 3 {
+        // Complete bootstrap
+        complete_bootstrap(group_name.clone(), seeds.clone(), aci_identity).await?;
+    }
+    
+    Ok(())
+}
+
+/// Finalize the seed group
+async fn complete_bootstrap(
+    group_name: String,
+    seed_hashes: Vec<Hash>,
+    aci_identity: &IdentityKeyPair,
+) -> Result<StromaGroup> {
+    // 1. Create Signal group with name
+    let signal_group = signal_client.create_group(&group_name).await?;
+    
+    // 2. Add all 3 seed members to Signal group
+    for hash in &seed_hashes {
+        signal_client.add_to_group(signal_group.id, hash).await?;
+    }
+    
+    // 3. Create Freenet contract with mutual vouches
     let mut contract = FreenetContract::new();
-    contract.group_name = name.clone();  // Store group name
+    contract.group_name = group_name.clone();
     
     // Create full triangle (each vouches for the other two)
     for i in 0..3 {
         for j in 0..3 {
             if i != j {
                 contract.add_vouch(
-                    voucher: hashes[i],
-                    vouchee: hashes[j],
+                    voucher: seed_hashes[i],
+                    vouchee: seed_hashes[j],
                     zk_proof: create_bootstrap_proof(),
                 )?;
             }
         }
     }
     
-    // 5. Publish contract to Freenet
-    freenet_client.publish_contract(contract)?;
+    // 4. Publish contract to embedded Freenet kernel
+    freenet_client.publish_contract(contract).await?;
     
-    // 6. Bot announces completion
+    // 5. Announce to group
     signal_client.send_message_to_group(
         signal_group.id,
-        &format!("✅ '{}' initialized with 3 seed members. All members have 2 vouches.", name),
-    )?;
+        &format!("🎉 '{}' is now live! All seed members have 2 vouches.", group_name),
+    ).await?;
     
-    // 7. Bot takes over - no more manual additions
+    // 6. Transition to normal operation
+    state.bootstrap = BootstrapState::Complete;
+    
     Ok(StromaGroup {
         signal_group_id: signal_group.id,
-        group_name: name,
+        group_name,
         freenet_contract_address: contract.address,
-        seed_members: hashes,
+        seed_members: seed_hashes,
     })
-}
-```
-
-### Step 3: Verification
-```rust
-// Verify bootstrap succeeded
-fn verify_bootstrap(contract: &FreenetContract) -> bool {
-    assert_eq!(contract.member_count(), 3);
-    
-    for member in contract.members() {
-        let vouch_count = contract.get_vouch_count(member);
-        assert_eq!(vouch_count, 2, "Seed member must have 2 vouches");
-    }
-    
-    true
 }
 ```
 
@@ -114,21 +234,22 @@ fn verify_bootstrap(contract: &FreenetContract) -> bool {
 
 ## Post-Bootstrap State
 
-### Seed Members Become Initial Validators
-- All 3 members have 2 vouches
+### Seed Members Become Initial Bridges
+- All 3 members have 2 vouches (Bridge status)
 - All 3 can vouch for newcomers
-- Initial validator pool established
+- Initial trust foundation established
 
-### Operator Role Ends
-- **After bootstrap**: Operator becomes service runner only
-- No more manual additions
-- All subsequent members must go through bot admission protocol
+### Operator Role
+- **Before bootstrap**: Service runner only (link-device, run)
+- **During bootstrap**: No involvement (member-initiated)
+- **After bootstrap**: Service maintenance only (restart, monitor)
+- Operator NEVER specifies who is in the seed group
 
 ### Bot Takes Control
 - Bot becomes sole admin of Signal group
 - All admissions via 2-vouch protocol
 - All ejections via Freenet contract enforcement
-- Operator cannot override
+- No manual overrides possible
 
 ---
 
@@ -136,53 +257,28 @@ fn verify_bootstrap(contract: &FreenetContract) -> bool {
 
 ### Bootstrap Ephemeral Data
 ```rust
-// After bootstrap, delete sensitive data
-fn cleanup_bootstrap(seed_members: &[SignalId]) {
-    // Zeroize cleartext Signal IDs
-    for id in seed_members {
-        id.zeroize();
-    }
-    
-    // Only hashed identifiers remain
-    // Original Signal IDs never stored to disk
+// Signal IDs are hashed immediately and zeroized
+fn process_seed_member(signal_id: SignalId, aci_identity: &IdentityKeyPair) -> Hash {
+    let hash = mask_identity_hmac(&signal_id, aci_identity);
+    signal_id.zeroize();  // Immediate zeroization
+    hash
 }
+
+// Only hashed identifiers remain
+// Original Signal IDs never stored to disk
 ```
 
 ### Seed Group Trust
 - Seed members are **mutually trusted** (pre-existing relationships)
 - Bootstrap assumes seed members know each other well
 - If seed group is compromised, entire network is at risk
-- **Critical**: Choose seed members carefully
+- **Critical**: First member must choose other seeds carefully
 
-### One-Time Operator Privilege
-- Bootstrap is the ONLY time operator manually adds members
-- This privilege ends immediately after bootstrap
-- All bootstrap actions logged to Freenet contract
+### Initiator Responsibility
+- First member has temporary elevated privilege (choosing seeds)
+- This privilege ends when 3rd seed is added
+- All actions logged to Freenet contract
 - Queryable via `/audit bootstrap`
-
----
-
-## Alternative: Bot-Initiated Bootstrap
-
-For even stricter operator least-privilege, bootstrap can be initiated by the first seed member:
-
-```
-// First member starts group
-Member A → Bot (new PM): /create-stroma-group
-
-Bot: "Creating new group. You'll be seed member #1.
-      Invite 2 more trusted people to complete the seed group:
-      
-      /add-seed @MemberB
-      /add-seed @MemberC"
-
-// After 3 seed members added
-Bot: "Seed group complete. Creating Signal group and Freenet contract...
-      ✅ Done! All 3 seed members have been added with mutual vouches.
-      You can now invite others via /invite @NewMember."
-```
-
-This removes operator from the trust chain entirely - even bootstrap is user-initiated.
 
 ---
 
@@ -191,10 +287,11 @@ This removes operator from the trust chain entirely - even bootstrap is user-ini
 ```rust
 pub struct BootstrapEvent {
     pub timestamp: Timestamp,
+    pub group_name: String,
     pub seed_members: [Hash; 3],
+    pub initiated_by: Hash,  // First seed member (NOT operator)
     pub signal_group_id: GroupId,
     pub freenet_contract_address: ContractAddress,
-    pub initiated_by: Hash,  // Operator or first seed member
 }
 ```
 
@@ -203,9 +300,10 @@ Any member can query:
 Member: /audit bootstrap
 
 Bot: "Group Bootstrap:
+      - Group: 'Mission Control'
       - Created: 2026-01-26 10:00:00 UTC
+      - Initiated by: [HASH_OF_FIRST_SEED]
       - Seed Members: 3 (all with 2 vouches)
-      - Signal Group: [GROUP_ID]
       - Freenet Contract: [CONTRACT_ADDRESS]
       - Current Members: 47
       - Fully Vetted: ✅ (all members have ≥2 vouches)"
@@ -213,11 +311,37 @@ Bot: "Group Bootstrap:
 
 ---
 
+## Bootstrap Commands Summary
+
+| Command | Who | Purpose |
+|---------|-----|---------|
+| `/create-group "Name"` | First seed member | Initiate new group |
+| `/add-seed @User` | First seed member | Add 2nd and 3rd seeds |
+
+**Note**: These commands are ONLY available before bootstrap completes. After the 3rd seed is added, they become unavailable.
+
+---
+
 ## Post-Bootstrap Growth
 
 After bootstrap, group grows ONLY through:
-1. **Admission Protocol**: 2 vouches from members IN the group
+1. **Admission Protocol**: 2 cross-cluster vouches from members IN the group
 2. **Strategic Matching**: Blind Matchmaker optimizes internal mesh
 3. **Federation**: Blind Rendezvous with other Stroma groups
 
-No more manual additions. Operator's role is purely service maintenance.
+No manual additions. Operator's role is purely service maintenance.
+
+---
+
+## Alternative: Operator-Assisted Bootstrap (Legacy)
+
+For environments where member-initiated bootstrap is impractical, an operator can assist:
+
+```bash
+# Operator starts bot with bootstrap mode
+stroma run --config config.toml --bootstrap-contact @MemberA
+```
+
+This sends a PM to @MemberA with instructions to complete `/create-group`. The operator still does NOT specify the seed members - that remains member-controlled.
+
+**Not recommended**: Use member-initiated bootstrap when possible.

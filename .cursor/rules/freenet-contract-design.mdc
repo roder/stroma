@@ -21,7 +21,7 @@ The complete Freenet contract design patterns, ComposableState implementation, m
 
 | Q | Status | Key Finding |
 |---|--------|-------------|
-| Q1 | GO | Set-based state with tombstones (commutative) |
+| Q1 | GO | Set-based state with ejected set (commutative) |
 | Q2 | GO | Contract CAN enforce invariants |
 | Q3 | GO | Bridge Removal for cluster detection |
 | Q4 | PARTIAL | Bot-side STARK verification |

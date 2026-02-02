@@ -22,17 +22,31 @@
 ## Core Cryptographic Libraries
 
 ### `ring`
-- **Purpose**: HMAC generation and cryptographic operations
-- **Usage**: Identity masking with keyed hashing (not deterministic hashing)
+- **Purpose**: HMAC-SHA256 for identity masking
+- **Usage**: Keyed hashing with Signal ACI-derived key (not group pepper)
 - **Version**: Use latest stable, audited version
 - **Pattern**:
   ```rust
-  use ring::{digest, hmac};
+  use ring::hmac;
+  use hkdf::Hkdf;
+  use sha2::Sha256;
   
-  // For HMAC-based identity masking with group-secret pepper
-  let key = hmac::Key::new(hmac::HMAC_SHA256, group_secret_pepper);
+  // Derive HMAC key from Signal ACI identity (NOT group pepper)
+  fn derive_identity_masking_key(aci_identity: &IdentityKeyPair) -> [u8; 32] {
+      let hk = Hkdf::<Sha256>::new(
+          Some(b"stroma-identity-masking-v1"),
+          aci_identity.private_key().serialize().as_slice()
+      );
+      let mut key = [0u8; 32];
+      hk.expand(b"hmac-sha256-key", &mut key).unwrap();
+      key
+  }
+  
+  let key_bytes = derive_identity_masking_key(&aci_identity);
+  let key = hmac::Key::new(hmac::HMAC_SHA256, &key_bytes);
   let tag = hmac::sign(&key, signal_id.as_bytes());
   ```
+- **See**: `.beads/security-constraints.bead` for complete pattern with zeroization
 
 ### `zeroize`
 - **Purpose**: Memory hygiene - purge sensitive buffers
@@ -44,11 +58,13 @@
   buffer.zeroize();
   ```
 
-### `arkworks`
-- **Purpose**: ZK-SNARK circuit implementation
+### `winterfell`
+- **Purpose**: STARK proof generation and verification
 - **Usage**: Trust verification, recursive ZK vouching
 - **Requirement**: Must implement recursive proofs for scalability
-- **Integration**: Freenet contracts accept ZK-SNARK as input
+- **Why STARKs over SNARKs**: No trusted setup ceremony, post-quantum secure, transparent
+- **Integration**: Bot-side verification (Phase 0), outcomes submitted to Freenet
+- **See**: `.beads/architecture-decisions.bead` for rationale on STARK choice
 
 ---
 
@@ -142,10 +158,10 @@ let reaction = DataMessage {
 - **Implementation**: Gastown Agent-Signal task (see `.beads/poll-implementation-gastown.bead`)
 
 **Why Polls Critical:**
-- Anonymous voting (Signal doesn't expose who voted what)
+- Structured voting (clear options, easy tallying)
 - Multiple choice options (better than binary reactions)
 - Native Signal UX (familiar interface)
-- Preserves privacy during sensitive decisions
+- Accountability (members can see who voted for what)
 
 ### Custom Store Requirement (SERVER SEIZURE PROTECTION)
 
@@ -370,7 +386,8 @@ edition = "2021"
 # Cryptography
 ring = { version = "...", features = ["std"] }
 zeroize = { version = "...", features = ["zeroize_derive"] }
-arkworks = { version = "..." }
+winterfell = { version = "..." }  # STARKs (not arkworks/SNARKs)
+hkdf = { version = "..." }  # Key derivation from Signal ACI
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -394,7 +411,7 @@ mock_instant = "..."  # For deterministic time mocking
 curve25519-dalek = { git = 'https://github.com/signalapp/curve25519-dalek', tag = 'signal-curve25519-4.1.3' }
 libsignal-service = {
     git = "https://github.com/roder/libsignal-service-rs",
-    branch = "feature/protocol-v8-polls"
+    branch = "feature/protocol-v8-polls-fixed"
 }
 
 [profile.release]
@@ -469,6 +486,23 @@ async fn handle_message(&mut self, message: Message) -> Result<()> {
 2. Check Presage docs first: https://whisperfish.github.io/presage
 3. If Presage doesn't expose feature, use libsignal-service-rs directly
 4. Both are Rust - no language boundary
+
+**⚠️ CRITICAL: Custom Store Required (Security Guardrail)**
+- ❌ **NEVER use `presage-store-sqlite`** - it stores message history (security violation)
+- ✅ **ALWAYS use `StromaProtocolStore`** - custom store that stores only protocol state
+- Custom store implements: `IdentityKeyStore`, `PreKeyStore`, `SessionStore`, `SenderKeyStore`
+- No message content, no conversation history, no metadata beyond protocol needs
+- See: `.beads/security-constraints.bead` for complete rationale
+
+```rust
+// ❌ FORBIDDEN - stores message history
+use presage_store_sqlite::SqliteStore;
+let store = SqliteStore::open("path/to/db")?;
+
+// ✅ REQUIRED - custom store, protocol state only
+use crate::signal::StromaProtocolStore;
+let store = StromaProtocolStore::new(config.store_path)?;
+```
 
 **Common misconception to avoid:**
 - NOT a choice between Java (signal-cli) and Rust (Presage)

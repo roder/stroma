@@ -31,15 +31,15 @@ Before diving in, here are the terms you'll need:
 | **Network** | The web of trust relationships — who vouches for whom |
 | **Vouch** | A personal endorsement — you stake your reputation on someone |
 | **Flag** | The opposite of a vouch — indicates you no longer trust someone |
-| **Cluster** | A friend circle within the network — people who know each other from the same context |
-| **Cross-cluster** | From *different* friend circles — the key security requirement |
-| **Bridge** | A member with 2 vouches from 2 clusters* — the minimum to be in the group |
-| **Validator** | A member with 3+ vouches from 3+ clusters* — well-connected across the network |
+| **Cluster** | A peer circle within the network — people who know each other from the same context |
+| **Cross-cluster** | From *different* peer circles — the key security requirement |
+| **Bridge** | A member with 2 vouches from 2 different clusters — the minimum to be in the group |
+| **Validator** | A member with 3+ vouches from as many clusters as their vouch count* — well-connected across the network |
 | **Standing** | Your trust score: vouches minus flags (must stay positive) |
 
 **The relationship**: You join the **group** (Signal chat) once you're vouched into the **network** (trust structure). The group is where you interact; the network is why you're trusted.
 
-*****Cross-cluster requirement**: Vouches must come from as many distinct clusters as possible (up to your vouch count). If only 2 clusters exist, a Validator with 3 vouches needs vouches from both clusters. When only 1 cluster exists, the cross-cluster requirement is suspended. 
+*****Cross-cluster requirement**: Your vouches must come from as many distinct clusters as your vouch count, up to the available clusters. Example: If 3 clusters exist and you have 3 vouches, they must come from 3 different clusters. If only 2 clusters exist, a Validator with 3 vouches needs vouches from both clusters. When only 1 cluster exists (like during bootstrap), the cross-cluster requirement is suspended. 
 
 ---
 
@@ -47,7 +47,7 @@ Before diving in, here are the terms you'll need:
 
 **You can only join if two people from different clusters personally vouch for you.**
 
-Not one person. Two. And from different parts of the network — not the same friend circle.
+Not one person. Two. And from different parts of the network — not the same peer circle.
 
 Why? One person might be fooled, but it's much harder to deceive two independent people who know you from different contexts. And if both vouchers are close friends, they might share the same blind spots.
 
@@ -57,9 +57,9 @@ Why? One person might be fooled, but it's much harder to deceive two independent
 
 The cross-cluster requirement is the core security mechanism. Here's why:
 
-**The threat**: A coordinated group of bad actors could infiltrate by vouching for each other. If Alice invites Bob, and Carol (Alice's close friend) vouches for Bob, Bob gets in — but both vouches came from the same friend circle. Repeat this, and an infiltration cluster forms.
+**The threat**: A coordinated group of bad actors could infiltrate by vouching for each other. If Alice invites Bob, and Carol (Alice's close friend) vouches for Bob, Bob gets in — but both vouches came from the same peer circle. Repeat this, and an infiltration cluster forms.
 
-**The solution**: Your two vouches must come from **different clusters** (different friend circles). This forces every new member to be verified by multiple independent perspectives.
+**The solution**: Your two vouches must come from **different clusters** (different peer circles). This forces every new member to be verified by multiple independent perspectives.
 
 ### How to Verify Cross-Cluster
 
@@ -69,15 +69,15 @@ The cross-cluster requirement is the core security mechanism. Here's why:
 |--------|--------|
 | "We're close friends / hang out all the time" | ❌ Same cluster — find someone else |
 | "We organize together every week" | ❌ Same cluster — find someone else |
-| "I just met them, but after talking with them and others about them, I think we can trust them" | ✅ Cross-cluster — valid |
+| "We know each other through the network, but we're from different peer circles" | ✅ Cross-cluster — valid |
 
-**The key question**: Would these two vouchers know each other even if the invitee didn't exist? If yes, and they're from different social contexts, it's cross-cluster.
+**The key question**: Are the two vouchers from different social contexts? If they're close friends or came into the network through the same social group, they're same-cluster. If they're from different original peer circles (even if they've since met through the network), they're cross-cluster.
 
 ### Bootstrap Exception
 
-When a group is just starting (3-5 members), there's often only one cluster — everyone knows each other from the same place. Cross-cluster can't be enforced yet.
+When a group is just starting (3 members in the seed group), there's typically only one cluster — everyone knows each other from the same place. Cross-cluster can't be enforced yet because there's only one peer circle.
 
-Once the group grows and develops multiple friend circles (typically 6+ members), cross-cluster vouching becomes mandatory.
+Once the group grows and develops multiple peer circles (detected automatically), cross-cluster vouching becomes mandatory for new members. Existing members are grandfathered in — they don't need to suddenly find new vouchers.
 
 ---
 
@@ -106,8 +106,8 @@ Before we get to the joining process, it helps to understand where people stand 
 - Have **two vouches from two different clusters** — the minimum to be in the group (when more than one cluster exist)
 - Full members with all privileges (can invite, vouch, flag, vote)
 - At risk: if either voucher leaves the group OR flags them, they need a replacement vouch from a different cluster immediately or they're removed
-- The glue that connects different friend clusters together
-- Must maintain cluster diversity: if both vouchers are from the same cluster, they don't count
+- The glue that connects different peer clusters together
+- Must maintain cluster diversity: vouches from the same cluster still count toward your standing, but you need vouches from at least 2 different clusters to stay in the group
 
 **Validators (Well-Connected Members)**
 - Have **three or more vouches from three or more different clusters** (when 3+ clusters exist)
@@ -117,7 +117,7 @@ Before we get to the joining process, it helps to understand where people stand 
 - Higher trust = more distributed verification: the more vouches you have, the more clusters they should come from
 - Example: If only 2 clusters exist, a Validator with 3 vouches needs vouches from both clusters
 
-**Key distinction**: You're either IN the group (2+ vouches) or OUTSIDE (0-1 vouches). There's no "at risk inside member with 1 vouch" — if you drop below 2 vouches while inside, you're removed immediately.
+**Key distinction**: You're either IN the group (2+ vouches from 2+ clusters) or OUTSIDE (fewer than 2 vouches or lacking cluster diversity). There's no "at risk inside member with 1 vouch" — if you drop below 2 effective vouches while inside, you're removed immediately.
 
 ### The Joining Process (Peer-to-Peer)
 
@@ -139,7 +139,7 @@ Alice makes the introduction, then steps back. You and Bob have a brief conversa
 
 **What about if Jordan already knows someone?**
 
-If Jordan already has an independent relationship with another member (Carol), that can work — *but only if Carol is from a different cluster than Alice*. If they're in the same cluster, Carol's vouch won't count.
+If Jordan already has an independent relationship with another member (Carol), that can work — *but only if Carol is from a different cluster than Alice*. If they're in the same cluster, Carol's vouch won't satisfy the cross-cluster requirement for admission.
 
 **Step 3: The Second Witness Handshake**
 
@@ -179,13 +179,13 @@ Instead of one person tracking vouches, the group can maintain a **shared, anony
 - Strategic introductions can be suggested based on the gaps
 - No need to explain *why* you trust someone — the protocol just looks for the **existence** of the link
 
-### Smart Introductions (DVR Optimization)
+### Smart Introductions (Building a Resilient Network)
 
-When suggesting who should vouch for whom, the system prioritizes creating **distinct Validators** — members whose voucher sets don't overlap:
+When suggesting who should vouch for whom, the system prioritizes creating **independently verified members** — people whose vouchers don't overlap with each other:
 
-- **Why this matters**: If two Validators share the same vouchers, compromising those vouchers affects both. Distinct Validators are independently verified.
-- **How it works**: The system tracks which vouchers are already "used" by distinct Validators, and suggests vouchers that aren't yet used.
-- **Fallback**: If no optimal voucher is available, any cross-cluster vouch is still valid.
+- **Why this matters**: Imagine Alice and Bob are both well-trusted, but they share the same three vouchers. If something happens to those vouchers, *both* Alice and Bob are affected. But if Alice and Bob have completely different vouchers, the network is more resilient — a problem affecting one person's vouchers doesn't cascade.
+- **How it works**: The system tracks which members have overlapping voucher sets and suggests introductions that create more independently-verified members.
+- **Fallback**: If no optimal introduction is available, any cross-cluster vouch is still valid and welcome.
 
 This "smart matchmaking" helps the network become more resilient without requiring anyone to understand the underlying math.
 
@@ -238,17 +238,21 @@ When Alice flags you, her previous vouch is cancelled — she's essentially sayi
 ### The Two Reasons You Might Be Removed
 
 **Reason 1: Standing goes negative** (too many flags from non-vouchers)
-- You have 3 vouches but 5 people flag you (none of whom vouched for you)
-- Score: 3 - 5 = -2 (negative)
+- You have 3 vouches but 4 people flag you (none of whom vouched for you)
+- Score: 3 - 4 = -1 (negative)
 - Multiple independent people decided you're not trustworthy
-- Note: Standing = 0 is still OK — you need to go *below* zero
+- Note: Standing of 0 is still OK — you need to go *below* zero to be removed
 
 **Reason 2: Effective vouches drop below 2** (vouchers left or withdrew trust)
 - You had 2 vouchers, but one left the group → you now have 1 vouch
 - OR: One of your vouchers flagged you → their vouch is invalidated, you now have 1 effective vouch
-- Either way, you're below the minimum threshold of 2
+- Either way, you're below the minimum threshold of 2 effective vouches
 
-Both result in the same outcome: immediate removal. There's no "warning period" or "probation." You can be removed for Reason 2 (not enough vouches) even if your Standing is still positive.
+**Reason 3: Cross-cluster requirement not met** (when 2+ clusters exist)
+- Your remaining vouches are all from the same cluster
+- Even if you have 2+ vouches, they must be from different clusters
+
+All three result in the same outcome: immediate removal. There's no "warning period" or "probation." You can be removed for Reason 2 or 3 even if your Standing is still positive.
 
 ### Why Immediate Removal?
 
@@ -256,7 +260,7 @@ This might seem harsh, but it reflects a key principle: **trust is current, not 
 
 Your membership depends on your current trust relationships, not on the fact that you were once trusted. If those relationships change, your status changes with them.
 
-But importantly: **there are no permanent bans**. You can re-join immediately if you secure two new vouches.
+But importantly: **there are no permanent bans**. You can re-join immediately if you secure two new cross-cluster vouches. However, previous flags persist — so if you were ejected with 3 flags, you'll need at least 4 vouches to have positive standing again. The community remembers, but the door is never closed.
 
 ---
 
@@ -275,7 +279,7 @@ You post to the group (or a designated proposals channel):
 
 **Step 2: The Group Votes**
 
-Anyone can create an anonymous poll in Signal (Signal has built-in anonymous polls). The poll runs for a set time (maybe 48 hours). Anyone who sees the proposal can set up the vote — there's no designated "poll creator."
+Anyone can create a poll in Signal (Signal has built-in polls). The poll runs for a set time (maybe 48 hours). Anyone who sees the proposal can set up the vote — there's no designated "poll creator."
 
 **Step 3: The Outcome**
 
@@ -296,7 +300,7 @@ The protocol itself is the authority. Any member can:
 - Execute approved changes
 
 But no member can:
-- Add someone without two vouches (the rule applies to everyone)
+- Add someone without two cross-cluster vouches (the rule applies to everyone)
 - Remove someone who maintains their trust standing (that would violate the protocol)
 - Change settings without a group vote (changes require consensus)
 - Override a group decision (the vote is the decision)
@@ -416,13 +420,13 @@ You might think trust requires knowing someone's identity, and anonymity require
 
 ### Accountability AND Forgiveness
 
-Actions have immediate consequences (removal when trust is lost). But there's always a path back (no permanent bans, no cooldown periods). You can rejoin immediately if you rebuild trust.
+Actions have immediate consequences (removal when trust is lost). But there's always a path back (no permanent bans, no cooldown periods). You can rejoin immediately if you rebuild trust — though previous flags persist, meaning if you had 3 flags before, you'll need 4+ vouches to re-enter with positive standing. The community remembers concerns, but the door is never permanently closed.
 
 ### Individual Agency AND Collective Decisions
 
 Any member can vouch, invite, or flag. But outcomes emerge from multiple people's actions:
-- One person can't admit someone (needs 2 vouches)
-- One person can't easily eject someone (their single flag rarely drops someone below threshold)
+- One person can't admit someone (needs 2 cross-cluster vouches)
+- One person can't unilaterally eject someone — the system is designed so no single action causes a dramatic swing in someone's standing
 - Settings require group consensus
 
 ### Fluid Membership AND Stable Networks
@@ -435,7 +439,7 @@ Your membership is continuously earned, not a permanent credential. But the netw
 
 | Traditional Approach | Stroma Approach |
 |---------------------|-----------------|
-| Admin decides who joins | Two members from different clusters must vouch |
+| Admin decides who joins | Two members from different clusters must vouch (cross-cluster requirement) |
 | Trust is granted once | Trust is continuously maintained |
 | Removal requires admin action | Removal is automatic when trust drops |
 | Banned means banned forever | Immediate path back if trust rebuilt |
@@ -451,7 +455,7 @@ Your membership is continuously earned, not a permanent credential. But the netw
 ### As a Potential Member
 
 1. **Get introduced**: Know someone in the group? Ask them to invite you.
-2. **Meet someone from a different cluster**: Your second vouch must come from a different part of the network than your inviter. Same-cluster vouches don't count.
+2. **Meet someone from a different cluster**: Your second vouch must come from a different part of the network than your inviter. Same-cluster vouches count toward your standing but don't satisfy the cross-cluster admission requirement.
 3. **Join**: Once you have two cross-cluster vouches, you're in.
 4. **Build connections**: Don't stop at two vouches — more connections make you more resilient.
 
@@ -465,8 +469,8 @@ Your membership is continuously earned, not a permanent credential. But the netw
 
 ### As a Community Starting a New Group
 
-1. **Seed with trust**: Start with 3 people who deeply trust each other (all vouch for all). This is the "bootstrap" phase — everyone is in one cluster, so cross-cluster isn't enforced yet.
-2. **Grow carefully**: Each new member needs two existing members to vouch. As you grow past 5-6 members and develop distinct friend circles, cross-cluster vouching becomes mandatory — new members must be vouched by people from different parts of your network.
+1. **Seed with trust**: Start with exactly 3 people who deeply trust each other (all vouch for all). This is the "bootstrap" phase — everyone is in one cluster, so cross-cluster isn't enforced yet. These 3 founding members form the initial trust triangle.
+2. **Grow carefully**: Each new member needs two existing members to vouch. As you grow and develop distinct peer circles, cross-cluster vouching becomes mandatory — new members must be vouched by people from different parts of your network.
 3. **Set your thresholds**: Decide how much consensus you want for decisions.
 4. **Consider federation**: As you grow, you might connect with aligned communities.
 

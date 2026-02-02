@@ -15,7 +15,7 @@ Complete Signal integration patterns, bot roles, ejection protocol, privacy-firs
 - **Secondary Device**: Bot links to existing Signal account (no primary registration)
 - **Real-Time Monitoring**: Subscribe to Freenet state stream (never poll)
 - **Privacy-First**: All vetting in 1-on-1 PMs
-- **Anonymous Voting**: Native Signal Polls (not reactions)
+- **Structured Voting**: Native Signal Polls (not reactions)
 
 ## Bot Roles
 

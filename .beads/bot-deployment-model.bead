@@ -33,6 +33,7 @@
 ```rust
 pub struct StromaBot {
     signal_client: PresageManager,   // One Signal connection
+    protocol_store: StromaProtocolStore, // Custom store (NOT SqliteStore!)
     freenet_node: FreenetClient,     // One Freenet node  
     group_id: GroupId,                // Single group
     group_name: String,               // "Mission Control", "Activists-NYC"
@@ -41,6 +42,10 @@ pub struct StromaBot {
 ```
 
 **One bot = one of everything above.**
+
+**⚠️ Store Requirement**: Each bot uses `StromaProtocolStore` (custom minimal store).
+- ❌ NEVER use `presage-store-sqlite` (stores message history - security violation)
+- ✅ See `.beads/security-constraints.bead` and `.beads/technology-stack.bead`
 
 ### Multi-Group Deployment
 

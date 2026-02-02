@@ -42,16 +42,29 @@ pub struct GroupState {
 
 ### Bot Usage
 
-**Initialization:**
-```
-Operator: stroma-bot init --name "Mission Control" \
-    --member1 +12025551111 \
-    --member2 +12025552222 \
-    --member3 +12025553333
+**Initialization (Member-Initiated via Signal):**
 
-Bot: ✅ Created Signal group: "Mission Control"
-Bot: ✅ Freenet contract initialized
-Bot: ✅ Seed members vouched for each other
+Bootstrap is controlled by members, not the operator. The operator starts the service, then a member initiates via Signal PM:
+
+```
+Member A → Bot (PM): /create-group "Mission Control"
+
+Bot → Member A (PM): 
+"🌱 Creating new Stroma group: 'Mission Control'
+
+You are seed member #1. Invite 2 more trusted people:
+  /add-seed @MemberB
+  /add-seed @MemberC"
+
+Member A → Bot (PM): /add-seed @Bob
+Member A → Bot (PM): /add-seed @Carol
+
+Bot → Group:
+"🎉 'Mission Control' is now live!
+
+Seed group established:
+- @MemberA ↔ @Bob ↔ @Carol (mutual vouches)
+- All members have 2 vouches each"
 ```
 
 **Invitations:**
@@ -60,7 +73,7 @@ Bot → Invitee (1-on-1 PM):
 "You've been invited to 'Activists-NYC' on Stroma.
 
 Stroma uses trust-based membership. You need 2 vouches
-from members in different clusters (friend circles) to join.
+from members in different clusters (peer circles) to join.
 
 @alice has vouched for you (1/2).
 

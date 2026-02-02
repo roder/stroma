@@ -18,15 +18,18 @@ The complete CLI command specifications, forbidden commands, security constraint
 
 | Command | Purpose |
 |---------|---------|
-| `bootstrap` | Initialize new group (one-time) |
-| `run` | Run bot service |
+| `link-device` | Link to Signal account as secondary device (first step) |
+| `run` | Run bot service (awaits member-initiated bootstrap if new) |
 | `status` | Show health status |
 | `verify` | Validate configuration |
 | `backup-store` | Export Signal store |
 | `version` | Show version |
 
+**Note**: Bootstrap is member-initiated via Signal (`/create-group`, `/add-seed`), not operator CLI.
+
 ## Forbidden Commands (NEVER Implement)
 
+- ❌ `create-group`, `add-seed`, `bootstrap --seed-members` - member-initiated only
 - ❌ `add-member`, `remove-member` - membership is automatic
 - ❌ `vouch`, `flag` - only via Signal bot
 - ❌ `set-config` - requires group vote

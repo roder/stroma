@@ -2,7 +2,7 @@
 
 **Status**: Pinned - Cannot be modified without explicit unpinning ceremony
 **Created**: 2026-01-28
-**Depends On**: Q6 (Cluster Detection) validation in Spike Week
+**Depends On**: Q3 (Cluster Detection) validation in Spike Week
 
 ## Architectural Decision
 
@@ -223,21 +223,24 @@ network connectivity."
 
 ## Dependencies
 
-### Q6 (Cluster Detection) - REQUIRED
+### Q3 (Cluster Detection) - REQUIRED
 
 DVR optimization depends on reliable cluster detection:
 - Must correctly identify which members are in which cluster
 - Must handle bootstrap exception (1 cluster → no enforcement)
 - Must handle edge cases (bridge members, cluster merges)
+- **Q3 Finding**: Bridge Removal (Tarjan's algorithm) successfully separates tight clusters
 
-**If Q6 fails**: DVR optimization falls back entirely to MST. The hybrid approach ensures no breaking changes.
+**See**: `docs/spike/q3/RESULTS.md` for full cluster detection validation.
+
+**If Q3 fails**: DVR optimization falls back entirely to MST. The hybrid approach ensures no breaking changes.
 
 ### Relationship to DVR Metric
 
 DVR optimization directly targets the DVR metric:
 
 ```
-DVR = Distinct_Validators / (N / 4)
+DVR = Distinct_Validators / floor(N / 4)
 
 DVR Optimization Goal: Maximize numerator (distinct Validators)
 MST Optimization Goal: Maximize connectivity (doesn't track distinctness)
@@ -302,4 +305,4 @@ The hybrid approach guarantees:
 - `.beads/mesh-health-metric.bead` - DVR metric definition
 - `.beads/cross-cluster-requirement.bead` - Cross-cluster rules
 - `docs/ALGORITHMS.md` - Full algorithm details
-- `docs/spike/SPIKE-WEEK-BRIEFING.md` - Q6 dependency
+- `docs/spike/SPIKE-WEEK-BRIEFING.md` - Q3 dependency

@@ -53,27 +53,31 @@ Find other Stroma bots to participate in the Reciprocal Persistence Network.
 **Deterministic derivation from well-known seed** — no coordination needed:
 
 ```rust
-/// Registry contract addresses are deterministically derived
-/// Any bot can compute the same address without coordination
-const STROMA_REGISTRY_SEED: &[u8] = b"stroma-persistence-registry-v1";
+/// Registry Metadata contract address (well-known, never changes)
+const METADATA_SEED: &[u8] = b"stroma-registry-metadata-v1";
 
-fn registry_contract_address() -> ContractHash {
-    // Derive deterministically from seed
-    ContractHash::from_bytes(&sha256(STROMA_REGISTRY_SEED))
+fn metadata_contract_address() -> ContractHash {
+    ContractHash::from_bytes(&sha256(METADATA_SEED))
 }
 
-// For sharded registry (256 shards)
-fn shard_contract_address(shard_id: u8) -> ContractHash {
-    let seed = format!("stroma-persistence-registry-v1-shard-{:02x}", shard_id);
+/// Shard contract addresses are deterministic given shard_count and shard_id
+fn shard_contract_address(shard_id: u32, shard_count: u32) -> ContractHash {
+    let seed = format!("stroma-registry-v1-shards-{}-id-{:08x}", shard_count, shard_id);
     ContractHash::from_bytes(&sha256(seed.as_bytes()))
+}
+
+/// Shard assignment uses hash prefix mod shard_count (power of 2)
+fn get_shard_for_bot(contract: &ContractHash, shard_count: u32) -> u32 {
+    let hash_prefix = u32::from_be_bytes(contract.as_bytes()[0..4].try_into().unwrap());
+    hash_prefix % shard_count
 }
 ```
 
 **Why this works**:
-- No coordination needed — any bot computes the same address
+- No coordination needed — any bot computes the same addresses
 - Deterministic — reproducible across implementations
 - Versioned — can migrate to v2 if schema changes
-- Sharding-ready — shard addresses derived from same pattern
+- Gradual scaling — shard addresses include shard_count for migration clarity
 
 **Q7 Anti-Sybil Registration**:
 - PoW-based registration (difficulty 18) prevents spam
@@ -89,49 +93,54 @@ fn shard_contract_address(shard_id: u8) -> ContractHash {
 - Concurrent registration: Safe (10 bots in <10ms total, no duplicates)
 
 ```rust
-/// Minimal registry - O(N) storage only
+/// Registry Metadata - global coordination (single well-known contract)
+pub struct RegistryMetadata {
+    version: u32,
+    shard_count: u32,                   // Current shards (power of 2: 1, 2, 4, 8...)
+    global_epoch: u64,                  // All shards reference this
+    total_bots: u64,                    // Approximate count
+    migration_status: MigrationStatus,
+}
+
+/// Per-shard registry - O(N/shards) storage per shard
 pub struct PersistenceRegistry {
-    bots: BTreeSet<RegistryEntry>,    // List of registered bots
-    tombstones: BTreeSet<ContractHash>, // Remove-wins semantics
-    epoch: u64,                        // Set by shard creator, incremented on significant changes
+    bots: BTreeSet<RegistryEntry>,
+    tombstones: BTreeSet<ContractHash>,
+    clock: u64,                         // Vector clock for this shard
 }
 
 pub struct RegistryEntry {
-    contract_hash: ContractHash,      // Bot's trust contract address
-    size_bucket: SizeBucket,          // Small/Medium/Large (optional, for fairness)
-    num_chunks: u32,                  // How many chunks this bot has
+    contract_hash: ContractHash,
+    size_bucket: SizeBucket,
+    num_chunks: u32,
     registered_at: Timestamp,
+    clock: u64,                         // Entry's clock value (for migration merge)
 }
 
-/// Registry delta (commutative, set-based - Q1 validated)
-pub struct RegistryDelta {
-    bots_added: Vec<RegistryEntry>,
-    bots_removed: Vec<ContractHash>,  // Adds to tombstones
-}
-
-/// Chunk holders are COMPUTED via rendezvous hashing per-chunk, not stored
+/// Chunk holders are COMPUTED via rendezvous hashing, not stored
 fn compute_chunk_holders(
     owner_contract: &ContractHash,
     chunk_index: u32,
     bots: &[ContractHash],
     epoch: u64,
-) -> [ContractHash; 2] {  // 2 remote replicas per chunk
+) -> [ContractHash; 2] {
     // See persistence-model.bead for full algorithm
 }
 ```
 
 **Key insight**: No per-chunk relationships stored. Scales O(N), not O(N × chunks × replicas).
 
-**Epoch management**: First bot to create a shard sets initial epoch. Subsequent bots read existing epoch. Epoch increments when bot count changes >10%.
+**Epoch management**: Global epoch lives in RegistryMetadata contract. All shards reference it. Epoch bumps on shard splits or >10% bot count change.
 
-**Scalability** (Q7 validation):
-- Single registry: <10K bots unsharded
-- Sharded registry: 100K+ bots (256 shards by contract hash prefix)
-- Discovery latency: <1ms (Q7 measured)
+**Scalability** (Q7 validation + Fibonacci scaling):
+- Phase 0: Single registry (<5K bots)
+- Fibonacci-triggered splits: 5K → 8K → 13K → 21K → 34K...
+- Powers-of-2 shard counts: 1 → 2 → 4 → 8 → 16 → 32...
+- Discovery latency: <1ms per shard (Q7 measured)
 - Registration overhead: ~100 bytes per bot (Q7 measured)
-- Each shard is ~4K bots at 1M scale
 - Holder computation queries all shards (parallelizable)
-- See `persistence-model.bead` for sharding details
+- Vector clocks ensure consistency during migration
+- See `persistence-model.bead` for full scaling strategy
 
 **Bot availability**: No heartbeat mechanism. Bots are available/unavailable (binary state). Unavailability detected during chunk operations. Registry cleaning triggered by failed operations — no distinction between crash and clean unregistration.
 
@@ -365,7 +374,7 @@ bucket (though most groups will have fewer validators than total members).
 
 ```
 1. Bot sorts validators by hash (deterministic ordering)
-2. Bot broadcasts encrypted summary at FIXED BUCKET URIs (3, 5, 10, 20, 50)
+2. Bot broadcasts encrypted summary at Fibonacci bucket URIs (3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987)
 3. Other bots scan bucket URIs they can fill
 4. If URI hashes match at any bucket → potential federation candidate found
 5. PSI-CA handshake calculates EXACT overlap count (no graph exposure)
@@ -524,7 +533,7 @@ fn find_federation_candidates() -> Vec<Group> {
 | Minimum shared validators | overlap_count >= min_shared_validators (e.g., 3) |
 | Intersection density | overlap / min(our_validators, their_validators) >= threshold (e.g., 10%) |
 | BOTH thresholds required | Must satisfy minimum count AND density |
-| Fixed bucket URIs | Publish at buckets [3, 5, 10, 20, 50] validators |
+| Fibonacci bucket URIs | Publish at Fibonacci buckets [3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987] |
 | Deterministic ordering | Validators sorted by hash before bucket selection |
 | Human vote required | Signal Poll, not automatic |
 | BidirectionalMin | Each group evaluates against its OWN threshold |

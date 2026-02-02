@@ -22,7 +22,8 @@ AND: New_Member_Hash IS_NOT_MEMBER_OF Global_Merkle_Tree
 ### Recursive Proofs
 - Implement recursive proofs for scalability
 - Batch updates to ensure constant-time verification regardless of network size
-- Use `arkworks` for ZK-SNARK circuit implementation
+- Use `winterfell` for STARK circuit implementation (no trusted setup, post-quantum secure)
+- **See**: `.beads/architecture-decisions.bead` for rationale on STARKs over SNARKs
 
 ---
 
@@ -76,7 +77,7 @@ if (density_in_a >= threshold_a) && (density_in_b >= threshold_b) {
 - **Generate Merkle Trees on-demand** from member sets for ZK-proof verification
 - **Do NOT store Merkle Trees** in contract state (they're not mergeable)
 - Store membership in BTreeSet (naturally mergeable), generate Merkle Tree when needed
-- Contract accepts ZK-SNARK as input for verification
+- Bot verifies STARK proofs, submits verified outcomes to contract (Phase 0 architecture)
 
 ### On-Demand Merkle Tree Generation (Q5 Spike Validated)
 
@@ -105,7 +106,7 @@ let proof = tree.generate_proof(&member_hash)?;
 ### Tree Updates
 - Membership changes update BTreeSet (automatically merged via ComposableState)
 - Merkle Tree regenerated on-demand for next verification (no cache invalidation needed)
-- Rotate group-secret pepper via configuration change proposal
+- **Note**: Key rotation handled via Signal protocol store if needed.
 
 ---
 
@@ -146,55 +147,57 @@ Since bot verifies (not contract): **Store outcomes only** (not proofs).
 
 ## Key Management
 
-### Social Anchor Hashing (Multiple Discovery Points)
-- Generate **multiple** Freenet URIs using percentile-based thresholds (not single fixed N)
-- **Percentile-Based Discovery**: Use multiple validator percentiles (e.g., top 10%, 20%, 30%, 50%)
-- **Why Multiple URIs**: Handles asymmetric group sizes - small and large groups can discover each other
+### Social Anchor Hashing (Fixed Fibonacci Buckets)
+- Generate **multiple** Freenet URIs using **Fixed Fibonacci Bucket sizes** (not percentiles)
+- **Fibonacci Buckets**: [3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987]
+- **Why Fixed Counts**: Groups of ANY size hash to the SAME bucket sizes, enabling cross-size discovery
 
 **Discovery URI Generation:**
 ```rust
-fn generate_discovery_uris(validators: &[ValidatorId]) -> Vec<FreenetUri> {
-    let percentiles = [10, 20, 30, 50];  // Top 10%, 20%, 30%, 50%
-    let mut uris = Vec::new();
+// Fixed Fibonacci buckets (up to Signal's 1000-member limit)
+const RENDEZVOUS_BUCKETS: &[usize] = &[
+    3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987
+];
+
+fn generate_discovery_uris(validators: &[ValidatorId]) -> Vec<(FreenetUri, usize)> {
+    // Sort validators deterministically by hash
+    let mut sorted_validators: Vec<_> = validators.iter().cloned().collect();
+    sorted_validators.sort_by_key(|v| v.hash);
     
-    for percentile in percentiles {
-        let n = max(3, validators.len() * percentile / 100);
-        let top_n: Vec<_> = validators.iter()
-            .sorted_by_key(|v| v.vouch_count)
-            .rev()
-            .take(n)
-            .collect();
-        
-        // Sort alphabetically for deterministic hashing
-        top_n.sort();
-        let uri = hash_social_anchor(&top_n);
-        uris.push(uri);
-    }
-    
-    uris
+    // Generate URIs for each bucket we can fill
+    RENDEZVOUS_BUCKETS.iter()
+        .filter(|&&bucket_size| sorted_validators.len() >= bucket_size)
+        .map(|&bucket_size| {
+            let top_n: Vec<_> = sorted_validators.iter().take(bucket_size).collect();
+            let uri = hash_social_anchor(&top_n);
+            (uri, bucket_size)
+        })
+        .collect()
 }
 ```
 
 **Discovery Process:**
-1. Each bot publishes Bloom Filters at multiple URIs (different percentile thresholds)
-2. Bots scan multiple URIs to find matches
-3. When match found at specific percentile, indicates shared validators at that level
-4. Proceed with PSI-CA to calculate actual overlap
-5. Exchange group sizes and thresholds during handshake
+1. Each bot publishes Bloom Filters at ALL Fibonacci bucket URIs it can fill
+2. Bots scan bucket URIs to find matches
+3. Matching hash at bucket N means groups share the SAME top-N validators (sorted by hash)
+4. Proceed with PSI-CA to calculate EXACT overlap count
+5. Evaluate BidirectionalMin thresholds (each group against its own config)
 
 **Benefits:**
-- Small groups (20 members): Publish at URIs for top 3, 4, 6, 10 validators
-- Large groups (100 members): Publish at URIs for top 10, 20, 30, 50 validators  
-- If they share validators, they'll discover each other at appropriate percentile URI
-- **Configurable**: `validator_percentile` stored in GroupConfig, changeable via group vote
+- **Fixed counts (not percentiles)** → groups of different sizes produce MATCHING hashes
+- Small group (12 validators) and large group (100 validators) can discover each other at URI-3, URI-5, URI-8
+- Discovery requires actual shared validators, not just similar percentages
+- Fibonacci sequence provides natural scaling with better granularity at small sizes
+
+**See**: `.beads/discovery-protocols.bead` for complete specification
 
 ### Key Derivation
 - **Never use pre-shared keys (PSK)**
-- **HMAC-based hashing**: Use keyed hashing with group-secret pepper (not deterministic hashing)
-- **Group-secret pepper**: Rotates via Merkle-root update
-- All keys must be derived from group state
-- Keys should rotate based on Merkle-root updates
+- **HMAC-SHA256 with Signal ACI-derived key**: Replaces deprecated group pepper. Single cryptographic identity source.
+- **ACI Key Derivation**: Uses HKDF from bot's Signal ACI identity private key
+- All crypto keys derived from Signal ACI identity (simpler backup — Signal store only)
 - **Ephemeral state**: Relationship data deleted after vetting threshold met
+- **See**: `.beads/security-constraints.bead` for implementation pattern
 
 ---
 

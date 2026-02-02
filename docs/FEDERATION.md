@@ -141,7 +141,7 @@ Result: Federation REJECTED (both must approve)
 1. Bot detects overlap meets threshold
 2. Bot proposes federation to group
 3. Members vote via Signal Poll
-4. Requires `config_change_threshold` approval (e.g., 70%)
+4. Requires `min_quorum` participation AND `config_change_threshold` approval
 5. Both groups must approve
 6. Bot signs federation contract on Freenet
 
@@ -188,25 +188,36 @@ fn calculate_social_anchor(
 }
 ```
 
-**Why Percentile-Based (not fixed N):**
-- Scales with group size
-- Adapts to network dynamics
-- Multiple anchors at different percentiles increases discovery
+**Why Fibonacci Buckets (not percentiles):**
+- **Fixed counts** → groups of different sizes produce MATCHING hashes at same bucket
+- Groups with shared top-3 validators hash to the SAME URI-3
+- Larger groups publish at more buckets → more discovery chances
+- Smaller groups still discoverable at lower buckets
 
 ### Step 2: Discovery URI Generation
 
 ```rust
-fn generate_discovery_uris(anchor: &SocialAnchor) -> Vec<Uri> {
-    vec![
-        format!("freenet://stroma/discovery/{}:10", anchor),  // Top 10%
-        format!("freenet://stroma/discovery/{}:20", anchor),  // Top 20%
-        format!("freenet://stroma/discovery/{}:30", anchor),  // Top 30%
-        format!("freenet://stroma/discovery/{}:50", anchor),  // Top 50%
-    ]
+// Fibonacci buckets (up to Signal's 1000-member limit)
+const FIBONACCI_BUCKETS: &[usize] = &[
+    3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987
+];
+
+fn generate_discovery_uris(validators: &[Hash]) -> Vec<(usize, Uri)> {
+    let mut sorted = validators.to_vec();
+    sorted.sort();  // Deterministic ordering by hash
+    
+    FIBONACCI_BUCKETS.iter()
+        .filter(|&&bucket| sorted.len() >= bucket)
+        .map(|&bucket| {
+            let top_validators = &sorted[..bucket];
+            let anchor = compute_social_anchor(top_validators);
+            (bucket, format!("freenet://stroma/discovery/{}", anchor))
+        })
+        .collect()
 }
 ```
 
-**Multiple URIs**: Increases chance of discovery (different overlaps at different percentiles)
+**Multiple URIs**: Groups publish at ALL Fibonacci buckets they can fill (increases discovery chances)
 
 ### Step 3: Bloom Filter Broadcast
 
@@ -289,9 +300,15 @@ async fn propose_federation(
     
     // Wait for result
     let result = poll.wait_for_result().await?;
+    let total_members = group.member_count();
+    let participation = result.total_votes as f32 / total_members as f32;
     let approval = result.approve_count as f32 / result.total_votes as f32;
     
-    Ok(approval >= config.config_change_threshold)
+    // Require both quorum AND threshold
+    let quorum_met = participation >= config.min_quorum;
+    let threshold_met = approval >= config.config_change_threshold;
+    
+    Ok(quorum_met && threshold_met)
 }
 ```
 
@@ -515,19 +532,23 @@ pub mod diplomat;
 ### Identity Hashing is Re-Computable
 
 ```rust
-// Group-scoped HMAC (NOT deterministic global hash)
-let hash_in_group_a = hmac::sign(&group_a_pepper, signal_id);
-let hash_in_group_b = hmac::sign(&group_b_pepper, signal_id);
+// Bot-scoped HMAC using ACI-derived key (each bot has unique Signal identity)
+let key_a = derive_identity_masking_key(&bot_a_aci_identity);
+let key_b = derive_identity_masking_key(&bot_b_aci_identity);
 
-// Same person, different hashes in different groups
+let hash_in_group_a = hmac::sign(&key_a, signal_id);
+let hash_in_group_b = hmac::sign(&key_b, signal_id);
+
+// Same person, different hashes in different groups (different bot ACI identities)
 assert_ne!(hash_in_group_a, hash_in_group_b);
 ```
 
 **Why This Matters**:
 - Enables PSI-CA (privacy-preserving overlap calculation)
 - Prevents cross-group identity correlation
-- Same person appears as different hashes in different groups
+- Same person appears as different hashes in different groups (different bot ACI keys)
 - But overlap can still be detected via PSI protocol
+- All cryptographic keys derived from Signal ACI identity (no separate key management)
 
 ## Migration Path: MVP → Federation
 

@@ -14,8 +14,8 @@ Before diving in, here are the terms you'll need:
 | **Network** | The web of trust relationships — who vouches for whom |
 | **Vouch** | A personal endorsement — you stake your reputation on someone |
 | **Flag** | The opposite of a vouch — indicates you no longer trust someone |
-| **Cluster** | A friend circle within the network — people who know each other from the same social context |
-| **Cross-cluster** | From *different* friend circles — required for admission and ongoing membership |
+| **Cluster** | A peer circle within the network — people who know each other from the same social context |
+| **Cross-cluster** | From *different* peer circles — required for admission and ongoing membership |
 | **Bridge** | A member with 2 vouches from 2 clusters* — the minimum to be in the group |
 | **Validator** | A member with 3+ vouches from 3+ clusters* — well-connected across the network |
 | **Standing** | Your trust score: effective vouches minus regular flags (must stay positive) |
@@ -40,10 +40,10 @@ Everything happens through simple commands in 1-on-1 private messages with the b
 ### Inviting Someone New
 
 ```
-You → Bot (1-on-1 PM): /invite @Friend "Great organizer from local community"
+You → Bot (1-on-1 PM): /invite @Peer "Great organizer from local community"
 
 Bot → You:
-"Your invitation for @Friend has been recorded as the first vouch.
+"Your invitation for @Peer has been recorded as the first vouch.
 I'm now reaching out to a member from a different cluster for the 
 cross-cluster vouch. Same-cluster vouches don't count — we need 
 independent perspectives for security. I'll keep you updated."
@@ -79,21 +79,22 @@ You → Bot: /mesh strength
 Bot → You:
 "📈 Network Health: 🟢 Healthy (75%)
 
-Distinct Validators: 9 / 12 possible
+Well-connected members: 9 / 12 possible
 Network Size: 47 members
-Clusters: 4 detected
+Peer circles: 4 detected
 
-Vouch Distribution:
-  2 vouches (Bridges):     ████████░░░░ 22 members (47%)
-  3+ vouches (Validators): ███████░░░░░ 25 members (53%)
+Trust Distribution:
+  2 connections:  ████████░░░░ 22 members (47%)
+  3+ connections: ███████░░░░░ 25 members (53%)
 
 💡 Your network has strong distributed trust!
-Distinct Validators represent members verified by
-completely independent voucher sets — the key to
-resilience against coordinated attacks.
+Members with 3+ connections from different peer circles
+are harder for bad actors to compromise — they'd need to
+fool multiple independent groups of people.
 
-To improve: Build cross-cluster relationships to create
-3 more distinct Validators with unique voucher sets."
+To improve: Introduce people from different peer circles
+to each other. 3 more well-connected members would make
+your network even stronger."
 ```
 
 ## Bot Commands Reference
@@ -227,7 +228,7 @@ Returns all configurable parameters:
 #### `/propose` - Unified Proposal System
 **Proposes any group decision (config changes, federation)**
 
-- Creates Signal Poll for group vote (anonymous voting)
+- Creates Signal Poll for group vote
 - Requires `config_change_threshold` approval (e.g., 70%)
 - Bot applies change automatically if approved
 - All changes logged with timestamps
@@ -240,7 +241,8 @@ Returns all configurable parameters:
 - `disappearing_messages` - Message retention (e.g., 24h)
 
 **`/propose stroma <setting> <value>`** - Stroma trust settings:
-- `config_change_threshold` (0.5-1.0) - Approval threshold for all proposals
+- `config_change_threshold` (0.5-1.0) - % of votes needed to pass proposals
+- `min_quorum` (0.3-1.0) - % of members who must vote for quorum
 - `default_poll_timeout` (duration) - Default poll timeout if not specified
 - `min_intersection_density` (0.0-1.0) - Federation overlap threshold
 - `validator_percentile` (1-100) - Validator threshold percentile
@@ -445,7 +447,7 @@ You need an immediate replacement vouch to stay in. Bot monitors this automatica
 Your standing is recalculated. If standing < 0 OR effective vouches < 2, you're ejected immediately.
 
 ### Can I see who vouched for me?
-Yes, the `/status` command shows your vouchers (as hashes, not full identities for privacy).
+Yes, the `/status` command shows your vouchers by name. You already know this information (you participated in the vetting conversations), so revealing it to you doesn't leak new information. You cannot, however, see who vouched for *other* members — that would compromise their privacy.
 
 ### How do I build more trust?
 Ask for strategic introductions via `/mesh` suggestions, or ask members to vouch for you (`/vouch @You`).
@@ -457,7 +459,7 @@ This means your trust network data is safely backed up across multiple peers. If
 This means the trust data couldn't be fully replicated after the last change. The bot is blocked from making further changes until replication succeeds. This is automatic — the bot will keep retrying. If it persists, there may be network connectivity issues.
 
 ### Why isn't cross-cluster required in my small group?
-Cross-cluster vouching is enforced once your group has 2+ distinct clusters (typically 6+ members). During bootstrap phase (3-5 members), everyone is in the same cluster, so cross-cluster isn't possible yet. As your group grows and develops separate "friend circles," the bot will start enforcing cross-cluster vouches to prevent infiltration.
+Cross-cluster vouching is enforced once your group has 2+ distinct clusters (typically 6+ members). During bootstrap phase (3-5 members), everyone is in the same cluster, so cross-cluster isn't possible yet. As your group grows and develops separate "peer circles," the bot will start enforcing cross-cluster vouches to prevent infiltration.
 
 ### What does "Network Health: 🟢 Healthy (75%)" mean?
 The percentage shows your **Distinct Validator Ratio (DVR)** — what fraction of maximum possible distinct Validators your network has achieved. "Distinct" means Validators whose voucher sets don't overlap. Higher DVR = more independent verification = better resilience.

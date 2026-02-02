@@ -31,9 +31,9 @@ This bead is the **single source of truth** for Stroma terminology. All document
 
 | Term | Definition | Usage |
 |------|------------|-------|
-| **Cluster** | A friend circle within the network — people who know each other from the same social context | "The activist cluster", "same cluster" |
-| **Cross-cluster** | From *different* friend circles — required for admission and ongoing membership | "Cross-cluster vouch", "cross-cluster requirement" |
-| **Same-cluster** | From the *same* friend circle — does NOT count toward admission | "Same-cluster vouches don't count" |
+| **Cluster** | A peer circle within the network — people who know each other from the same social context | "The activist cluster", "same cluster" |
+| **Cross-cluster** | From *different* peer circles — required for admission and ongoing membership. **Technical precision**: Two vouchers are cross-cluster if NOT in the same connected component when considering only strong relationships (mutual vouches or 2+ degree separation). See `cross-cluster-requirement.bead` for formal definition. | "Cross-cluster vouch", "cross-cluster requirement" |
+| **Same-cluster** | From the *same* peer circle — does NOT count toward admission | "Same-cluster vouches don't count" |
 
 **How to determine**: Ask "How do the two vouchers know each other?" If they're close friends or from the same social context, they're same-cluster.
 

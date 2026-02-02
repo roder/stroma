@@ -24,13 +24,22 @@
 
 ## Implementation Roadmap
 
-### Spike Week (Week 0 - Validation) — ALL COMPLETE
+### Spike Week 1 (Week 0 - Validation) — ALL COMPLETE
 1. ✅ **Q1 ANSWERED (GO)**: Freenet merge conflicts — use commutative deltas with set-based state + tombstones
 2. ✅ **Q2 ANSWERED (GO)**: Contract validation — `update_state()` and `validate_state()` can reject invalid deltas/state (trustless model viable)
 3. ✅ **Q3 ANSWERED (GO)**: Cluster detection — Bridge Removal algorithm distinguishes tight clusters
 4. ✅ **Q4 ANSWERED (PARTIAL)**: STARK verification — bot-side verification for Phase 0 (Wasm experimental)
 5. ✅ **Q5 ANSWERED (GO)**: Merkle Tree performance — 0.09ms for 1000 members (on-demand OK)
 6. ✅ **Q6 ANSWERED**: Proof storage — store outcomes only (not proofs)
+
+### Spike Week 2 (Week 0.5 - Persistence Validation) — ALL COMPLETE
+7. ✅ **Q7 ANSWERED (GO)**: Bot discovery — Registry-based, <1ms latency
+8. ✅ **Q8 ANSWERED (GO)**: Sybil resistance — PoW difficulty 18 (~30s registration)
+9. ✅ **Q9 ANSWERED (GO)**: Chunk verification — Challenge-response <1ms
+10. ✅ **Q11 ANSWERED (GO)**: Rendezvous hashing — Deterministic, stable, uniform
+11. ✅ **Q12 ANSWERED (GO)**: Chunk size — 64KB optimal
+12. ✅ **Q13 ANSWERED (GO)**: Fairness verification — 1% spot checks
+13. ✅ **Q14 ANSWERED (GO)**: Distribution — Contract-based Phase 0
 
 ### Phase 0: Foundation (Weeks 1-2)
 1. **Bead-01**: HMAC identity masking with zeroization
@@ -53,11 +62,18 @@
 14. **Bead-14**: Configuration management (Signal Polls)
 15. **Bead-15**: Advanced commands (/mesh, /mesh strength, /propose)
 
-### Phase 3: Federation Prep (Week 7)
-16. **Bead-16**: Social Anchor hashing (compute locally, don't broadcast)
-17. **Bead-17**: PSI-CA implementation (test with mock data)
-18. **Bead-18**: Federation hooks validation
-19. **Bead-19**: Documentation for Phase 4
+### Phase 2.5: Persistence Implementation (Week 6-7)
+16. **Bead-16**: Replication health tracking
+17. **Bead-17**: Chunk distribution (64KB, 3 copies each)
+18. **Bead-18**: Write-blocking state machine
+19. **Bead-19**: Registry architecture (Fibonacci-triggered scaling)
+20. **Bead-20**: Recovery procedure
+
+### Phase 3: Federation Prep (Week 7-8)
+21. **Bead-21**: Social Anchor hashing (compute locally, don't broadcast)
+22. **Bead-22**: PSI-CA implementation (test with mock data)
+23. **Bead-23**: Federation hooks validation
+24. **Bead-24**: Documentation for Phase 4
 
 ---
 

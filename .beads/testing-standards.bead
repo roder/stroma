@@ -1,22 +1,46 @@
 # Bead: Testing Standards
 
-**Status**: Operational Guidance  
+**Status**: Immutable Architectural Constraint  
 **Created**: 2026-02-01  
 **Context**: Test-Driven Development
 
 ---
 
+## Core Requirements
+
+**100% test coverage is MANDATORY.** Stroma is a trust/security system where any bug could compromise the entire network. There are no "non-critical" paths.
+
+| Requirement | Status |
+|-------------|--------|
+| TDD for ALL code | REQUIRED |
+| 100% code coverage | REQUIRED |
+| Property tests for trust logic | REQUIRED |
+| Deterministic tests | REQUIRED |
+
+---
+
 ## Test-Driven Development (TDD) Workflow
 
-1. **Red**: Write a failing test
+**TDD is REQUIRED for the entire project**, not just security-critical paths.
+
+1. **Red**: Write a failing test FIRST
 2. **Green**: Write minimal code to pass
 3. **Refactor**: Improve while keeping tests green
 4. **Repeat**: For each feature
 
 ### Test-First Principle
-- **Always write tests before implementation** for security-critical paths
+- **ALWAYS write tests before implementation** - no exceptions
 - Tests serve as executable specifications
 - Tests document expected behavior and edge cases
+- Code without tests is incomplete code
+
+### Why TDD for Everything?
+
+In a trust system, "non-critical" code doesn't exist:
+- A bug in serialization could corrupt state
+- A bug in logging could leak Signal IDs
+- A bug in error handling could skip ejection
+- A bug in any module could cascade to trust violations
 
 ---
 
@@ -24,13 +48,23 @@
 
 - Use `cargo-nextest` as the test runner
 - Run tests with: `cargo nextest run`
-- 100% code coverage required
+- **100% code coverage REQUIRED** (enforced in CI)
+- Coverage tool: `cargo llvm-cov nextest --all-features`
 
 ```toml
 # nextest.toml
 [profile.default]
 retries = 0  # Deterministic tests should never need retries
 ```
+
+### Coverage Enforcement
+
+```bash
+# CI/CD gate - blocks merge if coverage < 100%
+cargo llvm-cov nextest --all-features --fail-under-lines 100
+```
+
+**No exceptions.** If code is too complex to test, it's too complex for Stroma.
 
 ---
 
@@ -106,13 +140,36 @@ fn test_sensitive_buffer_zeroized_after_use() {
 }
 ```
 
-### Property-Based Testing
+---
+
+## Property-Based Testing (CRITICAL)
+
+**Property-based testing is MANDATORY for all trust-critical code paths.** Traditional example-based tests catch known cases; property tests find edge cases humans miss.
+
+### Why Property Tests Are Critical for Stroma
+
+1. **Trust Invariants**: Properties like "standing calculation is commutative" must hold for ALL inputs
+2. **Security Boundaries**: Edge cases in vouch/flag math could allow infiltration
+3. **Cryptographic Correctness**: Hash functions must be deterministic for ALL inputs
+4. **State Machine Consistency**: Ejection triggers must fire for ALL qualifying states
+
+### Required Property Tests
+
+**Every security-critical function MUST have property tests covering:**
+- **Determinism**: `f(x) == f(x)` for all valid inputs
+- **Commutativity**: Order-independent operations (vouch A then B == vouch B then A)
+- **Invariant preservation**: Trust invariants hold after ANY valid operation sequence
+- **Boundary conditions**: Thresholds, empty sets, maximum sizes
+
+### Property Test Examples
+
 ```rust
 use proptest::prelude::*;
 
+// ✅ REQUIRED: Identity masking determinism
 proptest! {
     #[test]
-    fn test_hmac_deterministic_for_same_inputs(
+    fn prop_hmac_deterministic_for_same_inputs(
         id in "[a-zA-Z0-9]{1,100}",
         pepper in prop::array::uniform32(0u8..=255u8)
     ) {
@@ -120,6 +177,279 @@ proptest! {
         let hash2 = mask_identity_hmac(&id, &pepper);
         prop_assert_eq!(hash1, hash2);
     }
+}
+
+// ✅ REQUIRED: Vouch/flag order independence
+proptest! {
+    #[test]
+    fn prop_standing_calculation_commutative(
+        vouchers in prop::collection::hash_set(any::<MemberHash>(), 0..10),
+        flaggers in prop::collection::hash_set(any::<MemberHash>(), 0..10),
+    ) {
+        // Standing should be same regardless of operation order
+        let standing1 = calculate_standing_order1(&vouchers, &flaggers);
+        let standing2 = calculate_standing_order2(&vouchers, &flaggers);
+        prop_assert_eq!(standing1, standing2);
+    }
+}
+
+// ✅ REQUIRED: Ejection invariant
+proptest! {
+    #[test]
+    fn prop_negative_standing_always_triggers_ejection(
+        vouches in 0usize..10,
+        flags in 0usize..20,
+    ) {
+        let standing = vouches as i32 - flags as i32;
+        if standing < 0 {
+            prop_assert!(should_eject(vouches, flags));
+        }
+    }
+}
+
+// ✅ REQUIRED: Vouch invalidation correctness
+proptest! {
+    #[test]
+    fn prop_voucher_flagger_excluded_from_both_counts(
+        all_vouchers in prop::collection::hash_set(any::<MemberHash>(), 1..10),
+        all_flaggers in prop::collection::hash_set(any::<MemberHash>(), 0..10),
+    ) {
+        let voucher_flaggers: HashSet<_> = all_vouchers.intersection(&all_flaggers).cloned().collect();
+        let effective_vouches = all_vouchers.len() - voucher_flaggers.len();
+        let regular_flags = all_flaggers.len() - voucher_flaggers.len();
+        
+        // Voucher-flaggers should not cause 2-point swings
+        let standing = effective_vouches as i32 - regular_flags as i32;
+        
+        // Verify: removing a voucher-flagger changes standing by 0, not 2
+        // (they were already excluded from both counts)
+        prop_assert!(voucher_flaggers.iter().all(|vf| {
+            let without_vf_vouches = effective_vouches; // unchanged
+            let without_vf_flags = regular_flags;       // unchanged
+            standing == (without_vf_vouches as i32 - without_vf_flags as i32)
+        }));
+    }
+}
+```
+
+### Gastown Agent Instructions
+
+**When implementing ANY trust-critical function:**
+1. Write property tests BEFORE implementation (TDD)
+2. Cover: determinism, commutativity, invariants, boundaries
+3. Use `proptest` crate with appropriate generators
+4. Run with `cargo nextest run` (includes property tests)
+5. Minimum 1000 test cases per property (proptest default is 256, increase for critical paths)
+
+```toml
+# proptest.toml - increase cases for critical paths
+[default]
+cases = 1000
+max_shrink_iters = 10000
+```
+
+---
+
+## State Machine Testing
+
+For any state machine (bootstrap, proposal lifecycle, write-blocking, etc.):
+
+### Test ALL Valid Transitions
+```rust
+#[test]
+fn test_proposal_state_transitions() {
+    // Test every valid transition
+    assert!(can_transition(ProposalState::Pending, ProposalState::Active));
+    assert!(can_transition(ProposalState::Active, ProposalState::Passed));
+    assert!(can_transition(ProposalState::Active, ProposalState::Failed));
+    assert!(can_transition(ProposalState::Active, ProposalState::Expired));
+}
+
+#[test]
+fn test_proposal_invalid_transitions_rejected() {
+    // Test that invalid transitions are rejected
+    assert!(!can_transition(ProposalState::Passed, ProposalState::Pending));
+    assert!(!can_transition(ProposalState::Failed, ProposalState::Active));
+    assert!(!can_transition(ProposalState::Expired, ProposalState::Passed));
+}
+```
+
+### Property Test: No Invalid State Reachable
+```rust
+proptest! {
+    #[test]
+    fn prop_no_invalid_state_reachable(
+        operations in prop::collection::vec(any::<Operation>(), 0..100)
+    ) {
+        let mut state = InitialState::new();
+        for op in operations {
+            state = state.apply(op);
+            prop_assert!(state.is_valid());
+        }
+    }
+}
+```
+
+---
+
+## Negative Testing (Attack Simulation)
+
+**Test that attacks are blocked, not just that normal operations work.**
+
+### Infiltration Attempt Tests
+```rust
+#[test]
+fn test_same_cluster_vouches_rejected_for_admission() {
+    let invitee = create_test_invitee();
+    let voucher_a = create_member_in_cluster(1);
+    let voucher_b = create_member_in_cluster(1);  // Same cluster!
+    
+    // Two vouches from same cluster should NOT admit
+    let result = attempt_admission(&invitee, &[voucher_a, voucher_b]);
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err(), AdmissionError::SameClusterVouches);
+}
+
+#[test]
+fn test_ejected_member_cannot_vouch() {
+    let ejected = create_ejected_member();
+    let invitee = create_test_invitee();
+    
+    let result = attempt_vouch(&ejected, &invitee);
+    assert!(result.is_err());
+}
+```
+
+### Replay Attack Tests
+```rust
+#[test]
+fn test_replay_attack_blocked() {
+    let valid_delta = create_valid_delta();
+    
+    // First application succeeds
+    let result1 = apply_delta(&valid_delta);
+    assert!(result1.is_ok());
+    
+    // Replay is rejected
+    let result2 = apply_delta(&valid_delta);
+    assert!(result2.is_err());
+    assert_eq!(result2.unwrap_err(), DeltaError::AlreadyApplied);
+}
+```
+
+### Sybil Attack Tests
+```rust
+#[test]
+fn test_sybil_bot_registration_rejected_without_pow() {
+    let fake_bot = create_bot_without_pow();
+    
+    let result = register_bot(&fake_bot);
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err(), RegistrationError::InvalidProofOfWork);
+}
+```
+
+---
+
+## Concurrency Testing
+
+For async code and state that could be accessed concurrently:
+
+### Race Condition Tests
+```rust
+#[tokio::test]
+async fn test_concurrent_vouches_handled_correctly() {
+    let state = Arc::new(RwLock::new(create_test_state()));
+    let member = create_test_member();
+    
+    // Simulate concurrent vouches
+    let handles: Vec<_> = (0..10)
+        .map(|i| {
+            let state = Arc::clone(&state);
+            let voucher = create_test_voucher(i);
+            tokio::spawn(async move {
+                add_vouch(&state, &member, &voucher).await
+            })
+        })
+        .collect();
+    
+    // All should complete without panic
+    for handle in handles {
+        handle.await.unwrap();
+    }
+    
+    // Final state should be consistent
+    let final_state = state.read().await;
+    assert!(final_state.is_consistent());
+}
+```
+
+---
+
+## Error Path Testing
+
+**Every error path must be tested, not just happy paths.**
+
+### Exhaustive Error Testing
+```rust
+#[test]
+fn test_all_admission_error_cases() {
+    // Test each error variant is reachable
+    assert!(matches!(
+        admit_with_no_vouches(),
+        Err(AdmissionError::InsufficientVouches)
+    ));
+    
+    assert!(matches!(
+        admit_with_same_cluster_vouches(),
+        Err(AdmissionError::SameClusterVouches)
+    ));
+    
+    assert!(matches!(
+        admit_with_invalid_voucher(),
+        Err(AdmissionError::VoucherNotMember)
+    ));
+    
+    // ... test ALL error variants
+}
+```
+
+### Error Message Leak Testing
+```rust
+#[test]
+fn test_error_messages_dont_leak_sensitive_data() {
+    let error = create_error_with_signal_id("real-signal-id");
+    let message = format!("{}", error);
+    
+    // Error message should not contain raw Signal ID
+    assert!(!message.contains("real-signal-id"));
+    // Should contain only hashed version or generic message
+    assert!(message.contains("member") || message.contains("[REDACTED]"));
+}
+```
+
+---
+
+## Serialization Round-Trip Testing
+
+For all serializable types:
+
+```rust
+proptest! {
+    #[test]
+    fn prop_trust_state_roundtrip(state in arb_trust_state()) {
+        let serialized = ciborium::to_vec(&state).unwrap();
+        let deserialized: TrustState = ciborium::from_reader(&serialized[..]).unwrap();
+        prop_assert_eq!(state, deserialized);
+    }
+}
+
+#[test]
+fn test_backwards_compatible_deserialization() {
+    // Old format (v1) should deserialize into current struct
+    let v1_bytes = include_bytes!("fixtures/trust_state_v1.cbor");
+    let result: Result<TrustState, _> = ciborium::from_reader(&v1_bytes[..]);
+    assert!(result.is_ok());
 }
 ```
 
@@ -150,6 +480,367 @@ fn test_immediate_ejection_when_standing_negative() {
 }
 ```
 
+### Quorum and Threshold Tests
+```rust
+#[test]
+fn test_proposal_fails_when_quorum_not_met() {
+    let proposal = create_test_proposal();
+    let config = GroupConfig { min_quorum: 0.50, config_change_threshold: 0.70, .. };
+    
+    // 3 of 10 members voted (30% < 50% quorum)
+    let result = evaluate_proposal(&proposal, 3, 0, 10, &config);
+    
+    assert!(!result.approved);
+    assert!(!result.quorum_met);
+}
+
+#[test]
+fn test_proposal_fails_when_threshold_not_met_despite_quorum() {
+    let proposal = create_test_proposal();
+    let config = GroupConfig { min_quorum: 0.50, config_change_threshold: 0.70, .. };
+    
+    // 6 of 10 voted (60% quorum met), but only 3 approved (50% < 70% threshold)
+    let result = evaluate_proposal(&proposal, 3, 3, 10, &config);
+    
+    assert!(!result.approved);
+    assert!(result.quorum_met);
+    assert!(!result.threshold_met);
+}
+```
+
+---
+
+## Integration Test Patterns
+
+### End-to-End Trust Lifecycle
+```rust
+#[tokio::test]
+async fn test_full_member_lifecycle() {
+    let mut system = TestSystem::new();
+    
+    // 1. Bootstrap with 3 seed members
+    system.bootstrap_seed_group(&["Alice", "Bob", "Carol"]).await;
+    
+    // 2. Alice invites Dave (first vouch)
+    system.invite("Alice", "Dave").await;
+    assert!(system.is_invitee("Dave"));
+    
+    // 3. Bob vouches for Dave (second vouch, different cluster)
+    system.vouch("Bob", "Dave").await;
+    assert!(system.is_member("Dave"));  // Admitted!
+    
+    // 4. Dave gets flagged by multiple members
+    system.flag("Carol", "Dave").await;
+    system.flag("Alice", "Dave").await;  // Alice was voucher, invalidates vouch
+    system.flag("Bob", "Dave").await;    // Bob was voucher, invalidates vouch
+    
+    // 5. Dave should be ejected (0 effective vouches)
+    assert!(system.is_ejected("Dave"));
+    assert!(!system.is_member("Dave"));
+}
+```
+
+---
+
+## Integration Testing: Signal & Freenet
+
+### Testing Architecture: Trait-Based Abstraction
+
+**Core Principle**: Abstract external dependencies behind traits so tests can substitute mocks.
+
+```rust
+// ✅ REQUIRED: Trait abstraction for Signal operations
+#[async_trait]
+pub trait SignalClient: Send + Sync {
+    async fn send_message(&self, recipient: &ServiceId, message: &str) -> Result<()>;
+    async fn create_poll(&self, group: &GroupId, poll: &PollCreate) -> Result<PollId>;
+    async fn get_poll_results(&self, poll_id: &PollId) -> Result<PollResults>;
+    async fn add_group_member(&self, group: &GroupId, member: &ServiceId) -> Result<()>;
+    async fn remove_group_member(&self, group: &GroupId, member: &ServiceId) -> Result<()>;
+    // ... other operations
+}
+
+// ✅ REQUIRED: Trait abstraction for Freenet operations
+#[async_trait]
+pub trait FreenetClient: Send + Sync {
+    async fn get_state(&self, contract: &ContractHash) -> Result<TrustState>;
+    async fn apply_delta(&self, contract: &ContractHash, delta: &Delta) -> Result<()>;
+    async fn subscribe(&self, contract: &ContractHash) -> Result<StateStream>;
+    // ... other operations
+}
+```
+
+---
+
+### Signal Testing Strategy
+
+**Signal has NO test/sandbox environment.** All Signal operations require real accounts.
+
+#### Layer 1: Mock Signal Client (Unit Tests)
+
+```rust
+/// Mock implementation for unit tests
+pub struct MockSignalClient {
+    pub messages_sent: Arc<Mutex<Vec<(ServiceId, String)>>>,
+    pub polls_created: Arc<Mutex<Vec<PollCreate>>>,
+    pub poll_results: Arc<Mutex<HashMap<PollId, PollResults>>>,
+    pub group_members: Arc<Mutex<HashMap<GroupId, HashSet<ServiceId>>>>,
+}
+
+#[async_trait]
+impl SignalClient for MockSignalClient {
+    async fn send_message(&self, recipient: &ServiceId, message: &str) -> Result<()> {
+        self.messages_sent.lock().await.push((recipient.clone(), message.to_string()));
+        Ok(())
+    }
+    
+    async fn get_poll_results(&self, poll_id: &PollId) -> Result<PollResults> {
+        self.poll_results.lock().await
+            .get(poll_id)
+            .cloned()
+            .ok_or(Error::PollNotFound)
+    }
+    // ... other mock implementations
+}
+
+#[tokio::test]
+async fn test_ejection_sends_notification() {
+    let mock_signal = MockSignalClient::new();
+    let bot = StromaBot::new(mock_signal.clone(), mock_freenet);
+    
+    bot.eject_member(&member).await.unwrap();
+    
+    // Verify Signal message was sent
+    let messages = mock_signal.messages_sent.lock().await;
+    assert!(messages.iter().any(|(_, msg)| msg.contains("removed")));
+}
+```
+
+#### Layer 2: Recording Proxy (Integration Verification)
+
+For CI that needs to verify Signal integration without live accounts:
+
+```rust
+/// Records all Signal operations for later verification
+pub struct RecordingSignalClient<T: SignalClient> {
+    inner: T,
+    operations: Arc<Mutex<Vec<SignalOperation>>>,
+}
+
+impl<T: SignalClient> RecordingSignalClient<T> {
+    pub fn verify_operation_sequence(&self, expected: &[SignalOperation]) -> bool {
+        let ops = self.operations.lock().unwrap();
+        ops.as_slice() == expected
+    }
+}
+```
+
+#### Layer 3: Manual E2E Testing (Pre-Release)
+
+**For `link-device` and real Signal integration, manual testing is required:**
+
+```markdown
+## Pre-Release Signal Integration Checklist
+
+- [ ] Link device with test Signal account
+- [ ] Verify QR code displays correctly
+- [ ] Verify linking completes successfully
+- [ ] Verify messages send/receive
+- [ ] Verify group creation works
+- [ ] Verify poll creation works
+- [ ] Verify poll results retrieval works
+- [ ] Verify member add/remove works
+
+**Test Accounts**: Use dedicated test Signal accounts (not personal)
+**Environment**: Isolated test environment, never production
+```
+
+#### Signal Test Account Management
+
+```rust
+// Configuration for E2E tests (CI secret or local .env)
+// NEVER commit real credentials
+pub struct SignalTestConfig {
+    // Test account phone number (dedicated test number)
+    pub phone_number: String,
+    // Path to pre-linked store (created manually once)
+    pub store_path: PathBuf,
+}
+
+// For E2E tests that need real Signal
+#[tokio::test]
+#[ignore]  // Only run manually or in E2E CI job
+async fn e2e_test_message_send() {
+    let config = SignalTestConfig::from_env().expect("E2E_SIGNAL_* env vars required");
+    let client = RealSignalClient::load(&config).await.unwrap();
+    
+    // ... actual Signal operations
+}
+```
+
+---
+
+### Freenet Testing Strategy
+
+**Freenet provides excellent testing tools.** Use them at every layer.
+
+#### Layer 1: In-Memory Executor (Unit Tests)
+
+```rust
+use freenet::local_node::Executor;
+
+#[tokio::test]
+async fn test_trust_state_merge() {
+    // In-memory executor - no network, instant, deterministic
+    let executor = Executor::new_mock_in_memory().await.unwrap();
+    
+    let contract = deploy_trust_contract(&executor).await.unwrap();
+    
+    // Apply deltas and verify state
+    executor.apply_delta(&contract, &delta1).await.unwrap();
+    executor.apply_delta(&contract, &delta2).await.unwrap();
+    
+    let state = executor.get_state(&contract).await.unwrap();
+    assert_eq!(state.members.len(), 3);
+}
+```
+
+#### Layer 2: SimNetwork (Integration Tests)
+
+```rust
+use freenet::dev_tool::SimNetwork;
+
+#[tokio::test]
+async fn test_state_convergence_after_network_partition() {
+    // Simulated network: 1 gateway, 3 nodes, deterministic seed
+    let mut sim = SimNetwork::new("test", 1, 3, 10, 3, 10, 5, 0x1234).await;
+    
+    sim.check_connectivity(Duration::from_secs(10)).await.unwrap();
+    
+    // Deploy contract to one node
+    let contract = sim.nodes[0].deploy_contract(&trust_contract).await.unwrap();
+    
+    // Apply delta to node 0
+    sim.nodes[0].apply_delta(&contract, &delta).await.unwrap();
+    
+    // Verify all nodes eventually converge
+    sim.check_convergence().await.unwrap();
+    
+    for node in &sim.nodes {
+        let state = node.get_state(&contract).await.unwrap();
+        assert_eq!(state, expected_state);
+    }
+}
+```
+
+#### Layer 3: Local Node (E2E Tests)
+
+```rust
+#[tokio::test]
+#[ignore]  // Requires local Freenet node running
+async fn e2e_test_real_freenet_node() {
+    let config = NodeConfig::builder()
+        .local_mode(true)  // No external network
+        .build();
+    
+    let node = config.build().await.unwrap();
+    
+    // ... real Freenet operations
+}
+```
+
+---
+
+### Combined Integration Testing
+
+#### Full System Mock
+
+```rust
+pub struct TestSystem {
+    signal: MockSignalClient,
+    freenet: Executor,  // In-memory
+    bot: StromaBot,
+}
+
+impl TestSystem {
+    pub async fn new() -> Self {
+        let signal = MockSignalClient::new();
+        let freenet = Executor::new_mock_in_memory().await.unwrap();
+        let bot = StromaBot::new(signal.clone(), freenet.clone());
+        Self { signal, freenet, bot }
+    }
+    
+    pub async fn bootstrap_seed_group(&mut self, members: &[&str]) {
+        // ... setup seed group in both mocks
+    }
+    
+    pub async fn simulate_vouch(&mut self, voucher: &str, vouchee: &str) {
+        // Simulate Signal command
+        self.signal.inject_message(voucher, "/vouch @vouchee");
+        // Process
+        self.bot.process_pending().await;
+        // Verify Freenet state updated
+        let state = self.freenet.get_state(&self.bot.contract).await.unwrap();
+        assert!(state.has_vouch(voucher, vouchee));
+    }
+}
+```
+
+---
+
+### Testing Pyramid for Stroma
+
+```
+                    ┌─────────────────┐
+                    │   Manual E2E    │  ← Real Signal + Real Freenet
+                    │   (Pre-Release) │     Requires test accounts
+                    └────────┬────────┘
+                             │
+                    ┌────────▼────────┐
+                    │  E2E Automated  │  ← Mock Signal + SimNetwork
+                    │   (CI Nightly)  │     Full flow, no real accounts
+                    └────────┬────────┘
+                             │
+              ┌──────────────▼──────────────┐
+              │     Integration Tests       │  ← Mock Signal + In-Memory Freenet
+              │        (CI Always)          │     Component boundaries
+              └──────────────┬──────────────┘
+                             │
+    ┌────────────────────────▼────────────────────────┐
+    │                  Unit Tests                      │  ← All mocked
+    │                 (CI Always)                      │     Pure logic only
+    └──────────────────────────────────────────────────┘
+```
+
+**Coverage Requirements by Layer:**
+- Unit Tests: 100% line coverage
+- Integration Tests: All component interactions
+- E2E Automated: Happy path + critical error paths
+- Manual E2E: Link-device, real messaging (pre-release gate)
+
+---
+
+### Gastown Agent Instructions: Integration Testing
+
+**When implementing Signal integration:**
+1. Define trait abstraction (`SignalClient`)
+2. Implement mock for unit tests
+3. Unit test ALL logic with mock
+4. Integration tests verify trait usage patterns
+5. Manual E2E checklist for pre-release
+
+**When implementing Freenet integration:**
+1. Unit test with `Executor::new_mock_in_memory()`
+2. Integration test with `SimNetwork` for convergence
+3. E2E test with local node (optional, CI nightly)
+
+**When implementing new bot commands:**
+1. Unit test command parsing
+2. Unit test business logic with mocks
+3. Integration test: mock Signal → real logic → mock Freenet
+4. Verify correct Signal messages sent
+5. Verify correct Freenet deltas applied
+
 ---
 
 ## Anti-Patterns
@@ -174,4 +865,98 @@ fn test_trust() {
 ### ❌ Production Data in Tests
 ```rust
 const TEST_ID: &str = "+15551234567";  // ❌ BAD - looks real
+```
+
+### ❌ Missing Property Tests for Trust-Critical Code
+```rust
+// ❌ BAD: Only example-based test for critical function
+#[test]
+fn test_standing_calculation() {
+    let standing = calculate_standing(2, 1);
+    assert_eq!(standing, 1);
+    // Missing: property tests for commutativity, boundaries, invariants
+}
+
+// ✅ GOOD: Property test covers all cases
+proptest! {
+    #[test]
+    fn prop_standing_correct_for_all_inputs(vouches in 0usize..100, flags in 0usize..100) {
+        let standing = calculate_standing(vouches, flags);
+        prop_assert_eq!(standing, vouches as i32 - flags as i32);
+    }
+}
+```
+
+### ❌ Low Property Test Case Count
+```rust
+// ❌ BAD: Default 256 cases insufficient for security-critical code
+// (use proptest.toml to increase to 1000+ for critical paths)
+```
+
+### ❌ Direct Signal/Freenet Calls Without Trait Abstraction
+```rust
+// ❌ BAD: Hardcoded dependency, untestable
+pub struct StromaBot {
+    manager: presage::Manager<StromaProtocolStore>,  // Direct type
+}
+
+impl StromaBot {
+    async fn send_message(&self, msg: &str) {
+        self.manager.send_message(...).await;  // Untestable
+    }
+}
+
+// ✅ GOOD: Trait abstraction, testable
+pub struct StromaBot<S: SignalClient, F: FreenetClient> {
+    signal: S,
+    freenet: F,
+}
+```
+
+### ❌ Tests That Require Real Signal Account
+```rust
+// ❌ BAD: Requires real account, can't run in CI
+#[tokio::test]
+async fn test_message_sending() {
+    let manager = Manager::link_device(...).await;  // Needs real phone!
+    manager.send_message(...).await;
+}
+
+// ✅ GOOD: Uses mock, runs anywhere
+#[tokio::test]
+async fn test_message_sending() {
+    let mock = MockSignalClient::new();
+    let bot = StromaBot::new(mock.clone(), mock_freenet);
+    bot.send_message(...).await;
+    assert!(mock.messages_sent.lock().await.len() == 1);
+}
+```
+
+### ❌ Skipping Freenet Testing Tools
+```rust
+// ❌ BAD: Only tests contract logic in isolation
+#[test]
+fn test_contract_merge() {
+    let state1 = TrustState::new();
+    let state2 = TrustState::new();
+    let merged = state1.merge(state2);
+    // Missing: actual Freenet execution, convergence testing
+}
+
+// ✅ GOOD: Uses Freenet testing infrastructure
+#[tokio::test]
+async fn test_contract_merge_in_simnetwork() {
+    let mut sim = SimNetwork::new("test", 1, 3, ...).await;
+    // ... deploy contract, apply deltas, verify convergence
+}
+```
+
+### ❌ Committing Test Credentials
+```rust
+// ❌ BAD: Credentials in code
+const TEST_PHONE: &str = "+1234567890";
+const TEST_STORE_PATH: &str = "/path/to/real/store";
+
+// ✅ GOOD: Environment variables, never committed
+let config = SignalTestConfig::from_env()?;  // E2E_SIGNAL_PHONE, etc.
 ```
