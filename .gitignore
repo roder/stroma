@@ -69,3 +69,6 @@ plugins/
 # Note: .beads/ has its own .gitignore for runtime files
 # We track *.bead files and issues.jsonl for team collaboration
 .logs/
+
+# Beads export state (updates on every git operation)
+.beads/export-state/
