@@ -24,7 +24,7 @@ Traditional solutions create new problems:
 - **Invite links**: Anyone with the link can join - no vetting, no trust verification
 - **Admin gatekeepers**: One person controls who gets in - single point of failure, creates hierarchy
 - **Trusting strangers**: Members join without vetting - how do you know they won't leak the group or infiltrate it?
-- **Large groups become cliques**: Friend circles form, newcomers isolated on the periphery
+- **Large groups become cliques**: Peer circles form, newcomers isolated on the periphery
 
 ## How Stroma Solves This
 
@@ -35,7 +35,7 @@ Stroma resolves the tension between verification and anonymity through **distrib
 ### What This Means:
 - **No strangers**: Every member is personally vouched for by at least 2 people already in the group
 - **No gatekeepers**: No single person controls entry - trust is distributed across the network
-- **No cliques**: Vouches must come from different friend circles (not your buddy vouching for your other buddy)
+- **No cliques**: Vouches must come from different peer circles (not your buddy vouching for your other buddy)
 - **No hierarchy**: Trust emerges from relationships, not authority or admin power
 - **No identity exposure**: Even if the bot server is compromised, the adversary only gets cryptographic hashes — not real identities
 
@@ -47,25 +47,25 @@ Stroma resolves the tension between verification and anonymity through **distrib
    - Vetting process begins
 
 2. **You get vetted**: The bot suggests you chat with a second member from a different part of the network
-   - Bot facilitates introduction (suggests a well-connected member from a different friend circle)
+   - Bot facilitates introduction (suggests a well-connected member from a different peer circle)
    - You have a brief conversation to establish trust
    - Bot doesn't participate - just makes strategic matchmaking suggestion
 
 3. **Second vouch**: After your conversation, the member vouches for you
    - They send `/vouch @YourName` to the bot (private message)
-   - Bot verifies: (a) voucher is a member, (b) voucher is from a **different friend circle** than the inviter
-   - Same friend circle vouches are rejected — diversity is mandatory to prevent coordinated infiltration
+   - Bot verifies: (a) voucher is a member, (b) voucher is from a **different peer circle** than the inviter
+   - Same peer circle vouches are rejected — diversity is mandatory to prevent coordinated infiltration
    - **Bootstrap exception**: For small groups (3-5 members) where everyone knows each other, diversity requirement is suspended
 
 4. **You're admitted**: The bot adds you to the Signal group
-   - You're now a Bridge (2 effective vouches from members in different friend circles)
+   - You're now a Bridge (2 effective vouches from members in different peer circles)
    - Your trust standing is positive (Standing = Effective_Vouches - Regular_Flags >= 0)
    - Bot welcomes you and immediately deletes all vetting session data (ephemeral)
 
 5. **You stay connected**: Keep building relationships in the group
-   - If a voucher leaves → you need a replacement vouch immediately (automatic ejection otherwise)
-   - If a voucher flags you → their vouch is invalidated, you need a replacement (vouch invalidation)
-   - Build 3+ connections to become a Validator (more resilient, helps with network optimization)
+   - If a voucher leaves → their vouch is lost; if you drop below 2 effective vouches, immediate ejection
+   - If a voucher flags you → their vouch is invalidated; if you drop below 2 effective vouches, immediate ejection
+   - Build 3+ connections to become a Validator (more resilient to voucher departures, helps with network optimization)
 
 ### The Magic: Trust Map Protection
 
@@ -124,8 +124,8 @@ Stroma provides three layers that work together seamlessly:
 ### 1. Signal Bot Interface
 Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/propose`, `/status`, `/mesh`
 
-**What members see**: Natural language responses, trust standing, network health, anonymous voting  
-**What's hidden**: All crypto, Freenet state, Merkle trees, ZK-proofs, individual votes
+**What members see**: Natural language responses, trust standing, network health, voting  
+**What's hidden**: All crypto, Freenet state, Merkle trees, ZK-proofs
 
 → **[Complete User Guide](docs/USER-GUIDE.md)** - Commands, workflows, examples
 
@@ -133,7 +133,7 @@ Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/propose`, 
 - **Architecture**: One bot per group (1:1 relationship)
 - **Implementation**: Presage (high-level Rust API wrapping libsignal-service-rs)
 - **Protocol Gatekeeper**: Enforces 2-vouch requirement with ZK-proofs
-- **Blind Matchmaker**: Suggests strategic introductions across different friend circles  
+- **Blind Matchmaker**: Suggests strategic introductions across different peer circles  
 - **Health Monitor**: Continuous trust standing checks via Freenet state stream
 - **Consensus Enforcer**: Executes only contract-approved actions (no autonomous decisions)
 - **Diplomat**: Discovers and proposes federation (Phase 4+)
@@ -151,7 +151,7 @@ Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/propose`, 
   - PoW Sybil resistance (Q8: >90% fake bot detection)
   - Challenge-response verification (Q9: SHA-256 proofs, 128 bytes)
   - Rendezvous hashing for deterministic holders (Q11)
-  - 64KB chunks with 2 replicas (Q12: 0.2% overhead)
+  - 64KB chunks with 3 copies each (1 local + 2 remote replicas) (Q12: 0.2% overhead)
   - 1% spot check fairness verification (Q13)
   - Contract-based distribution (Q14: <10s recovery)
 
@@ -164,12 +164,12 @@ Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/propose`, 
 ## Core Concepts
 
 ### Trust Model
-- **Requirement**: 2 vouches from members in **different friend circles** to join (diversity mandatory to prevent coordinated infiltration)
-- **Bootstrap Exception**: Small groups (3-5 members) where everyone knows each other; diversity enforced once multiple friend circles exist
+- **Requirement**: 2 vouches from members in **different peer circles** to join (diversity mandatory to prevent coordinated infiltration)
+- **Bootstrap Exception**: Small groups (3-5 members) where everyone knows each other; diversity enforced once multiple peer circles exist
 - **Standing**: `Effective_Vouches - Regular_Flags` (must stay ≥ 0)
 - **Vouch Invalidation**: If voucher flags you, their vouch is invalidated
 - **Ejection**: Immediate when Standing < 0 OR Effective_Vouches < 2
-- **Re-entry**: Get 2 new vouches, no cooldown
+- **Re-entry**: Get 2 new cross-cluster vouches, no cooldown
 
 → **[Full Trust Model](docs/TRUST-MODEL.md)** with examples and edge cases
 
@@ -196,12 +196,14 @@ Stroma uses a **Reciprocal Persistence Network** — bots hold encrypted chunks 
 - **Contract-based distribution** (Q14) for Phase 0, hybrid P2P in Phase 1+
 
 **Status (measured at write time)**:
-- 🟢 **Replicated** (all chunks 2/2): Fully resilient — all chunks available
-- 🟡 **Partial** (some chunks 1/2): Recoverable, but degraded
-- 🔴 **At Risk** (any chunk 0/2): Cannot recover — writes blocked until fixed
+- 🟢 **Replicated** (all chunks 3/3): Fully resilient — all chunks available
+- 🟡 **Partial** (some chunks 2/3): Recoverable, but degraded
+- 🔴 **At Risk** (any chunk ≤1/3): Cannot recover — writes blocked until fixed
 - 🔵 **Initializing**: New bot establishing persistence
 
 **Check with**: `/mesh replication`
+
+**Replication Factor**: 3 copies per chunk (1 local + 2 remote replicas). Need any 1 of 3 to recover each chunk.
 
 → **[Persistence Documentation](docs/PERSISTENCE.md)** - Full durability architecture
 → **[Spike Week 2 Results](docs/spike/)** - Validated persistence architecture (Q7-Q14)
@@ -263,10 +265,10 @@ _For detailed specifications on Trust Model, Mesh Health, Federation, Technical 
 | **Contract Framework** | freenet-stdlib v0.1.30+ | Wasm contracts (ComposableState) |
 | **Contracts** | freenet-stdlib v0.1+ | ContractInterface trait, summary-delta sync |
 | **ZK-Proofs** | STARKs (winterfell) | No trusted setup, post-quantum |
-| **Identity** | HMAC-SHA256 (ring) | Group-scoped hashing |
+| **Identity** | HMAC-SHA256 (ring) | ACI-derived key (bot's Signal identity) |
 | **Signal (high-level)** | Presage | High-level Rust API, group management, polls |
 | **Signal (low-level)** | libsignal-service-rs (FORK) | Protocol v8 poll support via our fork |
-| **Voting** | Native Signal Polls | Anonymous voting (protocol v8) |
+| **Voting** | Native Signal Polls | Structured voting (protocol v8) |
 | **CLI** | clap 4+ | Operator commands |
 
 → **[Full Technical Stack](docs/DEVELOPER-GUIDE.md)** - Architecture, contracts, performance targets
@@ -329,7 +331,7 @@ cargo build --release --target x86_64-unknown-linux-musl
 **All 6 critical architecture questions answered — GO decision**
 
 **Validations Complete:**
-- ✅ **Q1**: Freenet merge conflicts — Commutative deltas with set-based state + tombstones (GO)
+- ✅ **Q1**: Freenet merge conflicts — Commutative deltas with set-based state + ejected set (GO)
 - ✅ **Q2**: Contract validation — `update_state()` + `validate_state()` enforce invariants (GO)
 - ✅ **Q3**: Cluster detection — Bridge Removal (Tarjan's) distinguishes tight clusters (GO)
 - ✅ **Q4**: STARK verification — Bot-side for Phase 0, Wasm experimental (PARTIAL)
@@ -367,7 +369,7 @@ cargo build --release --target x86_64-unknown-linux-musl
 - **Phase -1** (Weeks 1-2): Protocol v8 Polls (Agent-Signal priority task)
 - **Phase 0** (Weeks 1-2): Spike Week + Foundation (Kernel, Freenet, Signal, Crypto, Contract)
 - **Phase 1** (Weeks 3-4): Bootstrap & Core Trust (Vetting, admission, ejection)
-- **Phase 2** (Weeks 5-6): Proposals & Mesh (Anonymous voting, graph analysis)
+- **Phase 2** (Weeks 5-6): Proposals & Mesh (Voting system, graph analysis)
 - **Phase 3** (Week 7): Federation Prep (Validate design, don't broadcast)
 - **Phase 4+** (Future): Federation (Emergent discovery, cross-mesh vouching)
 
@@ -409,6 +411,6 @@ Co-authored-by: Claude <noreply@anthropic.com>
 
 ---
 
-**Status**: Architectural foundation complete. Gastown landing zone ready. Next: Agent-Signal implements protocol v8 poll support.
+**Status**: Architectural foundation complete. Spike Weeks 1 & 2 validated. Protocol v8 poll support complete. Ready for Phase 0 implementation.
 
-**Last Updated**: 2026-01-31
+**Last Updated**: 2026-02-01
