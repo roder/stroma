@@ -1,1622 +1,3673 @@
 # Stroma Implementation Checklist
 
+## 🎩 Mayor Briefing: Gastown Delegation Guide
+
+**Project**: Stroma — Privacy-first decentralized trust network  
+**Status**: Ready for Phase 0 implementation  
+**Last Updated**: 2026-02-02
+
+### Quick Start for Mayor
+
+```bash
+# 1. Review architectural constraints (REQUIRED before delegation)
+cat .beads/security-constraints.bead
+cat .beads/architecture-objectives.bead
+cat .beads/technology-stack.bead
+
+# 2. Create Phase 0 convoy using the convoy formula
+bd mol wisp stroma-convoy-phase --var phase=phase0 --var convoy_id=convoy-phase0
+
+# 3. Or manually: spawn Witness FIRST, then polecats
+gt spawn --role witness --formula stroma-security-witness
+gt spawn --role agent-crypto --bead phase0-hmac --formula stroma-polecat-rust
+gt spawn --role agent-freenet --bead phase0-kernel --formula stroma-polecat-rust
+gt spawn --role agent-signal --bead phase0-bot --formula stroma-polecat-rust
+```
+
+### Stroma-Specific Formulas
+
+| Formula | Type | Purpose |
+|---------|------|---------|
+| `stroma-security-witness` | Patrol | Continuous "8 Absolutes" enforcement |
+| `stroma-polecat-rust` | Work | TDD + 100% coverage + proptest + Co-authored-by |
+| `stroma-convoy-phase` | Convoy | Phase orchestration with quality gates |
+| `stroma-proptest-trust` | Aspect | Weaves proptest into trust-critical code |
+
+**Location**: `.beads/formulas/stroma-*.formula.toml`
+
+### Agent Roster (Polecat Roles)
+
+| Role | Model Tier | Specialization | Constraint Beads to Read |
+|------|------------|----------------|--------------------------|
+| **Agent-Crypto** | Opus | HMAC masking, STARKs (winterfell), zeroization | `security-constraints.bead`, `cryptography-zk.mdc` |
+| **Agent-Freenet** | Sonnet | Embedded kernel, Wasm contracts, ComposableState | `persistence-model.bead`, `freenet-integration.mdc` |
+| **Agent-Signal** | Sonnet | Presage, protocol store, polls, group management | `technology-stack.bead`, `signal-integration.mdc` |
+| **Witness** | Haiku | Security audit (continuous), no Signal IDs in persistent storage/logs | `security-constraints.bead` (all 8 absolutes) |
+
+**Model Tier Rationale**:
+- **Opus** (highest): Complex mathematical reasoning — STARK circuits, cryptographic proofs, winterfell integration
+- **Sonnet** (mid): Well-documented APIs, pattern-based — Freenet contracts, Presage protocol, ComposableState
+- **Haiku** (lowest): Pattern-matching audit — continuous scanning for constraint violations, no deep reasoning required
+
+### Agent Model Configuration
+
+Agents are configured in the Gastown rig at `~/gastown/stroma/settings/agents.json`:
+
+```json
+{
+  "version": 1,
+  "agents": {
+    "agent-crypto": {
+      "command": "claude",
+      "args": ["--model", "claude-opus-4-20250514"]
+    },
+    "agent-freenet": {
+      "command": "claude",
+      "args": ["--model", "claude-sonnet-4-20250514"]
+    },
+    "agent-signal": {
+      "command": "claude",
+      "args": ["--model", "claude-sonnet-4-20250514"]
+    },
+    "witness": {
+      "command": "claude",
+      "args": ["--model", "claude-3-5-haiku-20241022"]
+    }
+  }
+}
+```
+
+**Override per-sling** (Mayor can escalate model tier for complex tasks):
+
+```bash
+# Default: use configured agent model
+gt sling hq-stark-circuit stroma
+
+# Override: escalate to Opus for particularly complex cryptographic work
+gt sling hq-stark-circuit stroma --agent claude-opus
+```
+
+### Critical Security Constraints (ALL Agents MUST Read)
+
+**The Eight Absolutes (NEVER)** — Violations block merge:
+1. NEVER store Signal IDs in cleartext
+2. NEVER persist message history
+3. NEVER bypass ZK-proof verification
+4. NEVER add grace periods for ejection
+5. NEVER make Signal source of truth
+6. NEVER restrict vouching to Validators only
+7. NEVER commit without Co-authored-by (AI agents)
+8. NEVER trust persistence peers
+
+**The Eight Imperatives (ALWAYS)** — Required for all implementations:
+1. ALWAYS hash Signal IDs immediately with `mask_identity()` then zeroize
+2. ALWAYS verify Freenet contract state before executing any action
+3. ALWAYS use trait abstractions for testability (SignalClient, FreenetClient)
+4. ALWAYS encrypt chunks with AES-256-GCM using ACI-derived key
+5. ALWAYS use Freenet state stream (real-time events, NOT polling)
+6. ALWAYS log operation types only (no identifiers, no relationships)
+7. ALWAYS include `// SAFETY:` comments for any unsafe blocks
+8. ALWAYS run quality gates before commit (`fmt`, `clippy`, `deny`, `llvm-cov`)
+
+**See**: `.beads/security-constraints.bead` for enforcement patterns
+
+---
+
 ## 📊 Project Status Overview
 
-**Last Updated**: 2026-02-01
-
-### Roadmap Overview
-
-| Phase | Focus | Duration | Status |
-|-------|-------|----------|--------|
-| **Spike Week 1** | Freenet/STARK validation (Q1-Q6) | Week 0 | ✅ Complete |
-| **Spike Week 2** | Persistence validation (Q7-Q14) | Week 0.5 | ✅ Complete |
-| **Phase -1** | Protocol v8 Poll Support | 1-2 weeks | ✅ Complete |
-| **Pre-Gastown Audit** | Human review before agent handoff | 6-9 hours | ✅ Complete |
-| **Phase 0** | Foundation (HMAC, Freenet, Signal, STARK) | Weeks 1-2 | 📋 Next |
-| **Phase 1** | Bootstrap & Core Trust | Weeks 3-4 | 📋 Planned |
-| **Phase 2** | Proposals & Mesh Optimization | Weeks 5-6 | 📋 Planned |
-| **Phase 2.5** | Persistence Implementation | Week 6-7 | 📋 Planned |
-| **Phase 3** | Federation Preparation | Week 7-8 | 📋 Planned |
-| **Phase 4+** | Federation (Future) | TBD | 📋 Future |
-
-### ✅ Completed (Architectural Foundation)
-- [X] Git repository initialized (6 commits on signal-bot branch)
-- [X] 7 architectural constraint beads created:
-  - [X] bot-deployment-model.bead (1:1 bot-to-group)
-  - [X] group-identity.bead (group names required)
-  - [X] governance-model.bead (bot execute-only, operator no privileges)
-  - [X] proposal-system.bead (/propose command structure)
-  - [X] technology-stack.bead (Presage over libsignal-service-rs)
-  - [X] voting-mechanism.bead (native polls for anonymity)
-  - [X] poll-implementation-gastown.bead (Agent-Signal task)
-- [X] All rules updated with architectural decisions (6 files)
-- [X] All documentation updated (4 files)
-- [X] Comprehensive UX specification (user-roles-ux.mdc)
-- [X] Trust model with vouch invalidation
-- [X] Mesh health score design (peaks at 30-60% density)
-- [X] Technology stack finalized (Presage, forked libsignal-service-rs, STARKs)
-- [X] Gastown workspace plan updated
-- [X] Signal bot provisioning tool (Fish script)
-
-### ✅ Completed: Protocol v8 Poll Support
-**Objective**: Agent-Signal implements protocol v8 poll support in forked libsignal-service-rs
-
-**Why Critical**: Native polls provide structured voting with multiple choice options (reactions are binary only)
-
-**Timeline**: 1-2 weeks ✅ **COMPLETED**
-
-**Bead**: `.beads/poll-implementation-gastown.bead`
-
-**Status**: Forked libsignal-service-rs with protocol v8 poll support (feature/protocol-v8-polls-fixed)
-
-### ✅ Completed: Spike Week (Week 0 - Validation Phase)
-**Objective**: Validate core technologies before Phase 0 implementation
-
-**Decision**: **✅ GO — PROCEED TO PHASE 0**
-
-All six outstanding questions answered:
-- Q1 (Freenet Merge): ✅ GO — commutative deltas with set-based state
-- Q2 (Contract Validation): ✅ GO — trustless model viable
-- Q3 (Cluster Detection): ✅ GO — Bridge Removal algorithm
-- Q4 (STARK Verification): ✅ PARTIAL — Bot-side for Phase 0
-- Q5 (Merkle Tree): ✅ GO — 0.09ms at 1000 members
-- Q6 (Proof Storage): ✅ Outcomes only (not proofs)
-
-**See**: [SPIKE-WEEK-BRIEFING.md](spike/SPIKE-WEEK-BRIEFING.md) and [Outstanding Questions](../spike/SPIKE-WEEK-BRIEFING.md#outstanding-questions-status-tracking)
-
-### 📋 Next Phase: Phase 0 (Weeks 1-2)
-**Objective**: Foundation implementation with federation-ready design
-
-**Next Actions**: 
-1. Run Pre-Gastown Audit (see PRE-GASTOWN-AUDIT.md) — human review before agent handoff
-2. Begin Phase 0 implementation (HMAC, Freenet integration, Signal bot, STARK circuits, Contract schema)
-3. Track progress in Beads (bd)
-
-### 📋 Tracked for Implementation (Not Yet Started)
-- [ ] Dockerfile (hardened container wrapping static binary)
-- [ ] GitHub Actions release workflow (binary + container)
-- [ ] GitHub Actions CI workflow (tests, security audits)
-- [ ] All code modules (see Phase 0-3 below)
+| Phase | Focus | Duration | Status | Convoy |
+|-------|-------|----------|--------|--------|
+| **Spike Week 1** | Freenet/STARK validation (Q1-Q6) | Week 0 | ✅ Complete | — |
+| **Spike Week 2** | Persistence validation (Q7-Q14) | Week 0.5 | ✅ Complete | — |
+| **Phase -1** | Protocol v8 Poll Support | 1-2 weeks | ✅ Complete | — |
+| **Pre-Gastown Audit** | Human review before agent handoff | 6-9 hours | ✅ Complete | — |
+| **Phase 0** | Foundation (HMAC, Freenet, Signal, STARK) | Weeks 1-2 | 📋 **NEXT** | `convoy-phase0` |
+| **Phase 1** | Bootstrap & Core Trust | Weeks 3-4 | 📋 Planned | `convoy-phase1` |
+| **Phase 2** | Proposals & Mesh Optimization | Weeks 5-6 | 📋 Planned | `convoy-phase2` |
+| **Phase 2.5** | Persistence Implementation | Week 6-7 | 📋 Planned | `convoy-persistence` |
+| **Phase 3** | Federation Preparation | Week 7-8 | 📋 Planned | `convoy-phase3` |
+| **Phase 4+** | Federation (Future) | TBD | 📋 Future | — |
 
 ---
 
-## 🚀 Immediate Actions
+## 🚀 PHASE 0: Foundation Convoy
 
-### Git & Workspace Setup
-- [X] Complete git initialization
-  - [X] Stage all existing files: `git add .`
-  - [X] Create initial commit
-  - [X] Optionally set up remote
+**Convoy ID**: `convoy-phase0`  
+**Duration**: Weeks 1-2  
+**Parallelizable**: Yes (4 independent tracks)
 
-### Constraint Beads (Immutable)
-- [X] Create `.beads/security-constraints.bead`
-  - [X] Anonymity-first design rules
-  - [X] No cleartext Signal IDs
-  - [X] Immediate ejection protocol
-  - [X] HMAC hashing requirements
-  - [X] Zeroization requirements
-  - [X] Vouch permissions (ANY Member can vouch)
-  - [X] Co-authored-by requirement for Claude commits
-  
-- [X] Create `.beads/architecture-decisions.bead`
-  - [X] freenet-stdlib as embedded kernel (#9)
-  - [X] STARKs (winterfell) for ZK-proofs
-  - [X] Each bot runs own embedded kernel (no sharing)
-  - [X] Performance targets
-  - [X] Threat model
-  - [X] Single binary, two distributions (#10)
-  - [X] Operator CLI design
-  
-- [X] Create `.beads/federation-roadmap.bead`
-  - [X] MVP = single group (no federation)
-  - [X] Federation as north star
-  - [X] Phase 4+ federation features
-  - [X] Design principles
+### Mayor Delegation Commands
 
-### Agent Structure (Gastown Coordination)
-- [X] Define agent boundaries
-  - [X] **Agent-Signal** (Priority): Presage integration, poll support, bot commands
-  - [X] Agent-Freenet: Embedded Freenet kernel integration
-  - [X] Agent-Crypto: STARKs + HMAC + zeroization
-  - [X] Witness-Agent: Security audit (continuous)
-  
-- [X] Create architectural constraint beads (7 total)
-  - [X] bot-deployment-model.bead (1:1 bot-to-group)
-  - [X] group-identity.bead (group names required)
-  - [X] governance-model.bead (bot execute-only)
-  - [X] proposal-system.bead (/propose structure)
-  - [X] technology-stack.bead (Presage layers)
-  - [X] voting-mechanism.bead (native polls)
-  - [X] poll-implementation-gastown.bead (Agent-Signal task)
-  
-- [X] Launch Agent-Signal for poll implementation
-  - [X] Agent reads poll-implementation-gastown.bead
-  - [X] Agent forks libsignal-service-rs
-  - [X] Agent implements protocol v8 support (PollCreate, PollVote, PollTerminate, PinMessage, UnpinMessage)
-  - [X] Agent bases branch on b48b42fbc (commit presage pins to)
-  - [X] Agent configures Stroma Cargo.toml with patches:
-        - patch libsignal-service → our fork (feature/protocol-v8-polls-fixed)
-        - patch curve25519-dalek → Signal's fork (per libsignal-service-rs README)
-  - [X] Build verified: Stroma + presage + freenet all build successfully
-  - [X] Unit tests verify poll protobuf serialization
-  - [ ] Validate polls work end-to-end with Stroma bot (during bot implementation, not Spike Week)
-  - [ ] Submit PR to upstream whisperfish/libsignal-service-rs (DEPENDS ON validation)
-  
-  **Note**: Poll end-to-end testing deferred to Phase 1 (bot implementation). Not a Spike Week priority
-  because: (1) protobuf definitions from official Signal-Desktop, (2) unit tests pass, (3) architectural
-  risk is low. Spike Week focuses on Freenet/STARK unknowns.
+```bash
+# Create Phase 0 convoy
+gt convoy create --title "Phase 0: Foundation" \
+  --description "Core infrastructure: HMAC, Freenet, Signal, STARK"
 
-### Outstanding Questions — Spike Week 1 (Q1-Q6) ✅ COMPLETE
+# Create beads for each work unit
+bd create --title "HMAC identity masking with zeroization" --convoy convoy-phase0
+bd create --title "Embedded Freenet kernel integration" --convoy convoy-phase0
+bd create --title "Signal bot with custom protocol store" --convoy convoy-phase0
+bd create --title "STARK circuits for vouch verification" --convoy convoy-phase0
+bd create --title "Freenet contract schema (TrustNetworkState)" --convoy convoy-phase0
+bd create --title "Operator CLI interface" --convoy convoy-phase0
 
-**Spike Week 1 validated core Freenet/STARK technologies.**
+# Spawn parallel polecats (4 can run simultaneously)
+gt spawn --role agent-crypto --bead <hmac-bead-id>
+gt spawn --role agent-freenet --bead <kernel-bead-id>
+gt spawn --role agent-signal --bead <signal-bead-id>
+gt spawn --role witness --watch-all  # Continuous security audit
+```
 
-**Track in Multiple Locations** (docs/todo/TODO.md, docs/spike/SPIKE-WEEK-BRIEFING.md, README.md):
+### Track 1: Cryptographic Foundation (Agent-Crypto)
 
-1. ✅ **Q1: Freenet Conflict Resolution** — COMPLETE (GO)
-   - Freenet applies deltas via commutative set union
-   - Contract's responsibility to ensure commutativity
-   - Use set-based state with ejected set (members can re-enter per Decision #10)
-   - See: `docs/spike/q1/RESULTS.md`
+**Bead**: `phase0-hmac` — HMAC Identity Masking  
+**Agent**: Agent-Crypto  
+**Dependencies**: None (can start immediately)  
+**Constraint Beads**: `security-constraints.bead` § 1-2
 
-2. ✅ **Q2: Contract Validation** — COMPLETE (GO)
-   - Can contracts reject invalid state transitions? **YES**
-   - `update_state()` returns `Err(ContractError::InvalidUpdate)` to reject delta
-   - `validate_state()` returns `ValidateResult::Invalid` to reject merged state
-   - **Trustless model viable** — contract enforces invariants
-   - See: `docs/spike/q2/RESULTS.md`
+#### Deliverables
 
-3. ✅ **Q3: Cluster Detection** — COMPLETE (GO)
-   - Bridge Removal algorithm (Tarjan's) distinguishes tight clusters
-   - Standard Union-Find fails (sees 1 cluster), Bridge Removal works
-   - Charlie becomes isolated bridge node; A and B are distinct clusters
-   - See: `docs/spike/q3/RESULTS.md`
+- [ ] `src/kernel/hmac.rs` — HMAC-SHA256 with ACI-derived key
+  ```rust
+  // Pattern from security-constraints.bead
+  fn derive_identity_masking_key(aci_identity: &IdentityKeyPair) -> [u8; 32]
+  fn mask_identity(signal_id: &str, aci_identity: &IdentityKeyPair) -> Hash
+  ```
+- [ ] `src/kernel/zeroize_helpers.rs` — Immediate buffer purging
+- [ ] Unit tests with fixed test ACI identity
+- [ ] Property-based tests (proptest) for collision resistance
 
-4. ✅ **Q4: STARK Verification in Wasm** — COMPLETE (PARTIAL)
-   - winterfell Wasm support is experimental
-   - **Bot-side verification** for Phase 0 (native winterfell)
-   - Can migrate to contract-side when Wasm improves
-   - See: `docs/spike/q4/RESULTS.md`
+#### Acceptance Criteria
 
-5. ✅ **Q5: On-Demand Merkle Tree Performance** — COMPLETE (GO)
-   - 1000 members: 0.09ms (1000x faster than threshold)
-   - **Generate on demand** (no caching needed)
-   - 5000 members: 0.45ms (still sub-millisecond)
-   - See: `docs/spike/q5/RESULTS.md`
-
-6. ✅ **Q6: Proof Storage Strategy** — COMPLETE
-   - **Store outcomes only** (not proofs)
-   - Proofs are ephemeral (10-100KB each)
-   - Contract stores "Alice vouched for Bob", not the proof
-   - See: `docs/spike/q6/RESULTS.md`
-
-**Status**: ✅ Spike Week 1 (Q1-Q6) COMPLETE — Proceed to Phase 0
-
-### Outstanding Questions — Spike Week 2 (Q7-Q14) ✅ COMPLETE
-
-**Spike Week 2 validated the Reciprocal Persistence Network.**
-
-**Decision**: **✅ GO — PROCEED TO PERSISTENCE IMPLEMENTATION**
-
-See [SPIKE-WEEK-2-BRIEFING.md](../spike/SPIKE-WEEK-2-BRIEFING.md) for full briefing and [PERSISTENCE.md](../PERSISTENCE.md) for comprehensive guide.
-
-| Question | Priority | Status | Result |
-|----------|----------|--------|--------|
-| Q7: Bot Discovery | 🔴 BLOCKING | ✅ COMPLETE | Registry-based, <1ms latency, PoW registration |
-| Q8: Fake Bot Defense | 🟡 RECOVERABLE | ✅ COMPLETE | PoW difficulty 18 (~30s), >90% detection |
-| Q9: Chunk Verification | 🟡 RECOVERABLE | ✅ COMPLETE | Challenge-response SHA-256, <1ms verification |
-| Q10: Federation Discovery | 🟢 DEFERRABLE | ⏸️ DEFERRED | Phase 4 uses Fibonacci buckets; revisit if needed |
-| Q11: Rendezvous Hashing | 🟡 RECOVERABLE | ✅ COMPLETE | Deterministic, stable under churn, uniform |
-| Q12: Chunk Size Optimization | 🟡 RECOVERABLE | ✅ COMPLETE | 64KB confirmed optimal (0.2% overhead) |
-| Q13: Fairness Verification | 🟡 RECOVERABLE | ✅ COMPLETE | 1% spot checks, 100% detection, 0% FP |
-| Q14: Chunk Communication Protocol | 🟡 RECOVERABLE | ✅ COMPLETE | Contract-based Phase 0, hybrid Phase 1+ |
-
-**Status**: ✅ Spike Week 2 (Q7-Q14) COMPLETE (2026-01-31) — Ready for persistence implementation
-
-**Documentation Updated**:
-- `.beads/persistence-model.bead` - Updated with Q7-Q14 findings
-- `.beads/architecture-decisions.bead` - Added Spike Week 2 validation status
-- `.beads/discovery-protocols.bead` - Updated with Q7 results
-- `.beads/security-constraints.bead` - Updated with Q8/Q9/Q13 results
-- `docs/PERSISTENCE.md` - Comprehensive guide created
-- `docs/DEVELOPER-GUIDE.md` - Implementation guidance added
-- `README.md` - Persistence architecture updated
-
-## ✅ Phase -1: Protocol v8 Poll Support (COMPLETED)
-
-**Duration**: 1-2 weeks  
-**Assigned**: Agent-Signal  
-**Bead**: `.beads/poll-implementation-gastown.bead`  
-**Status**: COMPLETED
-
-### Why Polls Are Critical
-
-**Better Decision Making:**
-- ✅ Signal Polls: Multiple choice options, structured voting
-- ❌ Emoji Reactions: Binary only (👍/👎), harder to tally
-- Native Signal UX (familiar interface for users)
-
-**Accountability:**
-- Group members can see who voted for what
-- Signal identity separate from real-world identity
-
-### Completed Tasks
-
-- [X] **Fork libsignal-service-rs**
-  - Fork created at https://github.com/roder/libsignal-service-rs
-  - Branch: `feature/protocol-v8-polls-fixed`
-
-- [X] **Add poll protobuf definitions**
-  - [X] Copy from Signal-Desktop `protos/SignalService.proto`
-  - [X] Add to `protobuf/SignalService.proto`:
-    - [X] `message PollCreate` (field 24)
-    - [X] `message PollTerminate` (field 25)
-    - [X] `message PollVote` (field 26)
-    - [X] `message PinMessage` (field 27)
-    - [X] `message UnpinMessage` (field 28)
-  - [X] Update protocol version from v7 to v8
-
-- [X] **Build and test**
-  - [X] `cargo build` succeeds (libsignal-service-rs)
-  - [X] 21 tests pass (16 existing + 5 new poll tests)
-  - [X] Protobuf serialization roundtrip validated
-
-- [X] **Push to fork**
-  - [X] Commit: `feat: Add protocol v8 poll support` (91805d38c)
-  - [X] Commit: `test: Add unit tests for protocol v8 poll types` (532a8d64e)
-  - [X] Pushed to `feature/protocol-v8-polls-fixed`
-
-- [X] **Update Stroma's Cargo.toml**
-  - [X] Patch libsignal-service to use our fork
-  - [X] Patch curve25519-dalek per upstream README (resolves version conflict)
-  - [X] Stroma + presage + freenet all build successfully
-
-- [ ] **Test in Stroma** (Phase 2.5: Validation)
-  - [ ] Create example binary for poll lifecycle testing
-  - [ ] Can create polls via presage
-  - [ ] Can vote on polls
-  - [ ] Vote anonymity verified with real Signal account
-
-- [ ] **Submit PR to upstream** (BLOCKED on validation)
-  - PR submission depends on Phase 2.5 successful validation
-  - See `.beads/poll-implementation-gastown.bead` for PR template
-
-**Deliverable**: Poll support available in Stroma via fork ✅ (awaiting end-to-end validation before upstream PR)
-
-## 🔬 Spike Week (Week 0 - Validation Phase) — ✅ COMPLETE
-
-**Objective**: Validate *risky technical unknowns* before committing to architecture
-
-**Focus**: Freenet contracts, STARK proofs, ComposableState — NOT Signal integration
-
-**Rationale**: Signal/Presage integration is low-risk (protobuf from official client, unit tests pass).
-Poll end-to-end testing belongs in Phase 2.5 validation (when we have Stroma bot), not Spike Week.
-
-### ✅ Day 1-2: Embedded Freenet Kernel & Contract Design (COMPLETE)
-- [X] Test embedded Freenet kernel (in-process, not external service)
-  - [X] **Q1 Spike**: Freenet merge conflicts — use commutative deltas with set-based state
-  - [X] **Q2 Spike**: Contract validation — `update_state()` and `validate_state()` can enforce invariants
-  
-- [X] Test ComposableState trait (CRITICAL - architectural risk)
-  - [X] Implement simple ComposableState (e.g., counter)
-  - [X] Test merge semantics (create two states, merge them)
-  - [X] Verify merge is commutative (order-independent)
-  
-- [X] Test set-based membership (Stroma-specific)
-  - [X] Implement MemberSet with BTreeSet (active + ejected sets)
-  - [X] Test adding members to set
-  - [X] Test removing members (ejection pattern)
-  - [X] Test merging two divergent member sets
-  - [X] Note: Stroma uses "ejected" set allowing re-entry (see Decision #10 in architectural-decisions-open.bead)
-  
-- [X] Test on-demand Merkle Tree generation
-  - [X] **Q5 Spike**: On-demand Merkle generation — 0.09ms at 1000 members (GO)
-  - [X] Benchmark: 10ms @ 100 members, 0.14ms @ 1000 members, 0.45ms @ 5000 members
-  - [X] Measure tree generation time: **1000x faster than threshold** (< 100ms)
-
-### ✅ Day 3-4: State Monitoring & Outstanding Questions (COMPLETE)
-- [X] Test state stream monitoring
-  - [X] Deploy contract to Freenet
-  - [X] Subscribe to state changes (real-time, not polling)
-  - [X] Submit state update from one node
-  - [X] Verify other node receives update via stream
-  
-- [X] **Answer Outstanding Questions** (CRITICAL - these determine architecture)
-  - [X] **Q1: Freenet Conflict Resolution** — GO — Use commutative deltas with set-based state + ejected set
-  - [X] **Q2: Contract Validation** — GO — Trustless model viable (`update_state()` + `validate_state()`)
-  - [X] **Q3: Cluster Detection** — GO — Bridge Removal algorithm (Tarjan's) for tight cluster separation
-  - [X] **Q4: STARK Verification in Wasm** — PARTIAL — Bot-side verification for Phase 0 (Wasm experimental)
-  - [X] **Q5: Merkle Tree Performance** — GO — 0.09ms for 1000 members (on-demand OK)
-  - [X] **Q6: Proof Storage Strategy** — Store outcomes only (not proofs)
-  
-- [X] Document findings
-  - [X] Merkle Tree approach: Store set, generate tree on-demand (Q5)
-  - [X] ZK-proof strategy: Bot-side verification for Phase 0 (Q4, upgrade later)
-  - [X] Cluster detection: Bridge Removal algorithm (Q3)
-  - [X] Merge semantics: CRDT-like patterns with ejected set (Q1)
-  - [X] Contract validation: Two-layer model (update_state + validate_state) (Q2)
-
-### ✅ Day 5: STARK Proof Generation (Architectural Risk) (COMPLETE)
-- [X] Set up winterfell library
-  - [X] Research winterfell capabilities and Wasm support
-  - [X] Review Wasm compilation challenges
-  
-- [X] Evaluate proof generation & verification
-  - [X] **Q4 Spike**: STARK verification — winterfell Wasm is experimental (risk)
-  - [X] **Q6 Decision**: Store outcomes only (not proofs) — simplifies contract state
-  - [X] Performance: Native winterfell < 1ms, Wasm would be 10-100x slower
-  
-- [X] Measure performance (Simulated)
-  - [X] Proof size: < 100KB per STARK proof
-  - [X] Proof generation time: Fast on native, acceptable latency
-  - [X] Verification time: Constant time (scalable)
-  
-- [X] Document findings
-  - [X] winterfell practical for Phase 0 (native verification)
-  - [X] STARKs viable (transparent, post-quantum, no trusted setup)
-  - [X] Wasm verification deferred to Phase 4+ (when mature)
-
-### ✅ Spike Week Deliverable (COMPLETE)
-- [X] Create Go/No-Go decision report
-  - [X] Freenet validation: ✅ GO (commutative merge works)
-  - [X] Contract validation: ✅ GO (trustless model viable)
-  - [X] STARK proofs: ✅ PARTIAL (bot-side verification for Phase 0)
-  - [X] Recommendation: **✅ PROCEED TO PHASE 0**
-  - [X] Identified risks and mitigations documented
-
-**See [SPIKE-WEEK-BRIEFING.md](../spike/SPIKE-WEEK-BRIEFING.md)** for complete analysis with results for Q1-Q6
+- [ ] 100% code coverage (enforced by CI)
+- [ ] Property-based tests (proptest) covering:
+  - [ ] HMAC determinism: same input + same key = same output
+  - [ ] Key isolation: same input + different keys = different outputs
+  - [ ] Collision resistance: different inputs = different outputs (probabilistic)
+- [ ] Memory dump contains ONLY hashed identifiers (verify with intentional panic)
+- [ ] Zeroization happens immediately after hashing
+- [ ] `cargo clippy` and `cargo fmt` pass
 
 ---
 
-## 🔍 Pre-Gastown Audit (Final Human Review)
+**Bead**: `phase0-stark` — STARK Circuits  
+**Agent**: Agent-Crypto  
+**Dependencies**: `phase0-hmac` (uses Hash type)  
+**Constraint Beads**: `cryptography-zk.mdc`
 
-**Objective**: Systematic human audit before turning project over to Gastown agents
+#### Deliverables
 
-**Why Critical**: Gastown agents follow guidance literally. Any inconsistencies, ambiguities, or contradictions will cause incorrect implementations or require human intervention. This audit ensures clean handoff.
+- [ ] `src/crypto/stark_circuit.rs` — Vouch verification circuit
+- [ ] `src/crypto/proof_generation.rs` — Generate proofs (bot-side)
+- [ ] `src/crypto/proof_verification.rs` — Verify proofs (bot-side, not Wasm)
+- [ ] Benchmark: proof generation < 10 seconds, proof size < 100KB
+- [ ] Property-based tests (proptest) for proof soundness
 
-**Timing**: After Spike Week completes, before Phase 0 implementation begins
+#### Acceptance Criteria
 
-→ **[PRE-GASTOWN-AUDIT.md](../todo/PRE-GASTOWN-AUDIT.md)** - Complete audit checklist (6-9 hours estimated)
+- [ ] 100% code coverage (enforced by CI)
+- [ ] winterfell integration compiles
+- [ ] Proof roundtrip: generate → serialize → deserialize → verify
+- [ ] Performance within bounds (Q4 spike validated bot-side approach)
+- [ ] Property-based tests (proptest) covering:
+  - [ ] **Completeness**: valid inputs always produce verifiable proofs
+  - [ ] **Soundness**: invalid inputs never produce verifiable proofs (probabilistic)
+  - [ ] **Determinism**: same inputs produce identical proofs
+  - [ ] **Serialization stability**: serialize → deserialize → serialize = original bytes
 
-### Audit Phases
-- [ ] **Phase 1**: Terminology sweep (1-2h)
-  - [ ] Search all files for "cluster" vs "peer circles"
-  - [ ] Categorize by audience (user-facing vs technical)
-  - [ ] Decide on Option A, B, or C (see audit doc)
-  - [ ] Update inconsistent files
+#### Test Cases
 
-- [ ] **Phase 2**: Architectural consistency (2-3h)
-  - [ ] Review each bead against checklist
-  - [ ] Cross-reference with rules and docs
-  - [ ] Flag contradictions for resolution
-  - [ ] Document decisions
+```rust
+#[test]
+fn test_proof_roundtrip() {
+    // Given: Valid vouch data (voucher, vouchee, context_hash)
+    // When: Generate proof → serialize → deserialize → verify
+    // Then: Verification succeeds
+}
 
-- [ ] **Phase 3**: Security constraint verification (1-2h)
-  - [ ] Review all "NEVER" rules in security-guardrails.mdc
-  - [ ] Verify enforcement in contract design and bot architecture
-  - [ ] Check that docs reflect security model
-  - [ ] Test threat model against architecture
+#[test]
+fn test_invalid_proof_rejected() {
+    // Given: Proof with tampered public inputs
+    // When: Verify
+    // Then: Verification fails
+}
 
-- [ ] **Phase 4**: Spike Week alignment (1h)
-  - [ ] Review Q1-Q6 in SPIKE-WEEK-BRIEFING.md
-  - [ ] Verify beads note dependencies
-  - [ ] Check fallback strategies documented
-  - [ ] Confirm no architectural decisions bypass Spike Week
+#[test]
+fn test_proof_size_within_bounds() {
+    // Given: Valid vouch data
+    // When: Generate proof
+    // Then: Serialized size < 100KB
+}
 
-- [ ] **Phase 5**: Final review (1h)
-  - [ ] Read through all beads in sequence
-  - [ ] Imagine you're a Gastown agent — is everything clear?
-  - [ ] Flag any ambiguities or missing context
-  - [ ] Update audit checklist with findings
-
-### Go/No-Go Decision
-- [ ] **GO Decision**: All audit criteria met, ready for agent handoff
-  - [ ] Terminology consistent within each audience
-  - [ ] No contradictions between beads, rules, and docs
-  - [ ] Security constraints consistently enforced
-  - [ ] Spike Week dependencies noted and fallbacks provided
-  - [ ] Agent handoff feels confident
-
-- [ ] **NO-GO Decision**: Critical issues identified, must fix before handoff
-  - [ ] Document specific issues in PRE-GASTOWN-AUDIT.md
-  - [ ] Create fix action items
-  - [ ] Re-audit after fixes
-
----
-
-## 📦 Phase 0: Foundation (Weeks 1-2)
-
-**Prerequisites**: 
-- ✅ Spike Week complete (Q1-Q6 answered)
-- ✅ Pre-Gastown Audit passed (GO decision)
-- ✅ All architectural guidance consistent and ready for agents
-
-**Objective**: Core infrastructure with federation-ready design
-
-### Module Structure
-- [ ] Create `src/cli/` directory (Operator CLI interface)
-  - [ ] `src/cli/mod.rs`
-  - [ ] `src/cli/link_device.rs` - Link to Signal account as secondary device
-  - [ ] `src/cli/run.rs` - Run command (awaits member-initiated bootstrap if new)
-  - [ ] `src/cli/utils.rs` - Status, verify, backup-store, version
-  
-- [ ] Create `src/kernel/` directory
-  - [ ] `src/kernel/mod.rs`
-  - [ ] `src/kernel/hmac.rs` - HMAC-based hashing
-  - [ ] `src/kernel/zeroize_helpers.rs` - Immediate buffer purging
-  
-- [ ] Create `src/freenet/` directory (Embedded kernel, not external service)
-  - [ ] `src/freenet/mod.rs`
-  - [ ] `src/freenet/embedded_kernel.rs` - In-process Freenet kernel (freenet-stdlib)
-  - [ ] `src/freenet/contract.rs` - Wasm contract deployment to embedded kernel
-  - [ ] `src/freenet/state_stream.rs` - Real-time state monitoring from embedded kernel
-  
-- [ ] Create `src/signal/` directory (Presage-based)
-  - [ ] `src/signal/mod.rs`
-  - [ ] `src/signal/linking.rs` - Link as secondary device (ONLY registration method)
-    - [ ] Generate provisioning URL via `Manager::link_secondary_device()`
-    - [ ] Display QR code in terminal (qr2term or similar)
-    - [ ] Wait for operator to scan with Signal app on their phone
-    - [ ] Receive ACI/PNI identity from primary device
-    - [ ] Save to custom StromaProtocolStore
-    - [ ] Note: Operator is responsible for having a Signal account (how they get it is their concern)
-    - [ ] Note: Linked devices have FULL group management capabilities
-  - [ ] `src/signal/store.rs` - Custom minimal protocol store (NOT SqliteStore)
-    - [ ] Store ONLY: sessions, pre-keys, identity keys (NOT message history)
-    - [ ] Encrypted state file (~100KB)
-    - [ ] See `.beads/security-constraints.bead` § 10
-  - [ ] `src/signal/bot.rs` - Presage Manager, message handling
-  - [ ] `src/signal/group.rs` - Group management (add/remove members)
-  - [ ] `src/signal/pm.rs` - 1-on-1 PM handling for vetting
-  - [ ] `src/signal/polls.rs` - Poll creation/monitoring (protocol v8)
-  
-- [ ] Create `src/crypto/` directory
-  - [ ] `src/crypto/mod.rs`
-  - [ ] `src/crypto/stark_circuit.rs` - STARK circuit for vouching
-  - [ ] `src/crypto/proof_generation.rs` - Generate proofs
-  - [ ] `src/crypto/proof_verification.rs` - Verify proofs
-  
-- [ ] Create `src/gatekeeper/` directory
-  - [ ] `src/gatekeeper/mod.rs`
-  - [ ] `src/gatekeeper/admission.rs` - Vetting & admission logic
-  - [ ] `src/gatekeeper/ejection.rs` - Immediate ejection
-  - [ ] `src/gatekeeper/health_monitor.rs` - Continuous standing checks
-  
-- [ ] Create `src/matchmaker/` directory
-  - [ ] `src/matchmaker/mod.rs`
-  - [ ] `src/matchmaker/graph_analysis.rs` - Topology analysis
-  - [ ] `src/matchmaker/cluster_detection.rs` - Identify internal clusters
-  - [ ] `src/matchmaker/strategic_intro.rs` - MST optimization
-  
-- [ ] Create `src/config/` directory
-  - [ ] `src/config/mod.rs`
-  - [ ] `src/config/group_config.rs` - GroupConfig struct
-  
-- [ ] Create `src/proposals/` directory
-  - [ ] `src/proposals/mod.rs`
-  - [ ] `src/proposals/command.rs` - /propose parser
-  - [ ] `src/proposals/poll.rs` - Signal Poll creation/monitoring
-  - [ ] `src/proposals/executor.rs` - Execute approved actions
-  
-- [ ] Create `src/federation/` directory (disabled in MVP)
-  - [ ] `src/federation/mod.rs`
-  - [ ] `src/federation/shadow_beacon.rs` - Social Anchor Hashing (unused)
-  - [ ] `src/federation/psi_ca.rs` - PSI-CA (unused)
-  - [ ] `src/federation/diplomat.rs` - Federation proposals (unused)
-
-### Cargo Configuration
-- [X] Update `Cargo.toml`
-  - [X] Add freenet-stdlib with "full" features (embedded kernel)
-  - [X] Add freenet-stdlib (ContractInterface trait for Wasm contracts)
-  - [ ] Add ring (HMAC)
-  - [ ] Add zeroize (memory hygiene)
-  - [ ] Add winterfell (STARKs)
-  - [ ] Add libsignal-service-rs
-  - [ ] Add tokio (async runtime)
-  - [ ] Add serde (serialization framework)
-  - [ ] Add ciborium (CBOR for Freenet contracts — see `.beads/serialization-format.bead`)
-  - [ ] Add tracing (structured logging)
-  - [ ] Add clap (CLI argument parsing)
-  
-- [ ] Create `.cargo/config.toml`
-  - [ ] Configure MUSL target: `x86_64-unknown-linux-musl`
-  - [ ] Add linker configuration
-  - [ ] Add rustflags for static linking
-  
-- [ ] Create `cargo-deny.toml`
-  - [ ] Configure advisories (deny vulnerabilities)
-  - [ ] Configure licenses (allow list)
-  - [ ] Configure bans (deny multiple versions)
-  - [ ] Configure sources (deny unknown registries)
-
-### Serialization Implementation
-
-**Bead**: `.beads/serialization-format.bead`
-
-**Decision**: CBOR via `ciborium` for all Freenet state (NOT JSON)
-
-- [ ] Implement state serialization module
-  - [ ] Create `src/serialization/mod.rs`
-  - [ ] Add `to_bytes()` and `from_bytes()` for `TrustNetworkState`
-  - [ ] Add `to_bytes()` and `from_bytes()` for `StateDelta`
-  - [ ] Add `to_canonical_bytes()` for deterministic hashing
-  
-- [ ] Implement serialization traits
-  - [ ] Derive `Serialize`/`Deserialize` on all Freenet state structs
-  - [ ] Use `BTreeSet`/`BTreeMap` for deterministic ordering
-  - [ ] Add `#[serde(default)]` for backward-compatible optional fields
-  
-- [ ] Add serialization tests
-  - [ ] Roundtrip test (serialize → deserialize → compare)
-  - [ ] Determinism test (canonical serialization produces same bytes)
-  - [ ] Backward compatibility test (old format → new struct)
-  - [ ] Size comparison test (verify CBOR < JSON)
-  
-- [ ] Integrate with Freenet contract
-  - [ ] Use CBOR in `validate_state()` deserialization
-  - [ ] Use CBOR in `update_state()` for delta handling
-  - [ ] Use CBOR in `get_state_delta()` for delta serialization
-  - [ ] Handle deserialization errors as `ContractError::InvalidState`
-
-**Serialization Format Rules**:
-- ✅ **CBOR**: Freenet state, deltas, persistence snapshots
-- ✅ **Protobuf**: Signal messages (non-negotiable)
-- ❌ **JSON**: NOT for Freenet state (2-3x larger, non-deterministic)
-
-### Architectural Decisions Implementation
-
-**Bead**: `.beads/architectural-decisions-open.bead`
-
-These tasks implement the 12 resolved architectural decisions.
-
-#### Trust Model Implementation
-
-- [ ] **Flag persistence on re-entry** (Decision #1)
-  - [ ] Store flags in `flags: HashMap<Hash, HashSet<Hash>>` that survives ejection
-  - [ ] On re-entry: calculate `standing = new_vouches - persisted_flags`
-  - [ ] Inform inviter of invitee's flag history during vetting
-  - [ ] Test: member with 3 flags needs 4+ vouches to re-enter
-
-- [ ] **One flag per person** (Decision #2)
-  - [ ] Use `HashSet` for flaggers (not Vec/multiset)
-  - [ ] Duplicate flag attempts are idempotent no-ops
-  - [ ] Return `AlreadyFlagged` error to user (informational)
-
-- [ ] **Vouch revocation = flag** (Decision #3)
-  - [ ] No separate "revoke" operation
-  - [ ] `/flag` is the only way to withdraw support
-  - [ ] Document in user-facing help text
-
-#### State Management Implementation
-
-- [ ] **Ejected state (not tombstone)** (Decision #10)
-  - [ ] Replace `tombstones: BTreeSet<Hash>` with `ejected: BTreeSet<Hash>`
-  - [ ] Ejected members can return (move back to `members`)
-  - [ ] Vouch/flag history persists across ejection
-  - [ ] CRDT correctness: `ejected` set operations are commutative
-
-- [ ] **Versioned state for schema migration** (Decision #6)
-  - [ ] Add `schema_version: u64` field to `TrustNetworkState`
-  - [ ] Use `#[serde(default)]` for all optional/new fields
-  - [ ] Test: deserialize old schema into new struct
-
-#### Bot Reliability Implementation
-
-- [ ] **Signal API retry with logarithmic backoff** (Decision #4)
-  - [ ] Create `src/signal/retry.rs` module
-  - [ ] Implement: 1s, 2s, 4s, 8s, ... capped at 1 hour
-  - [ ] Retry until Signal reflects Freenet truth
-  - [ ] Log retries at WARN level (no identifiers)
-
-- [ ] **Progressive action cooldowns** (Decision #5)
-  - [ ] Track action history per (actor, target) pair in bot memory
-  - [ ] Cooldown escalation: 0 → 1min → 5min → 1h → 24h
-  - [ ] Reset on bot restart (acceptable for MVP)
-  - [ ] User feedback: "Please wait X before another action on this member"
-
-#### Cluster Detection Implementation
-
-- [ ] **Automatic cross-cluster trigger** (Decision #12)
-  - [ ] Run Bridge Removal algorithm on every membership change
-  - [ ] Cache cluster assignments (detection is fast <1ms)
-  - [ ] Trigger when `clusters.len() >= 2`
-  - [ ] Announce to group when cross-cluster requirement activates
-  - [ ] Grandfather existing members (no retroactive vouches needed)
-
-- [ ] **Cluster trigger announcement**
-  - [ ] Message: "📊 Network update: Your group now has distinct sub-communities!..."
-  - [ ] Send once when trigger first activates
-  - [ ] Store `cross_cluster_announced: bool` in bot state
-
-#### Logging Security Implementation
-
-- [ ] **Four-layer log security** (Decision #9)
-  - [ ] Create `src/logging/mod.rs` with sanitized log macros
-  - [ ] Layer 1 (PII): Never log Signal IDs, phone numbers, names
-  - [ ] Layer 2 (Trust Map): Never log who vouched/flagged whom
-  - [ ] Layer 3 (Persistence): Never log chunk holder locations (even if computable)
-  - [ ] Layer 4 (Federation): Never log federated group IDs, names, URIs, overlap
-  - [ ] Test: grep logs for hash patterns, identifier patterns, URIs
-
-- [ ] **Compromised bot log audit**
-  - [ ] CI check: scan logs for hash patterns `[a-f0-9]{64}`
-  - [ ] CI check: scan for "vouch.*for", "flag.*from", "holder" patterns
-  - [ ] CI check: scan for federation patterns ("federated.*with", "group.*uri", "overlap")
-  - [ ] Document "Compromised Bot Test" in security review checklist
-  - [ ] Test must verify: no PII, no trust map, no persistence, no federation data
-
-- [ ] **Structured logging setup**
-  - [ ] Configure `tracing` crate with appropriate levels
-  - [ ] INFO for operators (operation types only)
-  - [ ] DEBUG for contributors (internal flow, no sensitive data)
-  - [ ] Create log sanitization layer that strips identifiers
-
-#### Privacy Implementation
-
-- [ ] **No mesh visibility hiding** (Decision #7)
-  - [ ] `/mesh` shows all members' vouch counts (no opt-out)
-  - [ ] Blind Matchmaker suggestions include all eligible members
-  - [ ] Document: "Privacy from external threats, transparency within community"
-
-#### Multi-Bot Documentation
-
-- [ ] **Document multi-bot = federation** (Decision #11)
-  - [ ] Update DEVELOPER-GUIDE.md: "multi-bot" always means federation
-  - [ ] Add to glossary: "Multi-bot: Federation coordination, not redundancy"
-  - [ ] Mark "single-group multi-bot redundancy" as OUT OF SCOPE
-
-### Distribution & Deployment Infrastructure (TRACK FOR FUTURE)
-
-**Critical Principle**: Single binary artifact, two distribution methods (no security compromise)
-
-#### Dockerfile Creation
-- [ ] Create `Dockerfile` (hardened container wrapping static binary)
-  - [ ] Multi-stage build pattern:
-    ```dockerfile
-    # Stage 1: Builder (build static MUSL binary)
-    FROM rust:1.93-alpine AS builder
-    # ... build stroma-x86_64-musl
+proptest! {
+    #[test]
+    fn proof_completeness(
+        voucher_hash: [u8; 32],
+        vouchee_hash: [u8; 32],
+        context_hash: [u8; 32],
+    ) {
+        // Valid inputs always produce verifiable proofs
+        let proof = generate_vouch_proof(&voucher_hash, &vouchee_hash, &context_hash);
+        assert!(verify_vouch_proof(&proof, &voucher_hash, &vouchee_hash, &context_hash).is_ok());
+    }
     
-    # Stage 2: Runtime (distroless - no shell, no package manager)
-    FROM gcr.io/distroless/static:nonroot
-    COPY --from=builder /build/stroma /stroma
-    USER nonroot:nonroot
-    ENTRYPOINT ["/stroma"]
-    ```
-  - [ ] Security features:
-    - [ ] FROM scratch or distroless (minimal base)
-    - [ ] Non-root user (UID 65532)
-    - [ ] Read-only root filesystem
-    - [ ] No shell, no package manager
-    - [ ] Only contains the static binary
-  - [ ] Document: Container uses SAME binary as standalone (no security compromise)
-  
-#### GitHub Actions Release Workflow
-- [ ] Create `.github/workflows/release.yml` (triggered on git tags)
-  - [ ] **Build Phase**:
-    - [ ] Checkout code
-    - [ ] Setup Rust 1.93 with x86_64-unknown-linux-musl target
-    - [ ] Build static binary: `cargo build --release --target x86_64-unknown-linux-musl`
-    - [ ] Output: `stroma-v$VERSION-x86_64-musl`
-  - [ ] **Sign & Checksum Binary**:
-    - [ ] Generate SHA256: `sha256sum stroma > stroma.sha256`
-    - [ ] GPG sign binary: `gpg --detach-sign --armor stroma`
-    - [ ] Output: `stroma.asc` (signature)
-  - [ ] **Build Container Image** (from same binary):
-    - [ ] Copy static binary into Dockerfile context
-    - [ ] Build image: `docker build -t ghcr.io/roder/stroma:$VERSION`
-    - [ ] Tag as `:latest` if main release
-    - [ ] Sign image with cosign: `cosign sign ghcr.io/roder/stroma:$VERSION`
-  - [ ] **Publish Artifacts**:
-    - [ ] Publish to GitHub Releases:
-      - `stroma-x86_64-musl` (binary)
-      - `stroma.sha256` (checksum)
-      - `stroma.asc` (GPG signature)
-    - [ ] Push image to ghcr.io/roder/stroma
-    - [ ] Push image signature (cosign)
-  - [ ] **Verify Reproducible Build**:
-    - [ ] Build twice, compare checksums
-    - [ ] Document build environment
-    - [ ] Enable users to verify binary matches source
+    #[test]
+    fn proof_determinism(
+        voucher_hash: [u8; 32],
+        vouchee_hash: [u8; 32],
+        context_hash: [u8; 32],
+    ) {
+        // Same inputs produce identical proofs
+        let proof1 = generate_vouch_proof(&voucher_hash, &vouchee_hash, &context_hash);
+        let proof2 = generate_vouch_proof(&voucher_hash, &vouchee_hash, &context_hash);
+        assert_eq!(proof1.serialize(), proof2.serialize());
+    }
+    
+    #[test]
+    fn proof_soundness_tampered_voucher(
+        voucher_hash: [u8; 32],
+        vouchee_hash: [u8; 32],
+        context_hash: [u8; 32],
+        tampered_voucher: [u8; 32],
+    ) {
+        prop_assume!(voucher_hash != tampered_voucher);
+        // Proof for one voucher doesn't verify for different voucher
+        let proof = generate_vouch_proof(&voucher_hash, &vouchee_hash, &context_hash);
+        assert!(verify_vouch_proof(&proof, &tampered_voucher, &vouchee_hash, &context_hash).is_err());
+    }
+    
+    #[test]
+    fn serialization_roundtrip_stable(
+        voucher_hash: [u8; 32],
+        vouchee_hash: [u8; 32],
+        context_hash: [u8; 32],
+    ) {
+        // Serialize → deserialize → serialize produces identical bytes
+        let proof = generate_vouch_proof(&voucher_hash, &vouchee_hash, &context_hash);
+        let bytes1 = proof.serialize();
+        let deserialized = VouchProof::deserialize(&bytes1).unwrap();
+        let bytes2 = deserialized.serialize();
+        assert_eq!(bytes1, bytes2);
+    }
+}
+```
 
-#### GitHub Actions CI Workflow  
-- [ ] Create `.github/workflows/ci.yml` (on push, PR)
-  - [ ] **Test Phase**:
-    - [ ] cargo test --all-features
-    - [ ] cargo nextest run (if using nextest)
-  - [ ] **Lint Phase**:
-    - [ ] cargo clippy -- -D warnings
-    - [ ] cargo fmt --check
-  - [ ] **Security Audit Phase**:
-    - [ ] cargo deny check (dependencies, licenses, advisories)
-    - [ ] cargo audit (vulnerabilities)
-    - [ ] Scan for cleartext Signal IDs (grep patterns)
-  - [ ] **Coverage Phase** (optional):
-    - [ ] cargo llvm-cov nextest
-    - [ ] Upload to codecov or similar
+---
 
-#### Container Image Hardening Documentation
-- [X] Document security analysis in `.beads/architecture-decisions.bead`
-  - [X] Attack surface comparison: Standalone vs Container
-  - [X] Mitigation: Same binary in both (no compromise)
-  - [X] Justification: ~100KB runtime overhead acceptable for 80% ease gain
-  - [X] Verification: Image signature with cosign
-- [X] Document in `docs/OPERATOR-GUIDE.md`:
-  - [X] Container deployment guide (docker-compose + standalone)
-  - [X] Image verification steps (cosign)
-  - [X] Security properties of distroless base
-  - [X] Comparison table: attack surface vs ease of use
+### Track 2: Freenet Integration (Agent-Freenet)
 
-### Recent Architectural Changes (2026-01-27)
+**Bead**: `phase0-kernel` — Embedded Freenet Kernel  
+**Agent**: Agent-Freenet  
+**Dependencies**: None (can start immediately)  
+**Constraint Beads**: `freenet-integration.mdc`, `persistence-model.bead`
 
-#### Change #1: Embedded Freenet Kernel
-**Decision**: Embed Freenet kernel in-process (not external service)
+#### Deliverables
 
-**Updated Files:**
-- [X] `.beads/architecture-decisions.bead` - Added decision #9
-- [X] `.cursor/rules/freenet-integration.mdc` - Updated to reflect embedded kernel
-- [X] `.cursor/rules/operator-cli.mdc` - Created new rule for CLI design
-- [X] `docs/OPERATOR-GUIDE.md` - Updated installation, bootstrap, monitoring
-- [X] `docs/DEVELOPER-GUIDE.md` - Updated module structure, event loop
-- [X] `Cargo.toml` - Added freenet-stdlib dependency
-- [X] `README.md` - Updated tech stack, getting started
+- [ ] `src/freenet/traits.rs` — Trait abstraction for testability
+  ```rust
+  // ✅ REQUIRED: Trait abstraction enables 100% coverage
+  #[async_trait]
+  pub trait FreenetClient: Send + Sync {
+      async fn get_state(&self, contract: &ContractHash) -> Result<TrustState>;
+      async fn apply_delta(&self, contract: &ContractHash, delta: &Delta) -> Result<()>;
+      async fn subscribe(&self, contract: &ContractHash) -> Result<StateStream>;
+  }
+  ```
+- [ ] `src/freenet/mod.rs` — Module exports
+- [ ] `src/freenet/embedded_kernel.rs` — In-process kernel (freenet-stdlib)
+  - [ ] Initialize kernel with dark mode (anonymous routing)
+  - [ ] Single event loop integration (tokio)
+  - [ ] Node lifecycle management (start, stop, health check)
+- [ ] `src/freenet/contract.rs` — Wasm contract deployment
+- [ ] `src/freenet/state_stream.rs` — Real-time state monitoring (NOT polling)
 
-**Implementation Status**: Design complete, tracked for Spike Week validation
+#### Testing Strategy (NO EXCEPTIONS)
 
-#### Change #2: Single Binary, Two Distributions
-**Decision**: Build ONE static binary, distribute via standalone + container
+- **Unit tests**: Use `Executor::new_mock_in_memory()` (instant, deterministic)
+- **Integration tests**: Use `SimNetwork` for convergence testing
+- **No coverage exceptions**: Trait abstraction makes all code testable
 
-**Updated Files:**
-- [X] `.beads/architecture-decisions.bead` - Added decision #10
-- [X] `docs/OPERATOR-GUIDE.md` - Added 3-tier deployment guide
-- [X] `README.md` - Updated getting started section
+#### Acceptance Criteria
 
-**Key Insight**: Container wraps same binary as standalone (no security compromise)
+- [ ] 100% code coverage (enforced by CI)
+- [ ] Unit tests use `Executor::new_mock_in_memory()` (not real network)
+- [ ] Kernel starts in-process without external service
+- [ ] State changes trigger stream events
+- [ ] Contract deploys successfully to embedded kernel
+- [ ] Verified: ComposableState merge is commutative (Q1 validated)
 
-**Implementation Status**: Design complete, Dockerfile tracked for Phase 0
+---
 
-#### Change #3: Operator CLI Interface
-**Decision**: CLI for service management only (no trust operations)
+**Bead**: `phase0-contract` — Trust Network Contract Schema  
+**Agent**: Agent-Freenet  
+**Dependencies**: `phase0-kernel`  
+**Constraint Beads**: `freenet-contract-design.mdc`, `serialization-format.bead`
 
-**Commands Defined:**
-- `stroma link-device` - Link to Signal account as secondary device (one-time)
-- `stroma run` - Normal operation (awaits member-initiated bootstrap if new)
-- `stroma status` - Health check
-- `stroma verify` - Config validation
-- `stroma backup-store` - Export Signal store for backup
-- `stroma version` - Version info
+#### Deliverables
 
-**Note**: Bootstrap is member-initiated via Signal (`/create-group`, `/add-seed`), NOT via CLI.
+- [ ] `src/freenet/trust_contract.rs` — TrustNetworkState struct
+  ```rust
+  #[derive(Serialize, Deserialize)]
+  pub struct TrustNetworkState {
+      members: BTreeSet<Hash>,           // Active members
+      ejected: BTreeSet<Hash>,           // Ejected (not tombstone - can re-enter)
+      vouches: HashMap<Hash, HashSet<Hash>>,  // who vouched for whom
+      flags: HashMap<Hash, HashSet<Hash>>,    // who flagged whom
+      config: GroupConfig,
+      schema_version: u64,               // GAP-08: For debugging, not migration logic
+      
+      // GAP-08: Federation hooks (present but unused in MVP)
+      // Use #[serde(default)] for backward-compatible schema evolution
+      #[serde(default)]
+      federation_contracts: Vec<ContractHash>,
+  }
+  ```
+- [ ] `src/serialization/mod.rs` — CBOR serialization (NOT JSON)
+- [ ] StateDelta struct with commutative operations
+- [ ] Federation hooks (present but unused in MVP)
 
-**Updated Files:**
-- [X] `.beads/architecture-decisions.bead` - Module structure updated
-- [X] `.cursor/rules/operator-cli.mdc` - Created comprehensive CLI spec
-- [X] `docs/OPERATOR-GUIDE.md` - CLI usage examples
-- [X] `docs/todo/TODO.md` - Added cli/ module to Phase 0
+#### Acceptance Criteria
 
-**Implementation Status**: Design complete, tracked for Phase 0
+- [ ] 100% code coverage (enforced by CI)
+- [ ] Property-based tests (proptest) for trust-critical invariants:
+  - [ ] Delta commutativity: `merge(A, B) == merge(B, A)`
+  - [ ] Standing calculation: `standing = effective_vouches - regular_flags`
+  - [ ] Vouch invalidation: voucher-flaggers excluded from BOTH counts
+- [ ] CBOR roundtrip: serialize → deserialize → compare
+- [ ] Deterministic serialization (canonical bytes)
+- [ ] Contract validates via `update_state()` + `validate_state()` (Q2 pattern)
 
-#### Change #4: Mesh Health Score UX
-**Decision**: Normalize density to peak at optimal 30-60% range
+---
 
-**Updated Files:**
-- [X] `README.md` - Added Mesh Health Score section
-- [X] `.cursor/rules/user-roles-ux.mdc` - Updated bot command examples
-- [X] `.cursor/rules/freenet-contract-design.mdc` - Added helper methods
-- [X] `.beads/architecture-decisions.bead` - Updated network capacity notes
+### Track 3: Signal Integration (Agent-Signal)
 
-**Key Formula**: Health score = 100/100 when density is 30-60% (not at 100% density)
+**Bead**: `phase0-signal` — Signal Bot with Custom Store  
+**Agent**: Agent-Signal  
+**Dependencies**: None (can start immediately)  
+**Constraint Beads**: `technology-stack.bead` § Signal, `security-constraints.bead` § 10
 
-**Implementation Status**: Design complete, tracked for Phase 2 (Blind Matchmaker)
+#### Deliverables
 
-#### Change #5: Shadow Handover Protocol (Phase 4+ Documentation)
-**Decision**: Document bot identity rotation protocol as Phase 4+ feature
+- [ ] `src/signal/traits.rs` — Trait abstraction for testability
+  ```rust
+  // ✅ REQUIRED: Trait abstraction enables 100% coverage via mocks
+  #[async_trait]
+  pub trait SignalClient: Send + Sync {
+      async fn send_message(&self, recipient: &ServiceId, message: &str) -> Result<()>;
+      async fn create_poll(&self, group: &GroupId, poll: &PollCreate) -> Result<PollId>;
+      async fn add_group_member(&self, group: &GroupId, member: &ServiceId) -> Result<()>;
+      async fn remove_group_member(&self, group: &GroupId, member: &ServiceId) -> Result<()>;
+  }
+  ```
+- [ ] `src/signal/store.rs` — Custom StromaProtocolStore
+  ```rust
+  // ❌ FORBIDDEN: SqliteStore (stores message history)
+  // ✅ REQUIRED: Custom minimal store
+  pub struct StromaProtocolStore {
+      sessions: HashMap<ServiceId, Session>,  // In-memory
+      pre_keys_cache: HashMap<u32, PreKey>,   // In-memory
+      protocol_state_file: EncryptedProtocolState,  // ~100KB on disk
+  }
+  ```
+- [ ] `src/signal/mock.rs` — MockSignalClient for unit tests
+- [ ] `src/signal/linking.rs` — Link as secondary device
+  - [ ] Generate provisioning URL via `Manager::link_secondary_device()`
+  - [ ] Display QR code in terminal (qr2term)
+  - [ ] Save ACI/PNI identity to custom store
+- [ ] `src/signal/bot.rs` — Presage Manager wrapper (implements SignalClient)
+- [ ] `src/signal/group.rs` — Group management (add/remove members)
+- [ ] `src/signal/pm.rs` — 1-on-1 PM handling for vetting
+- [ ] `src/signal/polls.rs` — Poll creation/monitoring (protocol v8)
 
-**Updated Files:**
-- [X] `.beads/federation-roadmap.bead` - Added full protocol specification
-- [X] `.beads/architecture-decisions.bead` - Added decision #12
-- [X] `.cursor/rules/operator-cli.mdc` - Added future `rotate` command
-- [X] `docs/OPERATOR-GUIDE.md` - Added to disaster recovery section
-- [X] `docs/DEVELOPER-GUIDE.md` - Added shadow_handover.rs to module structure
-- [X] `docs/FEDERATION.md` - Added Shadow Handover section
-- [X] `README.md` - Added to Federation (Phase 4+) features
-- [X] `docs/todo/TODO.md` - Added to Phase 4+ roadmap
+#### Critical Constraint
 
-**Key Concept**: Bot's Signal identity (phone number) is ephemeral; cryptographic identity (keypair) persists. Succession documents signed by old bot authorize new bot.
+**Server Seizure Protection**: The custom store MUST NOT persist:
+- ❌ Message history
+- ❌ Vetting conversation content
+- ❌ Contact database
+- ❌ Invitation context
 
-**MVP Workaround**: Operator manually handles Signal bans by re-registering with backup phone number.
+#### Testing Strategy (NO EXCEPTIONS)
 
-**Implementation Status**: Documented, deferred to Phase 4+
+- **Unit tests**: Use `MockSignalClient` (trait-based mock)
+- **Integration tests**: Mock + Recording proxy for verification
+- **Manual E2E**: Pre-release only for `link-device` (requires real account)
+- **No coverage exceptions**: Trait abstraction makes all code testable
 
-#### Change #6: Validator Threshold Strategy (Phased Approach)
-**Decision**: Fixed thresholds for MVP, configurable safeguards for Phase 2, percentage-based for Phase 4+
+#### Acceptance Criteria
 
-**Rationale**:
-- **MVP (Now)**: Small groups (3-30 members) with fixed Bridge=2, Validator=3+
-  - Simplest implementation
-  - Most transparent to members
-  - Lowest governance overhead
-  - Status: ✅ Implement in MVP
+- [ ] 100% code coverage (enforced by CI)
+- [ ] Unit tests use `MockSignalClient` (not real Signal)
+- [ ] Bot links successfully as secondary device (manual E2E)
+- [ ] Messages received and processed (not stored)
+- [ ] Group creation and member management works
+- [ ] Store file is small (~100KB, not growing)
+- [ ] Witness agent confirms: no Signal IDs in any persistent storage
 
-- **Phase 2 Gate**: Add configurable `min_vouch_threshold` (if medium groups stabilize)
-  - Trigger: Operator feedback indicates stable 30-50 member groups
-  - Scope: Allow groups to choose 2 (easier) vs 3+ (harder)
-  - Safety: Requires consensus, cannot retroactively eject
-  - Status: 📋 Design, gate decision before Phase 2
+---
 
-- **Phase 4 Gate**: Add percentage-based `validator_percentile` (if large groups request)
-  - Trigger: Multiple federated groups request percentage-based scaling
-  - Scope: Percentage-based validator threshold (e.g., top 20%)
-  - Safety: Elevated consensus (85%), quarterly limit, min >= 3
-  - Status: 📋 Design, gate decision before Phase 4
+### Track 4: CLI & Infrastructure (Agent-Signal or General)
 
-**Updated Files:**
-- [X] Create `docs/VALIDATOR-THRESHOLD-STRATEGY.md` - Comprehensive phased approach
-- [X] Update `.beads/architecture-decisions.bead` - Add validator strategy decision
-- [X] Update `docs/todo/TODO.md` - Add Phase 2 and Phase 4 gates
+**Bead**: `phase0-cli` — Operator CLI Interface  
+**Agent**: Agent-Signal (or general polecat)  
+**Dependencies**: `phase0-signal` (uses linking)  
+**Constraint Beads**: `operator-cli.mdc`
 
-**Implementation Status**: Design complete, gates tracked for Phase 2 and Phase 4+ reviews
+#### Deliverables
 
-**Key Success Metrics**:
-- MVP: Small groups stable with fixed thresholds
-- Phase 2: Medium groups benefit from configurable min_vouch_threshold
-- Phase 4: Large/federated groups benefit from percentage-based validators
+- [ ] `src/cli/mod.rs` — CLI entry point
+- [ ] `src/cli/link_device.rs` — `stroma link-device` command
+- [ ] `src/cli/run.rs` — `stroma run` command
+- [ ] `src/cli/utils.rs` — `status`, `verify`, `backup-store`, `version`
 
-### Phase 0 Beads Issues
+#### Command Specification
 
-**Note**: Bead identifiers to be assigned by Gastown Mayor. Listed in logical implementation order.
+| Command | Purpose | Trust Operations |
+|---------|---------|------------------|
+| `stroma link-device` | Link to Signal account as secondary device | None |
+| `stroma run` | Normal operation (awaits member-initiated bootstrap) | None |
+| `stroma status` | Health check | None |
+| `stroma verify` | Config validation | None |
+| `stroma backup-store` | Export Signal store for backup | None |
+| `stroma version` | Version info | None |
 
-- [ ] Create Bead: Operator CLI interface
-  - [ ] `bd create --title "Implement operator CLI commands"`
-  - [ ] Specify: link-device command (Signal account linking)
-  - [ ] Specify: Run command (normal operation, awaits member-initiated bootstrap)
-  - [ ] Specify: Utility commands (status, verify, backup-store, version)
-  - [ ] Specify: NO trust operation commands (operator least privilege)
-  - [ ] Note: Bootstrap is member-initiated via Signal (`/create-group`, `/add-seed`)
-  - [ ] Use clap for argument parsing
-  
-- [ ] Create Bead: HMAC identity masking with zeroization
-  - [ ] `bd create --title "Implement HMAC identity masking"`
-  - [ ] Specify: HMAC-SHA256 with ACI-derived key (from Signal identity, replaces group pepper)
-  - [ ] Specify: Zeroize buffers immediately
-  - [ ] Specify: Unit tests with fixed test ACI identity
-  
-- [ ] Create Bead: Embedded Freenet kernel integration
-  - [ ] `bd create --title "Integrate embedded Freenet kernel"`
-  - [ ] Specify: Use freenet-stdlib (not external freenet-core service)
-  - [ ] Specify: Initialize kernel in-process
-  - [ ] Specify: Dark mode (anonymous routing)
-  - [ ] Specify: Single event loop for kernel + Signal
-  - [ ] Specify: Node lifecycle management
-  - [ ] Specify: Wasm contract deployment (stub)
-  - [ ] Specify: State stream monitoring (real-time)
-  
-- [ ] Create Bead: Signal bot authentication and commands
-  - [ ] `bd create --title "Implement Signal bot"`
-  - [ ] Specify: Bot registration
-  - [ ] Specify: Group management
-  - [ ] Specify: 1-on-1 PM handling
-  - [ ] Specify: Command parsing
-  
-- [ ] Create Bead: STARK circuits for vouch verification
-  - [ ] `bd create --title "Implement STARK circuits"`
-  - [ ] Specify: Circuit design
-  - [ ] Specify: Proof generation
-  - [ ] Specify: Proof verification
-  
-- [ ] Create Bead: Contract schema with federation hooks
-  - [ ] `bd create --title "Design Freenet contract schema"`
-  - [ ] Specify: TrustNetworkState struct
-  - [ ] Specify: Federation hooks (unused in MVP)
-  - [ ] Specify: GroupConfig struct
+**Critical**: Operator CLI has NO trust operation commands. Bootstrap is member-initiated via Signal (`/create-group`, `/add-seed`).
+
+#### Acceptance Criteria
+
+- [ ] All commands parse correctly (clap)
+- [ ] `link-device` produces QR code and completes linking
+- [ ] `run` starts bot and awaits Signal messages
+- [ ] `status` shows health information
+
+---
+
+### Phase 0 Cargo Dependencies
+
+**Bead**: `phase0-deps` — Cargo Configuration  
+**Agent**: Any (quick task)
+
+```toml
+[dependencies]
+# Cryptography
+ring = { version = "0.17", features = ["std"] }
+zeroize = { version = "1.7", features = ["zeroize_derive"] }
+winterfell = "0.9"
+hkdf = "0.12"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+ciborium = "0.2"  # CBOR for Freenet (NOT JSON)
+
+# Signal integration
+presage = { git = "https://github.com/whisperfish/presage" }
+
+# Freenet integration
+freenet-stdlib = { version = "0.0.7", features = ["full"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[patch.crates-io]
+curve25519-dalek = { git = 'https://github.com/signalapp/curve25519-dalek', tag = 'signal-curve25519-4.1.3' }
+libsignal-service = { git = "https://github.com/roder/libsignal-service-rs", branch = "feature/protocol-v8-polls-fixed" }
+```
+
+---
 
 ### Phase 0 Success Criteria
-- [ ] Embedded Freenet kernel runs successfully
-- [ ] STARK proof generated (< 100KB, < 10 seconds)
-- [ ] Signal bot can manage group (add/remove members)
-- [ ] HMAC masking works with immediate zeroization
-- [ ] Contract schema supports federation hooks (present but unused)
 
-## 🌱 Phase 1: Bootstrap & Core Trust (Weeks 3-4)
+Before closing `convoy-phase0`, the Mayor MUST verify ALL of the following:
 
-**Objective**: Seed group, vetting, admission, ejection
+#### HMAC Identity Masking (Agent-Crypto)
 
-### Bootstrap Module
-- [ ] Implement seed group bootstrap
-  - [ ] Manually add 3 seed members to Signal group
-  - [ ] Create initial triangle vouching (all vouch for each other)
-  - [ ] Initialize Freenet contract with 3 members
-  - [ ] Each seed member has 2 vouches
-  
-- [ ] Verify bootstrap
-  - [ ] Confirm all 3 members in Freenet state
-  - [ ] Confirm all 3 members in Signal group
-  - [ ] Confirm vouch counts are correct
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| HMAC-SHA256 with ACI-derived key | Unit test: deterministic output | Agent-Crypto |
+| Immediate zeroization | Unit test: buffer cleared after hashing | Agent-Crypto |
+| Proptest: HMAC determinism | Same input + same key = same output | Agent-Crypto |
+| Proptest: Key isolation | Different keys = different outputs | Agent-Crypto |
+| Proptest: Collision resistance | Different inputs = different outputs | Agent-Crypto |
+| Memory dump test | Intentional panic shows only hashes, no Signal IDs | Witness |
 
-### Trust Operations
-- [ ] Implement invitation flow
-  - [ ] Member sends `/invite @username [context]`
-  - [ ] Bot records invitation as first vouch
-  - [ ] Bot selects second Member via Blind Matchmaker
-  - [ ] Bot sends PMs to invitee and selected Member
-  
-- [ ] Implement vetting interview
-  - [ ] Bot creates 3-person chat (invitee, Member, bot)
-  - [ ] Bot facilitates introduction
-  - [ ] Member vouches via `/vouch @username`
-  - [ ] Bot records second vouch in Freenet
-  
-- [ ] Implement admission
-  - [ ] Bot verifies 2 vouches from different Members
-  - [ ] Bot generates ZK-proof
-  - [ ] Bot stores proof in Freenet contract
-  - [ ] Bot adds invitee to Signal group (now a Bridge)
-  - [ ] Bot announces admission
-  - [ ] Bot deletes vetting session data
-  
-- [ ] Implement flagging
-  - [ ] Member sends `/flag @username [reason]`
-  - [ ] Bot records flag in Freenet
-  - [ ] Bot recalculates: `Standing = Effective_Vouches - Regular_Flags`
-  - [ ] If voucher flags: their vouch is invalidated (excluded from BOTH counts)
-  - [ ] Bot checks ejection triggers (Standing < 0 OR Effective_Vouches < 2)
+#### STARK Circuits (Agent-Crypto)
 
-### Ejection Protocol
-- [ ] Implement ejection triggers
-  - [ ] Trigger 1: `Standing < 0` (too many flags)
-  - [ ] Trigger 2: `Vouches < min_vouch_threshold` (voucher left)
-  
-- [ ] Implement immediate ejection
-  - [ ] Bot removes member from Signal group
-  - [ ] Bot sends PM to ejected member
-  - [ ] Bot announces to group (uses hash, not name)
-  - [ ] No grace period
-  
-- [ ] Implement health monitoring
-  - [ ] Monitor Freenet state stream (real-time, not polling)
-  - [ ] Check all members' standing on state changes
-  - [ ] Trigger ejection if thresholds violated
-  - **Note**: No heartbeat mechanism (see persistence-model.bead)
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| winterfell integration compiles | Build test passes | Agent-Crypto |
+| Proof roundtrip | generate → serialize → deserialize → verify succeeds | Agent-Crypto |
+| Proof size < 100KB | Benchmark test | Agent-Crypto |
+| Proof generation < 10 seconds | Benchmark test | Agent-Crypto |
+| Proptest: Completeness | Valid inputs always produce verifiable proofs | Agent-Crypto |
+| Proptest: Soundness | Invalid inputs never produce verifiable proofs | Agent-Crypto |
 
-### Basic Commands
-- [ ] Implement `/invite @username [context]`
-  - [ ] Parse command
-  - [ ] Validate inviter is Member
-  - [ ] Record as first vouch
-  - [ ] Start vetting process
-  
-- [ ] Implement `/vouch @username`
-  - [ ] Parse command
-  - [ ] Validate voucher is Member
-  - [ ] Record vouch in Freenet
-  - [ ] Check if admission threshold met
-  
-- [ ] Implement `/flag @username [reason]`
-  - [ ] Parse command
-  - [ ] Validate flagger is Member
-  - [ ] Validate reason is provided
-  - [ ] Record flag in Freenet
-  - [ ] Check ejection triggers
-  
-- [ ] Implement `/status`
-  - [ ] Show user's own trust standing
-  - [ ] Show vouch count
-  - [ ] Show flag count
-  - [ ] Show role (Bridge/Validator)
+#### Freenet Kernel (Agent-Freenet)
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| Embedded kernel starts in-process | Integration test: no external service | Agent-Freenet |
+| Unit tests use `Executor::new_mock_in_memory()` | Code review: no real network in tests | Agent-Freenet |
+| State changes trigger stream events | Unit test: subscribe receives deltas | Agent-Freenet |
+| Contract deploys successfully | Integration test: deploy to embedded kernel | Agent-Freenet |
+| ComposableState merge is commutative | Unit test: A∪B = B∪A | Agent-Freenet |
+
+#### Contract Schema (Agent-Freenet)
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| **GAP-08**: `schema_version: u64` field present | Code review: field in TrustNetworkState | Agent-Freenet |
+| **GAP-08**: Federation hooks with `#[serde(default)]` | Code review: backward-compatible deserialization | Agent-Freenet |
+| Members as BTreeSet<Hash> | Code review: no Signal IDs | Witness |
+| Ejected set (not tombstone) | Code review: re-entry possible | Agent-Freenet |
+| CBOR serialization (not JSON) | Code review: ciborium used | Agent-Freenet |
+
+#### Signal Integration (Agent-Signal)
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| Bot links successfully | Integration test: device linking | Agent-Signal |
+| Bot manages groups | Integration test: create, add, remove | Agent-Signal |
+| Signal Polls supported (v8) | Unit test: PollCreate message builds | Agent-Signal |
+| Custom StromaProtocolStore used | Code review: NOT presage-store-sqlite | Witness |
+| No message history stored | Code review: no message persistence | Witness |
+
+#### Logging Security — GAP-07 (CRITICAL)
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| No PII logged (Signal IDs, phones, names) | `rg` audit: zero matches | Witness |
+| No trust map relationships logged | `rg` audit: zero voucher→target logs | Witness |
+| No persistence locations logged | `rg` audit: zero chunk→holder logs | Witness |
+| No federation relationships logged | `rg` audit: zero federated→group logs | Witness |
+| Compromised bot test passes | Review: logs reveal nothing sensitive | Witness |
+
+#### Security Constraints (Witness MUST Verify)
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| No cleartext Signal IDs in storage | Code review: all state uses hashes | Witness |
+| No cleartext Signal IDs in logs | Code review: GAP-07 four-layer audit | Witness |
+| No cleartext Signal IDs in output | Code review: all messages use hashes | Witness |
+| presage-store-sqlite NOT used | `rg` audit: zero imports | Witness |
+| StromaProtocolStore implemented | Code review: custom store | Agent-Signal |
+
+#### Code Coverage (CI Enforced)
+
+- [ ] 100% code coverage on `src/kernel/hmac.rs`
+- [ ] 100% code coverage on `src/crypto/*.rs`
+- [ ] 100% code coverage on `src/freenet/*.rs`
+- [ ] All proptests pass (minimum 256 cases per test)
+- [ ] `cargo clippy` passes with no warnings
+- [ ] `cargo deny check` passes (supply chain security)
+
+#### Mayor Convoy Closure Checklist
+
+```bash
+# Verify all beads complete
+bd list --convoy convoy-phase0 --status pending
+# Should return: No pending beads
+
+# Verify GAP-07 and GAP-08 complete
+gt audit --convoy convoy-phase0 --agent witness
+# Should return: All security constraints verified
+
+# Verify logging security (GAP-07 - CRITICAL)
+rg "tracing::(info|debug|warn|error)" --type rust -l | \
+  xargs -I {} sh -c 'rg "signal_id|phone|name" {} && echo "FAIL: {}"'
+# Should find zero violations
+
+# Verify test coverage
+cargo llvm-cov nextest --all-features -- --test-threads=1
+# Should return: 100% coverage on kernel, crypto, freenet modules
+
+# Verify property tests
+cargo test --release -- proptest
+# Should return: All proptests pass (256+ cases each)
+
+# Close convoy
+gt convoy close convoy-phase0 --verified
+```
+
+---
+
+## 🌱 PHASE 1: Bootstrap & Core Trust Convoy
+
+**Convoy ID**: `convoy-phase1`  
+**Duration**: Weeks 3-4  
+**Dependencies**: `convoy-phase0` complete
+
+### Mayor Delegation Commands
+
+```bash
+gt convoy create --title "Phase 1: Bootstrap & Core Trust" \
+  --depends-on convoy-phase0
+
+bd create --title "Seed group bootstrap flow" --convoy convoy-phase1
+bd create --title "Invitation & vetting flow" --convoy convoy-phase1
+bd create --title "Admission protocol with ZK-proof" --convoy convoy-phase1
+bd create --title "Ejection protocol (two triggers)" --convoy convoy-phase1
+bd create --title "Health monitoring (continuous)" --convoy convoy-phase1
+bd create --title "Basic bot commands" --convoy convoy-phase1
+```
+
+### Bead: Bootstrap Flow
+
+**Agent**: Agent-Signal + Agent-Freenet  
+**Parallelizable**: No (sequential flow)
+
+#### Bootstrap Sequence (Member-Initiated)
+
+1. First member sends `/create-group "Group Name"` to bot via PM
+2. Bot creates Signal group, adds first member
+3. First member invites 2 seed members via `/add-seed @username`
+4. All 3 seeds vouch for each other (triangle vouching)
+5. Initialize Freenet contract with 3 members
+6. Each seed member has 2 vouches (Bridge status)
+
+**Note**: Bootstrap is ONE-TIME. After 3 seeds, normal invite/vouch flow applies.
+
+#### Deliverables
+
+- [ ] `src/gatekeeper/bootstrap.rs` — Bootstrap state machine
+- [ ] Handle `/create-group` command
+- [ ] Handle `/add-seed` command (only during bootstrap)
+- [ ] Create initial Freenet contract state
+- [ ] `BootstrapEvent` recorded in Freenet contract (GAP-09)
+
+#### Acceptance Criteria (GAP-05, GAP-09)
+
+- [ ] Group name is REQUIRED (non-empty string validation)
+- [ ] Group name stored in Freenet contract `group_name` field
+- [ ] Signal group name matches Freenet contract name
+- [ ] `/audit bootstrap` command shows bootstrap event details
+- [ ] All bot messages include group name (not "this group")
+
+---
+
+### Bead: Trust Operations
+
+**Agent**: Agent-Signal + Agent-Crypto  
+**Dependencies**: `phase0-hmac` (identity masking), `phase0-stark` (ZK-proof generation)
+
+**Cryptographic Operations (delegated to Agent-Crypto beads):**
+- **Identity Masking**: All Signal IDs hashed via `mask_identity()` from `phase0-hmac`
+- **ZK-Proof Generation**: Admission proofs via `generate_vouch_proof()` from `phase0-stark`
+- **Property-based tests for crypto**: Covered by `phase0-hmac` and `phase0-stark` beads
+
+#### Invitation Flow
+
+- [ ] Member sends `/invite @username [context]`
+- [ ] Bot records invitation as first vouch (context is EPHEMERAL)
+- [ ] **GAP-10**: Bot warns inviter if invitee has previous flags (re-entry scenario)
+  - Example: "⚠️ @Alice has 3 previous flags. They'll need 4+ vouches to achieve positive standing."
+- [ ] Bot selects second Member via Blind Matchmaker
+- [ ] Bot sends PMs to invitee and selected Member
+
+#### Vetting Interview
+
+- [ ] Bot creates 3-person chat (invitee, Member, bot)
+- [ ] Bot facilitates introduction
+- [ ] Member vouches via `/vouch @username`
+- [ ] Bot records second vouch in Freenet
+
+#### Admission
+
+- [ ] Bot verifies 2 vouches from different CLUSTERS
+- [ ] Exception: Bootstrap phase (only 1 cluster) — same-cluster allowed
+- [ ] Bot generates ZK-proof of admission criteria (uses `phase0-stark`)
+- [ ] Bot stores outcome (not proof) in Freenet contract (Q6 decision)
+- [ ] Bot adds invitee to Signal group (now a Bridge)
+- [ ] Bot announces admission (using hash from `phase0-hmac`, not Signal ID)
+- [ ] Bot deletes vetting session data immediately
+
+#### Flagging
+
+- [ ] Member sends `/flag @username [reason]`
+- [ ] Bot records flag in Freenet
+- [ ] Bot recalculates: `Standing = Effective_Vouches - Regular_Flags`
+- [ ] If voucher flags: their vouch is invalidated (excluded from BOTH counts)
+- [ ] Bot checks ejection triggers
+
+#### Acceptance Criteria
+
+**Signal Flow (Agent-Signal):**
+- [ ] Invitation creates vetting session
+- [ ] Vetting interview uses 3-person PM chat
+- [ ] Session data deleted after admission or rejection
+
+**Cryptographic Integration (Agent-Crypto via delegated beads):**
+- [ ] All Signal IDs masked via `mask_identity()` before storage
+- [ ] ZK-proof generated via `generate_vouch_proof()` on admission
+- [ ] Proof covers: voucher hashes, cluster membership assertions
+- [ ] Property-based tests pass in `phase0-hmac` and `phase0-stark` beads
+
+**Trust Formula:**
+- [ ] Standing calculation: `Standing = Effective_Vouches - Regular_Flags`
+- [ ] Voucher-flags excluded from BOTH counts (no 2-point swing)
+- [ ] Property-based tests (proptest) covering:
+  - [ ] Standing always equals effective vouches minus flags
+  - [ ] Voucher-flagging never produces 2-point swing
+  - [ ] Standing bounds: `min ≤ standing ≤ max_vouches`
+
+#### Test Cases
+
+```rust
+proptest! {
+    #[test]
+    fn standing_formula_correct(
+        vouches: HashSet<Hash>,
+        flags: HashSet<Hash>,
+    ) {
+        // Given: Set of vouchers and flaggers
+        let voucher_flaggers: HashSet<Hash> = vouches.intersection(&flags).cloned().collect();
+        
+        let effective_vouches = vouches.len() - voucher_flaggers.len();
+        let regular_flags = flags.len() - voucher_flaggers.len();
+        
+        let standing = compute_standing(&vouches, &flags);
+        
+        // Standing = Effective_Vouches - Regular_Flags
+        prop_assert_eq!(standing, effective_vouches as i32 - regular_flags as i32);
+    }
+    
+    #[test]
+    fn voucher_flag_no_double_swing(
+        initial_vouches: HashSet<Hash>,
+        initial_flags: HashSet<Hash>,
+        voucher_who_flags: Hash,
+    ) {
+        prop_assume!(initial_vouches.contains(&voucher_who_flags));
+        prop_assume!(!initial_flags.contains(&voucher_who_flags));
+        
+        let standing_before = compute_standing(&initial_vouches, &initial_flags);
+        
+        // Voucher adds flag
+        let mut new_flags = initial_flags.clone();
+        new_flags.insert(voucher_who_flags);
+        
+        let standing_after = compute_standing(&initial_vouches, &new_flags);
+        
+        // Swing is exactly 0 (voucher excluded from both counts)
+        let swing = standing_before - standing_after;
+        prop_assert_eq!(swing, 0, "Voucher-flag should produce 0 swing, got {}", swing);
+    }
+    
+    #[test]
+    fn standing_bounded(
+        vouches: HashSet<Hash>,
+        flags: HashSet<Hash>,
+    ) {
+        let standing = compute_standing(&vouches, &flags);
+        let max_positive = vouches.len() as i32;
+        let max_negative = -(flags.len() as i32);
+        
+        prop_assert!(standing <= max_positive);
+        prop_assert!(standing >= max_negative);
+    }
+}
+```
+
+---
+
+### Bead: Ejection Protocol
+
+**Agent**: Agent-Signal + Agent-Freenet
+
+#### Two Independent Ejection Triggers
+
+| Trigger | Condition | Action |
+|---------|-----------|--------|
+| Standing violation | `Standing < 0` | Immediate ejection |
+| Vouch violation | `Effective_Vouches < min_vouch_threshold` | Immediate ejection |
+
+**Critical**: NO GRACE PERIODS. Ejection is immediate.
+
+#### Deliverables
+
+- [ ] `src/gatekeeper/ejection.rs` — Ejection logic
+- [ ] `src/signal/retry.rs` — Signal API retry with logarithmic backoff (GAP-06)
+- [ ] Remove member from Signal group
+- [ ] Send PM to ejected member (using hash)
+- [ ] Announce to group (using hash, not name)
+- [ ] Move member to `ejected` set (can re-enter with new vouches)
+
+#### Acceptance Criteria (GAP-06)
+
+- [ ] Signal API failures retry with logarithmic backoff (2^n seconds, capped at 1 hour)
+- [ ] Invariant enforced: `signal_state.members ⊆ freenet_state.members` (Signal may lag, never lead)
+- [ ] Test: Transient Signal failures don't leave stale members in group
+
+---
+
+### Bead: Health Monitoring
+
+**Agent**: Agent-Freenet
+
+#### Deliverables
+
+- [ ] `src/gatekeeper/health_monitor.rs` — Continuous standing checks
+- [ ] Monitor Freenet state stream (real-time, NOT polling)
+- [ ] Check all members' standing on state changes
+- [ ] Trigger ejection if thresholds violated
+
+**Note**: No heartbeat mechanism. Use Freenet state stream events.
+
+---
+
+### Basic Bot Commands
+
+| Command | Deliverable | Agent |
+|---------|-------------|-------|
+| `/invite @username [context]` | `src/signal/commands/invite.rs` | Agent-Signal |
+| `/vouch @username` | `src/signal/commands/vouch.rs` | Agent-Signal |
+| `/flag @username [reason]` | `src/signal/commands/flag.rs` | Agent-Signal |
+| `/status` | `src/signal/commands/status.rs` | Agent-Signal |
+| `/audit operator` | `src/signal/commands/audit.rs` | Agent-Signal |
+| `/audit bootstrap` | `src/signal/commands/audit.rs` | Agent-Signal |
+
+#### Additional Deliverables (Gap Remediations)
+
+- [ ] `src/gatekeeper/rate_limiter.rs` — Progressive cooldown for trust actions (GAP-03)
+  - First action: immediate, Second: 1 min, Third: 5 min, Fourth: 1 hour, Fifth+: 24 hours
+- [ ] `src/gatekeeper/audit_trail.rs` — Operator action logging (GAP-01)
+
+#### `/status` Command Acceptance Criteria (GAP-04)
+
+- [ ] Shows user's own vouchers (by Signal display name, resolved at display time)
+- [ ] Shows user's own flaggers (by Signal display name)
+- [ ] Rejects queries about other members' relationships: `❌ Cannot view other members' vouchers`
+- [ ] Hash→name resolution is ephemeral (never persisted by bot)
+
+---
 
 ### Phase 1 Success Criteria
-- [ ] 3-member seed group bootstrapped successfully
-- [ ] New member admitted after 2 vouches (ZK-proof verified)
-- [ ] Member ejected when `Standing < 0`
-- [ ] Member ejected when `Effective_Vouches < 2` (includes voucher-flagger invalidation)
-- [ ] Vouch invalidation works correctly (voucher who flags = vouch invalidated)
-- [ ] All vetting in 1-on-1 PMs (no group chat exposure)
-- [ ] No cleartext Signal IDs stored anywhere
+
+Before closing `convoy-phase1`, the Mayor MUST verify ALL of the following:
+
+#### Bootstrap Flow — Agent-Signal + Agent-Freenet
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| 3-member seed group bootstrapped | Integration test: `/create-group` → `/add-seed` × 2 → triangle vouching | Agent-Signal |
+| Group name required and stored | Unit test: empty name rejected, name in Freenet contract | Agent-Signal |
+| **GAP-05**: Signal group name matches Freenet | Unit test: `signal_group_name == freenet_contract.group_name` | Agent-Signal |
+| **GAP-09**: Bootstrap event recorded | Unit test: `/audit bootstrap` shows event details | Agent-Freenet |
+| Bootstrap is ONE-TIME | Unit test: `/add-seed` rejected after 3 seeds | Agent-Signal |
+| All seeds have Bridge status (2 vouches) | Unit test: each seed has exactly 2 vouches after bootstrap | Agent-Freenet |
+
+#### Trust Operations: Invitation Flow — Agent-Signal + Agent-Crypto
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| `/invite` creates first vouch | Unit test: invitation recorded as vouch in Freenet | Agent-Signal |
+| Context is EPHEMERAL | Code review: context never stored in Freenet contract | Witness |
+| **GAP-10**: Re-entry warning shown | Unit test: invitee with previous flags gets warning message | Agent-Signal |
+| Second member selected via Blind Matchmaker | Unit test: matchmaker suggests cross-cluster member | Agent-Freenet |
+| PMs sent to invitee and vetter | Integration test: both receive PM from bot | Agent-Signal |
+
+#### Trust Operations: Vetting Interview — Agent-Signal
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| 3-person PM chat created | Integration test: invitee, member, bot in private chat | Agent-Signal |
+| Bot facilitates introduction | Unit test: introduction message sent to vetting chat | Agent-Signal |
+| `/vouch` records second vouch | Unit test: vouch stored in Freenet contract | Agent-Signal |
+| All vetting in PMs (never group) | Code review: vetting messages only sent to PM chats | Witness |
+
+#### Trust Operations: Admission — Agent-Signal + Agent-Crypto
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| 2 vouches required from different CLUSTERS | Unit test: same-cluster vouches rejected (when ≥2 clusters) | Agent-Freenet |
+| Cross-cluster suspended during bootstrap | Unit test: same-cluster allowed when only 1 cluster exists | Agent-Freenet |
+| Cross-cluster activates at ≥2 clusters | Unit test: Bridge Removal triggers cross-cluster requirement | Agent-Freenet |
+| ZK-proof generated on admission | Unit test: `generate_vouch_proof()` called with correct inputs | Agent-Crypto |
+| Outcome (not proof) stored in Freenet | Code review: proof discarded, only admission outcome stored | Witness |
+| Invitee added to Signal group | Integration test: member appears in group after admission | Agent-Signal |
+| Admission announced using HASH | Unit test: announcement contains hash, not Signal ID | Agent-Signal |
+| Vetting session data deleted immediately | Unit test: session data purged after admission/rejection | Agent-Signal |
+
+#### Trust Operations: Flagging — Agent-Signal + Agent-Freenet
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| `/flag` records flag in Freenet | Unit test: flag stored with flagger hash and flaggee hash | Agent-Signal |
+| Standing recalculated | Unit test: `Standing = Effective_Vouches - Regular_Flags` | Agent-Freenet |
+| Voucher-flag invalidates vouch | Unit test: voucher who flags excluded from BOTH counts | Agent-Freenet |
+| **No 2-point swing** | Proptest: voucher-flagging produces exactly 0 standing change | Agent-Freenet |
+| Ejection triggers checked | Unit test: ejection evaluated after every flag | Agent-Freenet |
+
+#### Trust Operations: Standing Formula — Agent-Freenet (CRITICAL)
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| Formula: `Standing = Effective_Vouches - Regular_Flags` | Proptest: formula holds for all input combinations | Agent-Freenet |
+| Voucher-flaggers excluded from BOTH counts | Proptest: voucher who flags contributes 0 to standing | Agent-Freenet |
+| Standing bounded correctly | Proptest: `min ≤ standing ≤ max_vouches` | Agent-Freenet |
+| Standing recalculated on every change | Unit test: vouch, flag, vouch-invalidation all trigger recalc | Agent-Freenet |
+
+#### Ejection Protocol — Agent-Signal + Agent-Freenet
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| Ejection when `Standing < 0` | Unit test: member with -1 standing immediately ejected | Agent-Freenet |
+| Ejection when `Effective_Vouches < 2` | Unit test: member losing vouches below threshold ejected | Agent-Freenet |
+| **NO GRACE PERIODS** | Code review: no delays, warnings, or cooldowns before ejection | Witness |
+| Immediate execution | Unit test: ejection happens in same event loop as trigger | Agent-Freenet |
+| Removed from Signal group | Integration test: member removed via Signal API | Agent-Signal |
+| PM sent to ejected member | Unit test: ejection notification sent to member PM | Agent-Signal |
+| Announcement uses HASH | Unit test: group announcement contains hash, not Signal ID | Agent-Signal |
+| Moved to `ejected` set | Unit test: member in `ejected` set, can re-enter with new vouches | Agent-Freenet |
+| **GAP-06**: Retry with logarithmic backoff | Unit test: Signal API failures retry 2^n seconds, capped at 1h | Agent-Signal |
+| Invariant: Signal ⊆ Freenet | Unit test: `signal_members ⊆ freenet_members` always | Agent-Signal |
+
+#### Health Monitoring — Agent-Freenet
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| Real-time Freenet state stream | Code review: no polling loops, uses `subscribe_to_state_changes()` | Witness |
+| Standing checked on every change | Unit test: vouch/flag/ejection triggers standing check for all members | Agent-Freenet |
+| Ejection triggered when threshold violated | Integration test: flag causing `Standing < 0` triggers ejection | Agent-Freenet |
+| No heartbeat mechanism | Code review: no periodic health checks | Witness |
+
+#### Bot Commands — Agent-Signal
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| `/invite @username [context]` works | Integration test: creates vetting session | Agent-Signal |
+| `/vouch @username` works | Integration test: records vouch in Freenet | Agent-Signal |
+| `/flag @username [reason]` works | Integration test: records flag, triggers standing recalc | Agent-Signal |
+| `/status` shows own vouchers only | Unit test: displays own relationships, rejects queries about others | Agent-Signal |
+| **GAP-04**: Third-party query rejected | Unit test: `❌ Cannot view other members' vouchers` | Agent-Signal |
+| `/audit operator` works | Unit test: shows operator action log | Agent-Signal |
+| `/audit bootstrap` works | Unit test: shows bootstrap event details (GAP-09) | Agent-Signal |
+| **GAP-03**: Rate limiting enforced | Unit test: progressive cooldown (immediate → 1m → 5m → 1h → 24h) | Agent-Signal |
+| **GAP-01**: Operator actions logged | Unit test: all operator actions in audit trail | Agent-Freenet |
+
+#### Security Constraints (Witness MUST Verify)
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| No cleartext Signal IDs in storage | Code review: all Freenet state uses hashes | Witness |
+| No cleartext Signal IDs in logs | Code review: logging uses hashes or masked IDs | Witness |
+| All Signal IDs masked via `mask_identity()` | Code review: HMAC hashing before any storage | Witness |
+| Vetting session data deleted | Code review: session purged after admission/rejection | Witness |
+| Context never persisted | Code review: invitation context is ephemeral | Witness |
+| Hash→name resolution ephemeral | Code review: display name lookups never persisted | Witness |
+| ZK-proof discarded after verification | Code review: only outcome stored, not proof | Witness |
+
+#### Property-Based Tests (REQUIRED)
+
+| Criterion | Proptest Coverage | Agent |
+|-----------|-------------------|-------|
+| Standing formula correct | `Standing = Effective_Vouches - Regular_Flags` for all inputs | Agent-Freenet |
+| Voucher-flag 0 swing | Voucher who flags produces exactly 0 standing change | Agent-Freenet |
+| Standing bounded | `min ≤ standing ≤ max_vouches` for all combinations | Agent-Freenet |
+| HMAC determinism | Same input + same key = same output (from phase0-hmac) | Agent-Crypto |
+| HMAC key isolation | Different keys produce different outputs (from phase0-hmac) | Agent-Crypto |
+
+#### Code Coverage (CI Enforced)
+
+- [ ] 100% code coverage on `src/gatekeeper/*.rs`
+- [ ] 100% code coverage on `src/signal/commands/*.rs`
+- [ ] 100% code coverage on `src/trust/*.rs` (if exists)
+- [ ] All proptests pass (minimum 256 cases per test)
+- [ ] `cargo clippy` passes with no warnings
+- [ ] `cargo deny check` passes (supply chain security)
+
+#### Integration Test Scenarios
+
+**Gastown MUST run these scenarios before closing convoy:**
+
+```bash
+# 1. Bootstrap Flow
+gt test:integration --scenario bootstrap
+
+# Scenario steps:
+# a) First member sends /create-group "Test Group"
+# b) Verify: Signal group created with name "Test Group"
+# c) First member sends /add-seed @Alice
+# d) First member sends /add-seed @Bob
+# e) All 3 seeds vouch for each other (triangle)
+# f) Verify: Freenet contract initialized with 3 members
+# g) Verify: Each seed has exactly 2 vouches (Bridge status)
+# h) Verify: /add-seed rejected (bootstrap complete)
+
+# 2. Trust Operations: Full Admission Flow
+gt test:integration --scenario admission-flow
+
+# Scenario steps:
+# a) Member sends /invite @Carol "Met at conference"
+# b) Verify: First vouch recorded, context NOT in Freenet
+# c) Verify: Blind Matchmaker selects second vetter
+# d) Verify: 3-person vetting chat created (Carol, vetter, bot)
+# e) Vetter sends /vouch @Carol
+# f) Verify: Cross-cluster check (bootstrap: same-cluster allowed)
+# g) Verify: ZK-proof generated
+# h) Verify: Carol added to Signal group
+# i) Verify: Announcement uses hash, not "Carol"
+# j) Verify: Vetting session data deleted
+
+# 3. Trust Operations: Standing and Ejection
+gt test:integration --scenario standing-ejection
+
+# Scenario steps:
+# a) Create member with standing +2 (3 vouches, 1 flag)
+# b) Add another flag → standing = +1
+# c) Verify: No ejection (standing ≥ 0)
+# d) Add another flag → standing = 0
+# e) Verify: No ejection (standing ≥ 0)
+# f) Add another flag → standing = -1
+# g) Verify: IMMEDIATE ejection (no grace period)
+# h) Verify: Member in ejected set, removed from Signal group
+
+# 4. Trust Operations: Vouch Invalidation (No 2-Point Swing)
+gt test:integration --scenario vouch-invalidation
+
+# Scenario steps:
+# a) Alice vouches for Bob (Bob standing: +1 vouch)
+# b) Carol flags Bob (Bob standing: 1 vouch - 1 flag = 0)
+# c) Alice flags Bob (voucher-flagging)
+# d) Verify: Alice's vouch INVALIDATED
+# e) Verify: Alice's flag EXCLUDED
+# f) Verify: Bob's standing = 0 (not -1, no 2-point swing)
+# g) Carol removes flag → Bob standing = 0 (still no Alice vouch)
+
+# 5. Re-entry with Previous Flags (GAP-10)
+gt test:integration --scenario re-entry-warning
+
+# Scenario steps:
+# a) Member ejected with 3 flags
+# b) New member invites ejected person
+# c) Verify: Warning shown to inviter about previous flags
+# d) Verify: Re-entry requires 4+ vouches for positive standing
+```
+
+#### Mayor Convoy Closure Checklist
+
+```bash
+# Verify all beads complete
+bd list --convoy convoy-phase1 --status pending
+# Should return: No pending beads
+
+# Verify all GAPs integrated
+bd show gap-01  # Operator logging - should be complete
+bd show gap-03  # Rate limiting - should be complete
+bd show gap-04  # Status privacy - should be complete
+bd show gap-05  # Group name - should be complete
+bd show gap-06  # Signal retry - should be complete
+bd show gap-09  # Bootstrap audit - should be complete
+bd show gap-10  # Re-entry warning - should be complete
+
+# Verify security audit
+gt audit --convoy convoy-phase1 --agent witness
+# Should return: All security constraints verified
+
+# Verify test coverage
+cargo llvm-cov nextest --all-features -- --test-threads=1
+# Should return: 100% coverage on gatekeeper, signal/commands modules
+
+# Verify property tests
+cargo test --release -- proptest
+# Should return: All proptests pass (256+ cases each)
+
+# Verify documentation
+ls docs/USER-GUIDE.md docs/OPERATOR-GUIDE.md
+# Should exist and be updated with Phase 1 commands
+
+# Close convoy
+gt convoy close convoy-phase1 --verified
+```
 
 ---
 
-## 🚪 PHASE 2 GATE: Medium Group Decisions (Before Weeks 5-6)
+## 🎯 PHASE 2: Mesh Optimization Convoy
 
-**Trigger Condition**: Operator feedback indicates stable 30-50 member groups
+**Convoy ID**: `convoy-phase2`  
+**Duration**: Weeks 5-6  
+**Dependencies**: `convoy-phase1` complete
 
-**Decision Point**:
-- [ ] Review Phase 2 Gate Questions (see `docs/VALIDATOR-THRESHOLD-STRATEGY.md`)
-  - Do small groups naturally reach 30-50 members?
-  - What percentage become Validators at current fixed threshold?
-  - Do operators request min_vouch_threshold changes?
-  - Are there observed downsides to fixed thresholds?
+### Mayor Delegation Commands
 
-**If Phase 2 Gate Opens (YES, need configurability)**:
-- [ ] Implement configurable `min_vouch_threshold`
-  - [ ] Add to GroupConfig (range 2-4)
-  - [ ] Add `/propose stroma min_vouch_threshold` command
-  - [ ] Require quorum met AND config_change_threshold consensus
-  - [ ] Cannot retroactively eject (new threshold only)
+```bash
+gt convoy create --title "Phase 2: Mesh Optimization" \
+  --depends-on convoy-phase1
 
-**If Phase 2 Gate Remains Closed (NO, fixed thresholds sufficient)**:
-- [ ] Continue with fixed Bridge=2, Validator=3+
-- [ ] Revisit gate during Phase 3 or before Phase 4
+bd create --title "DVR calculation and health tiers" --convoy convoy-phase2
+bd create --title "Bridge Removal cluster detection" --convoy convoy-phase2
+bd create --title "Blind Matchmaker strategic introductions" --convoy convoy-phase2
+bd create --title "Advanced /mesh commands" --convoy convoy-phase2
+bd create --title "Proposal system (/propose)" --convoy convoy-phase2
+```
+
+### Bead: DVR (Distinct Validator Ratio)
+
+**Agent**: Agent-Freenet  
+**Reference**: `.beads/mesh-health-metric.bead`, `.beads/blind-matchmaker-dvr.bead`
+
+#### Formula
+
+```
+DVR = Distinct_Validators / (N / 4)
+
+Where:
+- Distinct_Validators = Validators with non-overlapping voucher sets
+- N = Total member count
+```
+
+#### Three-Tier Health Status
+
+| Status | DVR Range | Color | Bot Behavior |
+|--------|-----------|-------|--------------|
+| **Unhealthy** | 0% - 33% | 🔴 | Actively suggest introductions |
+| **Developing** | 33% - 66% | 🟡 | Opportunistic suggestions |
+| **Healthy** | 66% - 100% | 🟢 | Maintenance mode |
+
+#### Deliverables
+
+- [ ] `src/matchmaker/dvr.rs` — DVR calculation
+- [ ] `src/matchmaker/cluster_detection.rs` — Bridge Removal algorithm (Q3)
+- [ ] Integration with `/mesh` command display
+- [ ] **GAP-11**: Cluster formation announcement when ≥2 clusters detected
+
+#### Acceptance Criteria (GAP-11)
+
+- [ ] Cluster formation detected via Bridge Removal algorithm
+- [ ] Group announcement when cross-cluster requirement activates:
+  > "📊 Network update: Your group now has distinct sub-communities! Cross-cluster vouching is now required for new members. Existing members are grandfathered."
+- [ ] Grandfathering: existing members NOT required to get new vouches
+- [ ] Run cluster detection on every membership change (<1ms per Q3)
 
 ---
 
-## 🎯 Phase 2: Proposals & Mesh Optimization (Weeks 5-6)
+### Bead: Blind Matchmaker (DVR-Optimized)
 
-**Objective**: Proposal voting system, graph analysis, strategic introductions, MST
+**Agent**: Agent-Freenet  
+**Reference**: `.beads/blind-matchmaker-dvr.bead`, `.beads/mesh-health-metric.bead`, `docs/ALGORITHMS.md`  
+**Dependencies**: Cluster Detection (Bridge Removal algorithm from Q3)
 
-### Blind Matchmaker
-- [ ] Implement graph topology analysis
-  - [ ] Build trust graph from Freenet state
-  - [ ] Identify Bridges (2 vouches)
-  - [ ] Identify Validators (3+ vouches)
-  - [ ] Calculate vouch distribution
-  
-- [ ] Implement cluster identification
-  - [ ] Detect internal clusters (sub-communities)
-  - [ ] Find disconnected islands
-  - [ ] Calculate cluster sizes
-  
-- [ ] Implement strategic introduction suggestions
-  - [ ] Priority 1: Connect Bridges to Validators (different clusters)
-  - [ ] Priority 2: Connect Validators across islands
-  - [ ] Generate introduction recommendations
-  
-- [ ] Implement MST optimization
-  - [ ] Calculate minimum new interactions needed
-  - [ ] Suggest strategic introductions to Members
-  - [ ] Track introduction acceptance rate
+#### Overview
 
-### Advanced Commands
-- [ ] Implement `/mesh` (network overview)
-  - [ ] Show total member count
-  - [ ] Show mesh density percentage
-  - [ ] Show federation status (if any)
-  - [ ] Show user's position in network
-  
-- [ ] Implement `/mesh strength` (histogram)
-  - [ ] Calculate mesh density: `(Actual Vouches / Max Possible) × 100`
-  - [ ] Generate histogram of vouch distribution
-  - [ ] Show Bridges count (2 vouches)
-  - [ ] Show Validators count (3+ vouches)
-  - [ ] Show ASCII visualization
-  
-- [ ] Implement `/mesh config` (configuration view)
-  - [ ] Show `group_name`
-  - [ ] Show `config_change_threshold` (% of votes to pass)
-  - [ ] Show `min_quorum` (% of members who must vote)
-  - [ ] Show `default_poll_timeout`
-  - [ ] Show `min_intersection_density`
-  - [ ] Show `validator_percentile`
-  - [ ] Show `min_vouch_threshold`
-  
-### Proposal System (`/propose`)
+The Blind Matchmaker suggests strategic introductions to optimize network resilience. It uses a hybrid algorithm:
+- **Phase 0**: DVR Optimization — create distinct Validators with non-overlapping voucher sets
+- **Phase 1**: MST Fallback — strengthen remaining Bridges with any cross-cluster vouch
+- **Phase 2**: Connect Clusters — bridge disconnected components
 
-- [ ] Implement `/propose` command parser
-  - [ ] Parse subcommand: config, stroma, federate
-  - [ ] Parse arguments and options
-  - [ ] Parse `--timeout` flag (defaults to `GroupConfig.default_poll_timeout` if not specified)
-  - [ ] Validate parameters
-  
-- [ ] Implement `config` subcommand (Signal group settings)
-  - [ ] `/propose config name "New Name"`
-  - [ ] `/propose config description "..."`
-  - [ ] `/propose config disappearing_messages 24h`
-  - [ ] Validate Signal setting keys
-  
-- [ ] Implement `stroma` subcommand (Stroma trust config)
-  - [ ] `/propose stroma min_vouch_threshold 3`
-  - [ ] `/propose stroma config_change_threshold 0.80`
-  - [ ] `/propose stroma min_quorum 0.50`
-  - [ ] `/propose stroma default_poll_timeout 72h`
-  - [ ] Validate Stroma config keys
-  
-- [ ] Implement `federate` subcommand (Phase 3+ only)
-  - [ ] `/propose federate <group-id> --timeout 96h`
-  - [ ] Validate group ID format
-  - [ ] Placeholder for federation logic
+**Key Constraint**: Bot knows only topology (vouch counts, clusters), NOT relationship content.
 
-- [ ] Implement proposal creation
-  - [ ] Create Proposal struct in Freenet contract
-  - [ ] Store proposal with timeout (REQUIRED), threshold, quorum, action
-  - [ ] Create Signal Poll for voting
-  - [ ] Poll options: "👍 Approve", "👎 Reject"
-  
-- [ ] Implement poll monitoring
-  - [ ] Use Freenet state stream for proposal expiry events (NOT polling with sleep loops)
-  - [ ] React to `StateChange::ProposalExpired` events immediately
-  - [ ] Fetch aggregated poll results from Signal
-  - [ ] Calculate approval ratio
-  - [ ] Mark proposal as checked (never check again)
-  
-- [ ] Implement automatic execution
-  - [ ] If approved: execute action (update config, etc.)
-  - [ ] Record result in Freenet contract
-  - [ ] Announce result to group
-  - [ ] Log execution in audit trail
-  
-- [ ] Verify anonymity
-  - [ ] Confirm bot receives only vote counts (not individuals)
-  - [ ] Verify no individual votes stored
-  - [ ] Test with multiple voters
+#### Deliverables
 
-### Operator Audit
-- [ ] Implement `/audit operator` command
-  - [ ] Show operator action history (last 30 days)
-  - [ ] Show action types (ServiceStart, ServiceRestart)
-  - [ ] Show timestamps
-  - [ ] Note: No manual operations logged (bot is automatic)
+- [ ] `src/matchmaker/mod.rs` — Module exports
+- [ ] `src/matchmaker/graph_analysis.rs` — Topology analysis
+  - [ ] `TrustGraph` struct using `petgraph::Graph`
+  - [ ] `find_bridges()` — Tarjan's algorithm for articulation edges
+  - [ ] `detect_clusters()` — Bridge Removal for tight cluster detection
+  - [ ] `compute_betweenness_centrality()` — Brandes' algorithm
+  - [ ] `classify_members()` — Bridge (2 vouches) vs Validator (3+ vouches)
+- [ ] `src/matchmaker/dvr.rs` — Distinct Validator Ratio calculation
+  - [ ] `count_distinct_validators()` — Greedy selection with voucher-set disjointness
+  - [ ] `calculate_dvr()` — DVR = Distinct / floor(N/4)
+  - [ ] `health_status()` — 🔴 <33%, 🟡 33-66%, 🟢 >66%
+- [ ] `src/matchmaker/strategic_intro.rs` — Introduction suggestions
+  - [ ] `suggest_dvr_optimal_introductions()` — Phase 0 (priority 0)
+  - [ ] `suggest_mst_fallback()` — Phase 1 (priority 1)
+  - [ ] `link_clusters()` — Phase 2 (priority 2)
+  - [ ] `find_unused_cross_cluster_voucher()` — Helper for DVR optimization
+- [ ] `src/matchmaker/display.rs` — User-facing messages
+  - [ ] Use Signal display names (NOT hashes) in suggestions
+  - [ ] Maintain transient in-memory mapping (Signal ID → hash)
+  - [ ] Graceful fallback if display name not cached
+
+#### Algorithm Summary
+
+```rust
+// Phase 0: DVR Optimization (priority 0)
+// Find introductions that create DISTINCT Validators (non-overlapping voucher sets)
+for bridge in bridges {
+    if let Some(voucher) = find_unused_cross_cluster_voucher(bridge, &used_vouchers, graph) {
+        introductions.push(Introduction {
+            person_a: bridge,
+            person_b: voucher,
+            reason: "Create distinct Validator (DVR optimization)",
+            priority: 0,
+            dvr_optimal: true,
+        });
+        used_vouchers.extend(bridge_vouchers);
+        used_vouchers.insert(voucher);
+    }
+}
+
+// Phase 1: MST Fallback (priority 1)
+// For remaining bridges, use ANY cross-cluster Validator
+for bridge in remaining_bridges {
+    if let Some(voucher) = find_any_cross_cluster_validator(bridge, graph) {
+        introductions.push(Introduction { ..., priority: 1, dvr_optimal: false });
+    }
+}
+
+// Phase 2: Connect Clusters (priority 2)
+// Bridge disconnected clusters via highest-centrality validators
+```
+
+#### Bot Behavior by Health Status
+
+| Health | DVR Range | Bot Behavior |
+|--------|-----------|--------------|
+| 🔴 Unhealthy | 0-33% | **Aggressively** suggest DVR-optimal introductions |
+| 🟡 Developing | 33-66% | Suggest DVR-optimal when convenient |
+| 🟢 Healthy | 66-100% | Maintenance mode (MST suggestions only) |
+
+#### UX Messages
+
+**DVR-optimal suggestion** (Phase 0):
+```
+"🔗 Strategic Introduction: I've identified @Alex as an ideal
+connection for you. Vouching for them would strengthen the network's
+distributed trust (they'd become independently verified).
+
+Would you like me to facilitate an introduction?"
+```
+
+**MST fallback suggestion** (Phase 1):
+```
+"🔗 Suggestion: Consider connecting with @Jordan from a different
+part of the network. This would strengthen your position and improve
+network connectivity."
+```
+
+#### Performance Targets
+
+| Network Size | Target Latency |
+|-------------|----------------|
+| 20 members | < 10ms |
+| 100 members | < 50ms |
+| 500 members | < 200ms |
+| 1000 members | < 500ms |
+
+**Complexity**: O(N × E) dominated by betweenness centrality calculation
+
+#### Security Constraints
+
+- [ ] **No cleartext Signal IDs** in logs, persistent storage, or output
+- [ ] **Transient mapping only** — Signal ID → hash mapping is in-memory, not persisted
+- [ ] **Mapping reconstructs on restart** — rebuilt as members interact
+- [ ] **Hash-only in Freenet** — all stored state uses hashed identifiers
+- [ ] **Display names resolved ephemerally** — from Signal API, never persisted
+
+#### Acceptance Criteria
+
+- [ ] `detect_clusters()` correctly identifies tight clusters using Bridge Removal
+- [ ] `count_distinct_validators()` finds maximum set of Validators with disjoint voucher sets
+- [ ] DVR calculation matches manual calculation for test cases
+- [ ] Phase 0 prioritizes DVR-optimal introductions over Phase 1
+- [ ] Phase 1 accepts any cross-cluster vouch (no DVR constraint)
+- [ ] Phase 2 connects disconnected clusters
+- [ ] Suggestions use Signal display names, not hashes
+- [ ] Performance meets targets for all network sizes
+- [ ] 100% test coverage with proptest for graph properties
+- [ ] All tests use `MockFreenetClient` (no real network calls)
+
+#### Test Cases
+
+```rust
+#[test]
+fn test_dvr_distinct_validators() {
+    // V1 vouched by {A, B, C}, V2 vouched by {D, E, F} → both distinct
+    // V3 vouched by {A, G, H} → NOT distinct (shares A with V1)
+}
+
+#[test]
+fn test_bridge_removal_clusters() {
+    // Two tight clusters connected by single edge
+    // Should detect 2 clusters, not 1
+}
+
+#[test]
+fn test_dvr_optimal_prioritized() {
+    // Given choice between DVR-optimal and non-optimal vouch
+    // Should suggest DVR-optimal first
+}
+
+proptest! {
+    #[test]
+    fn dvr_never_exceeds_one(graph in arbitrary_trust_graph()) {
+        let dvr = calculate_dvr(&graph);
+        assert!(dvr <= 1.0);
+    }
+    
+    #[test]
+    fn distinct_validators_have_disjoint_sets(graph in arbitrary_trust_graph()) {
+        let distinct = get_distinct_validators(&graph);
+        for (i, v1) in distinct.iter().enumerate() {
+            for v2 in distinct.iter().skip(i + 1) {
+                let vouchers1: HashSet<_> = get_vouchers(v1).collect();
+                let vouchers2: HashSet<_> = get_vouchers(v2).collect();
+                assert!(vouchers1.is_disjoint(&vouchers2));
+            }
+        }
+    }
+}
+```
+
+---
+
+### Bead: Advanced Commands (`/mesh` Family)
+
+**Agent**: Agent-Signal  
+**Reference**: `.beads/mesh-health-metric.bead`, `.beads/user-roles-ux.bead`, `docs/USER-GUIDE.md`  
+**Dependencies**: Blind Matchmaker (DVR calculation), Persistence Model (replication status)
+
+#### Overview
+
+The `/mesh` command family provides network health visibility to members. These commands query Freenet contract state and present human-readable summaries.
+
+#### Commands
+
+##### `/mesh` — Network Overview (Summary)
+
+**Purpose**: Quick health check showing trust and replication status at a glance.
+
+**Example Output**:
+```
+📊 Network Health: 🟢 Healthy (75%)
+
+Members: 47
+Distinct Validators: 9 / 11 possible
+Clusters: 4 detected
+Replication: 🟢 Replicated (3/3 holders)
+Federation: None
+
+Subcommands: /mesh strength, /mesh replication, /mesh config
+```
+
+**Implementation Notes**:
+- DVR percentage is primary health metric (not arbitrary percentage)
+- Shows subcommand hints for discoverability
+- Replication status from persistence layer (chunk holder count)
+
+---
+
+##### `/mesh strength` — Detailed Trust Health
+
+**Purpose**: Deep dive into network resilience metrics for power users.
+
+**Example Output**:
+```
+📈 Mesh Health Report
+
+Distinct Validator Ratio: 75% 🟢
+
+┌─────────────────────────────┐
+│ 🟢 Healthy    │████████░░│ │
+│ 🟡 Developing │          │ │
+│ 🔴 Unhealthy  │          │ │
+└─────────────────────────────┘
+
+Distinct Validators: 3
+  V1: vouched by @Alice(C1), @Bob(C2), @Carol(C3)
+  V2: vouched by @Dave(C1), @Eve(C2), @Frank(C3)
+  V3: vouched by @Grace(C1), @Henry(C2), @Ivy(C3)
+
+Maximum Possible: 4 (network size / 4)
+
+Member Distribution:
+  Bridges (2 vouches): 12
+  Validators (3+ vouches): 35
+
+To improve: Build cross-cluster relationships to create
+1 more distinct Validator with unique vouchers.
+```
+
+**Implementation Notes**:
+- Lists distinct Validators with their voucher sets (display names, not hashes)
+- Shows cluster affiliation for each voucher (C1, C2, etc.)
+- Includes actionable improvement suggestion
+- Visual progress bar for DVR status
+
+---
+
+##### `/mesh replication` — Persistence Health
+
+**Purpose**: Show whether trust data is safely replicated across peers.
+
+**Example Output (Healthy)**:
+```
+💾 Replication Health: 🟢 Replicated
+
+State Chunks: 8
+Holders per Chunk: 3 (target: 3)
+Last Verified: 2 minutes ago
+Recovery Status: Full recovery possible
+
+All chunks have sufficient holders. Your trust network
+data can be recovered if this bot crashes.
+```
+
+**Example Output (Degraded)**:
+```
+💾 Replication Health: 🟡 Degraded
+
+State Chunks: 8
+Chunks at Risk: 2 (missing 1 holder each)
+  Chunk 3: 2/3 holders
+  Chunk 7: 2/3 holders
+Last Verified: 5 minutes ago
+Recovery Status: Partial (best-effort)
+
+⚠️ Some chunks have fewer holders than target.
+Bot is actively seeking replacement holders.
+Writes are BLOCKED until replication restored.
+```
+
+**Example Output (At Risk)**:
+```
+💾 Replication Health: 🔴 At Risk
+
+State Chunks: 8
+Critical Chunks: 1 (only 1 holder!)
+  Chunk 5: 1/3 holders ⚠️
+Last Verified: 10 minutes ago
+Recovery Status: At risk of data loss
+
+🚨 CRITICAL: Chunk 5 has only 1 holder.
+Bot is urgently seeking replacement holders.
+All writes BLOCKED. Recovery may be incomplete if holder fails.
+```
+
+**Implementation Notes**:
+- Queries persistence layer for chunk holder status
+- Shows per-chunk detail when degraded
+- Explains write-blocking behavior
+- Uses challenge-response verification timestamps
+
+---
+
+##### `/mesh config` — Group Configuration
+
+**Purpose**: Display current group settings (all configurable via `/propose`).
+
+**Example Output**:
+```
+⚙️ Group Configuration
+
+Trust Settings:
+  min_vouch_threshold: 2 (vouches to become member)
+  ejection_standing_threshold: 0 (standing below triggers ejection)
+  cross_cluster_required: true (vouches must be from different clusters)
+
+Voting Settings:
+  config_change_threshold: 70% (votes needed to change config)
+  min_quorum: 51% (participation needed for valid vote)
+  proposal_timeout: 48h (voting window)
+
+Persistence Settings:
+  chunk_size: 64KB
+  replication_factor: 3 (copies per chunk)
+  verification_interval: 24h
+
+Federation:
+  federation_threshold: 10% (minimum overlap to propose)
+  federated_groups: none
+
+To change: /propose config <setting> <value>
+```
+
+**Implementation Notes**:
+- Reads from Freenet contract state
+- Groups settings by category
+- Shows units and defaults
+- Includes hint for how to change
+
+---
+
+#### Deliverables
+
+- [ ] `src/commands/mesh.rs` — Command dispatcher
+- [ ] `src/commands/mesh/overview.rs` — `/mesh` handler
+  - [ ] Query DVR from matchmaker module
+  - [ ] Query replication status from persistence module
+  - [ ] Format summary with subcommand hints
+- [ ] `src/commands/mesh/strength.rs` — `/mesh strength` handler
+  - [ ] List distinct Validators with voucher details
+  - [ ] Show member distribution (Bridges vs Validators)
+  - [ ] Generate improvement suggestions
+  - [ ] Render visual progress bar
+- [ ] `src/commands/mesh/replication.rs` — `/mesh replication` handler
+  - [ ] Query chunk holder status from persistence layer
+  - [ ] Identify at-risk chunks
+  - [ ] Show verification timestamps
+  - [ ] Explain write-blocking status
+- [ ] `src/commands/mesh/config.rs` — `/mesh config` handler
+  - [ ] Read GroupConfig from Freenet contract
+  - [ ] Format by category with units
+- [ ] `src/commands/mesh/display.rs` — Shared formatting utilities
+  - [ ] `render_progress_bar()` — Visual DVR indicator
+  - [ ] `format_health_status()` — 🔴/🟡/🟢 with percentage
+  - [ ] `resolve_display_names()` — Hash → Signal display name
+
+#### Security Constraints
+
+- [ ] **No cleartext Signal IDs** in logs or persistent storage
+- [ ] **Display names resolved ephemerally** — from Signal API, never persisted
+- [ ] **Hash-only in Freenet** — all stored state uses hashed identifiers
+- [ ] **Self-query safe** — user sees their own vouchers (no new info leaked)
+- [ ] **Third-party query restricted** — cannot see who vouched for OTHER members
+
+#### Acceptance Criteria
+
+- [ ] `/mesh` returns summary in <100ms (cached DVR, real-time replication)
+- [ ] `/mesh strength` shows all distinct Validators with correct voucher sets
+- [ ] `/mesh strength` displays cluster affiliation for each voucher
+- [ ] `/mesh strength` shows actionable improvement suggestion when DVR < 100%
+- [ ] `/mesh replication` shows correct chunk holder counts
+- [ ] `/mesh replication` identifies specific at-risk chunks when degraded
+- [ ] `/mesh config` shows all GroupConfig values grouped by category
+- [ ] All commands use Signal display names (not hashes) in output
+- [ ] All commands handle bootstrap case (< 4 members) gracefully
+- [ ] 100% test coverage with `MockFreenetClient` and `MockSignalClient`
+
+#### Test Cases
+
+```rust
+#[test]
+fn test_mesh_overview_healthy() {
+    // Given: DVR 75%, replication 3/3, no federation
+    // When: /mesh
+    // Then: Shows "🟢 Healthy (75%)" with all subcommand hints
+}
+
+#[test]
+fn test_mesh_overview_unhealthy() {
+    // Given: DVR 20%, replication degraded
+    // When: /mesh
+    // Then: Shows "🔴 Unhealthy (20%)" with replication warning
+}
+
+#[test]
+fn test_mesh_strength_distinct_validators() {
+    // Given: 3 distinct Validators with known voucher sets
+    // When: /mesh strength
+    // Then: Lists all 3 with display names and cluster affiliations
+}
+
+#[test]
+fn test_mesh_strength_improvement_suggestion() {
+    // Given: DVR 60% (2/3 possible distinct Validators)
+    // When: /mesh strength
+    // Then: Suggests creating 1 more distinct Validator
+}
+
+#[test]
+fn test_mesh_replication_degraded() {
+    // Given: Chunks 3 and 7 have only 2/3 holders
+    // When: /mesh replication
+    // Then: Shows 🟡 Degraded with specific chunk details
+}
+
+#[test]
+fn test_mesh_config_all_settings() {
+    // Given: GroupConfig with non-default values
+    // When: /mesh config
+    // Then: Shows all settings grouped by category
+}
+
+#[test]
+fn test_mesh_bootstrap_graceful() {
+    // Given: 3 members (bootstrap phase)
+    // When: /mesh
+    // Then: Shows "🟢 Healthy (Bootstrap)" without DVR calculation
+}
+```
+
+---
+
+### Bead: Proposal System
+
+**Agent**: Agent-Signal  
+**Reference**: `.beads/proposal-system.bead`, `.beads/voting-mechanism.bead`  
+**Dependencies**: Signal Poll support (protocol v8), Freenet state stream
+
+#### Overview
+
+The `/propose` command creates Signal Polls for group decisions. All proposals have **mandatory timeouts** — open-ended polls are forbidden. When timeout expires, the bot **terminates the poll on Signal** and records the result in Freenet.
+
+#### Command Structure
+
+```
+/propose <subcommand> [args] [--timeout duration]
+```
+
+| Subcommand | Example | Purpose |
+|------------|---------|---------|
+| `config` | `/propose config name "New Name"` | Signal group settings |
+| `stroma` | `/propose stroma min_vouch_threshold 3` | Trust config |
+| `federate` | `/propose federate <group-id>` | Federation (Phase 4+) |
+
+**Timeout Resolution** (in order of precedence):
+1. Per-proposal `--timeout` flag (if specified)
+2. `GroupConfig.default_poll_timeout` (fallback, e.g., 48h)
+3. Open-ended polls are **NEVER** allowed
+
+#### Timeout Lifecycle
+
+```
+1. Member: /propose config name "New Name" --timeout 72h
+   
+2. Bot creates Signal Poll:
+   "📋 Proposal #42
+    Change group name to 'New Name'
+    
+    Vote: 👍 Approve | 👎 Reject
+    Timeout: 72h
+    Threshold: 70% | Quorum: 50%
+    Closes: Thu Jan 30, 10:00 AM"
+
+3. Bot records in Freenet:
+   ActiveProposal {
+       expires_at: now() + 72h,
+       checked: false,
+       ...
+   }
+
+4. Members vote via Signal Poll (ephemeral, E2E encrypted)
+
+5. Freenet emits StateChange::ProposalExpired when timeout reached
+
+6. Bot handles expiration:
+   a. Fetch poll results from Signal (aggregates only)
+   b. Calculate result (quorum + threshold)
+   c. TERMINATE poll on Signal via PollTerminate message
+   d. Announce result to group
+   e. If approved, execute action
+   f. Record result in Freenet (aggregates only)
+   g. Mark proposal as checked
+```
+
+#### Poll Termination (CRITICAL)
+
+**Signal polls remain open indefinitely unless explicitly terminated.** The bot MUST send a `PollTerminate` message when the timeout expires.
+
+```rust
+use presage::libsignal_service::proto::data_message::PollTerminate;
+
+async fn terminate_poll(
+    manager: &Manager,
+    group_master_key: &[u8],
+    poll_timestamp: u64,
+) -> Result<()> {
+    let terminate_message = DataMessage {
+        poll_terminate: Some(PollTerminate {
+            target_sent_timestamp: Some(poll_timestamp),
+        }),
+        timestamp: Some(now()),
+        ..Default::default()
+    };
+    
+    manager.send_message_to_group(
+        group_master_key,
+        terminate_message,
+        now(),
+    ).await?;
+    
+    Ok(())
+}
+```
+
+**Why Termination Matters:**
+- Prevents late votes after timeout (votes after termination are ignored by Signal)
+- Provides clear visual feedback in Signal UI (poll shows as closed)
+- Ensures result announcement aligns with actual voting window
+- Required for consistent UX across Signal clients
+
+#### Deliverables
+
+- [ ] `src/proposals/mod.rs` — Module exports
+- [ ] `src/proposals/command.rs` — `/propose` parser
+  - [ ] Parse subcommand (config, stroma, federate)
+  - [ ] Parse `--timeout` flag or use default
+  - [ ] Validate timeout bounds (min: 1h, max: 168h/1 week)
+  - [ ] Reject "appeal" subcommand (explicitly removed)
+- [ ] `src/proposals/poll.rs` — Signal Poll lifecycle
+  - [ ] `create_poll()` — Create Signal Poll with question and options
+  - [ ] `terminate_poll()` — Send PollTerminate when timeout expires
+  - [ ] `fetch_results()` — Get aggregated vote counts
+- [ ] `src/proposals/monitor.rs` — Freenet state stream monitoring
+  - [ ] Subscribe to `StateChange::ProposalExpired` events
+  - [ ] Handle expiration: fetch results → terminate poll → announce → execute
+  - [ ] Mark proposal as checked (never re-check)
+- [ ] `src/proposals/executor.rs` — Execute approved actions
+  - [ ] Config changes via Signal API
+  - [ ] Stroma changes via Freenet contract delta
+  - [ ] Federation changes (Phase 4+)
+- [ ] `src/proposals/result.rs` — Result calculation
+  - [ ] `calculate_result()` — Check quorum AND threshold
+  - [ ] `format_announcement()` — Human-readable result message
+
+#### Acceptance Criteria
+
+**Timeout Requirements:**
+- [ ] Every proposal has a finite timeout (REQUIRED field, never optional)
+- [ ] Default timeout from `GroupConfig.default_poll_timeout` when not specified
+- [ ] Timeout bounds enforced: minimum 1 hour, maximum 168 hours (1 week)
+- [ ] `expires_at` stored in Freenet contract (computed at creation)
+
+**Poll Termination Requirements:**
+- [ ] Bot sends `PollTerminate` message when timeout expires
+- [ ] Termination timestamp matches original poll timestamp
+- [ ] Termination occurs BEFORE result announcement
+- [ ] Votes cast after termination are not counted (Signal behavior)
+
+**Vote Privacy Requirements (GAP-02):**
+- [ ] **NEVER persist individual votes** — only aggregates (approve_count, reject_count)
+- [ ] No `VoteRecord { member, vote }` structures in codebase
+- [ ] Signal shows who voted during poll (ephemeral, E2E encrypted)
+- [ ] Freenet stores only outcome + aggregates (permanent)
+
+**Quorum + Threshold Requirements:**
+- [ ] Both quorum AND threshold must be satisfied for passage
+  - Quorum: `min_quorum` % of members must vote
+  - Threshold: `config_change_threshold` % of votes must approve
+- [ ] Proposal fails if quorum not met (even if 100% of voters approve)
+- [ ] Threshold and quorum from GroupConfig (NOT per-proposal)
+
+**Monitoring Requirements:**
+- [ ] Use real-time Freenet state stream (NOT polling with sleep loops)
+- [ ] React to `StateChange::ProposalExpired` events
+- [ ] Check proposal ONCE after expiration, mark as checked
+- [ ] Never re-check same proposal
+
+#### Test Cases
+
+```rust
+#[test]
+fn test_timeout_required() {
+    // Given: Proposal without --timeout flag
+    // When: Created
+    // Then: Uses GroupConfig.default_poll_timeout (never None)
+}
+
+#[test]
+fn test_timeout_custom() {
+    // Given: /propose config name "Test" --timeout 96h
+    // When: Created
+    // Then: expires_at = now() + 96h
+}
+
+#[test]
+fn test_timeout_bounds() {
+    // Given: --timeout 30m (below minimum)
+    // When: Parsed
+    // Then: Error "Timeout must be at least 1 hour"
+    
+    // Given: --timeout 200h (above maximum)
+    // When: Parsed
+    // Then: Error "Timeout cannot exceed 168 hours (1 week)"
+}
+
+#[test]
+fn test_poll_terminated_on_expiration() {
+    // Given: Proposal with 1h timeout
+    // When: Timeout expires
+    // Then: Bot sends PollTerminate message to Signal
+}
+
+#[test]
+fn test_termination_before_announcement() {
+    // Given: Proposal expired
+    // When: Bot handles expiration
+    // Then: PollTerminate sent BEFORE result announcement
+}
+
+#[test]
+fn test_quorum_not_met() {
+    // Given: 10 members, 50% quorum, 2 votes (20% participation)
+    // When: Calculate result
+    // Then: approved = false, quorum_met = false
+    // Even if: 100% of voters approved
+}
+
+#[test]
+fn test_threshold_not_met() {
+    // Given: 10 members, 70% threshold, 6 votes (3 approve, 3 reject)
+    // When: Calculate result
+    // Then: approved = false, threshold_met = false
+    // Because: 50% approval < 70% threshold
+}
+
+#[test]
+fn test_no_individual_votes_persisted() {
+    // Given: Proposal with votes
+    // When: Result recorded in Freenet
+    // Then: Only approve_count, reject_count stored
+    // And: No VoteRecord or individual voter data
+}
+
+#[test]
+fn test_state_stream_not_polling() {
+    // Given: Proposal monitoring code
+    // When: Searching for sleep/poll patterns
+    // Then: No `tokio::time::sleep` in polling loops
+    // And: Uses `freenet.subscribe_to_state_changes()`
+}
+```
+
+#### UX Messages
+
+**Proposal Created:**
+```
+📋 Proposal #42
+Change group name to 'New Name'
+
+Vote: 👍 Approve | 👎 Reject
+Timeout: 72h
+Threshold: 70% | Quorum: 50%
+Closes: Thu Jan 30, 10:00 AM
+```
+
+**Proposal Passed:**
+```
+✅ Proposal #42 PASSED
+
+Result: 85% approved (17 of 20 votes)
+Quorum: ✅ Met (100% participated, 50% required)
+Threshold: ✅ Met (85% approved, 70% required)
+
+Action executed: Group name changed to 'New Name'
+```
+
+**Proposal Failed (Quorum):**
+```
+❌ Proposal #42 FAILED
+
+Result: Quorum not met
+Participation: 30% (6 of 20 members voted)
+Required: 50% participation
+
+Note: Even though 100% of voters approved, the proposal
+failed because not enough members participated.
+```
+
+**Proposal Failed (Threshold):**
+```
+❌ Proposal #42 FAILED
+
+Result: Threshold not met
+Approval: 55% (11 of 20 votes)
+Required: 70% approval
+
+Quorum: ✅ Met (100% participated)
+```
+
+---
 
 ### Phase 2 Success Criteria
-- [ ] Graph topology correctly identifies Bridges and Validators
-- [ ] Strategic introductions suggested for MST
-- [ ] Mesh density histogram displayed correctly
-- [ ] Configuration changes via Signal Poll (quorum + threshold required)
-- [ ] Operator audit trail queryable
-- [ ] Bot proactively suggests mesh optimization
 
-## 💾 Phase 2.5: Persistence Implementation (Week 6-7)
+Before closing `convoy-phase2`, the Mayor MUST verify ALL of the following:
 
-**Objective**: Ensure trust network durability via Reciprocal Persistence Network
+#### DVR (Distinct Validator Ratio) — Agent-Freenet
 
-**Bead**: `.beads/persistence-model.bead`  
-**Docs**: `docs/PERSISTENCE.md`
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| DVR formula correct | Unit test: `DVR = Distinct_Validators / floor(N/4)` | Agent-Freenet |
+| Distinct Validators disjoint | Proptest: all distinct Validators have non-overlapping voucher sets | Agent-Freenet |
+| Three-tier health display | Unit test: 🔴 <33%, 🟡 33-66%, 🟢 >66% | Agent-Freenet |
+| DVR never exceeds 1.0 | Proptest: DVR ≤ 1.0 for all graph configurations | Agent-Freenet |
+| Performance <1ms at 1000 members | Benchmark test: DVR calculation under 1ms | Agent-Freenet |
 
-**Note**: Persistence is implemented between Phase 2 and Phase 3 because:
-1. Spike Week 2 validated the approach (Q7-Q14)
-2. Trust state durability is critical before federation
-3. Write-blocking states require persistence infrastructure
+#### Cluster Detection (Bridge Removal) — Agent-Freenet
 
-### Spike Week 2: ✅ VALIDATED
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| Tarjan's algorithm for bridges | Unit test: identifies articulation edges correctly | Agent-Freenet |
+| Tight clusters detected | Unit test: two clusters connected by single edge → 2 clusters | Agent-Freenet |
+| Cluster detection on membership change | Integration test: runs on every vouch/flag/ejection | Agent-Freenet |
+| **GAP-11**: Cluster formation announced | Unit test: message sent when ≥2 clusters detected first time | Agent-Freenet |
+| Grandfathering enforced | Unit test: existing members not required to get cross-cluster vouches | Agent-Freenet |
+| Performance <1ms (Q3 validated) | Benchmark: cluster detection under 1ms at 1000 members | Agent-Freenet |
 
-All persistence questions validated in Spike Week 2 (Q7-Q14). See `docs/spike/SPIKE-WEEK-2-BRIEFING.md`.
+#### Blind Matchmaker — Agent-Freenet
 
-- [x] **Q7**: Bot discovery — Registry-based, <1ms latency
-- [x] **Q8**: Sybil resistance — PoW difficulty 18 (~30s registration)
-- [x] **Q9**: Chunk verification — Challenge-response <1ms, zero content leak
-- [x] **Q11**: Rendezvous hashing — Deterministic, stable, uniform distribution
-- [x] **Q12**: Chunk size — 64KB optimal (0.2% overhead, 32% distribution)
-- [x] **Q13**: Fairness verification — 1% spot checks, 100% detection, 0% false positives
-- [x] **Q14**: Distribution — Contract-based for Phase 0, hybrid for Phase 1+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| Phase 0: DVR-optimal prioritized | Unit test: DVR-optimal introductions have priority 0 | Agent-Freenet |
+| Phase 1: MST fallback | Unit test: remaining bridges get any cross-cluster vouch (priority 1) | Agent-Freenet |
+| Phase 2: Cluster linking | Unit test: disconnected clusters bridged via high-centrality validators | Agent-Freenet |
+| Greedy disjoint selection | Proptest: selected distinct validators have disjoint voucher sets | Agent-Freenet |
+| Display names in suggestions | Unit test: Signal display names (not hashes) in messages | Agent-Signal |
+| Transient mapping only | Code review: no persistent Signal ID → hash storage | Witness |
+| Performance targets met | Benchmark: <10ms at 20, <200ms at 500, <500ms at 1000 members | Agent-Freenet |
 
-**Registry Scaling Strategy** (updated 2026-02-01):
-- Phase 0: Single registry (<5K bots)
-- Fibonacci-triggered splits: 5K → 8K → 13K → 21K → 34K... bot thresholds
-- Powers-of-2 shard counts: 1 → 2 → 4 → 8 → 16 → 32...
-- Registry Metadata Contract tracks global epoch and shard count
-- Vector clocks for dual-read migration (24h transition window)
+#### `/mesh` Commands — Agent-Signal
 
-### Replication Health Metric
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| `/mesh` overview in <100ms | Benchmark test: cached DVR, real-time replication | Agent-Signal |
+| `/mesh strength` lists distinct Validators | Unit test: all distinct validators with voucher sets shown | Agent-Signal |
+| `/mesh strength` shows cluster affiliation | Unit test: vouchers labeled with cluster (C1, C2, etc.) | Agent-Signal |
+| `/mesh strength` improvement suggestion | Unit test: actionable suggestion when DVR < 100% | Agent-Signal |
+| `/mesh replication` chunk status | Unit test: correct chunk holder counts displayed | Agent-Signal |
+| `/mesh replication` at-risk chunks | Unit test: specific at-risk chunks listed when degraded | Agent-Signal |
+| `/mesh config` all settings | Unit test: all GroupConfig values grouped by category | Agent-Signal |
+| Bootstrap case handled | Unit test: <4 members shows "Bootstrap" without DVR calculation | Agent-Signal |
+| Display names resolved ephemerally | Code review: no persistent name→hash storage | Witness |
 
-**Fundamental Question**: "Is my trust network data resilient?"
+#### Proposal System — Agent-Signal
 
-- [ ] Implement Replication Health tracking
-  - [ ] Track successful chunk distributions at write time
-  - [ ] Track failed distributions and retry logic
-  - [ ] Calculate health: `Chunks_With_2+_Replicas / Total_Chunks`
-  - [ ] Map to status: 🟢 Replicated (all 3/3), 🟡 Partial (some 2/3), 🔴 At Risk (any ≤1/3)
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| Mandatory timeout | Unit test: every proposal has `expires_at` (never None) | Agent-Signal |
+| Default timeout from GroupConfig | Unit test: missing --timeout uses `default_poll_timeout` | Agent-Signal |
+| Timeout bounds enforced | Unit test: min 1h, max 168h | Agent-Signal |
+| Signal Poll created | Integration test: PollCreate message sent to group | Agent-Signal |
+| **Poll termination on expiry** | Unit test: PollTerminate sent when timeout expires | Agent-Signal |
+| Termination before announcement | Unit test: PollTerminate sent BEFORE result announcement | Agent-Signal |
+| Quorum check | Unit test: fails if participation < min_quorum even with 100% approval | Agent-Signal |
+| Threshold check | Unit test: fails if approval < config_change_threshold | Agent-Signal |
+| Approved proposals execute | Integration test: config change applied after passage | Agent-Signal |
+| **GAP-02**: No individual votes persisted | Code review: only approve_count/reject_count in Freenet | Witness |
+| State stream (not polling) | Code review: no `tokio::time::sleep` in polling loops | Witness |
 
-- [ ] Implement `/mesh replication` command
-  - [ ] Show replication status (🟢/🟡/🔴/🔵)
-  - [ ] Show state size and chunk count
-  - [ ] Show chunks replicated (X/Y fully, Z degraded)
-  - [ ] Show recovery confidence (Yes/No)
-  - [ ] Show write permission status
+#### Security Constraints (Witness MUST Verify)
 
-- [ ] Integrate with `/mesh` overview
-  - [ ] Add replication health to network overview
-  - [ ] Show alongside DVR (trust health)
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| No cleartext Signal IDs in logs | Code review: all Signal IDs hashed before logging | Witness |
+| No cleartext Signal IDs in storage | Code review: Freenet state uses hashes only | Witness |
+| Display names resolved ephemerally | Code review: Signal API lookups, never persisted | Witness |
+| Self-query safe | Code review: `/status` shows own vouchers only | Witness |
+| Third-party query restricted | Code review: cannot query other members' vouchers | Witness |
+| Vote privacy preserved | Code review: no VoteRecord with member ID | Witness |
 
-### Chunk Distribution (64KB chunks, 3 copies each)
+#### Property-Based Tests (REQUIRED)
 
-- [ ] Implement state encryption
-  - [ ] AES-256-GCM with key derived from Signal ACI identity (HKDF)
-  - [ ] Signature using Signal ACI identity key
-  - [ ] Version chain for anti-replay
-  - **Note**: No separate keypair - use Signal protocol store
+| Criterion | Proptest Coverage | Agent |
+|-----------|-------------------|-------|
+| DVR ≤ 1.0 | All graph configurations | Agent-Freenet |
+| Distinct validators disjoint | Voucher sets pairwise disjoint | Agent-Freenet |
+| Bridge removal correct | Known graphs with calculated clusters | Agent-Freenet |
+| Betweenness centrality valid | 0 ≤ centrality ≤ (N-1)(N-2)/2 | Agent-Freenet |
+| Timeout bounds | All durations checked against min/max | Agent-Signal |
 
-- [ ] Implement chunking
-  - [ ] Split encrypted state into 64KB chunks
-  - [ ] Track chunk count in registry (for recovery)
-  - [ ] Generate chunk hashes (for verification)
+#### Documentation & UX
 
-- [ ] Implement deterministic holder selection (rendezvous hashing)
-  - [ ] Query Registry Metadata Contract for shard_count + global_epoch
-  - [ ] Query all shards for bot list (parallelizable)
-  - [ ] For each chunk: compute 2 holders via `rendezvous_hash(chunk_idx, bots, epoch)`
-  - [ ] Assignment is deterministic (anyone can verify)
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| `/mesh` help text | Unit test: subcommand hints displayed | Agent-Signal |
+| Proposal UX messages | Unit test: all states (created, passed, failed) formatted correctly | Agent-Signal |
+| GAP-11 announcement | Unit test: cluster activation message includes grandfathering note | Agent-Signal |
+| `docs/ALGORITHMS.md` updated | File review: DVR formula, Bridge Removal algorithm documented | Agent-Freenet |
+| `docs/USER-GUIDE.md` updated | File review: all `/mesh` commands documented | Agent-Signal |
 
-- [ ] Implement chunk distribution
-  - [ ] Distribute 2 replicas per chunk to computed holders
-  - [ ] Receive acknowledgment/attestation per chunk
-  - [ ] Update replication health based on per-chunk success
+#### Code Coverage (CI Enforced)
 
-- [ ] Implement fairness verification (Q13)
-  - [ ] Challenge-response: hash(chunk || nonce)
-  - [ ] Spot check before allowing writes
-  - [ ] Track reputation (challenge success rate)
+- [ ] 100% code coverage on `src/matchmaker/*.rs`
+- [ ] 100% code coverage on `src/commands/mesh/*.rs`
+- [ ] 100% code coverage on `src/proposals/*.rs`
+- [ ] All proptests pass (minimum 256 cases per test)
+- [ ] `cargo clippy` passes with no warnings
+- [ ] `cargo deny check` passes (supply chain security)
 
-### Write-Blocking States
+#### Integration Test Scenarios
 
-- [ ] Implement state machine
-  - [ ] PROVISIONAL: No suitable peers available (writes allowed)
-  - [ ] ACTIVE: All chunks have 2+ replicas confirmed (writes allowed)
-  - [ ] DEGRADED: Any chunk ≤1 replica, peers available (writes BLOCKED)
-  - [ ] ISOLATED: N=1 network (writes allowed with warning)
+**Gastown MUST run these scenarios before closing convoy:**
 
-- [ ] Implement write-blocking enforcement
-  - [ ] Check state before trust state changes
-  - [ ] Block writes in DEGRADED state
-  - [ ] Retry distribution in DEGRADED state
-  - [ ] Transition to ACTIVE when distribution succeeds
+```bash
+# 1. DVR and Cluster Detection
+gt test:integration --scenario mesh-health
 
-### Registry Architecture
+# Scenario steps:
+# a) Create 12-member network with 2 obvious clusters
+# b) Verify: Bridge Removal detects 2 clusters
+# c) Verify: GAP-11 announcement sent ("cross-cluster now required")
+# d) Add new member with same-cluster vouches
+# e) Verify: Admission REJECTED (cross-cluster required)
+# f) Add new member with cross-cluster vouches
+# g) Verify: Admission ACCEPTED
+# h) Verify: DVR calculated, /mesh shows correct health tier
 
-- [ ] Implement Registry Metadata Contract
-  - [ ] Well-known address: `sha256("stroma-registry-metadata-v1")`
-  - [ ] Track: version, shard_count, global_epoch, total_bots, migration_status
-  - [ ] Support MigrationStatus: Stable | Splitting { old_count, new_count, deadline }
+# 2. Blind Matchmaker Strategic Introductions
+gt test:integration --scenario blind-matchmaker
 
-- [ ] Implement Per-Shard Registry Contracts
-  - [ ] Deterministic addresses: `sha256("stroma-registry-v1-shards-{count}-id-{id}")`
-  - [ ] Track: bots (BTreeSet), tombstones, clock (vector clock)
-  - [ ] RegistryEntry: contract_hash, size_bucket, num_chunks, registered_at, clock
+# Scenario steps:
+# a) Create network with DVR 40% (🔴 Unhealthy)
+# b) Verify: Bot suggests DVR-optimal introduction (Phase 0)
+# c) User accepts introduction, new vouch recorded
+# d) Verify: DVR increases, bot updates suggestions
+# e) Repeat until DVR > 66% (🟢 Healthy)
+# f) Verify: Bot switches to maintenance mode (MST only)
 
-- [ ] Implement Fibonacci-triggered scaling
-  - [ ] Monitor total_bots in metadata contract
-  - [ ] Trigger split at thresholds: 5K, 8K, 13K, 21K, 34K...
-  - [ ] New shard_count = current × 2 (powers of 2)
+# 3. Proposal System End-to-End
+gt test:integration --scenario proposal-lifecycle
 
-- [ ] Implement migration protocol
-  - [ ] Announce split in metadata contract
-  - [ ] 24h dual-read transition window
-  - [ ] Writes to new shard, reads from both (merge with vector clocks)
-  - [ ] Complete migration: update shard_count, bump global_epoch
-  - [ ] No cross-referencing
+# Scenario steps:
+# a) Member sends /propose config name "New Name" --timeout 5m
+# b) Verify: Signal Poll created with correct options
+# c) Members vote (mix of approve/reject)
+# d) Wait for timeout to expire
+# e) Verify: PollTerminate sent to Signal
+# f) Verify: Result announced (pass or fail)
+# g) If passed: Verify config change applied
+# h) Verify: Only aggregates stored in Freenet (no individual votes)
 
-### Recovery
+# 4. Proposal Quorum Failure
+gt test:integration --scenario proposal-quorum-fail
 
-- [X] Document Signal store backup (replaces separate keypair)
-  - [X] Document backup procedure in OPERATOR-GUIDE.md
-  - [X] Warn about consequences of losing Signal store
-  - [X] Provide backup script/example
-  - **Note**: No separate keypair needed - Signal ACI identity IS the cryptographic key
+# Scenario steps:
+# a) 10-member group, 50% quorum required
+# b) Create proposal, only 3 members vote (all approve)
+# c) Wait for timeout
+# d) Verify: Proposal FAILED (quorum not met)
+# e) Verify: Clear message explaining quorum failure
+```
 
-- [ ] Implement recovery procedure
-  - [ ] Restore Signal protocol store from backup
-  - [ ] Load ACI identity keypair from restored store
-  - [ ] Query Registry Metadata Contract for shard_count, global_epoch
-  - [ ] Query all shards for bot list + my num_chunks
-  - [ ] For each chunk: compute holders via rendezvous hashing
-  - [ ] Collect ALL chunks (any 1 of 3 copies per chunk)
-  - [ ] Concatenate chunks, derive encryption key from ACI via HKDF
-  - [ ] Decrypt, verify signature with ACI identity
-  - [ ] Resume operation
+#### Mayor Convoy Closure Checklist
 
-### Persistence Success Criteria
+```bash
+# Verify all beads complete
+bd list --convoy convoy-phase2 --status pending
+# Should return: No pending beads
 
-- [ ] Replication health displayed correctly via `/mesh replication`
-- [ ] Chunks distributed (2 replicas per chunk) on state change
-- [ ] Write-blocking enforced in DEGRADED state (any chunk ≤1 replica)
-- [ ] Recovery succeeds when all chunks available (any 1 of 3 per chunk)
-- [X] Signal store backup procedure documented (replaces keypair backup)
+# Verify GAP-02 and GAP-11 integrated
+bd show gap-02  # Vote privacy - should be complete
+bd show gap-11  # Cluster announcement - should be complete
 
----
+# Verify security audit
+gt audit --convoy convoy-phase2 --agent witness
+# Should return: All security constraints verified
 
-## 🔧 Phase 3: Federation Preparation (Week 7-8)
+# Verify test coverage
+cargo llvm-cov nextest --all-features -- --test-threads=1
+# Should return: 100% coverage on matchmaker, mesh, proposals modules
 
-**Objective**: Validate federation infrastructure (locally, no broadcast)
+# Verify property tests
+cargo test --release -- proptest
+# Should return: All proptests pass (256+ cases each)
 
-### Phase 3 Pre-Implementation Review
-- [ ] Validator Threshold Strategy review
-  - [ ] **If Phase 2 Gate was closed**: Continue with fixed Bridge=2, Validator=3+
-  - [ ] **If Phase 2 Gate was open**: Review configurable min_vouch_threshold implementation
-  - [ ] Document feedback: Did configurability help medium groups?
+# Verify documentation
+ls docs/ALGORITHMS.md docs/USER-GUIDE.md
+# Should exist and be updated with Phase 2 content
 
-### Shadow Beacon (Compute Locally)
-- [ ] Implement Social Anchor hashing
-  - [ ] Calculate top-N validators at fixed Fibonacci bucket sizes
-  - [ ] Generate discovery URI from validator hashes
-  - [ ] Store locally (DO NOT broadcast in MVP)
-  
-- [ ] Implement validator selection for buckets
-  - [ ] Sort validators by hash (deterministic ordering)
-  - [ ] Select top-N for each Fibonacci bucket the group can fill
-  - [ ] Identify validators at each bucket level
-  
-- [ ] Implement discovery URI generation
-  - [ ] Hash social anchor at each bucket size
-  - [ ] Generate URIs at Fibonacci buckets [3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987]
-  - [ ] Store for future Phase 4 use
-
-### PSI-CA (Test Locally)
-- [ ] Implement Bloom filter generation
-  - [ ] Create Bloom filter from member hashes
-  - [ ] Optimize filter size/false positive rate
-  - [ ] Serialize filter
-  
-- [ ] Implement commutative encryption
-  - [ ] Encrypt Bloom filter (double-blinding)
-  - [ ] Test encryption is commutative
-  - [ ] Prepare for anonymous handshake
-  
-- [ ] Implement intersection density calculation
-  - [ ] Calculate overlap: `|A ∩ B|`
-  - [ ] Calculate union: `|A ∪ B|`
-  - [ ] Calculate density: `|A ∩ B| / |A ∪ B|`
-  - [ ] Test with mock data (simulate two groups)
-
-### Contract Schema Validation
-- [ ] Test federation hooks (present but unused)
-  - [ ] Verify `federation_contracts` field exists
-  - [ ] Verify `validator_anchors` field exists
-  - [ ] Confirm they're empty in MVP
-  
-- [ ] Verify identity hashes are re-computable
-  - [ ] Test HMAC hashing with ACI-derived keys (each bot has unique key from Signal identity)
-  - [ ] Confirm PSI-CA can work with hashes
-  - [ ] Validate privacy preservation
-
-### Documentation
-- [ ] Create federation design document
-  - [ ] Emergent discovery protocol
-  - [ ] PSI-CA handshake protocol
-  - [ ] BidirectionalMin threshold evaluation
-  - [ ] Cross-mesh vouching protocol
-
-### Phase 3 Success Criteria
-- [ ] Social Anchor hash computed correctly
-- [ ] PSI-CA overlap calculated locally (test with mock data)
-- [ ] Federation hooks in contract validated
-- [ ] Documentation complete for Phase 4
-- [ ] MVP ready for production deployment
-
-### Phase 4+ Roadmap Items (Track for Future)
-
-- [ ] Create Phase 4+ roadmap
-  - [ ] Shadow Beacon broadcast
-  - [ ] Bot-to-bot discovery
-  - [ ] Federation voting
-  - [ ] Cross-mesh vouching implementation
-  - [ ] Shadow Handover Protocol (bot identity rotation)
-    - [ ] Bot Signal identity in Freenet contract schema
-    - [ ] Succession document structure
-    - [ ] Signature verification in contract verify()
-    - [ ] `stroma rotate` CLI command
-    - [ ] Graceful Bot-Old shutdown
-    - [ ] Bot-New startup with succession verification
-    - [ ] Signal group membership transfer logic
+# Close convoy
+gt convoy close convoy-phase2 --verified
+```
 
 ---
 
-## 🚪 PHASE 4 GATE: Large Group Decisions (Before Q2 2026)
+## 💾 PHASE 2.5: Persistence Convoy
 
-**Trigger Condition**: Multiple federated groups request percentage-based validator scaling
+**Convoy ID**: `convoy-persistence`  
+**Duration**: Week 6-7  
+**Dependencies**: `convoy-phase2` complete  
+**Reference**: `.beads/persistence-model.bead`, `docs/PERSISTENCE.md`
 
-**Decision Point**:
-- [ ] Review Phase 4 Gate Questions (see `docs/VALIDATOR-THRESHOLD-STRATEGY.md`)
-  - How many groups exceed 200 members?
-  - Do federated groups report scaling issues?
-  - Is fixed 3+ validator threshold limiting MST optimization?
-  - Would percentage-based validator selection improve bridge density?
+### Mayor Delegation Commands
 
-**If Phase 4 Gate Opens (YES, need percentage-based validators)**:
-- [ ] Implement percentage-based `validator_percentile`
-  - [ ] Add to GroupConfig (formula: `max(3, group_size * validator_percentile / 100)`)
-  - [ ] Add `/propose stroma validator_percentile` command
-  - [ ] Require elevated consensus (85%+ threshold)
-  - [ ] Limit changes to once per quarter
-  - [ ] Cannot retroactively change existing validators
+```bash
+gt convoy create --title "Phase 2.5: Persistence" \
+  --depends-on convoy-phase2
 
-**If Phase 4 Gate Remains Closed (NO, configurable threshold sufficient)**:
-- [ ] Continue with current approach (fixed or configurable min_vouch_threshold)
-- [ ] Revisit if large federated networks emerge
+bd create --title "Replication health tracking" --convoy convoy-persistence
+bd create --title "Chunk distribution (64KB, 3 copies)" --convoy convoy-persistence
+bd create --title "Write-blocking state machine" --convoy convoy-persistence
+bd create --title "Persistence registry architecture" --convoy convoy-persistence
+bd create --title "Recovery procedure" --convoy convoy-persistence
+```
+
+### Key Parameters (FIXED)
+
+```
+CHUNK_SIZE = 64KB
+REPLICATION_FACTOR = 3  (1 local + 2 remote)
+```
+
+### Bead: Replication Health Tracking
+
+**Agent**: Agent-Freenet  
+**Reference**: `.beads/persistence-model.bead` (§ Replication Health Metric)  
+**Dependencies**: Chunk Distribution, Challenge-Response Verification (Q9/Q13)
+
+#### Overview
+
+Replication Health answers the fundamental question: **"Is my trust network data resilient?"**
+
+The metric tracks whether chunks have been successfully distributed to holders. Health is measured **at write time** (not via continuous heartbeats) — when state changes occur, the bot distributes chunks and records which holders confirmed receipt.
+
+#### Core Concepts
+
+**Replication Factor**: 3 copies per chunk (1 local + 2 remote)
+
+**Measurement**: At write time, not via heartbeats
+- State changes → encrypt → chunk → distribute to 2 remote holders per chunk
+- Each holder signs receipt confirmation (attestation)
+- Health based on confirmed receipts, not continuous polling
+
+**Why No Heartbeats**:
+- Trust state changes are infrequent (human timescale: ~10-100/month)
+- Heartbeats add complexity without proportional benefit
+- Recovery verifies possession directly when needed
+
+#### Health States
+
+| Status | Chunk Health | Recovery Possible? | Writes | User Display |
+|--------|--------------|-------------------|--------|--------------|
+| 🟢 **Replicated** | All chunks 3/3 | ✅ Guaranteed | Allowed | "Fully resilient" |
+| 🟡 **Partial** | Some chunks 2/3 | ✅ Possible | Allowed | "Recoverable but degraded" |
+| 🔴 **At Risk** | Any chunk ≤1/3 | ❌ Not possible | **BLOCKED** | "Cannot recover if crash" |
+| 🔵 **Initializing** | Establishing | — | Limited | "Setting up persistence" |
+
+**Write-Blocking Rule**: If peers are available but distribution failed (DEGRADED), writes are blocked until replication succeeds. This prevents accumulating state that can't be backed up.
+
+#### Health Calculation
+
+```rust
+/// Replication Health = Chunks_With_2+_Replicas / Total_Chunks
+/// 
+/// Where:
+/// - Chunks_With_2+_Replicas = Chunks where at least 2 of 3 copies confirmed
+/// - Total_Chunks = ceil(state_size / CHUNK_SIZE)
+/// - CHUNK_SIZE = 64KB (fixed)
+/// - REPLICATION_FACTOR = 3 (1 local + 2 remote)
+
+pub struct ReplicationHealth {
+    total_chunks: u32,
+    chunks_fully_replicated: u32,   // 3/3 copies
+    chunks_partial: u32,            // 2/3 copies
+    chunks_at_risk: u32,            // ≤1/3 copies
+    last_distribution: Timestamp,
+    state_version: u64,
+}
+
+impl ReplicationHealth {
+    pub fn status(&self) -> HealthStatus {
+        if self.chunks_at_risk > 0 {
+            HealthStatus::AtRisk           // 🔴 Any chunk ≤1/3
+        } else if self.chunks_partial > 0 {
+            HealthStatus::Partial          // 🟡 Some chunks 2/3
+        } else {
+            HealthStatus::Replicated       // 🟢 All chunks 3/3
+        }
+    }
+    
+    pub fn can_write(&self) -> bool {
+        // Block writes only in DEGRADED state (peers available but failed)
+        self.status() != HealthStatus::AtRisk
+    }
+    
+    pub fn ratio(&self) -> f32 {
+        let healthy = self.chunks_fully_replicated + self.chunks_partial;
+        healthy as f32 / self.total_chunks as f32
+    }
+}
+```
+
+#### Deliverables
+
+- [ ] `src/persistence/health.rs` — Health tracking module
+  - [ ] `ReplicationHealth` struct with per-chunk status
+  - [ ] `HealthStatus` enum (Replicated, Partial, AtRisk, Initializing)
+  - [ ] `status()` — Compute current health from chunk states
+  - [ ] `can_write()` — Check if writes are allowed
+  - [ ] `ratio()` — Calculate health percentage
+- [ ] `src/persistence/attestation.rs` — Holder confirmations
+  - [ ] `Attestation` struct (holder signature on chunk receipt)
+  - [ ] `verify_attestation()` — Verify holder's signature
+  - [ ] `record_attestation()` — Update chunk health on receipt
+- [ ] `src/persistence/distribution.rs` — Chunk distribution tracking
+  - [ ] `ChunkDistributionState` — Per-chunk holder status
+  - [ ] `on_distribution_success()` — Update health when holder confirms
+  - [ ] `on_distribution_failure()` — Track failed distributions
+  - [ ] `retry_failed_distributions()` — Background retry logic
+- [ ] `src/commands/mesh/replication.rs` — User-facing command (see Advanced Commands bead)
+- [ ] Integration with write-blocking in `src/persistence/state_writer.rs`
+
+#### Write-Blocking Integration
+
+```rust
+/// State writer checks replication health before allowing writes
+pub async fn write_state_change(
+    change: StateChange,
+    health: &ReplicationHealth,
+    network_size: usize,
+) -> Result<(), WriteError> {
+    // Check write-blocking rules
+    match (health.status(), network_size) {
+        (HealthStatus::AtRisk, n) if n >= 3 => {
+            // DEGRADED: Peers available but distribution failed
+            return Err(WriteError::ReplicationDegraded {
+                at_risk_chunks: health.chunks_at_risk,
+                message: "Writes blocked until replication restored",
+            });
+        }
+        (_, 1) => {
+            // ISOLATED: N=1 network, warn but allow
+            log::warn!("Single-bot network: no persistence guarantee");
+        }
+        (_, 2) => {
+            // Mutual dependency, warn but allow
+            log::warn!("Two-bot network: minimal persistence guarantee");
+        }
+        _ => {
+            // ACTIVE or PROVISIONAL: writes allowed
+        }
+    }
+    
+    // Proceed with write...
+    Ok(())
+}
+```
+
+#### Acceptance Criteria
+
+**Health Tracking:**
+- [ ] Health updated immediately after each chunk distribution attempt
+- [ ] Per-chunk status tracked (not just aggregate)
+- [ ] Attestations (holder signatures) stored for verification
+- [ ] Health persists across bot restarts (stored in local state)
+
+**Write-Blocking:**
+- [ ] Writes blocked when `chunks_at_risk > 0` AND `network_size >= 3`
+- [ ] Writes allowed in PROVISIONAL state (no peers available)
+- [ ] Writes allowed with warning for N=1 and N=2 networks
+- [ ] Clear error message explains why writes are blocked
+
+**Recovery Confidence:**
+- [ ] 🟢 Replicated → "Full recovery possible"
+- [ ] 🟡 Partial → "Recovery possible but degraded"
+- [ ] 🔴 At Risk → "Cannot recover if crash now"
+
+**Retry Logic:**
+- [ ] Failed distributions retried with exponential backoff
+- [ ] Fallback holders computed via rendezvous hashing when primary unavailable
+- [ ] Retry continues until health restored or network unavailable
+
+**User Display:**
+- [ ] `/mesh` shows summary: "Replication: 🟢 Replicated (3/3 holders)"
+- [ ] `/mesh replication` shows detailed per-chunk status
+- [ ] Degraded chunks listed individually when health < 100%
+
+#### Test Cases
+
+```rust
+#[test]
+fn test_health_all_replicated() {
+    // Given: 8 chunks, all with 3/3 copies confirmed
+    // When: Calculate health
+    // Then: status = Replicated, ratio = 1.0, can_write = true
+}
+
+#[test]
+fn test_health_partial() {
+    // Given: 8 chunks, 6 with 3/3, 2 with 2/3
+    // When: Calculate health
+    // Then: status = Partial, can_write = true
+}
+
+#[test]
+fn test_health_at_risk() {
+    // Given: 8 chunks, 1 with only 1/3 copies
+    // When: Calculate health
+    // Then: status = AtRisk, can_write = false (if network >= 3)
+}
+
+#[test]
+fn test_write_blocked_degraded() {
+    // Given: AtRisk status, network_size = 5
+    // When: Attempt write
+    // Then: WriteError::ReplicationDegraded returned
+}
+
+#[test]
+fn test_write_allowed_isolated() {
+    // Given: AtRisk status, network_size = 1
+    // When: Attempt write
+    // Then: Write succeeds with warning
+}
+
+#[test]
+fn test_attestation_updates_health() {
+    // Given: Chunk with 2/3 copies
+    // When: Third holder sends attestation
+    // Then: Chunk status updates to 3/3, overall health recalculated
+}
+
+#[test]
+fn test_fallback_holder_on_failure() {
+    // Given: Primary holder unreachable
+    // When: Distribution fails
+    // Then: Fallback holder computed via rendezvous hashing
+}
+
+proptest! {
+    #[test]
+    fn health_ratio_in_valid_range(
+        fully: u32 in 0..100u32,
+        partial: u32 in 0..100u32,
+        at_risk: u32 in 0..100u32,
+    ) {
+        let total = fully + partial + at_risk;
+        if total > 0 {
+            let health = ReplicationHealth {
+                total_chunks: total,
+                chunks_fully_replicated: fully,
+                chunks_partial: partial,
+                chunks_at_risk: at_risk,
+                ..Default::default()
+            };
+            let ratio = health.ratio();
+            assert!(ratio >= 0.0 && ratio <= 1.0);
+        }
+    }
+}
+```
+
+#### UX Messages
+
+**Healthy (`/mesh replication`):**
+```
+💾 Replication Health: 🟢 Replicated
+
+Last State Change: 3 hours ago (Alice joined)
+State Size: 512KB (8 chunks)
+Chunks Replicated: 8/8 (all 3 copies per chunk) ✅
+State Version: 47
+
+Recovery Confidence: ✅ Yes — all chunks available from multiple holders
+
+💡 Your trust network is resilient. If this bot goes offline,
+the state can be recovered from chunk holders.
+```
+
+**Degraded (`/mesh replication`):**
+```
+💾 Replication Health: 🟡 Partial
+
+Last State Change: 1 hour ago (Bob vouched for Carol)
+State Size: 512KB (8 chunks)
+Chunks Replicated: 7/8 fully, 1/8 degraded (2/3 copies) ⚠️
+  Chunk 5: 2/3 holders responding
+State Version: 48
+
+Recovery Confidence: ✅ Yes — all chunks recoverable
+
+⚠️ One chunk has degraded replication. Recovery is still possible,
+but resilience is reduced. Bot will retry distribution.
+```
+
+**At Risk (`/mesh replication`):**
+```
+💾 Replication Health: 🔴 At Risk
+
+Last State Change: 30 minutes ago (Carol flagged Dave)
+State Size: 512KB (8 chunks)
+Critical Chunks: 1 (only 1 holder!) ⚠️
+  Chunk 3: 1/3 holders responding
+State Version: 49
+
+Recovery Confidence: ❌ No — chunk 3 cannot be recovered if lost
+
+🚨 CRITICAL: Writes are BLOCKED until replication restored.
+Bot is actively seeking replacement holders for chunk 3.
+```
+
+**Write Blocked Error:**
+```
+❌ Write Blocked: Replication Degraded
+
+Your trust network state cannot be safely modified because
+chunk replication is incomplete:
+
+  At-risk chunks: 1 (chunk 3 has only 1/3 copies)
+
+This protects against data loss. The bot is actively
+seeking replacement holders. Writes will resume automatically
+when replication is restored.
+
+Check status: /mesh replication
+```
 
 ---
 
-## 🚢 Launch Phase 0 Convoy
+### Bead: Chunk Distribution
 
-- [ ] Brief Mayor agent
-  - [ ] Provide technology stack decisions
-  - [ ] Provide security constraints (read Beads)
-  - [ ] Provide implementation roadmap
-  - [ ] Provide agent coordination strategy
-  
-- [ ] Launch convoy with parallel agents
-  ```bash
-  gt convoy start \
-    --phase "Phase 0: Foundation" \
-    --beads "Bead-01,Bead-02,Bead-03,Bead-04,Bead-05" \
-    --agents "Agent-Signal,Agent-Freenet,Agent-Crypto" \
-    --witness "Witness-Agent"
-  ```
-  
-- [ ] Monitor convoy progress
-  - [ ] Check agent status
-  - [ ] Review Witness Agent security audits
-  - [ ] Verify no cleartext IDs in code
-  - [ ] Verify zeroization implemented correctly
+**Agent**: Agent-Freenet + Agent-Crypto  
+**Reference**: `.beads/persistence-model.bead` (§ Chunking + Replication Model, § Deterministic Chunk Assignment)  
+**Dependencies**: Registry (bot discovery), Rendezvous Hashing (Q11), Challenge-Response (Q9/Q13)
 
-## 📊 Overall Success Metrics
+#### Overview
 
-### Security
-- [ ] No cleartext Signal IDs stored anywhere
+Chunk Distribution handles the core persistence operation: encrypting trust state, splitting into fixed-size chunks, and distributing to deterministic holders for durability.
+
+**The Goal**: A crashed bot can recover its trust map from encrypted fragments held by adversarial peers who cannot read or reconstruct that data.
+
+#### Core Parameters (FIXED)
+
+```
+CHUNK_SIZE = 64KB          (balance: distribution vs coordination)
+REPLICATION_FACTOR = 3     (1 local + 2 remote replicas per chunk)
+```
+
+**DO NOT CHANGE** these parameters without security review and explicit unpinning.
+
+#### Distribution Flow
+
+```
+1. State changes → version = N → LOCK for distribution
+2. Serialize trust state → encrypt with ACI-derived key
+3. Split into ceil(state_size / 64KB) chunks
+4. For each chunk:
+   a. Compute 2 holders via rendezvous_hash(chunk_idx, bot_list, epoch)
+   b. Distribute chunk to both holders
+   c. Collect attestations (signed receipts)
+5. On success: UNLOCK, apply queued changes → version = N+1
+6. On partial failure: retry failed holders, DON'T proceed to next version
+```
+
+#### Rendezvous Hashing (Deterministic Holder Selection)
+
+**Why Deterministic**: Anyone can compute who holds whose chunks. This is acceptable because:
+- Chunks are encrypted (holder can't read content)
+- Need ALL chunks + ACI key (single chunk = partial ciphertext)
+- Attack requires compromising actual holders, not just knowing their identity
+- **Removes registry as high-value attack target** (no chunk relationships stored)
+
+```rust
+/// Compute the 2 replica holders for a specific chunk
+fn compute_chunk_holders(
+    owner_contract: &ContractHash,
+    chunk_index: u32,
+    registered_bots: &[ContractHash],  // Sorted list from registry
+    epoch: u64,
+) -> [ContractHash; 2] {
+    // Rendezvous hashing: each bot gets a score for holding this chunk
+    // Top 2 scores = this chunk's replica holders
+    let mut scores: Vec<(ContractHash, Hash)> = registered_bots
+        .iter()
+        .filter(|b| *b != owner_contract)  // Can't hold own chunks
+        .map(|bot| {
+            let score = hash(owner_contract, chunk_index, bot, epoch);
+            (*bot, score)
+        })
+        .collect();
+    
+    scores.sort_by_key(|(_, score)| *score);
+    [scores[0].0, scores[1].0]
+}
+```
+
+#### Encryption (ACI-Derived Key)
+
+**Single cryptographic identity**: Signal ACI key used for encryption, signing, AND identity masking.
+
+```rust
+/// Derive encryption key from Signal ACI identity via HKDF
+fn derive_encryption_key(aci_identity: &IdentityKeyPair) -> [u8; 32] {
+    let hk = Hkdf::<Sha256>::new(
+        Some(b"stroma-chunk-encryption-v1"),
+        aci_identity.private_key().serialize().as_slice()
+    );
+    let mut key = [0u8; 32];
+    hk.expand(b"aes-256-gcm-key", &mut key).unwrap();
+    key
+}
+
+/// Encrypt state before chunking
+fn encrypt_state(
+    state: &TrustNetworkState,
+    aci_identity: &IdentityKeyPair,
+) -> Vec<u8> {
+    let key = derive_encryption_key(aci_identity);
+    let cipher = Aes256Gcm::new(Key::from_slice(&key));
+    let nonce = generate_random_nonce();  // 12 bytes
+    
+    let plaintext = serialize(state);
+    let ciphertext = cipher.encrypt(&nonce, plaintext.as_slice()).unwrap();
+    
+    // Prepend nonce to ciphertext
+    [nonce.as_slice(), ciphertext.as_slice()].concat()
+}
+```
+
+#### Version-Locked Distribution (REQUIRED)
+
+**Problem**: Distribution of 8 chunks to 16 holders is not atomic. State changes during distribution could fragment chunk sets.
+
+**Solution**: Lock state during distribution, queue new changes.
+
+```rust
+pub struct DistributionLock {
+    locked_version: Option<u64>,
+    pending_changes: Vec<StateChange>,
+}
+
+impl DistributionLock {
+    /// Lock state for distribution
+    pub fn lock(&mut self, version: u64) {
+        assert!(self.locked_version.is_none(), "Already locked");
+        self.locked_version = Some(version);
+    }
+    
+    /// Queue changes while locked
+    pub fn queue_change(&mut self, change: StateChange) {
+        self.pending_changes.push(change);
+    }
+    
+    /// Unlock after successful distribution
+    pub fn unlock(&mut self) -> Vec<StateChange> {
+        self.locked_version = None;
+        std::mem::take(&mut self.pending_changes)
+    }
+}
+```
+
+**Invariant**: All holders for a given version have IDENTICAL chunks.
+
+#### Contract-Based Distribution (Phase 0)
+
+**Phase 0 Pattern**: Each bot has a chunk storage contract. Chunks are written as state updates.
+
+```rust
+/// Each bot has a chunk storage contract
+pub struct ChunkStorageContract {
+    /// Chunks I'm holding for others: (owner, chunk_idx) → chunk_data
+    stored_chunks: HashMap<(ContractHash, u32), Chunk>,
+}
+
+/// Distribute chunk to holder via their contract
+async fn distribute_chunk(
+    holder_contract: &ContractHash,
+    chunk: &Chunk,
+    freenet: &FreenetClient,
+) -> Result<Attestation> {
+    let delta = ChunkStorageDelta::Store {
+        owner: chunk.owner,
+        chunk_index: chunk.chunk_index,
+        data: chunk.data.clone(),
+    };
+    
+    freenet.update_contract(holder_contract, &delta).await?;
+    
+    // Holder's contract returns attestation (signed receipt)
+    Ok(attestation)
+}
+```
+
+#### Deliverables
+
+- [ ] `src/persistence/encryption.rs` — AES-256-GCM with ACI-derived key
+  - [ ] `derive_encryption_key()` — HKDF from Signal ACI
+  - [ ] `encrypt_state()` — Serialize, encrypt, prepend nonce
+  - [ ] `decrypt_state()` — Split nonce, decrypt, deserialize
+- [ ] `src/persistence/chunking.rs` — 64KB chunk splitting
+  - [ ] `split_into_chunks()` — ceil(state_size / 64KB) chunks
+  - [ ] `reassemble_chunks()` — Concatenate for decryption
+  - [ ] Chunk metadata: owner, index, version, hash
+- [ ] `src/persistence/rendezvous.rs` — Deterministic holder selection
+  - [ ] `compute_chunk_holders()` — Top 2 scores per chunk
+  - [ ] `compute_fallback_holder()` — When primary unavailable
+  - [ ] `compute_all_chunk_holders()` — All holders for all chunks
+- [ ] `src/persistence/distribution.rs` — Distribution orchestration
+  - [ ] `distribute_all_chunks()` — Parallel distribution to all holders
+  - [ ] `retry_failed_distribution()` — Exponential backoff retry
+  - [ ] `DistributionLock` — Version-locked queue
+- [ ] `src/persistence/chunk_storage.rs` — Contract-based storage (Phase 0)
+  - [ ] `ChunkStorageContract` — HashMap<(owner, idx), Chunk>
+  - [ ] `ChunkStorageDelta` — Store/Remove operations
+  - [ ] `Attestation` — Signed receipt from holder
+- [ ] `src/persistence/recovery.rs` — State recovery
+  - [ ] `recover_state()` — Fetch all chunks, reassemble, decrypt
+  - [ ] `fetch_chunk_from_any_holder()` — Try any 1 of 3 copies
+
+#### Acceptance Criteria
+
+**Encryption (Agent-Crypto):**
+- [ ] AES-256-GCM encryption with key derived from Signal ACI via HKDF
+- [ ] Random nonce per encryption (12 bytes, prepended to ciphertext)
+- [ ] Decryption succeeds with correct ACI key
+- [ ] Decryption fails with wrong key (authentication tag mismatch)
+- [ ] Property-based tests (proptest) covering:
+  - [ ] Encryption roundtrip preserves data (completeness)
+  - [ ] Different keys produce different ciphertexts (key isolation)
+  - [ ] Wrong key fails authentication (soundness)
+  - [ ] Each encryption uses unique nonce
+  - [ ] HKDF key derivation is deterministic
+  - [ ] HKDF produces isolated keys for different inputs
+
+**Chunking:**
+- [ ] CHUNK_SIZE = 64KB constant used consistently
+- [ ] ceil(state_size / CHUNK_SIZE) chunks produced
+- [ ] Reassembled chunks match original encrypted state
+- [ ] Property-based tests (proptest) covering:
+  - [ ] Split → reassemble = original
+  - [ ] Correct chunk count calculation
+  - [ ] No chunk exceeds CHUNK_SIZE
+
+**Holder Selection (Agent-Crypto):**
+- [ ] Rendezvous hashing produces deterministic results
+- [ ] Same inputs → same holders (anyone can verify)
+- [ ] Owner cannot hold their own chunks
+- [ ] Churn-stable: only affected chunks reassigned when bot leaves
+- [ ] Property-based tests (proptest) covering:
+  - [ ] Determinism: same inputs → same holders
+  - [ ] Owner exclusion: owner never selected for own chunks
+  - [ ] Two distinct holders per chunk
+  - [ ] Churn stability: non-holder departure doesn't change holders
+  - [ ] Uniform distribution: χ² test passes at 95% confidence
+
+**Distribution:**
+- [ ] 2 remote holders per chunk (REPLICATION_FACTOR = 3 including local)
+- [ ] Attestation (signed receipt) returned on successful storage
+- [ ] Version-locked: state changes queued during distribution
+- [ ] All holders for same version have identical chunks
+- [ ] Partial failure: retry failed holders, don't proceed to next version
+
+**Security (GAP-12):**
+- [ ] Persistence peers are ADVERSARIAL — zero trust
+- [ ] Persistence discovery ≠ Federation discovery (different trust models)
+- [ ] Chunks encrypted before distribution (peers can't read)
+- [ ] Need ALL chunks + ACI key to reconstruct
+
+#### Test Cases
+
+```rust
+#[test]
+fn test_encryption_roundtrip() {
+    // Given: Trust state and ACI identity
+    // When: Encrypt then decrypt
+    // Then: Recovered state matches original
+}
+
+#[test]
+fn test_encryption_wrong_key_fails() {
+    // Given: Encrypted state
+    // When: Decrypt with different ACI key
+    // Then: Error (authentication tag mismatch)
+}
+
+#[test]
+fn test_chunking_correct_count() {
+    // Given: 500KB encrypted state
+    // When: Split into chunks
+    // Then: ceil(500KB / 64KB) = 8 chunks
+}
+
+#[test]
+fn test_rendezvous_deterministic() {
+    // Given: Same owner, chunk_idx, bot_list, epoch
+    // When: Compute holders twice
+    // Then: Same result both times
+}
+
+#[test]
+fn test_rendezvous_owner_excluded() {
+    // Given: Owner in bot_list
+    // When: Compute holders
+    // Then: Owner not in result
+}
+
+#[test]
+fn test_distribution_lock_queues() {
+    // Given: Locked state (version 48)
+    // When: State change arrives
+    // Then: Change queued, not applied
+}
+
+#[test]
+fn test_distribution_lock_applies_on_unlock() {
+    // Given: Locked state with queued changes
+    // When: Unlock
+    // Then: Queued changes returned for application
+}
+
+#[test]
+fn test_partial_failure_retries() {
+    // Given: 2 holders, 1 fails
+    // When: Distribution
+    // Then: Retry failed holder, don't proceed to next version
+}
+```
+
+#### Property-Based Tests (Agent-Crypto REQUIRED)
+
+Cryptographic operations in Chunk Distribution require property-based testing to verify correctness across input space.
+
+```rust
+proptest! {
+    // ══════════════════════════════════════════════════════════════════
+    // ENCRYPTION PROPERTIES (Agent-Crypto)
+    // ══════════════════════════════════════════════════════════════════
+    
+    #[test]
+    fn encryption_roundtrip_preserves_data(state_bytes: Vec<u8>) {
+        // Completeness: encrypt → decrypt always recovers original
+        let identity = generate_test_identity();
+        let encrypted = encrypt_state(&state_bytes, &identity);
+        let decrypted = decrypt_state(&encrypted, &identity).unwrap();
+        prop_assert_eq!(state_bytes, decrypted);
+    }
+    
+    #[test]
+    fn encryption_key_isolation(
+        state_bytes: Vec<u8>,
+        seed1: [u8; 32],
+        seed2: [u8; 32],
+    ) {
+        prop_assume!(seed1 != seed2);
+        // Different keys produce different ciphertexts
+        let identity1 = identity_from_seed(&seed1);
+        let identity2 = identity_from_seed(&seed2);
+        let encrypted1 = encrypt_state(&state_bytes, &identity1);
+        let encrypted2 = encrypt_state(&state_bytes, &identity2);
+        prop_assert_ne!(encrypted1, encrypted2);
+    }
+    
+    #[test]
+    fn decryption_fails_with_wrong_key(
+        state_bytes: Vec<u8>,
+        seed1: [u8; 32],
+        seed2: [u8; 32],
+    ) {
+        prop_assume!(seed1 != seed2);
+        // Soundness: wrong key fails authentication
+        let identity1 = identity_from_seed(&seed1);
+        let identity2 = identity_from_seed(&seed2);
+        let encrypted = encrypt_state(&state_bytes, &identity1);
+        let result = decrypt_state(&encrypted, &identity2);
+        prop_assert!(result.is_err());
+    }
+    
+    #[test]
+    fn encryption_nonce_uniqueness(state_bytes: Vec<u8>) {
+        // Each encryption uses fresh nonce (first 12 bytes differ)
+        let identity = generate_test_identity();
+        let encrypted1 = encrypt_state(&state_bytes, &identity);
+        let encrypted2 = encrypt_state(&state_bytes, &identity);
+        // Same plaintext, same key → different ciphertext (random nonce)
+        prop_assert_ne!(encrypted1[..12], encrypted2[..12]);
+    }
+    
+    #[test]
+    fn hkdf_key_derivation_deterministic(seed: [u8; 32]) {
+        // Same input → same derived key
+        let identity = identity_from_seed(&seed);
+        let key1 = derive_encryption_key(&identity);
+        let key2 = derive_encryption_key(&identity);
+        prop_assert_eq!(key1, key2);
+    }
+    
+    #[test]
+    fn hkdf_key_derivation_isolated(seed1: [u8; 32], seed2: [u8; 32]) {
+        prop_assume!(seed1 != seed2);
+        // Different inputs → different derived keys
+        let identity1 = identity_from_seed(&seed1);
+        let identity2 = identity_from_seed(&seed2);
+        let key1 = derive_encryption_key(&identity1);
+        let key2 = derive_encryption_key(&identity2);
+        prop_assert_ne!(key1, key2);
+    }
+    
+    // ══════════════════════════════════════════════════════════════════
+    // CHUNKING PROPERTIES
+    // ══════════════════════════════════════════════════════════════════
+    
+    #[test]
+    fn chunking_reassembly_matches(data: Vec<u8>) {
+        // Completeness: split → reassemble = original
+        let chunks = split_into_chunks(&data, CHUNK_SIZE);
+        let reassembled = reassemble_chunks(&chunks);
+        prop_assert_eq!(data, reassembled);
+    }
+    
+    #[test]
+    fn chunking_count_correct(data_len: usize) {
+        // Correct chunk count: ceil(len / CHUNK_SIZE)
+        let data = vec![0u8; data_len];
+        let chunks = split_into_chunks(&data, CHUNK_SIZE);
+        let expected = (data_len + CHUNK_SIZE - 1) / CHUNK_SIZE;
+        let expected = if expected == 0 { 1 } else { expected };  // At least 1 chunk
+        prop_assert_eq!(chunks.len(), expected);
+    }
+    
+    #[test]
+    fn chunking_max_size_enforced(data: Vec<u8>) {
+        // No chunk exceeds CHUNK_SIZE
+        let chunks = split_into_chunks(&data, CHUNK_SIZE);
+        for chunk in &chunks {
+            prop_assert!(chunk.data.len() <= CHUNK_SIZE);
+        }
+    }
+    
+    // ══════════════════════════════════════════════════════════════════
+    // RENDEZVOUS HASHING PROPERTIES (Agent-Crypto)
+    // ══════════════════════════════════════════════════════════════════
+    
+    #[test]
+    fn rendezvous_deterministic(
+        owner: [u8; 32],
+        chunk_idx: u32,
+        bot_seeds: Vec<[u8; 32]>,
+        epoch: u64,
+    ) {
+        prop_assume!(bot_seeds.len() >= 3);  // Need at least 2 non-owner bots
+        let bots: Vec<ContractHash> = bot_seeds.iter().map(hash_to_contract).collect();
+        // Same inputs → same holders
+        let holders1 = compute_chunk_holders(&hash_to_contract(&owner), chunk_idx, &bots, epoch);
+        let holders2 = compute_chunk_holders(&hash_to_contract(&owner), chunk_idx, &bots, epoch);
+        prop_assert_eq!(holders1, holders2);
+    }
+    
+    #[test]
+    fn rendezvous_owner_excluded(
+        owner: [u8; 32],
+        chunk_idx: u32,
+        bot_seeds: Vec<[u8; 32]>,
+        epoch: u64,
+    ) {
+        prop_assume!(bot_seeds.len() >= 3);
+        let owner_contract = hash_to_contract(&owner);
+        let mut bots: Vec<ContractHash> = bot_seeds.iter().map(hash_to_contract).collect();
+        bots.push(owner_contract.clone());  // Include owner in list
+        
+        let holders = compute_chunk_holders(&owner_contract, chunk_idx, &bots, epoch);
+        // Owner never selected as holder of own chunks
+        prop_assert!(!holders.contains(&owner_contract));
+    }
+    
+    #[test]
+    fn rendezvous_two_distinct_holders(
+        owner: [u8; 32],
+        chunk_idx: u32,
+        bot_seeds: Vec<[u8; 32]>,
+        epoch: u64,
+    ) {
+        prop_assume!(bot_seeds.len() >= 3);
+        let bots: Vec<ContractHash> = bot_seeds.iter().map(hash_to_contract).collect();
+        let holders = compute_chunk_holders(&hash_to_contract(&owner), chunk_idx, &bots, epoch);
+        // Two distinct holders selected
+        prop_assert_ne!(holders[0], holders[1]);
+    }
+    
+    #[test]
+    fn rendezvous_churn_stability(
+        owner: [u8; 32],
+        chunk_idx: u32,
+        bot_seeds: Vec<[u8; 32]>,
+        epoch: u64,
+    ) {
+        prop_assume!(bot_seeds.len() >= 5);
+        let bots: Vec<ContractHash> = bot_seeds.iter().map(hash_to_contract).collect();
+        let holders_before = compute_chunk_holders(&hash_to_contract(&owner), chunk_idx, &bots, epoch);
+        
+        // Remove one non-holder bot
+        let non_holder_idx = bots.iter()
+            .position(|b| !holders_before.contains(b))
+            .unwrap();
+        let mut bots_after = bots.clone();
+        bots_after.remove(non_holder_idx);
+        
+        let holders_after = compute_chunk_holders(&hash_to_contract(&owner), chunk_idx, &bots_after, epoch);
+        // Holders unchanged when non-holder leaves
+        prop_assert_eq!(holders_before, holders_after);
+    }
+    
+    #[test]
+    fn rendezvous_uniform_distribution(
+        owners: Vec<[u8; 32]>,
+        bot_seeds: Vec<[u8; 32]>,
+        epoch: u64,
+    ) {
+        prop_assume!(owners.len() >= 100);
+        prop_assume!(bot_seeds.len() >= 10);
+        let bots: Vec<ContractHash> = bot_seeds.iter().map(hash_to_contract).collect();
+        
+        // Count how often each bot is selected across many owners
+        let mut selection_counts: HashMap<ContractHash, usize> = HashMap::new();
+        for owner in &owners {
+            let holders = compute_chunk_holders(&hash_to_contract(owner), 0, &bots, epoch);
+            for holder in holders {
+                *selection_counts.entry(holder).or_insert(0) += 1;
+            }
+        }
+        
+        // Chi-squared test: distribution should be roughly uniform
+        let expected = (owners.len() * 2) as f64 / bots.len() as f64;
+        let chi_squared: f64 = selection_counts.values()
+            .map(|&count| {
+                let diff = count as f64 - expected;
+                diff * diff / expected
+            })
+            .sum();
+        
+        // 95% confidence for chi-squared with (bots.len() - 1) degrees of freedom
+        // For 9 df, critical value is ~16.9
+        prop_assert!(chi_squared < 20.0, "Distribution not uniform: χ² = {}", chi_squared);
+    }
+}
+```
+
+---
+
+### Bead: Write-Blocking State Machine
+
+**Agent**: Agent-Freenet  
+**Reference**: `.beads/persistence-model.bead` (§ Write-Blocking States)  
+**Dependencies**: Replication Health Tracking, Chunk Distribution
+
+#### Overview
+
+Write-Blocking ensures the bot doesn't accumulate state that can't be backed up. When distribution fails but peers are available (DEGRADED), writes are blocked until replication is restored.
+
+**Key Principle**: Availability-based, NOT TTL-based. Bot never penalized for network scarcity.
+
+#### State Machine
+
+| State | Condition | Writes | Replication Health | User Message |
+|-------|-----------|--------|-------------------|--------------|
+| **PROVISIONAL** | No suitable peers available | ALLOWED | 🔵 Initializing | "Setting up persistence" |
+| **ACTIVE** | All chunks have 2+ replicas | ALLOWED | 🟢/🟡 | "Fully resilient" |
+| **DEGRADED** | Any chunk ≤1 replica, peers available | **BLOCKED** | 🔴 At Risk | "Writes blocked" |
+| **ISOLATED** | N=1 network | ALLOWED (warned) | 🔵 Initializing | "No persistence" |
+
+#### State Transitions
+
+```
+                    ┌─────────────────────────────────────────┐
+                    │                                         │
+                    ▼                                         │
+    ┌───────────┐  peers     ┌──────────┐  distribution  ┌────┴────┐
+    │ ISOLATED  │─available─▶│PROVISIONAL│───succeeds───▶│  ACTIVE │
+    │  (N=1)    │            │           │               │         │
+    └───────────┘            └──────────┘               └────┬────┘
+         ▲                        ▲                          │
+         │                        │                     distribution
+       N=1                   no peers                     fails
+         │                        │                          │
+         │                        │                          ▼
+         │                   ┌────┴────┐               ┌──────────┐
+         └───────────────────│DEGRADED │◀──────────────│  ACTIVE  │
+                             │(BLOCKED)│               │          │
+                             └─────────┘               └──────────┘
+                                  │
+                                  │ retry succeeds
+                                  ▼
+                             ┌──────────┐
+                             │  ACTIVE  │
+                             └──────────┘
+```
+
+#### Why Each State Exists
+
+**PROVISIONAL** (Writes Allowed):
+- Bot just started, no peers discovered yet
+- Can't persist, but shouldn't block bootstrapping
+- Transitions to ACTIVE once peers respond
+
+**ACTIVE** (Writes Allowed):
+- Normal operation: all chunks have sufficient replicas
+- May be 🟢 (3/3) or 🟡 (2/3) — both allow writes
+
+**DEGRADED** (Writes BLOCKED):
+- Peers are available but distribution failed
+- MUST succeed before making changes
+- Prevents accumulating unbackable state
+- Bot actively retries until restored
+
+**ISOLATED** (Writes Allowed with Warning):
+- Only bot in network (N=1)
+- No peers to distribute to
+- Operator warned: no persistence guarantee
+- Acceptable for testing, NOT production
+
+#### Implementation
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum WriteBlockingState {
+    Provisional,
+    Active,
+    Degraded,
+    Isolated,
+}
+
+pub struct WriteBlockingManager {
+    state: WriteBlockingState,
+    network_size: usize,
+    replication_health: ReplicationHealth,
+    last_transition: Timestamp,
+}
+
+impl WriteBlockingManager {
+    /// Compute current state from inputs
+    pub fn compute_state(
+        network_size: usize,
+        peers_available: bool,
+        health: &ReplicationHealth,
+    ) -> WriteBlockingState {
+        match (network_size, peers_available, health.status()) {
+            (1, _, _) => WriteBlockingState::Isolated,
+            (_, false, _) => WriteBlockingState::Provisional,
+            (_, true, HealthStatus::AtRisk) => WriteBlockingState::Degraded,
+            (_, true, _) => WriteBlockingState::Active,
+        }
+    }
+    
+    /// Check if writes are allowed
+    pub fn can_write(&self) -> bool {
+        match self.state {
+            WriteBlockingState::Degraded => false,  // BLOCKED
+            _ => true,  // All others allow writes
+        }
+    }
+    
+    /// Get warning message for allowed-but-risky states
+    pub fn warning(&self) -> Option<String> {
+        match self.state {
+            WriteBlockingState::Isolated => {
+                Some("Single-bot network: no persistence guarantee".to_string())
+            }
+            WriteBlockingState::Provisional => {
+                Some("No peers discovered yet: persistence initializing".to_string())
+            }
+            _ => None,
+        }
+    }
+    
+    /// Get blocking reason for DEGRADED state
+    pub fn blocking_reason(&self) -> Option<String> {
+        if self.state == WriteBlockingState::Degraded {
+            Some(format!(
+                "Replication degraded: {} chunks at risk. Writes blocked until restored.",
+                self.replication_health.chunks_at_risk
+            ))
+        } else {
+            None
+        }
+    }
+}
+```
+
+#### Network Bootstrap Limitations
+
+| Network Size | State | Recovery Possible | Notes |
+|--------------|-------|-------------------|-------|
+| N=1 | ISOLATED | ❌ No | State on Freenet only, "good luck" |
+| N=2 | ACTIVE | ⚠️ Fragile | Mutual dependency, both need each other |
+| N=3 | ACTIVE | ⚠️ Minimal | One failure = degraded |
+| N≥4 | ACTIVE | ✅ Resilient | Can tolerate 1 failure per chunk |
+| N≥5 | ACTIVE | ✅ Recommended | Comfortable margin |
+
+**Recommended minimum for production**: N≥5
+
+#### Deliverables
+
+- [ ] `src/persistence/write_blocking.rs` — State machine
+  - [ ] `WriteBlockingState` enum (Provisional, Active, Degraded, Isolated)
+  - [ ] `WriteBlockingManager` struct
+  - [ ] `compute_state()` — Derive state from inputs
+  - [ ] `can_write()` — Check if writes allowed
+  - [ ] `warning()` — Get warning for risky states
+  - [ ] `blocking_reason()` — Get reason for blocked state
+- [ ] Integration with state writer
+  - [ ] Check `can_write()` before applying changes
+  - [ ] Return `WriteError::Blocked` with reason
+  - [ ] Log warnings for ISOLATED and PROVISIONAL
+- [ ] Integration with replication health
+  - [ ] Recompute state on health changes
+  - [ ] Trigger retry on DEGRADED
+- [ ] User-facing messages
+  - [ ] `/mesh` shows blocking status
+  - [ ] Clear error message when write blocked
+
+#### Acceptance Criteria
+
+**State Computation:**
+- [ ] N=1 → ISOLATED (regardless of health)
+- [ ] No peers available → PROVISIONAL
+- [ ] Peers available + AtRisk health → DEGRADED
+- [ ] Peers available + healthy → ACTIVE
+
+**Write Blocking:**
+- [ ] DEGRADED blocks all writes
+- [ ] PROVISIONAL, ACTIVE, ISOLATED allow writes
+- [ ] ISOLATED and PROVISIONAL log warnings
+- [ ] Clear error message returned when blocked
+
+**State Transitions:**
+- [ ] Transitions logged for debugging
+- [ ] State recomputed when network_size changes
+- [ ] State recomputed when replication health changes
+- [ ] Retry triggered automatically in DEGRADED
+
+**User Communication:**
+- [ ] `/mesh` shows current blocking state
+- [ ] Warning shown for ISOLATED ("no persistence guarantee")
+- [ ] Warning shown for PROVISIONAL ("initializing")
+- [ ] Error shown for DEGRADED ("writes blocked until restored")
+
+#### Test Cases
+
+```rust
+#[test]
+fn test_isolated_when_n_equals_1() {
+    // Given: network_size = 1
+    // When: Compute state
+    // Then: ISOLATED (writes allowed with warning)
+}
+
+#[test]
+fn test_provisional_when_no_peers() {
+    // Given: network_size = 5, peers_available = false
+    // When: Compute state
+    // Then: PROVISIONAL (writes allowed with warning)
+}
+
+#[test]
+fn test_degraded_when_at_risk() {
+    // Given: network_size = 5, peers_available = true, health = AtRisk
+    // When: Compute state
+    // Then: DEGRADED (writes BLOCKED)
+}
+
+#[test]
+fn test_active_when_healthy() {
+    // Given: network_size = 5, peers_available = true, health = Replicated
+    // When: Compute state
+    // Then: ACTIVE (writes allowed)
+}
+
+#[test]
+fn test_write_blocked_in_degraded() {
+    // Given: DEGRADED state
+    // When: can_write()
+    // Then: false
+}
+
+#[test]
+fn test_write_allowed_in_isolated() {
+    // Given: ISOLATED state
+    // When: can_write()
+    // Then: true (with warning)
+}
+
+#[test]
+fn test_transition_degraded_to_active() {
+    // Given: DEGRADED state
+    // When: Replication restored (all chunks 2+ replicas)
+    // Then: Transitions to ACTIVE
+}
+
+#[test]
+fn test_warning_for_isolated() {
+    // Given: ISOLATED state
+    // When: warning()
+    // Then: "Single-bot network: no persistence guarantee"
+}
+
+#[test]
+fn test_blocking_reason_for_degraded() {
+    // Given: DEGRADED state with 2 at-risk chunks
+    // When: blocking_reason()
+    // Then: "2 chunks at risk. Writes blocked until restored."
+}
+```
+
+#### UX Messages
+
+**ISOLATED Warning:**
+```
+⚠️ Single-Bot Network
+
+This bot is the only one in the persistence network.
+Your trust state cannot be backed up.
+
+If this bot crashes, recovery will NOT be possible.
+
+Recommendation: Wait for more bots to join, or
+accept this risk for testing purposes only.
+```
+
+**DEGRADED Error:**
+```
+❌ Write Blocked: Replication Degraded
+
+Your trust network state cannot be safely modified because
+chunk replication is incomplete:
+
+  At-risk chunks: 2 (chunks 3, 7 have only 1/3 copies)
+  Network size: 5 bots (peers available)
+
+This protects against data loss. The bot is actively
+seeking replacement holders. Writes will resume automatically
+when replication is restored.
+
+Check status: /mesh replication
+```
+
+**PROVISIONAL Warning:**
+```
+⚠️ Persistence Initializing
+
+No persistence peers discovered yet. Your trust state
+is stored locally only.
+
+The bot will automatically establish persistence
+once peers are discovered.
+
+Check status: /mesh replication
+```
+
+---
+
+### Phase 2.5 Success Criteria
+
+Before closing `convoy-persistence`, the Mayor MUST verify ALL of the following:
+
+#### Replication Health Tracking (Agent-Freenet)
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| Health states implemented | Unit tests pass for Replicated/Partial/AtRisk/Initializing | Agent-Freenet |
+| `/mesh replication` displays correctly | Manual test: shows chunk counts, health status, recovery confidence | Agent-Signal |
+| Health updates on state change | Unit test: state change triggers health recalculation | Agent-Freenet |
+| No heartbeat polling | Code review: no periodic health checks, only event-driven | Witness |
+
+#### Chunk Distribution (Agent-Freenet + Agent-Crypto)
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| CHUNK_SIZE = 64KB enforced | Constant in code, proptest verifies no chunks exceed | Agent-Freenet |
+| REPLICATION_FACTOR = 3 | 1 local + 2 remote replicas per chunk | Agent-Freenet |
+| AES-256-GCM encryption | Unit test: encrypt/decrypt roundtrip, wrong key fails | Agent-Crypto |
+| HKDF key derivation | Unit test: deterministic, isolated per identity | Agent-Crypto |
+| Rendezvous hashing deterministic | Proptest: same inputs → same holders | Agent-Crypto |
+| Owner excluded from own chunks | Proptest: owner never selected as holder | Agent-Crypto |
+| Version-locked distribution | Unit test: changes queued during distribution | Agent-Freenet |
+| Attestations collected | Unit test: signed receipt returned on storage | Agent-Freenet |
+
+#### Write-Blocking State Machine (Agent-Freenet)
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| ISOLATED allows writes (N=1) | Unit test: `can_write()` = true with warning | Agent-Freenet |
+| PROVISIONAL allows writes | Unit test: `can_write()` = true with warning | Agent-Freenet |
+| ACTIVE allows writes | Unit test: `can_write()` = true | Agent-Freenet |
+| DEGRADED blocks writes | Unit test: `can_write()` = false, error message | Agent-Freenet |
+| State transitions correct | Unit tests for all valid transitions | Agent-Freenet |
+| User messages clear | Review: ISOLATED/PROVISIONAL warn, DEGRADED explains | Agent-Signal |
+
+#### Recovery (Agent-Freenet)
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| Recovery succeeds (all chunks) | Integration test: crash → restart → state recovered | Agent-Freenet |
+| Recovery fails gracefully (missing chunk) | Unit test: clear error when chunk unavailable | Agent-Freenet |
+| Fallback holder used | Unit test: primary unavailable → next-highest score selected | Agent-Freenet |
+
+#### Security Constraints (Witness MUST Verify)
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| Persistence peers ADVERSARIAL | Code review: no trust assumptions in chunk storage | Witness |
+| Chunks encrypted before distribution | Code review: encrypt before chunk, decrypt after reassemble | Witness |
+| Need ALL chunks + ACI key | Code review: partial chunks useless | Witness |
+| Discovery ≠ Federation | Code review: persistence registry separate from federation | Witness |
+| No cleartext in chunks | Code review: state serialized then encrypted | Witness |
+
+#### Property-Based Tests (Agent-Crypto REQUIRED)
+
+| Criterion | Proptest Coverage | Agent |
+|-----------|-------------------|-------|
+| Encryption completeness | roundtrip preserves data | Agent-Crypto |
+| Encryption soundness | wrong key fails authentication | Agent-Crypto |
+| Encryption key isolation | different keys → different ciphertexts | Agent-Crypto |
+| HKDF determinism | same input → same key | Agent-Crypto |
+| Chunking roundtrip | split → reassemble = original | Agent-Freenet |
+| Rendezvous determinism | same inputs → same holders | Agent-Crypto |
+| Rendezvous uniformity | χ² test passes at 95% confidence | Agent-Crypto |
+| Churn stability | non-holder departure doesn't change holders | Agent-Crypto |
+
+#### Documentation & Operator Guidance
+
+| Criterion | Verification | Agent |
+|-----------|--------------|-------|
+| Signal store backup documented | `docs/OPERATOR-GUIDE.md` includes Signal store backup procedure | Agent-Signal |
+| Recovery procedure documented | `docs/PERSISTENCE.md` explains crash recovery | Agent-Freenet |
+| Write-blocking UX documented | `docs/USER-GUIDE.md` explains DEGRADED state | Agent-Signal |
+| Health states documented | `docs/PERSISTENCE.md` explains Replicated/Partial/AtRisk | Agent-Freenet |
+
+#### Code Coverage (CI Enforced)
+
+- [ ] 100% code coverage on `src/persistence/*.rs`
+- [ ] All proptests pass (minimum 256 cases per test)
+- [ ] `cargo clippy` passes with no warnings
+- [ ] `cargo deny check` passes (supply chain security)
+
+#### Integration Test Scenario
+
+**Gastown MUST run this scenario before closing convoy:**
+
+```bash
+# 1. Start 3-bot test network
+gt test:integration --scenario persistence-basic
+
+# Scenario steps:
+# a) Bot-A creates trust state (5 members, 10 vouches)
+# b) Bot-A distributes chunks to Bot-B and Bot-C
+# c) Verify: All chunks have 3/3 copies (ACTIVE state)
+# d) Kill Bot-A process
+# e) Restart Bot-A
+# f) Verify: Bot-A recovers state from Bot-B/Bot-C chunks
+# g) Verify: Recovered state matches original
+
+# 2. Test DEGRADED state
+gt test:integration --scenario persistence-degraded
+
+# Scenario steps:
+# a) Start with healthy 3-bot network
+# b) Kill Bot-B (chunk holder)
+# c) Verify: Bot-A enters DEGRADED state
+# d) Verify: Bot-A writes are BLOCKED
+# e) Restart Bot-B
+# f) Verify: Bot-A retries distribution
+# g) Verify: Bot-A returns to ACTIVE state
+# h) Verify: Bot-A writes succeed again
+```
+
+#### Mayor Convoy Closure Checklist
+
+```bash
+# Verify all beads complete
+bd list --convoy convoy-persistence --status pending
+# Should return: No pending beads
+
+# Verify security audit
+gt audit --convoy convoy-persistence --agent witness
+# Should return: All security constraints verified
+
+# Verify test coverage
+cargo llvm-cov nextest --all-features -- --test-threads=1
+# Should return: 100% coverage on persistence modules
+
+# Verify property tests
+cargo test --release -- proptest
+# Should return: All proptests pass (256+ cases each)
+
+# Verify documentation
+ls docs/PERSISTENCE.md docs/OPERATOR-GUIDE.md
+# Should exist and be updated
+
+# Close convoy
+gt convoy close convoy-persistence --verified
+```
+
+---
+
+## 🔧 PHASE 3: Federation Preparation Convoy
+
+**Convoy ID**: `convoy-phase3`  
+**Duration**: Week 7-8  
+**Dependencies**: `convoy-persistence` complete
+
+### Mayor Delegation Commands
+
+```bash
+gt convoy create --title "Phase 3: Federation Prep" \
+  --depends-on convoy-persistence
+
+bd create --title "Social Anchor hashing (local only)" --convoy convoy-phase3
+bd create --title "PSI-CA implementation (mock data)" --convoy convoy-phase3
+bd create --title "Federation hooks validation" --convoy convoy-phase3
+```
+
+**Note**: Phase 3 computes federation infrastructure locally but does NOT broadcast. Federation broadcast is Phase 4+.
+
+**Documentation**: Per convoy closure checklist, update `docs/FEDERATION.md` and `docs/ALGORITHMS.md` with PSI-CA details.
+
+---
+
+## 🏗️ Infrastructure Convoy (Parallel with Phases)
+
+**Convoy ID**: `convoy-infra`  
+**Can run parallel to implementation phases**
+
+### Mayor Delegation Commands
+
+```bash
+gt convoy create --title "Infrastructure & CI/CD"
+
+bd create --title "Dockerfile (hardened, distroless)" --convoy convoy-infra
+bd create --title "GitHub Actions CI workflow" --convoy convoy-infra
+bd create --title "GitHub Actions release workflow" --convoy convoy-infra
+bd create --title "cargo-deny configuration" --convoy convoy-infra
+```
+
+### Bead: Dockerfile
+
+```dockerfile
+# Stage 1: Builder
+FROM rust:1.93-alpine AS builder
+# Build static MUSL binary
+
+# Stage 2: Runtime (distroless)
+FROM gcr.io/distroless/static:nonroot
+COPY --from=builder /build/stroma /stroma
+USER nonroot:nonroot
+ENTRYPOINT ["/stroma"]
+```
+
+### Bead: CI Workflow
+
+```yaml
+# .github/workflows/ci.yml
+- cargo fmt --check
+- cargo clippy -- -D warnings
+- cargo nextest run --all-features
+- cargo deny check
+- cargo llvm-cov nextest --all-features  # 100% coverage required
+```
+
+---
+
+## 👁️ Witness Agent Protocol
+
+**Role**: Continuous security audit  
+**Runs**: Parallel to all other agents
+
+### Witness Responsibilities
+
+1. **Monitor all agent output** for Signal ID leakage (persistent storage, logs, network)
+2. **Verify zeroization** in crypto operations (memory hygiene after hashing)
+3. **Block unsafe patterns**:
+   - Cleartext IDs in persistent storage, logs, or network
+   - Polling (instead of state stream)
+   - SqliteStore usage
+   - Grace periods
+4. **Read** `security-constraints.bead` before every review
+
+### Witness Commands
+
+```bash
+# Run witness alongside convoy
+gt spawn --role witness --watch-convoy convoy-phase0
+
+# Witness checks (run before merge)
+rg "signal.*id" --type rust  # Should find only hashed references
+rg "SqliteStore" --type rust  # Should find zero matches
+rg "sleep.*loop" --type rust  # Should find zero (no polling)
+
+# Log security audit (GAP-07 - CRITICAL)
+rg "tracing::(info|debug|warn|error).*voucher.*target" --type rust  # Should find zero
+rg "tracing::(info|debug|warn|error).*flagger.*target" --type rust  # Should find zero
+rg "tracing::(info|debug|warn|error).*holder.*chunk" --type rust    # Should find zero
+rg "tracing::(info|debug|warn|error).*federated.*group" --type rust # Should find zero
+```
+
+---
+
+## 📋 Completed Work (Reference)
+
+### ✅ Spike Week 1 (Q1-Q6)
+
+| Q | Finding | Status |
+|---|---------|--------|
+| Q1 | Freenet merge: commutative deltas with set-based state | GO |
+| Q2 | Contract validation: trustless model viable | GO |
+| Q3 | Cluster detection: Bridge Removal algorithm | GO |
+| Q4 | STARK verification: bot-side for Phase 0 | PARTIAL |
+| Q5 | Merkle Tree: 0.09ms at 1000 members | GO |
+| Q6 | Proof storage: outcomes only | GO |
+
+### ✅ Spike Week 2 (Q7-Q14)
+
+| Q | Finding | Status |
+|---|---------|--------|
+| Q7 | Bot discovery: Registry-based, <1ms | GO |
+| Q8 | Sybil resistance: PoW difficulty 18 | GO |
+| Q9 | Chunk verification: Challenge-response <1ms | GO |
+| Q11 | Rendezvous hashing: Deterministic | GO |
+| Q12 | Chunk size: 64KB optimal | GO |
+| Q13 | Fairness: 1% spot checks | GO |
+| Q14 | Distribution: Contract-based Phase 0 | GO |
+
+### ✅ Protocol v8 Poll Support
+
+- Fork: `roder/libsignal-service-rs`
+- Branch: `feature/protocol-v8-polls-fixed`
+- Status: Build verified, unit tests pass
+
+### ✅ Pre-Gastown Audit
+
+- Terminology: Consistent
+- Architecture: No contradictions
+- Security: Constraints enforced
+- GO decision: Ready for agent handoff
+
+---
+
+## 📚 Key Reference Documents
+
+| Document | Purpose |
+|----------|---------|
+| `.beads/security-constraints.bead` | The 8 Absolutes (MUST read) |
+| `.beads/architecture-objectives.bead` | Core design philosophy |
+| `.beads/technology-stack.bead` | Tech decisions (Presage, CBOR, etc.) |
+| `.beads/persistence-model.bead` | Chunk distribution, recovery |
+| `.beads/terminology.bead` | Canonical definitions |
+| `docs/DEVELOPER-GUIDE.md` | Module structure |
+| `docs/ALGORITHMS.md` | DVR, Bridge Removal, PSI-CA |
+| `docs/PERSISTENCE.md` | Comprehensive persistence guide |
+
+---
+
+## 🎯 Overall Success Metrics
+
+### Security (Witness Validates)
+
+- [ ] No cleartext Signal IDs in persistent storage, logs, or output
 - [ ] All sensitive buffers zeroized immediately
 - [ ] ZK-proofs used for all trust operations
 - [ ] Memory dump contains only hashed identifiers
 - [ ] cargo-deny and cargo-crev checks pass
 
 ### Functionality
-- [ ] Seed group bootstrapped (3 members)
+
+- [ ] Seed group bootstrapped (3 members, member-initiated)
 - [ ] Invitation & vetting flow working
-- [ ] Admission requires 2 vouches from different Members
+- [ ] Admission requires 2 cross-cluster vouches
 - [ ] Ejection immediate (both triggers working)
 - [ ] All bot commands functional
-- [ ] Mesh density calculated correctly
+- [ ] DVR health metric displayed correctly
 
 ### Architecture
+
 - [ ] Static MUSL binary produced
 - [ ] Embedded Freenet kernel runs successfully
 - [ ] Signal bot authenticates and manages group
 - [ ] STARK proofs < 100KB, generation < 10 seconds
 - [ ] Federation infrastructure present (disabled in MVP)
-- [ ] Freenet contract uses ComposableState (mergeable state)
-- [ ] Set-based membership with on-demand Merkle Tree generation
-
-### Documentation
-- [ ] README.md accurate and complete
-- [ ] All .cursor/rules/ updated
-- [ ] Beads created for all phases
-- [ ] API documentation complete
-- [ ] Federation roadmap documented
 
 ---
 
-## 📋 Outstanding Questions Status Tracking
+## 🚦 Quality Gates (Before Convoy Close)
 
-| Question | Status | Decision | Date Resolved |
-|----------|--------|----------|---------------|
-| Q1: Freenet Conflict Resolution | ✅ Complete | GO — commutative deltas with set-based state + ejected set | 2026-01-29 |
-| Q2: Contract Validation | ✅ Complete | GO — trustless model viable (update_state + validate_state) | 2026-01-30 |
-| Q3: Cluster Detection | ✅ Complete | GO — Bridge Removal algorithm distinguishes tight clusters | 2026-01-30 |
-| Q4: STARK verification in Wasm | ✅ Complete | PARTIAL — Bot-side verification for Phase 0 (Wasm experimental) | 2026-01-30 |
-| Q5: Merkle Tree performance | ✅ Complete | GO — 0.09ms for 1000 members (on-demand OK) | 2026-01-30 |
-| Q6: Proof storage strategy | ✅ Complete | Store outcomes only (not proofs) | 2026-01-30 |
-| Q7: Bot Discovery | ✅ Complete | GO — Registry-based, <1ms latency, PoW registration | 2026-01-31 |
-| Q8: Fake Bot Defense | ✅ Complete | GO — PoW difficulty 18 (~30s), >90% detection, 7-day reputation | 2026-01-31 |
-| Q9: Chunk Verification | ✅ Complete | GO — Challenge-response SHA-256, <1ms verification | 2026-01-31 |
-| Q11: Rendezvous Hashing | ✅ Complete | GO — Deterministic assignment, stable under churn, uniform distribution | 2026-01-31 |
-| Q12: Chunk Size Optimization | ✅ Complete | GO — 64KB confirmed optimal (0.2% overhead, 6-8 holders per 500KB) | 2026-01-31 |
-| Q13: Fairness Verification | ✅ Complete | GO — 1% spot checks, 100% detection, 0% false positives | 2026-01-31 |
-| Q14: Chunk Communication | ✅ Complete | GO — Contract-based Phase 0, hybrid (P2P + attestations) Phase 1+ | 2026-01-31 |
+Every convoy must pass these gates before closure:
 
-**✅ SPIKE WEEK 1 (Q1-Q6) COMPLETE**
+### Testing Requirements
 
-Proceed to Phase 0 implementation with:
-- Trustless contract validation (Q2)
-- Bridge Removal for cluster detection (Q3)
-- Bot-side STARK verification (Q4, upgrade later)
-- On-demand Merkle generation (Q5)
-- Store outcomes only (Q6)
+| Requirement | Applies To | Tool |
+|-------------|------------|------|
+| **100% code coverage** | All code | `cargo llvm-cov nextest` |
+| **Property-based tests** | Trust-critical code | `proptest` |
+| **Deterministic tests** | All tests | Fixed seeds, mock time |
 
-**✅ SPIKE WEEK 2 (Q7-Q14) COMPLETE**
+**Trust-critical code requiring proptest**:
+- HMAC identity masking (determinism, key isolation)
+- Standing calculation (vouch invalidation math)
+- Delta commutativity (merge order independence)
+- Ejection triggers (both conditions)
 
-Proceed to persistence implementation with:
-- Registry-based discovery (Q7: single contract, <1ms lookups)
-- PoW Sybil resistance (Q8: difficulty 18, ~30s registration)
-- Challenge-response verification (Q9: SHA-256 proofs, <1ms)
-- Rendezvous hashing (Q11: deterministic holder assignment)
-- 64KB chunk size (Q12: optimal balance)
-- Spot check fairness (Q13: 1% rate, 100% detection)
-- Contract-based distribution (Q14: Phase 0 simplicity)
+### Commands
 
-See [SPIKE-WEEK-2-BRIEFING.md](../spike/SPIKE-WEEK-2-BRIEFING.md) and [PERSISTENCE.md](../PERSISTENCE.md) for complete validation results.
+```bash
+# Security checks (MANDATORY)
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo deny check
+cargo llvm-cov nextest --all-features  # 100% coverage REQUIRED
+
+# Build check
+cargo build --release --target x86_64-unknown-linux-musl
+
+# Witness sign-off
+# - No cleartext Signal IDs in persistent storage/logs/output
+# - No SqliteStore usage
+# - No polling patterns
+# - Zeroization verified
+# - proptest coverage for trust-critical code
+```
 
 ---
 
-## 📝 Implementation Recommendations
+## 📝 Convoy Closure Checklist
 
-### Type Definitions Needed (Ambiguity Resolution)
+When closing a convoy:
 
-The following types are referenced in pseudocode but not formally defined. Define these in `src/types/` before implementation:
+1. [ ] All beads in convoy marked complete (`bd close <id>`)
+2. [ ] Quality gates pass
+3. [ ] **Documentation updated** (see below)
+4. [ ] Witness agent sign-off
+5. [ ] Git commits have Co-authored-by trailers
+6. [ ] Push to remote (`git push`)
+7. [ ] Update this document status
+8. [ ] Create next convoy if applicable
 
-| Type | Location Used | Definition Needed |
-|------|---------------|-------------------|
-| `IntroductionPair` | ALGORITHMS.md | `{ person_a: Hash, person_b: Hash, reason: String, priority: u8 }` |
-| `Thresholds` | ALGORITHMS.md | `{ min_vouch: usize, min_validators: usize }` |
-| `TrustGraph` | blind-matchmaker-dvr.bead | `petgraph::Graph<MemberHash, ()>` wrapper |
-| `ClusterId` | blind-matchmaker-dvr.bead | `usize` or `Hash` (cluster identifier) |
-| `Introduction` | blind-matchmaker-dvr.bead | Same as `IntroductionPair` |
-| `SocialAnchor` | FEDERATION.md | `[u8; 32]` (hash of top-N validators) |
-| `BloomFilter` | FEDERATION.md | Use `bloomfilter` crate |
-| `OverlapInfo` | FEDERATION.md | `{ count: usize, density: f32 }` |
-| `GroupContract` | FEDERATION.md | Freenet contract reference |
-| `FederationContract` | FEDERATION.md | Shared state between federated groups |
+### Documentation Requirements
 
-**Recommendation**: Create `src/types/mod.rs` with all domain types before Phase 0 implementation.
+**Every convoy MUST update affected documentation.** Documentation drift is a defect.
 
-### PSI-CA Encryption Implementation
+| If you changed... | Update these docs |
+|-------------------|-------------------|
+| User-facing commands | `docs/USER-GUIDE.md` |
+| Trust logic or thresholds | `docs/TRUST-MODEL.md`, `docs/HOW-IT-WORKS.md` |
+| Operator setup or CLI | `docs/OPERATOR-GUIDE.md` |
+| Module structure | `docs/DEVELOPER-GUIDE.md` |
+| Security constraints | `docs/THREAT-MODEL.md`, `docs/SECURITY-CI-CD.md` |
+| Algorithms (DVR, Bridge Removal, PSI-CA) | `docs/ALGORITHMS.md` |
+| Persistence model | `docs/PERSISTENCE.md` |
+| Federation | `docs/FEDERATION.md` |
 
-The PSI-CA handshake in `ALGORITHMS.md` uses a placeholder:
+**Validation**: Run `rg "TODO\|FIXME\|PLACEHOLDER" docs/` — no placeholders allowed at convoy close.
 
-```rust
-fn encrypt(&self, public_key: &[u8], plaintext: &[u8]) -> Vec<u8> {
-    // Real implementation: Use ECIES (Elliptic Curve Integrated Encryption Scheme)
-    // For now: placeholder (to be implemented with `ecies` crate)
-    vec![]
-}
+```bash
+# Convoy closure
+bd sync
+rg "TODO|FIXME|PLACEHOLDER" docs/  # Must be empty
+gt convoy close convoy-phase0 --summary "Phase 0 complete"
+git push
 ```
-
-**Recommendation**: Use the `ecies` crate for ECIES implementation:
-```toml
-[dependencies]
-ecies = "0.2"  # Elliptic Curve Integrated Encryption Scheme
-```
-
-**Implementation**:
-```rust
-use ecies::{encrypt, decrypt, SecretKey, PublicKey};
-
-fn encrypt_for_psi(&self, public_key: &PublicKey, plaintext: &[u8]) -> Vec<u8> {
-    encrypt(public_key.serialize().as_ref(), plaintext).expect("encryption failed")
-}
-
-fn decrypt_for_psi(&self, secret_key: &SecretKey, ciphertext: &[u8]) -> Vec<u8> {
-    decrypt(secret_key.serialize().as_ref(), ciphertext).expect("decryption failed")
-}
-```
-
-### Epoch Management Recommendation
-
-**Current specification**: Epochs increment on ">10% bot count change" but "explicit bump" criteria undefined.
-
-**Recommendation**: Implement automatic epoch management with these rules:
-
-```rust
-pub struct EpochManager {
-    current_epoch: u64,
-    last_bot_count: usize,
-}
-
-impl EpochManager {
-    /// Check if epoch should increment based on bot count change
-    pub fn should_increment(&self, new_bot_count: usize) -> bool {
-        if self.last_bot_count == 0 {
-            return false; // Initial state
-        }
-        
-        let change_ratio = (new_bot_count as f64 - self.last_bot_count as f64).abs() 
-            / self.last_bot_count as f64;
-        
-        change_ratio >= 0.10  // 10% threshold
-    }
-    
-    /// Explicit epoch bump (for manual operator intervention if needed)
-    pub fn explicit_bump(&mut self, reason: &str) {
-        tracing::info!("Epoch bumped explicitly: {}", reason);
-        self.current_epoch += 1;
-    }
-}
-```
-
-**Explicit bump criteria** (define these):
-1. Network partition recovery (after significant reconnection)
-2. Schema migration (new registry version)
-3. Security incident response (invalidate old assignments)
-4. Manual operator request (via CLI command, requires justification)
-
-**Out of scope**: Automatic time-based epoch bumps (complicates distributed consensus).
-
-### Federation Roadmap Summary
-
-Federation is Phase 4+ and designed but not implemented. Key milestones:
-
-| Phase | Milestone | Status |
-|-------|-----------|--------|
-| Phase 0-3 | Single-group MVP | In progress |
-| Phase 4 | Shadow Beacon discovery | Designed (`.beads/discovery-protocols.bead`) |
-| Phase 4 | PSI-CA handshake | Designed, needs ECIES implementation |
-| Phase 4 | BidirectionalMin evaluation | Designed |
-| Phase 4 | Human vote (Signal Poll) | Depends on poll implementation |
-| Phase 5+ | Multi-hop federation | Not yet designed |
-| Phase 5+ | Recursive proofs | Not yet designed |
-| Phase 5+ | Sybil detection at scale | Not yet designed |
-
-**See**: `.beads/federation-roadmap.bead` for complete specification

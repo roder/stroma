@@ -1,0 +1,259 @@
+description = """
+Stroma Proptest Aspect - injects property test requirements for trust-critical code.
+
+This aspect weaves proptest requirements around any implementation step that touches
+trust-critical code paths. Trust-critical code requires property-based testing because:
+
+1. **Trust invariants must hold for ALL inputs** - not just example cases
+2. **Security boundaries have edge cases** humans miss
+3. **Cryptographic correctness** requires exhaustive verification
+4. **State machine consistency** must be proven for ANY operation sequence
+
+## Trust-Critical Code Paths
+
+| Code Path | Why Critical | Properties to Test |
+|-----------|--------------|-------------------|
+| Identity masking (HMAC) | Anonymity depends on it | Determinism, key isolation |
+| Standing calculation | Ejection triggers | Commutativity, vouch invalidation |
+| Delta merging | State convergence | Commutativity, associativity |
+| Ejection logic | Protection from infiltration | Both triggers, no false positives |
+| Vouch invalidation | 2-point swing prevention | Excluded from both counts |
+
+## Proptest Configuration
+
+For trust-critical code, use increased case counts:
+
+```toml
+# proptest.toml
+[default]
+cases = 1000          # 4x default (256)
+max_shrink_iters = 10000
+```
+
+## Aspect Application
+
+This aspect matches steps containing trust-critical keywords and injects
+property test requirements before and after implementation.
+"""
+formula = "stroma-proptest-trust"
+type = "aspect"
+version = 1
+
+[[pointcuts]]
+glob = "*hmac*"
+
+[[pointcuts]]
+glob = "*identity*mask*"
+
+[[pointcuts]]
+glob = "*standing*"
+
+[[pointcuts]]
+glob = "*delta*"
+
+[[pointcuts]]
+glob = "*merge*"
+
+[[pointcuts]]
+glob = "*eject*"
+
+[[pointcuts]]
+glob = "*vouch*invalidat*"
+
+[[pointcuts]]
+glob = "*trust*calculat*"
+
+[[advice]]
+target = "implement"
+[advice.around]
+
+[[advice.around.before]]
+id = "{step.id}-proptest-design"
+title = "Design property tests for {step.id}"
+description = """
+**Before implementing trust-critical code, design property tests.**
+
+This step is triggered because your implementation touches trust-critical paths.
+Property tests are MANDATORY - not optional.
+
+## Step 1: Identify Invariants
+
+What properties MUST hold for ALL inputs?
+
+**Determinism:**
+```rust
+// f(x) == f(x) for all valid x
+proptest! {
+    #[test]
+    fn prop_operation_is_deterministic(input in valid_input()) {
+        let result1 = operation(&input);
+        let result2 = operation(&input);
+        prop_assert_eq!(result1, result2);
+    }
+}
+```
+
+**Commutativity (for merge/delta operations):**
+```rust
+// merge(A, B) == merge(B, A)
+proptest! {
+    #[test]
+    fn prop_merge_is_commutative(a in any_delta(), b in any_delta()) {
+        let result_ab = merge(&a, &b);
+        let result_ba = merge(&b, &a);
+        prop_assert_eq!(result_ab, result_ba);
+    }
+}
+```
+
+**Invariant Preservation:**
+```rust
+// Trust invariants hold after ANY operation sequence
+proptest! {
+    #[test]
+    fn prop_invariants_preserved(ops in vec(any_operation(), 0..100)) {
+        let mut state = initial_state();
+        for op in ops {
+            state = state.apply(op);
+            prop_assert!(state.invariants_hold());
+        }
+    }
+}
+```
+
+**Boundary Conditions:**
+```rust
+// Edge cases: empty sets, thresholds, maximum sizes
+proptest! {
+    #[test]
+    fn prop_handles_boundary_cases(
+        vouches in 0usize..100,
+        flags in 0usize..100,
+    ) {
+        let standing = calculate_standing(vouches, flags);
+        // Standing formula: vouches - flags
+        prop_assert_eq!(standing, vouches as i32 - flags as i32);
+        
+        // Ejection at negative standing
+        if standing < 0 {
+            prop_assert!(should_eject(vouches, flags));
+        }
+    }
+}
+```
+
+## Step 2: Write Property Tests FIRST
+
+Create test file with property tests before implementation:
+
+```rust
+use proptest::prelude::*;
+
+// Define generators for your domain types
+fn valid_member_hash() -> impl Strategy<Value = Hash> {
+    prop::array::uniform32(0u8..=255u8).prop_map(Hash::from)
+}
+
+fn valid_vouch_set() -> impl Strategy<Value = HashSet<Hash>> {
+    prop::collection::hash_set(valid_member_hash(), 0..20)
+}
+
+// Write property tests
+proptest! {
+    #[test]
+    fn prop_<invariant_name>(
+        // inputs with generators
+    ) {
+        // Test the property
+        prop_assert!(<condition>);
+    }
+}
+```
+
+## Step 3: Verify Tests Fail
+
+```bash
+cargo nextest run --test prop_
+```
+
+Tests MUST fail before implementation exists.
+
+**Exit criteria:** Property tests written that capture trust invariants.
+"""
+
+[[advice.around.after]]
+id = "{step.id}-proptest-verify"
+title = "Verify proptest coverage for {step.id}"
+description = """
+**After implementation, verify property tests pass and cover all paths.**
+
+## Step 1: Run Property Tests
+
+```bash
+# Run all property tests
+cargo nextest run --test prop_
+
+# Run with verbose output to see case counts
+PROPTEST_VERBOSE=1 cargo nextest run --test prop_
+```
+
+All property tests MUST pass.
+
+## Step 2: Verify Case Count
+
+Check that proptest.toml has sufficient cases:
+
+```bash
+cat proptest.toml
+```
+
+For trust-critical code, should show:
+```toml
+[default]
+cases = 1000
+```
+
+If missing, create it:
+```bash
+cat > proptest.toml << 'EOF'
+[default]
+cases = 1000
+max_shrink_iters = 10000
+EOF
+```
+
+## Step 3: Review Property Coverage
+
+Ensure you have property tests for:
+
+| Property Type | Required For |
+|---------------|--------------|
+| Determinism | HMAC masking, hash functions |
+| Commutativity | Delta merging, standing calculation |
+| Associativity | Multi-delta merges |
+| Invariant preservation | All trust state operations |
+| Boundary conditions | Threshold triggers, empty sets |
+
+## Step 4: Check for Missing Properties
+
+```bash
+# List all property tests
+rg "fn prop_" --type rust src/ tests/
+```
+
+Compare against the invariants identified in the design step.
+Any missing properties MUST be added.
+
+## Step 5: Verify No Proptest Warnings
+
+```bash
+# Check for proptest warnings about insufficient shrinking
+cargo nextest run --test prop_ 2>&1 | grep -i "shrink"
+```
+
+If shrinking fails to find minimal cases, increase `max_shrink_iters`.
+
+**Trust-critical code without proptest coverage BLOCKS convoy closure.**
+
+**Exit criteria:** All property tests pass with 1000+ cases.
+"""

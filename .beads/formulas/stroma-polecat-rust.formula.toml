@@ -1,0 +1,633 @@
+description = """
+Stroma Rust Polecat Work - TDD with 100% coverage, proptest, and security compliance.
+
+Extends mol-polecat-work with Stroma-specific requirements:
+- TDD: Write test FIRST, then implementation
+- 100% code coverage (cargo llvm-cov) - NO EXCEPTIONS
+- Property tests (proptest) for trust-critical code
+- Compliance with 8 Absolutes (NEVER) and 8 Imperatives (ALWAYS)
+- Co-authored-by trailer on all commits
+
+## The 8 Absolutes (NEVER) - Violations BLOCK merge
+
+1. NEVER store Signal IDs in cleartext
+2. NEVER persist message history
+3. NEVER bypass ZK-proof verification
+4. NEVER add grace periods for ejection
+5. NEVER make Signal source of truth
+6. NEVER restrict vouching to Validators only
+7. NEVER commit without Co-authored-by (AI agents)
+8. NEVER trust persistence peers
+
+## The 8 Imperatives (ALWAYS) - Required for all code
+
+1. ALWAYS hash Signal IDs immediately with `mask_identity()` then zeroize
+2. ALWAYS verify Freenet contract state before executing any action
+3. ALWAYS use trait abstractions for testability (SignalClient, FreenetClient)
+4. ALWAYS encrypt chunks with AES-256-GCM using ACI-derived key
+5. ALWAYS use Freenet state stream (real-time events, NOT polling)
+6. ALWAYS log operation types only (no identifiers, no relationships)
+7. ALWAYS include `// SAFETY:` comments for any unsafe blocks
+8. ALWAYS run quality gates before commit (fmt, clippy, deny, llvm-cov)
+
+## Polecat Contract
+
+You are a self-cleaning worker following Stroma's strict quality standards:
+1. Read constraint beads FIRST
+2. Write tests FIRST (TDD Red phase)
+3. Implement following 8 Imperatives (TDD Green phase)
+4. Refactor while keeping tests green
+5. Verify 100% coverage
+6. Run security checks (8 Absolutes)
+7. Commit with Co-authored-by
+8. Submit and self-clean via `gt done`
+
+## Trust-Critical Code (requires proptest)
+
+- HMAC identity masking
+- Standing calculation
+- Delta commutativity
+- Ejection triggers
+- Vouch invalidation
+
+## Variables
+
+| Variable | Source | Description |
+|----------|--------|-------------|
+| issue | hook_bead | The issue ID you're assigned to work on |
+"""
+formula = "stroma-polecat-rust"
+version = 1
+
+[[steps]]
+id = "load-context"
+title = "Load context and constraint beads"
+description = """
+**1. Prime environment:**
+```bash
+gt prime
+bd prime
+```
+
+**2. Read constraint beads (MANDATORY before any code):**
+```bash
+# Security constraints - the 8 Absolutes
+cat .beads/security-constraints.bead | head -100
+
+# Testing standards - TDD, 100% coverage, proptest
+cat .beads/testing-standards.bead | head -100
+
+# Technology stack - approved dependencies
+cat .beads/technology-stack.bead | head -50
+```
+
+**3. Check your assignment:**
+```bash
+gt hook
+bd show {{issue}}
+```
+
+**4. Identify trust-critical code paths:**
+
+Does your assignment touch any of these?
+- Identity masking (HMAC) → needs proptest
+- Standing calculation → needs proptest
+- Delta operations → needs proptest
+- Ejection logic → needs proptest
+- Vouch/flag operations → needs proptest
+
+If yes, you MUST write property tests.
+
+**5. Check inbox for context:**
+```bash
+gt mail inbox
+```
+
+**Exit criteria:** You understand the assignment and which tests are required.
+"""
+
+[[steps]]
+id = "branch-setup"
+title = "Set up working branch"
+needs = ["load-context"]
+description = """
+**1. Check current state:**
+```bash
+git status
+git branch --show-current
+```
+
+**2. Create feature branch if needed:**
+```bash
+git checkout -b polecat/<name>
+```
+
+**3. Sync with main:**
+```bash
+git fetch origin
+git rebase origin/main
+```
+
+**4. Verify clean state:**
+```bash
+git status  # Should be clean
+git stash list  # Should be empty
+```
+
+**Exit criteria:** Clean feature branch, rebased on latest main.
+"""
+
+[[steps]]
+id = "write-tests-first"
+title = "Write tests FIRST (TDD Red phase)"
+needs = ["branch-setup"]
+description = """
+**TDD is MANDATORY for Stroma. Write failing tests FIRST.**
+
+**1. Create test file if needed:**
+```rust
+// src/<module>/tests.rs or tests/<module>_test.rs
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_<feature>_<expected_behavior>() {
+        // Arrange
+        // Act
+        // Assert
+        todo!("Implementation doesn't exist yet")
+    }
+}
+```
+
+**2. For trust-critical code, add property tests:**
+```rust
+use proptest::prelude::*;
+
+proptest! {
+    #[test]
+    fn prop_<invariant>_holds_for_all_inputs(
+        input in <generator>
+    ) {
+        // Property that must hold for ALL inputs
+        prop_assert!(<invariant>);
+    }
+}
+```
+
+**Property test requirements for trust-critical code:**
+- **Determinism**: `f(x) == f(x)` for all valid inputs
+- **Commutativity**: Order-independent operations produce same result
+- **Invariant preservation**: Trust invariants hold after ANY operation
+- **Boundary conditions**: Thresholds, empty sets, maximum sizes
+
+**3. Run tests (MUST FAIL):**
+```bash
+cargo nextest run
+```
+
+If tests pass before implementation exists, your tests are wrong.
+Add assertions that actually test the feature.
+
+**4. Commit failing tests:**
+```bash
+git add -A
+git commit -m "$(cat <<'EOF'
+test: add failing tests for {{issue}}
+
+TDD Red phase - tests define expected behavior.
+
+Co-authored-by: Claude <noreply@anthropic.com>
+EOF
+)"
+```
+
+**Exit criteria:** Failing tests committed that define expected behavior.
+"""
+
+[[steps]]
+id = "implement"
+title = "Implement solution (TDD Green phase)"
+needs = ["write-tests-first"]
+description = """
+**Write MINIMAL code to make tests pass, following the 8 Imperatives.**
+
+## The 8 Imperatives (ALWAYS)
+
+### Imperative #1: ALWAYS hash Signal IDs immediately with mask_identity() then zeroize
+```rust
+// ✅ CORRECT: Hash and zeroize immediately
+let mut signal_id = get_signal_id();
+let member_hash = mask_identity(&signal_id, &pepper);
+signal_id.zeroize();  // Immediate zeroization
+
+// ❌ WRONG: Store cleartext or delay zeroization
+self.members.insert(signal_id);  // Cleartext storage!
+```
+
+### Imperative #2: ALWAYS verify Freenet contract state before executing any action
+```rust
+// ✅ CORRECT: Verify state first
+async fn execute_vouch(&self, voucher: Hash, vouchee: Hash) -> Result<()> {
+    let state = self.freenet.get_state(&self.contract).await?;
+    
+    // Verify preconditions from Freenet state
+    if !state.members.contains(&voucher) {
+        return Err(Error::VoucherNotMember);
+    }
+    if state.ejected.contains(&vouchee) {
+        return Err(Error::VoucheeEjected);
+    }
+    
+    // Now execute
+    self.freenet.apply_delta(&self.contract, &delta).await
+}
+
+// ❌ WRONG: Execute without state verification
+async fn execute_vouch(&self, voucher: Hash, vouchee: Hash) -> Result<()> {
+    self.freenet.apply_delta(&self.contract, &delta).await  // No verification!
+}
+```
+
+### Imperative #3: ALWAYS use trait abstractions for testability
+```rust
+// ✅ CORRECT: Trait abstraction (testable with mocks)
+pub struct StromaBot<S: SignalClient, F: FreenetClient> {
+    signal: S,
+    freenet: F,
+}
+
+// ❌ WRONG: Direct dependency (untestable)
+pub struct StromaBot {
+    manager: presage::Manager<SqliteStore>,
+}
+```
+
+### Imperative #4: ALWAYS encrypt chunks with AES-256-GCM using ACI-derived key
+```rust
+// ✅ CORRECT: Encrypt with ACI-derived key
+use aes_gcm::{Aes256Gcm, Key, Nonce};
+
+fn store_chunk(&self, data: &[u8]) -> Result<ChunkId> {
+    let key = derive_chunk_key(&self.aci_identity);
+    let cipher = Aes256Gcm::new(&key);
+    let nonce = generate_nonce();
+    let encrypted = cipher.encrypt(&nonce, data)?;
+    self.storage.write(&encrypted)
+}
+
+// ❌ WRONG: Store unencrypted
+fn store_chunk(&self, data: &[u8]) -> Result<ChunkId> {
+    self.storage.write(data)  // Cleartext!
+}
+```
+
+### Imperative #5: ALWAYS use Freenet state stream (NOT polling)
+```rust
+// ✅ CORRECT: Subscribe to state stream
+let state_stream = self.freenet.subscribe(&contract).await?;
+while let Some(state) = state_stream.next().await {
+    self.handle_state_change(state).await?;
+}
+
+// ❌ WRONG: Polling loop
+loop {
+    let state = self.freenet.get_state(&contract).await?;
+    tokio::time::sleep(Duration::from_secs(5)).await;  // Polling!
+}
+```
+
+### Imperative #6: ALWAYS log operation types only (no identifiers)
+```rust
+// ✅ CORRECT: Log operation type only
+tracing::info!(operation = "vouch", "Trust action executed");
+
+// ❌ WRONG: Log identifiers or relationships
+tracing::info!(voucher = %signal_id, "Vouch from {}", signal_id);  // ID leak!
+```
+
+### Imperative #7: ALWAYS include // SAFETY: comments for unsafe blocks
+```rust
+// ✅ CORRECT: SAFETY comment required
+// SAFETY: The buffer is guaranteed to be valid for the lifetime of the operation
+// because we hold a lock on the containing structure.
+unsafe {
+    std::ptr::copy_nonoverlapping(src, dst, len);
+}
+
+// ❌ WRONG: Unsafe without explanation
+unsafe {
+    std::ptr::copy_nonoverlapping(src, dst, len);  // No SAFETY comment!
+}
+```
+
+### Imperative #8: ALWAYS run quality gates before commit
+Handled in later steps (refactor, coverage-check, security-scan).
+
+**Run tests after each change:**
+```bash
+cargo nextest run
+```
+
+**Stop when all tests pass.** Don't over-engineer.
+
+**Exit criteria:** All tests pass with minimal implementation following all 8 Imperatives.
+"""
+
+[[steps]]
+id = "refactor"
+title = "Refactor (TDD Refactor phase)"
+needs = ["implement"]
+description = """
+**Improve code while keeping tests green.**
+
+**1. Format code:**
+```bash
+cargo fmt
+```
+
+**2. Run linter:**
+```bash
+cargo clippy --all-targets --all-features -- -D warnings
+```
+
+Fix any warnings. Clippy warnings are errors in Stroma.
+
+**3. Verify tests still pass:**
+```bash
+cargo nextest run
+```
+
+**4. Review for code quality:**
+- Clear naming
+- Appropriate error handling
+- No dead code
+- No TODO comments (create beads instead)
+
+**Exit criteria:** Code is clean, formatted, lint-free, tests pass.
+"""
+
+[[steps]]
+id = "coverage-check"
+title = "Verify 100% code coverage"
+needs = ["refactor"]
+description = """
+**100% code coverage is MANDATORY. No exceptions.**
+
+**1. Run coverage:**
+```bash
+cargo llvm-cov nextest --all-features
+```
+
+**2. Check coverage report:**
+Look for uncovered lines. Every line you wrote MUST be covered.
+
+**3. If coverage < 100%:**
+
+Identify uncovered paths:
+```bash
+cargo llvm-cov nextest --all-features --html
+open target/llvm-cov/html/index.html
+```
+
+Add tests for uncovered paths:
+- Error handling paths
+- Edge cases
+- Boundary conditions
+
+**4. For Signal/Freenet code, use mocks:**
+```rust
+// MockSignalClient enables 100% coverage
+let mock = MockSignalClient::new();
+mock.expect_send_message().returning(|_, _| Ok(()));
+
+let bot = StromaBot::new(mock, mock_freenet);
+// Now you can test all paths
+```
+
+**Coverage exceptions are NOT allowed.**
+If code can't be tested, it's too complex for Stroma. Simplify it.
+
+**5. Verify coverage passes threshold:**
+```bash
+cargo llvm-cov nextest --all-features --fail-under-lines 100
+```
+
+**Exit criteria:** 100% code coverage achieved.
+"""
+
+[[steps]]
+id = "security-scan"
+title = "Run security checks"
+needs = ["coverage-check"]
+description = """
+**Run all security checks before commit.**
+
+**1. Supply chain audit:**
+```bash
+cargo deny check
+```
+
+**2. Check for cleartext Signal IDs:**
+```bash
+rg '\\+1?\\d{10,15}' --type rust src/
+```
+Should return nothing (or only test fixtures with fake data).
+
+**3. Check for SqliteStore:**
+```bash
+rg 'SqliteStore|presage-store-sqlite' --type rust src/ Cargo.toml
+```
+Should return nothing.
+
+**4. Check for polling patterns:**
+```bash
+rg 'loop.*sleep|while.*sleep' --type rust src/
+```
+Should return nothing in production code.
+
+**5. Check for grace periods:**
+```bash
+rg 'grace|pending.*eject|warn.*eject' --type rust src/ -i
+```
+Should return nothing.
+
+**Any violations BLOCK completion.** Fix them or escalate to Witness.
+
+**Exit criteria:** All security checks pass.
+"""
+
+[[steps]]
+id = "self-review"
+title = "Self-review changes"
+needs = ["security-scan"]
+description = """
+**Review your changes against the 8 Absolutes and 8 Imperatives.**
+
+**1. View diff:**
+```bash
+git diff origin/main...HEAD
+```
+
+**2. 8 Absolutes Checklist (NEVER):**
+- [ ] No cleartext Signal IDs stored
+- [ ] No message history persisted
+- [ ] No ZK-proof bypass
+- [ ] No grace periods in ejection
+- [ ] Signal is not source of truth
+- [ ] Vouching not restricted to Validators
+- [ ] No trusted persistence peers
+
+**3. 8 Imperatives Checklist (ALWAYS):**
+- [ ] Signal IDs hashed with `mask_identity()` then zeroized
+- [ ] Freenet state verified before any action
+- [ ] Trait abstractions used (`SignalClient`, `FreenetClient`)
+- [ ] Chunks encrypted with AES-256-GCM
+- [ ] State stream used (not polling)
+- [ ] Logs contain operation types only (no IDs)
+- [ ] Unsafe blocks have `// SAFETY:` comments
+- [ ] Quality gates will pass
+
+**4. Code Quality Checklist:**
+- [ ] All new code has tests
+- [ ] Property tests for trust-critical paths
+- [ ] No TODO comments (create beads instead)
+- [ ] Clear error messages (no ID leaks in errors)
+
+**5. Check for unintended changes:**
+```bash
+git diff --stat origin/main...HEAD
+```
+Only files relevant to {{issue}} should appear.
+
+**Exit criteria:** Changes reviewed against all 16 rules, no issues found.
+"""
+
+[[steps]]
+id = "commit-with-attribution"
+title = "Commit with Co-authored-by"
+needs = ["self-review"]
+description = """
+**All AI commits MUST have Co-authored-by trailer.**
+
+**1. Stage changes:**
+```bash
+git add -A
+```
+
+**2. Commit with proper format:**
+```bash
+git commit -m "$(cat <<'EOF'
+<type>: <description>
+
+<detailed explanation of what was done>
+
+- <bullet point 1>
+- <bullet point 2>
+
+Co-authored-by: Claude <noreply@anthropic.com>
+EOF
+)"
+```
+
+**Commit types:**
+- `feat`: New feature
+- `fix`: Bug fix
+- `refactor`: Code improvement (no behavior change)
+- `test`: Adding tests
+- `docs`: Documentation
+- `chore`: Maintenance
+
+**Example:**
+```bash
+git commit -m "$(cat <<'EOF'
+feat: implement HMAC identity masking with zeroization
+
+Add secure identity masking using HMAC-SHA256 with immediate
+zeroization of sensitive buffers.
+
+- Derive masking key from ACI identity via HKDF
+- Zeroize input buffer immediately after hashing
+- Add proptest for determinism and key isolation
+- 100% test coverage
+
+Co-authored-by: Claude <noreply@anthropic.com>
+EOF
+)"
+```
+
+**Exit criteria:** Changes committed with proper attribution.
+"""
+
+[[steps]]
+id = "cleanup-workspace"
+title = "Clean up workspace"
+needs = ["commit-with-attribution"]
+description = """
+**Ensure workspace is pristine before submission.**
+
+**1. Check status:**
+```bash
+git status
+```
+Must show "working tree clean".
+
+**2. Check stash:**
+```bash
+git stash list
+```
+Should be empty.
+
+**3. Push branch:**
+```bash
+git push -u origin $(git branch --show-current)
+```
+
+**4. Final verification:**
+```bash
+git status                  # Clean
+git log origin/main..HEAD   # Your commits
+```
+
+**Exit criteria:** Branch pushed, workspace clean.
+"""
+
+[[steps]]
+id = "submit-and-exit"
+title = "Submit work and self-clean"
+needs = ["cleanup-workspace"]
+description = """
+**Submit your work and cease to exist.**
+
+**1. Final checks:**
+```bash
+# Coverage still 100%?
+cargo llvm-cov nextest --all-features --fail-under-lines 100
+
+# Security checks still pass?
+cargo deny check
+```
+
+**2. Run gt done:**
+```bash
+gt done
+```
+
+This command:
+1. Pushes your branch to origin
+2. Creates an MR bead in the merge queue
+3. Nukes your sandbox
+4. Exits your session
+
+**You are GONE after this.** The Refinery handles merge.
+If conflicts arise, Refinery spawns a FRESH polecat.
+
+**Exit criteria:** Work submitted, sandbox nuked, session exited.
+"""
+
+[vars]
+[vars.issue]
+description = "The issue ID assigned to this polecat"
+required = true

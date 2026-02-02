@@ -203,7 +203,13 @@ async fn proposal_monitoring_stream(
                 let approve_count = poll_results.option_counts[0];  // "Approve" option
                 let reject_count = poll_results.option_counts[1];   // "Reject" option
                 
-                // 3. Calculate result (quorum + threshold)
+                // 3. TERMINATE the Signal Poll (prevents late votes)
+                signal.terminate_poll(
+                    proposal.group_master_key,
+                    proposal.poll_timestamp,
+                ).await?;
+                
+                // 4. Calculate result (quorum + threshold)
                 let total_votes = approve_count + reject_count;
                 let total_members = freenet.get_member_count().await?;
                 let result = calculate_proposal_result(
@@ -213,28 +219,61 @@ async fn proposal_monitoring_stream(
                     &config
                 );
                 
-                // 4. If approved (quorum met AND threshold met), execute
+                // 5. Announce result to group
+                signal.send_message_to_group(
+                    proposal.group_master_key,
+                    format_result_announcement(&proposal, &result),
+                ).await?;
+                
+                // 6. If approved (quorum met AND threshold met), execute
                 if result.approved {
                     execute_action(&proposal.action, signal).await?;
                 }
                 
-                // 5. Record in Freenet
+                // 7. Record in Freenet
                 freenet.record_proposal_result(proposal.id, result).await?;
                 
-                // 6. Mark as checked (never check again)
+                // 8. Mark as checked (never check again)
                 proposal.checked = true;
             }
         }
     }
+}
+
+// ✅ REQUIRED: Terminate poll on Signal when timeout expires
+async fn terminate_poll(
+    signal: &SignalClient,
+    group_master_key: &[u8],
+    poll_timestamp: u64,
+) -> Result<()> {
+    use presage::libsignal_service::proto::data_message::PollTerminate;
+    
+    let terminate_message = DataMessage {
+        poll_terminate: Some(PollTerminate {
+            target_sent_timestamp: Some(poll_timestamp),
+        }),
+        timestamp: Some(now()),
+        ..Default::default()
+    };
+    
+    signal.send_message_to_group(group_master_key, terminate_message).await?;
+    Ok(())
 }
 ```
 
 **Key Points:**
 - Use real-time state stream (NOT polling with sleep loops)
 - React to `StateChange::ProposalExpired` events immediately
+- **TERMINATE poll on Signal** before announcing result (prevents late votes)
 - Only check proposals that haven't been checked AND are expired
-- After timeout: check ONCE, record result, mark checked
+- After timeout: terminate → announce → execute (if approved) → record → mark checked
 - Never check same proposal twice
+
+**Why Poll Termination is Required:**
+- Signal polls remain open indefinitely unless explicitly terminated via `PollTerminate`
+- Without termination, members could vote after the timeout (confusing UX)
+- Termination provides clear visual feedback in Signal UI (poll shows as closed)
+- Votes cast after termination are ignored by Signal
 
 ### Proposal Result Calculation
 

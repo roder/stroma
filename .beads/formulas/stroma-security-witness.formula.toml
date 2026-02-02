@@ -1,0 +1,486 @@
+description = """
+Stroma Security Witness Patrol - enforces the 8 Absolutes AND 8 Imperatives.
+
+## The 8 Absolutes (NEVER)
+
+1. NEVER store Signal IDs in cleartext
+2. NEVER persist message history
+3. NEVER bypass ZK-proof verification
+4. NEVER add grace periods for ejection
+5. NEVER make Signal source of truth
+6. NEVER restrict vouching to Validators only
+7. NEVER commit without Co-authored-by (AI agents)
+8. NEVER trust persistence peers
+
+## The 8 Imperatives (ALWAYS)
+
+1. ALWAYS hash Signal IDs immediately with `mask_identity()` then zeroize
+2. ALWAYS verify Freenet contract state before executing any action
+3. ALWAYS use trait abstractions for testability (SignalClient, FreenetClient)
+4. ALWAYS encrypt chunks with AES-256-GCM using ACI-derived key
+5. ALWAYS use Freenet state stream (real-time events, NOT polling)
+6. ALWAYS log operation types only (no identifiers, no relationships)
+7. ALWAYS include `// SAFETY:` comments for any unsafe blocks
+8. ALWAYS run quality gates before commit (fmt, clippy, deny, llvm-cov)
+
+Extends mol-witness-patrol with Stroma-specific security checks.
+
+## Patrol Shape
+
+```
+inbox-check ─► signal-id-scan ─► message-history-scan ─► zeroization-scan
+                                                                │
+         ┌──────────────────────────────────────────────────────┘
+         ▼
+  grace-period-scan ─► source-of-truth-scan ─► co-authored-scan ─► peer-trust-scan
+                                                                          │
+         ┌────────────────────────────────────────────────────────────────┘
+         ▼
+  imperative-scan ─► report-violations ─► context-check ─► loop-or-exit
+```
+
+Security violations are HIGH priority and block convoy closure.
+"""
+formula = "stroma-security-witness"
+version = 1
+
+[[steps]]
+id = "inbox-check"
+title = "Process witness mail"
+description = """
+Check inbox for messages from polecats or Mayor.
+
+```bash
+gt mail inbox
+```
+
+**Message types:**
+- **POLECAT_STARTED**: Acknowledge, begin monitoring that polecat
+- **HELP**: Assess if security-related, escalate to Mayor if needed
+- **HANDOFF**: Read predecessor context, continue patrol
+
+Archive processed messages:
+```bash
+gt mail archive <message-id>
+```
+"""
+
+[[steps]]
+id = "signal-id-scan"
+title = "Scan for cleartext Signal IDs"
+needs = ["inbox-check"]
+description = """
+**ABSOLUTE #1**: NEVER store Signal IDs in cleartext.
+
+```bash
+# Phone number patterns (international formats)
+rg '\\+1?\\d{10,15}' --type rust src/
+
+# Phone-related variable names
+rg 'phone|mobile|number' --type rust src/ -i | grep -v test
+
+# UUID patterns (Signal ACIs are UUIDs)
+rg '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' --type rust src/ | grep -v test
+
+# Direct Signal ID references
+rg 'signal_id|SignalId|service_id.*cleartext' --type rust src/
+
+# ServiceId storage without hashing
+rg 'ServiceId.*store|persist.*ServiceId|save.*ServiceId' --type rust src/
+```
+
+**Exceptions (allowed):**
+- Test files with clearly fake data (`test-signal-id-00000`)
+- Ephemeral variables that are immediately hashed
+
+**Violation found?**
+1. Create HIGH priority bead:
+   ```bash
+   bd create --title "SECURITY: Cleartext Signal ID found" --priority 1 --labels security,absolute-1
+   ```
+2. Mail Mayor immediately:
+   ```bash
+   gt mail send mayor/ -s "BLOCK: Cleartext Signal ID violation" -m "<details>"
+   ```
+3. This BLOCKS convoy closure until fixed
+"""
+
+[[steps]]
+id = "message-history-scan"
+title = "Check for message persistence"
+needs = ["signal-id-scan"]
+description = """
+**ABSOLUTE #2**: NEVER persist message history.
+
+```bash
+# SqliteStore usage (FORBIDDEN - stores message history)
+rg 'SqliteStore|presage-store-sqlite|presage_store_sqlite' --type rust src/ Cargo.toml
+
+# Message storage patterns
+rg 'store_message|persist_message|save_message|write_message' --type rust src/
+rg 'message_history|chat_history|conversation_log' --type rust src/
+
+# Database tables for messages
+rg 'CREATE TABLE.*message|INSERT INTO.*message' --type rust src/
+```
+
+**Stroma MUST use custom StromaProtocolStore** which:
+- Stores ONLY protocol state (~100KB)
+- NEVER stores message content
+- NEVER stores vetting conversations
+
+**Violation found?**
+```bash
+bd create --title "SECURITY: Message persistence found" --priority 1 --labels security,absolute-2
+gt mail send mayor/ -s "BLOCK: Message history persistence violation" -m "<details>"
+```
+"""
+
+[[steps]]
+id = "zeroization-scan"
+title = "Verify zeroization patterns"
+needs = ["message-history-scan"]
+description = """
+**Security requirement**: Sensitive buffers must be zeroized immediately.
+
+```bash
+# Check that zeroize crate is used
+rg 'use zeroize|zeroize::' --type rust src/
+
+# Verify Zeroize derive on sensitive types
+rg '#\\[derive.*Zeroize' --type rust src/
+
+# Find raw buffer allocations that might hold sensitive data
+rg 'let mut.*\\[u8;' --type rust src/
+
+# Check for .zeroize() calls after sensitive operations
+rg '\\.zeroize\\(\\)' --type rust src/
+```
+
+**Sensitive data requiring zeroization:**
+- Signal IDs before/after hashing
+- Cryptographic keys
+- Identity masking buffers
+- Any data derived from Signal identity
+
+**Pattern to enforce:**
+```rust
+let mut buffer = [0u8; 32];
+// ... use buffer ...
+buffer.zeroize();  // MUST happen immediately after use
+```
+
+**Violation found?** Create bead, but this is MEDIUM priority (not blocking).
+"""
+
+[[steps]]
+id = "grace-period-scan"
+title = "Check for grace periods in ejection"
+needs = ["zeroization-scan"]
+description = """
+**ABSOLUTE #4**: NEVER add grace periods for ejection.
+
+```bash
+# Time delays before ejection
+rg 'sleep|delay|wait|timeout' --type rust src/gatekeeper/ src/trust/ 2>/dev/null || true
+
+# Warning patterns before ejection
+rg 'warn.*eject|eject.*warn|grace|pending.*eject' --type rust src/ -i
+
+# Scheduled or deferred ejection
+rg 'schedule.*eject|defer.*eject|queue.*eject' --type rust src/
+
+# Any countdown or timer related to ejection
+rg 'countdown|timer.*eject|eject.*timer' --type rust src/
+```
+
+**Ejection MUST be immediate** when:
+- Standing < 0 (more flags than vouches)
+- Effective_Vouches < 2 (lost Bridge status)
+
+**NO warnings. NO grace periods. NO appeals process.**
+
+**Violation found?**
+```bash
+bd create --title "SECURITY: Grace period in ejection logic" --priority 1 --labels security,absolute-4
+gt mail send mayor/ -s "BLOCK: Ejection grace period violation" -m "<details>"
+```
+"""
+
+[[steps]]
+id = "source-of-truth-scan"
+title = "Verify Freenet is source of truth"
+needs = ["grace-period-scan"]
+description = """
+**ABSOLUTE #5**: NEVER make Signal source of truth.
+
+```bash
+# Polling patterns (FORBIDDEN - use state streams)
+rg 'loop.*sleep|while.*sleep|poll.*state' --type rust src/
+
+# Signal as membership source
+rg 'get.*members.*signal|signal.*member.*list|group\\.members' --type rust src/ -i
+
+# Reading trust state from Signal
+rg 'signal.*trust|trust.*signal|get_trust.*signal' --type rust src/ -i
+```
+
+**Correct pattern:**
+```rust
+// ✅ GOOD: Subscribe to Freenet state stream
+let state_stream = freenet_client.subscribe(&contract).await?;
+while let Some(state) = state_stream.next().await {
+    // React to state changes
+}
+
+// ❌ BAD: Poll Signal for membership
+loop {
+    let members = signal_client.get_group_members(&group).await?;
+    tokio::time::sleep(Duration::from_secs(5)).await;
+}
+```
+
+**Violation found?**
+```bash
+bd create --title "SECURITY: Signal used as source of truth" --priority 1 --labels security,absolute-5
+gt mail send mayor/ -s "BLOCK: Source of truth violation" -m "<details>"
+```
+"""
+
+[[steps]]
+id = "co-authored-scan"
+title = "Check for Co-authored-by on AI commits"
+needs = ["source-of-truth-scan"]
+description = """
+**ABSOLUTE #7**: NEVER commit without Co-authored-by (AI agents).
+
+```bash
+# Check recent commits for Co-authored-by trailer
+git log --oneline -20 --format="%H %s"
+
+# For each commit, verify trailer exists if author suggests AI
+git log -20 --format="%H|%an|%ae|%b" | while IFS='|' read hash name email body; do
+    if echo "$name $email" | grep -qi "claude\\|anthropic\\|cursor\\|copilot\\|ai"; then
+        if ! echo "$body" | grep -q "Co-authored-by:"; then
+            echo "VIOLATION: $hash missing Co-authored-by"
+        fi
+    fi
+done
+```
+
+**Required format:**
+```
+Co-authored-by: Claude <noreply@anthropic.com>
+```
+
+**Violation found?**
+This is a process violation, not security-critical. Create MEDIUM priority bead.
+The commit should be amended (if not pushed) or noted for future compliance.
+"""
+
+[[steps]]
+id = "peer-trust-scan"
+title = "Check for trusted persistence peers"
+needs = ["co-authored-scan"]
+description = """
+**ABSOLUTE #8**: NEVER trust persistence peers.
+
+```bash
+# Hardcoded peer addresses
+rg 'peer.*address|address.*peer|connect.*peer' --type rust src/ | grep -v test
+
+# Trusted peer lists
+rg 'trusted_peer|peer_whitelist|allowed_peer' --type rust src/
+
+# Direct peer connections without verification
+rg 'connect\\(.*peer|peer.*connect' --type rust src/
+```
+
+**Correct pattern:**
+- Peers are discovered via Freenet DHT
+- All peer communication uses challenge-response verification
+- No peer is inherently trusted
+
+**Violation found?**
+```bash
+bd create --title "SECURITY: Hardcoded trusted peers" --priority 1 --labels security,absolute-8
+gt mail send mayor/ -s "BLOCK: Trusted peer violation" -m "<details>"
+```
+"""
+
+[[steps]]
+id = "imperative-scan"
+title = "Verify 8 Imperatives compliance"
+needs = ["peer-trust-scan"]
+description = """
+**Check that the 8 Imperatives (ALWAYS rules) are followed.**
+
+## Imperative #1: ALWAYS hash Signal IDs immediately with mask_identity() then zeroize
+
+```bash
+# Check for mask_identity usage
+rg 'mask_identity' --type rust src/
+
+# Verify zeroize follows masking
+rg -A2 'mask_identity' --type rust src/ | grep -i 'zeroize'
+```
+
+If Signal IDs are used without immediate hashing → VIOLATION.
+
+## Imperative #2: ALWAYS verify Freenet contract state before executing any action
+
+```bash
+# Check for state verification before actions
+rg 'get_state|verify_state|check_state' --type rust src/
+
+# Look for actions without state checks
+rg 'execute|perform|apply' --type rust src/gatekeeper/ src/trust/ 2>/dev/null || true
+```
+
+Any trust action without prior Freenet state verification → VIOLATION.
+
+## Imperative #3: ALWAYS use trait abstractions for testability
+
+```bash
+# Check for SignalClient trait
+rg 'trait SignalClient|impl.*SignalClient' --type rust src/
+
+# Check for FreenetClient trait
+rg 'trait FreenetClient|impl.*FreenetClient' --type rust src/
+
+# Check for direct dependencies (VIOLATION)
+rg 'presage::Manager|freenet::Node' --type rust src/ | grep -v 'impl.*Client'
+```
+
+Direct dependencies without trait abstraction → VIOLATION.
+
+## Imperative #4: ALWAYS encrypt chunks with AES-256-GCM using ACI-derived key
+
+```bash
+# Check for AES-256-GCM usage in persistence
+rg 'Aes256Gcm|aes_gcm|AES.*GCM' --type rust src/
+
+# Check for unencrypted chunk operations
+rg 'write_chunk|store_chunk|save_chunk' --type rust src/
+```
+
+Unencrypted chunk storage → VIOLATION.
+
+## Imperative #5: ALWAYS use Freenet state stream (NOT polling)
+
+```bash
+# Check for state stream usage
+rg 'subscribe|StateStream|state_stream' --type rust src/
+
+# Already covered in source-of-truth-scan (Absolute #5)
+```
+
+## Imperative #6: ALWAYS log operation types only (no identifiers)
+
+```bash
+# Check log statements for potential ID leaks
+rg 'log::|tracing::|info!|debug!|warn!|error!' --type rust src/ -A1 | grep -E 'signal|member|user|id'
+
+# Check for structured logging patterns
+rg 'operation_type|action_type|event_type' --type rust src/
+```
+
+Logs containing identifiers or relationships → VIOLATION.
+
+## Imperative #7: ALWAYS include // SAFETY: comments for unsafe blocks
+
+```bash
+# Find unsafe blocks
+rg 'unsafe\\s*\\{' --type rust src/
+
+# Check each has SAFETY comment
+rg -B2 'unsafe\\s*\\{' --type rust src/ | grep -v 'SAFETY:'
+```
+
+Unsafe blocks without `// SAFETY:` comment → VIOLATION.
+
+## Imperative #8: ALWAYS run quality gates before commit
+
+This is enforced by the `stroma-polecat-rust` formula, not scanned here.
+The Witness checks that polecats follow their formula.
+
+**Violations found?**
+```bash
+bd create --title "SECURITY: Imperative violation - <which one>" --priority 2 --labels security,imperative
+gt mail send mayor/ -s "WARNING: Imperative violation" -m "<details>"
+```
+
+Imperative violations are MEDIUM priority (warning, not blocking) unless
+combined with Absolute violations.
+"""
+
+[[steps]]
+id = "report-violations"
+title = "Compile violation report"
+needs = ["imperative-scan"]
+description = """
+Summarize findings from this patrol cycle.
+
+```bash
+# List all security beads created this cycle
+bd list --labels security --status open
+
+# Count violations by severity
+bd list --labels security,absolute-1 --status open --count  # Signal ID
+bd list --labels security,absolute-2 --status open --count  # Message history
+bd list --labels security,absolute-4 --status open --count  # Grace periods
+bd list --labels security,absolute-5 --status open --count  # Source of truth
+bd list --labels security,absolute-8 --status open --count  # Trusted peers
+```
+
+**If ANY absolute violations found:**
+- Convoy closure is BLOCKED
+- Mayor must be notified
+- Polecats cannot proceed to submit step
+
+**If no violations:**
+- Log clean patrol cycle
+- Continue monitoring
+"""
+
+[[steps]]
+id = "context-check"
+title = "Check own context limit"
+needs = ["report-violations"]
+description = """
+Check context usage before deciding to loop or exit.
+
+If context is HIGH (>80%):
+- Write handoff notes
+- Prepare for session restart
+
+If context is LOW:
+- Can continue patrolling
+"""
+
+[[steps]]
+id = "loop-or-exit"
+title = "Loop or exit for respawn"
+needs = ["context-check"]
+description = """
+**If context LOW** (can continue patrolling):
+1. Squash current wisp with patrol summary
+2. Create new patrol wisp
+3. Continue from inbox-check
+
+```bash
+bd mol squash <mol-id> --summary "Patrol cycle complete. Violations: <count>"
+bd mol wisp stroma-security-witness
+```
+
+**If context HIGH** (approaching limit):
+1. Write handoff with violation status
+2. Exit for respawn
+
+```bash
+gt handoff -s "Security witness handoff" -m "Open violations: <list>
+Convoy status: <blocked/clear>"
+```
+
+**IMPORTANT**: Never leave patrol without either looping or handing off.
+"""

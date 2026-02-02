@@ -267,12 +267,43 @@ pub struct ProposalResult {
 assert!(poll_results.individual_votes.is_none());  // Must be None
 ```
 
+### Poll Termination (CRITICAL)
+
+**Signal polls remain open indefinitely unless explicitly terminated.** The bot MUST send a `PollTerminate` message when the proposal timeout expires.
+
+```rust
+// Send PollTerminate when timeout expires
+let terminate_message = DataMessage {
+    poll_terminate: Some(PollTerminate {
+        target_sent_timestamp: Some(original_poll_timestamp),
+    }),
+    timestamp: Some(now()),
+    ..Default::default()
+};
+signal.send_message_to_group(group_master_key, terminate_message).await?;
+```
+
+**Why This Matters:**
+- Prevents late votes after timeout (votes after termination ignored by Signal)
+- Provides clear visual feedback in Signal UI (poll shows as closed)
+- Ensures result announcement aligns with actual voting window
+- Required for consistent UX across Signal clients
+
+**Ordering:**
+1. Fetch poll results
+2. Terminate poll (PollTerminate)
+3. Announce result to group
+4. Execute action (if approved)
+5. Record in Freenet
+
 ### Testing Requirements
 
 **Must verify:**
-- [ ] Poll creation works
-- [ ] Voting works
+- [ ] Poll creation works (PollCreate)
+- [ ] Voting works (PollVote)
 - [ ] Bot can read poll results
+- [ ] **Poll termination works (PollTerminate)**
+- [ ] **Votes after termination are ignored**
 - [ ] Timeout enforcement works
 - [ ] Multiple choice polls work (for future features)
 

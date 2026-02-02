@@ -543,7 +543,64 @@ mod tests {
 - Reject dependencies that could leak identifiers
 - Monitor binary size (increases indicate bloat)
 
-## 10. Violations & Enforcement
+## 10. Code Quality for Security
+
+### Trait Abstractions (MANDATORY for Testability)
+
+**100% test coverage is required.** To achieve this, external dependencies MUST use trait abstractions.
+
+```rust
+// ✅ REQUIRED PATTERN: Trait abstraction enables mocking
+#[async_trait]
+pub trait SignalClient: Send + Sync {
+    async fn send_message(&self, recipient: &ServiceId, message: &str) -> Result<()>;
+    async fn add_group_member(&self, group: &GroupId, member: &ServiceId) -> Result<()>;
+    async fn remove_group_member(&self, group: &GroupId, member: &ServiceId) -> Result<()>;
+}
+
+#[async_trait]
+pub trait FreenetClient: Send + Sync {
+    async fn get_state(&self, contract: &ContractHash) -> Result<TrustState>;
+    async fn apply_delta(&self, contract: &ContractHash, delta: &Delta) -> Result<()>;
+    async fn subscribe(&self, contract: &ContractHash) -> Result<StateStream>;
+}
+
+// Bot uses traits, not concrete types
+pub struct StromaBot<S: SignalClient, F: FreenetClient> {
+    signal: S,
+    freenet: F,
+}
+
+// ❌ FORBIDDEN: Direct dependency (untestable)
+pub struct StromaBot {
+    manager: presage::Manager<SqliteStore>,  // Can't mock this
+}
+```
+
+**Rationale**: Stroma's security constraints require 100% test coverage with no exceptions. Trait abstractions enable `MockSignalClient` and `MockFreenetClient` for unit tests without real network calls.
+
+### Unsafe Block Documentation (MANDATORY)
+
+All `unsafe` blocks MUST have a `// SAFETY:` comment explaining why the code is sound.
+
+```rust
+// ✅ REQUIRED PATTERN
+// SAFETY: The buffer is guaranteed to be valid for the lifetime of the operation
+// because we hold an exclusive lock on the containing structure, and the pointer
+// was obtained from a valid slice within this function's scope.
+unsafe {
+    std::ptr::copy_nonoverlapping(src, dst, len);
+}
+
+// ❌ FORBIDDEN: Unsafe without explanation
+unsafe {
+    std::ptr::copy_nonoverlapping(src, dst, len);  // Missing SAFETY comment
+}
+```
+
+**Rationale**: Unsafe blocks are potential security vulnerabilities. Documentation ensures reviewers can verify soundness.
+
+## 11. Violations & Enforcement
 
 ### What Happens If These Constraints Are Violated
 - Code MUST be rejected (no exceptions)
@@ -555,6 +612,8 @@ mod tests {
 - Monitor all agents for Signal ID leakage
 - Verify zeroization in all crypto operations
 - Block unsafe patterns (cleartext IDs, polling, etc.)
+- Verify trait abstractions for external dependencies
+- Verify SAFETY comments on all unsafe blocks
 - Read this Bead before every code review
 
 ## 11. Git Commit Standards (AI Agents)
