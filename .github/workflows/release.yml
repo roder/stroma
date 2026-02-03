@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-release:
+    name: Build release binary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Build static binary
+        run: |
+          cargo build --release --target x86_64-unknown-linux-musl --bin stroma
+
+      - name: Strip binary
+        run: |
+          strip target/x86_64-unknown-linux-musl/release/stroma
+
+      - name: Prepare artifacts
+        run: |
+          mkdir -p release
+          cp target/x86_64-unknown-linux-musl/release/stroma release/stroma-linux-x86_64
+
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum stroma-linux-x86_64 > checksums.txt
+          cat checksums.txt
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          cat > release_notes.md << 'EOF'
+          ## stroma ${{ steps.version.outputs.VERSION }}
+
+          ### Installation
+
+          Download the binary for your platform and make it executable:
+
+          ```bash
+          curl -L https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.VERSION }}/stroma-linux-x86_64 -o stroma
+          chmod +x stroma
+          ```
+
+          ### Verification
+
+          Verify the download using SHA256 checksums:
+
+          ```bash
+          curl -L https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.VERSION }}/checksums.txt -o checksums.txt
+          sha256sum -c checksums.txt
+          ```
+
+          ### Changes
+
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for detailed changes.
+          EOF
+
+          echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
+          cat release_notes.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            release/stroma-linux-x86_64
+            release/checksums.txt
+          body: ${{ steps.release_notes.outputs.RELEASE_NOTES }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
