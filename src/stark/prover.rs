@@ -11,10 +11,7 @@ use super::{
 };
 use sha2::{Digest, Sha256};
 use winter_math::{FieldElement, StarkField};
-use winterfell::{
-    math::fields::f128::BaseElement,
-    Air, ProofOptions, TraceInfo, FieldExtension,
-};
+use winterfell::{math::fields::f128::BaseElement, Air, FieldExtension, ProofOptions, TraceInfo};
 
 /// Generate a STARK-like proof for a vouch claim
 ///
@@ -41,7 +38,7 @@ pub fn prove_vouch_claim(claim: &VouchClaim) -> Result<VouchProof, String> {
         8,  // blowup factor
         0,  // grinding factor
         FieldExtension::None,
-        4,  // FRI folding factor
+        4,   // FRI folding factor
         255, // FRI max remainder degree (must be 2^n - 1)
     );
 

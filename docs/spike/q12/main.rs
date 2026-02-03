@@ -43,7 +43,7 @@ impl TestConfig {
         Self {
             state_size: 512 * 1024, // 512 KB typical bot state
             num_bots: 100,
-            replicas_per_chunk: 2, // 1 local + 2 remote = 2 remote holders
+            replicas_per_chunk: 2,  // 1 local + 2 remote = 2 remote holders
             network_latency_ms: 50, // 50ms per network request
         }
     }
@@ -75,7 +75,7 @@ struct ChunkAnalysis {
     num_chunks: usize,
     recovery_latency: Duration,
     unique_holders: usize,
-    holder_distribution: f64, // Percentage of network holding chunks
+    holder_distribution: f64,   // Percentage of network holding chunks
     coordination_overhead: f64, // Overhead as % of data transferred
     max_chunks_per_holder: usize,
     avg_chunks_per_holder: f64,
@@ -95,7 +95,8 @@ impl ChunkAnalysis {
 
         for chunk_idx in 0..num_chunks {
             // Deterministic holder selection (simplified rendezvous hashing)
-            let holders = Self::compute_holders(chunk_idx, config.num_bots, config.replicas_per_chunk);
+            let holders =
+                Self::compute_holders(chunk_idx, config.num_bots, config.replicas_per_chunk);
 
             for holder in holders {
                 *holder_counts.entry(holder).or_default() += 1;
@@ -147,12 +148,27 @@ impl ChunkAnalysis {
         println!("│ Chunk Size: {:45} │", self.chunk_size_label);
         println!("├────────────────────────────────────────────────────────────┤");
         println!("│ Number of chunks:           {:30} │", self.num_chunks);
-        println!("│ Recovery latency:           {:30} │", format!("{:?}", self.recovery_latency));
+        println!(
+            "│ Recovery latency:           {:30} │",
+            format!("{:?}", self.recovery_latency)
+        );
         println!("│ Unique holders:             {:30} │", self.unique_holders);
-        println!("│ Holder distribution:        {:28.1}% │", self.holder_distribution);
-        println!("│ Coordination overhead:      {:28.2}% │", self.coordination_overhead);
-        println!("│ Max chunks per holder:      {:30} │", self.max_chunks_per_holder);
-        println!("│ Avg chunks per holder:      {:30.2} │", self.avg_chunks_per_holder);
+        println!(
+            "│ Holder distribution:        {:28.1}% │",
+            self.holder_distribution
+        );
+        println!(
+            "│ Coordination overhead:      {:28.2}% │",
+            self.coordination_overhead
+        );
+        println!(
+            "│ Max chunks per holder:      {:30} │",
+            self.max_chunks_per_holder
+        );
+        println!(
+            "│ Avg chunks per holder:      {:30.2} │",
+            self.avg_chunks_per_holder
+        );
         println!("└────────────────────────────────────────────────────────────┘");
     }
 
@@ -173,9 +189,14 @@ impl ChunkAnalysis {
 fn test_chunk_sizes(scenario: &str, config: TestConfig) {
     println!("\n╔════════════════════════════════════════════════════════════════╗");
     println!("║ Scenario: {:52} ║", scenario);
-    println!("║ State size: {:49} ║", format!("{} bytes", config.state_size));
-    println!("║ Network: {} bots, {} replicas/chunk                           ║",
-             config.num_bots, config.replicas_per_chunk);
+    println!(
+        "║ State size: {:49} ║",
+        format!("{} bytes", config.state_size)
+    );
+    println!(
+        "║ Network: {} bots, {} replicas/chunk                           ║",
+        config.num_bots, config.replicas_per_chunk
+    );
     println!("╚════════════════════════════════════════════════════════════════╝");
 
     let mut results = Vec::new();
@@ -202,12 +223,14 @@ fn test_chunk_sizes(scenario: &str, config: TestConfig) {
 
     for (label, analysis, passes) in &results {
         let status = if *passes { "✅" } else { "❌" };
-        println!("│ {:12} {:>6} chunks, {:>5.1}% dist, {:>4.1}% overhead {:>2} │",
-                 label,
-                 analysis.num_chunks,
-                 analysis.holder_distribution,
-                 analysis.coordination_overhead,
-                 status);
+        println!(
+            "│ {:12} {:>6} chunks, {:>5.1}% dist, {:>4.1}% overhead {:>2} │",
+            label,
+            analysis.num_chunks,
+            analysis.holder_distribution,
+            analysis.coordination_overhead,
+            status
+        );
     }
 
     println!("└────────────────────────────────────────────────────────────┘");
@@ -228,7 +251,10 @@ fn test_edge_cases() {
     };
 
     let analysis_64kb = ChunkAnalysis::analyze(64 * 1024, "64KB", &small_state_config);
-    println!("With 64KB chunks: {} chunks (state smaller than chunk size)", analysis_64kb.num_chunks);
+    println!(
+        "With 64KB chunks: {} chunks (state smaller than chunk size)",
+        analysis_64kb.num_chunks
+    );
     assert_eq!(analysis_64kb.num_chunks, 1, "Small state should be 1 chunk");
     println!("✅ Small states handled correctly (1 chunk)");
 
@@ -244,13 +270,19 @@ fn test_edge_cases() {
     let analysis_1kb = ChunkAnalysis::analyze(1 * 1024, "1KB", &large_state_config);
     let analysis_64kb = ChunkAnalysis::analyze(64 * 1024, "64KB", &large_state_config);
 
-    println!("1KB chunks:  {} chunks, {:.1}% coordination overhead",
-             analysis_1kb.num_chunks, analysis_1kb.coordination_overhead);
-    println!("64KB chunks: {} chunks, {:.1}% coordination overhead",
-             analysis_64kb.num_chunks, analysis_64kb.coordination_overhead);
+    println!(
+        "1KB chunks:  {} chunks, {:.1}% coordination overhead",
+        analysis_1kb.num_chunks, analysis_1kb.coordination_overhead
+    );
+    println!(
+        "64KB chunks: {} chunks, {:.1}% coordination overhead",
+        analysis_64kb.num_chunks, analysis_64kb.coordination_overhead
+    );
 
-    assert!(analysis_64kb.coordination_overhead < analysis_1kb.coordination_overhead,
-            "Larger chunks should have less overhead");
+    assert!(
+        analysis_64kb.coordination_overhead < analysis_1kb.coordination_overhead,
+        "Larger chunks should have less overhead"
+    );
     println!("✅ Large states: 64KB chunks have lower coordination overhead");
 }
 

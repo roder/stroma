@@ -5,7 +5,9 @@ use std::collections::BTreeSet;
 use zeroize::Zeroize;
 
 /// A 32-byte hash representing a member identity
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Zeroize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Zeroize,
+)]
 pub struct MemberHash(pub [u8; 32]);
 
 /// A claim about a member's vouch verification state
@@ -38,8 +40,7 @@ impl VouchClaim {
         flaggers: BTreeSet<MemberHash>,
     ) -> Self {
         // Calculate voucher-flaggers (intersection)
-        let voucher_flaggers: BTreeSet<_> =
-            vouchers.intersection(&flaggers).copied().collect();
+        let voucher_flaggers: BTreeSet<_> = vouchers.intersection(&flaggers).copied().collect();
 
         let effective_vouches = vouchers.len() - voucher_flaggers.len();
         let regular_flags = flaggers.len() - voucher_flaggers.len();
@@ -58,8 +59,11 @@ impl VouchClaim {
     /// Verify the claim is internally consistent
     pub fn verify_consistency(&self) -> Result<(), String> {
         // Calculate expected values
-        let voucher_flaggers: BTreeSet<_> =
-            self.vouchers.intersection(&self.flaggers).copied().collect();
+        let voucher_flaggers: BTreeSet<_> = self
+            .vouchers
+            .intersection(&self.flaggers)
+            .copied()
+            .collect();
 
         let expected_effective = self.vouchers.len() - voucher_flaggers.len();
         let expected_regular = self.flaggers.len() - voucher_flaggers.len();

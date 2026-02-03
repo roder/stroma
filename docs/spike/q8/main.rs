@@ -236,7 +236,10 @@ fn test_sybil_cost_analysis() {
     let attacker_target = 1000; // Attacker wants 1000 fake bots
     let difficulty = 16;
 
-    println!("Scenario: Attacker wants to register {} fake bots", attacker_target);
+    println!(
+        "Scenario: Attacker wants to register {} fake bots",
+        attacker_target
+    );
     println!("PoW difficulty: {}\n", difficulty);
 
     // Sample registration to estimate time
@@ -310,7 +313,10 @@ fn test_reputation_selection() {
     println!();
 
     println!("Bot 2 (Established):");
-    println!("  Trust score: {:.2}", established_bot.reputation.trust_score());
+    println!(
+        "  Trust score: {:.2}",
+        established_bot.reputation.trust_score()
+    );
     println!("  Eligible: {}", established_bot.is_eligible_for_holding());
     println!();
 
@@ -371,7 +377,10 @@ fn test_combined_defense() {
     // Step 2: Capacity Verification
     println!("Step 2: Capacity Verification");
     let capacity_proof = CapacityProof::prove(100 * 1024 * 1024);
-    println!("  Capacity proven: {} bytes", capacity_proof.capacity_claimed);
+    println!(
+        "  Capacity proven: {} bytes",
+        capacity_proof.capacity_claimed
+    );
     println!("  Valid: {}", capacity_proof.verify(100 * 1024 * 1024));
     println!();
 
@@ -391,7 +400,10 @@ fn test_combined_defense() {
 
     println!("Attack Cost for 1000 Fake Bots:");
     let total_time = pow_time * 1000;
-    println!("  PoW time: ~{:.1} minutes", total_time.as_secs_f64() / 60.0);
+    println!(
+        "  PoW time: ~{:.1} minutes",
+        total_time.as_secs_f64() / 60.0
+    );
     println!("  + Storage: 100 GB (1000 bots × 100 MB each)");
     println!("  + Time: 7+ days to become eligible");
     println!("  + Operations: Must respond to chunk requests");
@@ -436,7 +448,10 @@ fn test_fake_bot_detection() {
     }
 
     // Count eligible bots
-    let eligible_count = bots.values().filter(|b| b.is_eligible_for_holding()).count();
+    let eligible_count = bots
+        .values()
+        .filter(|b| b.is_eligible_for_holding())
+        .count();
     let real_eligible = bots
         .iter()
         .filter(|(id, b)| **id < 10 && b.is_eligible_for_holding())
@@ -462,7 +477,10 @@ fn test_fake_bot_detection() {
     let false_positive_rate = (10 - real_eligible) as f64 / 10.0 * 100.0;
 
     println!("Detection metrics:");
-    println!("  Detection rate: {:.0}% (fake bots blocked)", detection_rate);
+    println!(
+        "  Detection rate: {:.0}% (fake bots blocked)",
+        detection_rate
+    );
     println!(
         "  False positive rate: {:.0}% (real bots blocked)",
         false_positive_rate

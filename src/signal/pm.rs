@@ -33,7 +33,10 @@ pub enum Command {
     },
 
     /// Propose group decision
-    Propose { subcommand: String, args: Vec<String> },
+    Propose {
+        subcommand: String,
+        args: Vec<String>,
+    },
 
     /// View personal trust standing
     Status { username: Option<String> },
@@ -202,9 +205,7 @@ pub async fn handle_pm_command(
             handle_propose(client, sender, &subcommand, &args).await
         }
 
-        Command::Status { username } => {
-            handle_status(client, sender, username.as_deref()).await
-        }
+        Command::Status { username } => handle_status(client, sender, username.as_deref()).await,
 
         Command::Mesh => handle_mesh(client, sender).await,
 
@@ -359,7 +360,8 @@ async fn handle_audit(
 
     match subcommand {
         "operator" => {
-            let response = "Operator action history:\n- Last restart: 2 hours ago\n- No manual interventions";
+            let response =
+                "Operator action history:\n- Last restart: 2 hours ago\n- No manual interventions";
             client.send_message(sender, response).await
         }
         "bootstrap" => {
@@ -370,7 +372,10 @@ async fn handle_audit(
             client
                 .send_message(
                     sender,
-                    &format!("Unknown audit subcommand: {}. Use 'operator' or 'bootstrap'", subcommand),
+                    &format!(
+                        "Unknown audit subcommand: {}. Use 'operator' or 'bootstrap'",
+                        subcommand
+                    ),
                 )
                 .await
         }

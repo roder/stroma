@@ -5,10 +5,10 @@
 // - Option C: Hybrid approach (P2P + attestation)
 // - Cost and latency comparison
 
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use sha2::{Digest, Sha256};
 
 /// Simulated chunk data
 type ChunkData = Vec<u8>;
@@ -78,12 +78,19 @@ impl FreenetContractStore {
         }
     }
 
-    pub async fn write_chunk(&self, contract: ContractHash, chunk: ChunkData) -> Result<(), String> {
+    pub async fn write_chunk(
+        &self,
+        contract: ContractHash,
+        chunk: ChunkData,
+    ) -> Result<(), String> {
         // Simulate network latency
         tokio::time::sleep(Duration::from_millis(self.write_latency_ms)).await;
 
         let mut contracts = self.contracts.lock().unwrap();
-        contracts.entry(contract).or_insert_with(Vec::new).push(chunk);
+        contracts
+            .entry(contract)
+            .or_insert_with(Vec::new)
+            .push(chunk);
 
         Ok(())
     }
@@ -164,7 +171,9 @@ impl ChunkDistributor {
         chunk: ChunkData,
     ) -> Result<DistributionAttestation, String> {
         // Write chunk to receiver's storage contract
-        self.contract_store.write_chunk(receiver, chunk.clone()).await?;
+        self.contract_store
+            .write_chunk(receiver, chunk.clone())
+            .await?;
 
         // Create attestation
         let attestation = DistributionAttestation::new(self.bot_id, receiver, &chunk);
@@ -204,10 +213,14 @@ impl ChunkDistributor {
         for chunk in chunks {
             for holder in &holders {
                 if use_hybrid {
-                    self.distribute_hybrid(*holder, chunk.clone()).await.unwrap();
+                    self.distribute_hybrid(*holder, chunk.clone())
+                        .await
+                        .unwrap();
                     total_cost += self.p2p_network.get_transfer_cost();
                 } else {
-                    self.distribute_via_contract(*holder, chunk.clone()).await.unwrap();
+                    self.distribute_via_contract(*holder, chunk.clone())
+                        .await
+                        .unwrap();
                     total_cost += self.contract_store.get_write_cost();
                 }
             }
@@ -320,14 +333,9 @@ async fn test_full_state_distribution_comparison() {
     let p2p_network = Arc::new(P2PNetwork::new(20, 1));
 
     let bot_a = create_test_bot_id(1);
-    let holders = vec![
-        create_test_bot_id(2),
-        create_test_bot_id(3),
-    ];
+    let holders = vec![create_test_bot_id(2), create_test_bot_id(3)];
 
-    let chunks: Vec<ChunkData> = (0..8)
-        .map(|_| create_test_chunk(64 * 1024))
-        .collect();
+    let chunks: Vec<ChunkData> = (0..8).map(|_| create_test_chunk(64 * 1024)).collect();
 
     let distributor = ChunkDistributor::new(bot_a, contract_store.clone(), p2p_network.clone());
 
@@ -359,10 +367,14 @@ async fn test_full_state_distribution_comparison() {
 
     // Comparison
     println!("\n--- Comparison ---");
-    println!("Latency improvement: {:.1}x faster",
-        latency_contract.as_millis() as f64 / latency_hybrid.as_millis() as f64);
-    println!("Cost reduction: {:.1}x cheaper",
-        cost_contract as f64 / cost_hybrid as f64);
+    println!(
+        "Latency improvement: {:.1}x faster",
+        latency_contract.as_millis() as f64 / latency_hybrid.as_millis() as f64
+    );
+    println!(
+        "Cost reduction: {:.1}x cheaper",
+        cost_contract as f64 / cost_hybrid as f64
+    );
 
     // Success criteria: Distribution completes in < 10s
     assert!(latency_contract < Duration::from_secs(10));
@@ -452,7 +464,9 @@ async fn test_scalability() {
         let p2p_network = Arc::new(P2PNetwork::new(20, 1));
 
         let bot_a = create_test_bot_id(1);
-        let holders: Vec<BotId> = (2..2 + num_holders).map(|id| create_test_bot_id(id as u8)).collect();
+        let holders: Vec<BotId> = (2..2 + num_holders)
+            .map(|id| create_test_bot_id(id as u8))
+            .collect();
 
         let distributor = ChunkDistributor::new(bot_a, contract_store, p2p_network);
 

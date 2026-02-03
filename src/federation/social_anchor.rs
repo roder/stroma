@@ -387,7 +387,8 @@ mod tests {
         // Check URI format
         for uri in &uris {
             assert!(uri.uri.starts_with("freenet://stroma/discovery/"));
-            assert_eq!(uri.uri.len(), "freenet://stroma/discovery/".len() + 64); // 64 hex chars
+            assert_eq!(uri.uri.len(), "freenet://stroma/discovery/".len() + 64);
+            // 64 hex chars
         }
 
         // Check bucket sizes

@@ -50,7 +50,12 @@ impl ChunkChallenge {
         let mut nonce = [0u8; 32];
         let random_state = RandomState::new();
         let mut hasher = random_state.build_hasher();
-        hasher.write_u64(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as u64);
+        hasher.write_u64(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos() as u64,
+        );
         let random_value = hasher.finish();
         nonce[..8].copy_from_slice(&random_value.to_le_bytes());
 
@@ -62,7 +67,10 @@ impl ChunkChallenge {
             owner,
             chunk_index,
             nonce,
-            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
             offset,
             length,
         }
@@ -70,7 +78,10 @@ impl ChunkChallenge {
 
     /// Check if challenge is still fresh (within 1 hour)
     pub fn is_fresh(&self) -> bool {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         now - self.timestamp < 3600
     }
 }
@@ -199,7 +210,10 @@ fn test_honest_holder() {
     println!("✅ Honest holder responded in {:?}", latency);
     println!("✅ Response verified: {}", verified);
     assert!(verified, "Honest holder should pass challenge");
-    assert!(latency < Duration::from_millis(100), "Challenge must complete < 100ms");
+    assert!(
+        latency < Duration::from_millis(100),
+        "Challenge must complete < 100ms"
+    );
 }
 
 /// Test 2: Replay attack fails
@@ -215,7 +229,10 @@ fn test_replay_resistance() {
     // First challenge and response
     let challenge1 = ChunkChallenge::new(owner, chunk_index, chunk_data.len());
     let response1 = holder.respond_to_challenge(&challenge1).unwrap();
-    assert!(response1.verify(&challenge1, &chunk_data), "First response should verify");
+    assert!(
+        response1.verify(&challenge1, &chunk_data),
+        "First response should verify"
+    );
     println!("✅ First challenge: response verified");
 
     // Second challenge with different nonce
@@ -225,11 +242,17 @@ fn test_replay_resistance() {
     let replay_verified = response1.verify(&challenge2, &chunk_data);
 
     println!("✅ Replay attack blocked: {}", !replay_verified);
-    assert!(!replay_verified, "Old response must not verify for new challenge (replay resistance)");
+    assert!(
+        !replay_verified,
+        "Old response must not verify for new challenge (replay resistance)"
+    );
 
     // Legitimate new response should work
     let response2 = holder.respond_to_challenge(&challenge2).unwrap();
-    assert!(response2.verify(&challenge2, &chunk_data), "New response should verify");
+    assert!(
+        response2.verify(&challenge2, &chunk_data),
+        "New response should verify"
+    );
     println!("✅ New legitimate response verified");
 }
 
@@ -247,7 +270,10 @@ fn test_freerider_detection() {
     // Free-rider doesn't have the chunk
     let response = freerider.respond_to_challenge(&challenge);
     println!("✅ Free-rider cannot respond: {:?}", response.is_none());
-    assert!(response.is_none(), "Free-rider should not be able to respond");
+    assert!(
+        response.is_none(),
+        "Free-rider should not be able to respond"
+    );
 
     // Free-rider tries to fake a response
     let fake_response = freerider.try_fake_response(&challenge);
@@ -289,7 +315,10 @@ fn test_challenge_latency() {
     println!("✅ Average latency: {:?}", avg_latency);
     println!("✅ Maximum latency: {:?}", max_latency);
 
-    assert!(avg_latency < Duration::from_millis(100), "Average latency must be < 100ms");
+    assert!(
+        avg_latency < Duration::from_millis(100),
+        "Average latency must be < 100ms"
+    );
     println!("✅ Latency requirement satisfied (< 100ms)");
 }
 
@@ -358,7 +387,10 @@ fn test_false_positive_rate() {
     println!("✅ Failures: {}", failures);
     println!("✅ False positive rate: {:.2}%", false_positive_rate);
 
-    assert!(false_positive_rate < 1.0, "False positive rate must be < 1%");
+    assert!(
+        false_positive_rate < 1.0,
+        "False positive rate must be < 1%"
+    );
     println!("✅ False positive requirement satisfied (< 1%)");
 }
 

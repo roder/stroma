@@ -167,7 +167,7 @@ mod tests {
             8,  // blowup factor
             0,  // grinding factor
             winterfell::FieldExtension::None,
-            4,  // FRI folding factor
+            4,   // FRI folding factor
             255, // FRI max remainder degree (must be 2^n - 1)
         );
 

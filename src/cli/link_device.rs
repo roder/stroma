@@ -56,12 +56,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_link_device_with_default_path() {
-        let result = execute(
-            "Test Bot".to_string(),
-            None,
-            "production".to_string(),
-        )
-        .await;
+        let result = execute("Test Bot".to_string(), None, "production".to_string()).await;
 
         assert!(result.is_ok());
     }

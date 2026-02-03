@@ -135,11 +135,7 @@ mod tests {
         // Spawn task to send after delay
         tokio::spawn(async move {
             tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-            sender
-                .send(ContractState {
-                    data: vec![42],
-                })
-                .unwrap();
+            sender.send(ContractState { data: vec![42] }).unwrap();
         });
 
         // Use tokio::select! to wait for either stream or timeout

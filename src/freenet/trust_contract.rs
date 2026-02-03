@@ -160,10 +160,7 @@ impl TrustNetworkState {
 
         // Add vouches (set union)
         for (voucher, vouchee) in &delta.vouches_added {
-            self.vouches
-                .entry(*vouchee)
-                .or_default()
-                .insert(*voucher);
+            self.vouches.entry(*vouchee).or_default().insert(*voucher);
         }
 
         // Remove vouches
@@ -261,11 +258,7 @@ impl TrustNetworkState {
             .map(|v| v.len() as i32)
             .unwrap_or(0);
 
-        let flag_count = self
-            .flags
-            .get(member)
-            .map(|f| f.len() as i32)
-            .unwrap_or(0);
+        let flag_count = self.flags.get(member).map(|f| f.len() as i32).unwrap_or(0);
 
         // Flags have 2x weight in standing calculation
         Some(vouch_count - (flag_count * 2))
@@ -455,10 +448,9 @@ mod tests {
         let flagger = test_member(4);
 
         state.members.insert(member);
-        state.vouches.insert(
-            member,
-            [voucher1, voucher2].into_iter().collect(),
-        );
+        state
+            .vouches
+            .insert(member, [voucher1, voucher2].into_iter().collect());
         state.flags.insert(member, [flagger].into_iter().collect());
 
         // Standing = 2 vouches - (1 flag * 2) = 0

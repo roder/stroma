@@ -14,11 +14,7 @@ pub async fn execute(output_path: String) -> Result<(), Box<dyn std::error::Erro
     // Validate output path
     if let Some(parent) = output.parent() {
         if !parent.exists() {
-            return Err(format!(
-                "Output directory does not exist: {}",
-                parent.display()
-            )
-            .into());
+            return Err(format!("Output directory does not exist: {}", parent.display()).into());
         }
     }
 
@@ -75,7 +71,10 @@ mod tests {
 
         // Should fail because store doesn't exist
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Signal protocol store not found"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Signal protocol store not found"));
     }
 
     #[tokio::test]
@@ -96,6 +95,9 @@ mod tests {
 
         // Should fail since default store path won't exist
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Signal protocol store not found"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Signal protocol store not found"));
     }
 }

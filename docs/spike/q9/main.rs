@@ -115,7 +115,11 @@ impl ChunkHolder {
         self.chunks.remove(&chunk_index);
     }
 
-    fn respond_to_challenge(&self, chunk_index: u32, challenge: &VerificationChallenge) -> Option<VerificationResponse> {
+    fn respond_to_challenge(
+        &self,
+        chunk_index: u32,
+        challenge: &VerificationChallenge,
+    ) -> Option<VerificationResponse> {
         let chunk = self.chunks.get(&chunk_index)?;
 
         // Check bounds
@@ -124,7 +128,8 @@ impl ChunkHolder {
         }
 
         // Extract requested slice
-        let slice = &chunk.data[challenge.offset as usize..(challenge.offset + challenge.length) as usize];
+        let slice =
+            &chunk.data[challenge.offset as usize..(challenge.offset + challenge.length) as usize];
 
         // Compute hash with nonce
         let hash = hash_with_nonce(&challenge.nonce, slice);
@@ -217,7 +222,11 @@ fn test_honest_holder_success() {
     let chunk_data: Vec<u8> = (0..64 * 1024).map(|i| (i % 256) as u8).collect();
     let chunk = Chunk::new(chunk_data);
 
-    println!("Chunk created: {} bytes, hash={:?}", chunk.len(), &chunk.hash()[..8]);
+    println!(
+        "Chunk created: {} bytes, hash={:?}",
+        chunk.len(),
+        &chunk.hash()[..8]
+    );
 
     // Holder stores the chunk
     let mut holder = ChunkHolder::new();
@@ -227,10 +236,15 @@ fn test_honest_holder_success() {
     // Owner creates challenge
     let owner = ChunkOwner::new(chunk);
     let challenge = owner.create_challenge();
-    println!("Owner creates challenge: offset={}, length={}", challenge.offset, challenge.length);
+    println!(
+        "Owner creates challenge: offset={}, length={}",
+        challenge.offset, challenge.length
+    );
 
     // Holder responds
-    let response = holder.respond_to_challenge(0, &challenge).expect("Holder should respond");
+    let response = holder
+        .respond_to_challenge(0, &challenge)
+        .expect("Holder should respond");
     println!("Holder responds with hash={:?}", &response.hash[..8]);
 
     // Owner verifies
@@ -265,7 +279,10 @@ fn test_replay_resistance() {
     // Second challenge (different nonce)
     let mut challenge2 = challenge1.clone();
     challenge2.nonce[0] ^= 0xFF; // Flip some bits
-    println!("\nChallenge 2: nonce={:?} (modified)", &challenge2.nonce[..8]);
+    println!(
+        "\nChallenge 2: nonce={:?} (modified)",
+        &challenge2.nonce[..8]
+    );
 
     // Try to replay old response with new challenge
     let replayed = VerificationResponse {
@@ -354,11 +371,11 @@ fn test_verification_size() {
     let challenge_size = std::mem::size_of::<Nonce>() + // nonce (32 bytes)
                          std::mem::size_of::<u32>() +   // offset (4 bytes)
                          std::mem::size_of::<u32>() +   // length (4 bytes)
-                         std::mem::size_of::<u64>();    // timestamp (8 bytes)
+                         std::mem::size_of::<u64>(); // timestamp (8 bytes)
 
     // Response size
     let response_size = std::mem::size_of::<Hash>() +   // hash (32 bytes)
-                        challenge_size;                  // echo challenge
+                        challenge_size; // echo challenge
 
     let total_size = challenge_size + response_size;
 

@@ -8,9 +8,9 @@
 //!
 //! See: .beads/security-constraints.bead § 10
 
-use std::path::Path;
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::Path;
 
 /// Custom protocol store for Stroma
 ///
@@ -139,7 +139,10 @@ mod tests {
     #[test]
     fn test_new_store() {
         let store = StromaProtocolStore::new("/tmp/test.store", "passphrase".to_string());
-        assert_eq!(store.state_path, std::path::PathBuf::from("/tmp/test.store"));
+        assert_eq!(
+            store.state_path,
+            std::path::PathBuf::from("/tmp/test.store")
+        );
         assert_eq!(store.sessions.len(), 0);
     }
 
