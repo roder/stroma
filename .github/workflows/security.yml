@@ -210,12 +210,19 @@ jobs:
           echo "✓ No grace period violations detected"
 
   # ============================================================================
-  # Job 5: Security Summary
+  # Job 5: Supply Chain Security
+  # ============================================================================
+  supply-chain:
+    name: Supply Chain Security
+    uses: ./.github/workflows/cargo-deny.yml
+
+  # ============================================================================
+  # Job 6: Security Summary
   # ============================================================================
   security-summary:
     name: Security Summary
     runs-on: ubuntu-latest
-    needs: [codeql-analysis, code-quality-checks, binary-size, security-constraints]
+    needs: [codeql-analysis, code-quality-checks, binary-size, security-constraints, supply-chain]
     if: always()
     steps:
       - name: Download all artifacts
@@ -230,10 +237,11 @@ jobs:
           echo "- ✅ Security Code Quality Checks" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Binary Size Monitor" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Security Constraints (Bead Compliance)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Supply Chain Security (cargo-deny)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "All security checks passed! ✅" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Note: Standard checks (format, lint, tests, coverage, dependencies) run in CI workflow" >> $GITHUB_STEP_SUMMARY
+          echo "Note: Standard checks (format, lint, tests, coverage) run in CI workflow" >> $GITHUB_STEP_SUMMARY
 
       - name: Comment on PR
         if: github.event_name == 'pull_request'
@@ -244,5 +252,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '✅ **Security Pipeline Passed**\n\nAll security-specific checks completed successfully:\n- Static Analysis (CodeQL)\n- Security Code Quality Checks\n- Binary Size Monitoring\n- Security Constraints Compliance\n\n_Standard checks (format, lint, tests, coverage, dependencies) verified in CI workflow_'
+              body: '✅ **Security Pipeline Passed**\n\nAll security-specific checks completed successfully:\n- Static Analysis (CodeQL)\n- Security Code Quality Checks\n- Binary Size Monitoring\n- Security Constraints Compliance\n- Supply Chain Security (cargo-deny)\n\n_Standard checks (format, lint, tests, coverage) verified in CI workflow_'
             })

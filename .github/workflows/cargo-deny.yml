@@ -1,0 +1,19 @@
+name: Cargo Deny (Supply Chain Security)
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  cargo-deny:
+    name: Supply Chain Security (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          log-level: warn
+          command: check
