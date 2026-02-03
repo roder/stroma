@@ -10,6 +10,7 @@
 //!
 //! See: .beads/signal-integration.bead, .beads/security-constraints.bead
 
+pub mod crypto;
 pub mod freenet;
 pub mod identity;
 pub mod persistence;
