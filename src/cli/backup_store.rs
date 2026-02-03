@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Backup Signal protocol store
@@ -74,8 +73,9 @@ mod tests {
 
         let result = execute(output_path.to_string_lossy().to_string()).await;
 
-        // Should succeed even though store doesn't exist yet (in stub implementation)
-        assert!(result.is_ok());
+        // Should fail because store doesn't exist
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Signal protocol store not found"));
     }
 
     #[tokio::test]
@@ -94,8 +94,8 @@ mod tests {
 
         let result = execute(output_path.to_string_lossy().to_string()).await;
 
-        // Currently succeeds in stub, but will fail when implemented
-        // since default store path won't exist
-        assert!(result.is_ok());
+        // Should fail since default store path won't exist
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Signal protocol store not found"));
     }
 }

@@ -1,5 +1,3 @@
-use std::path::Path;
-
 /// Verify installation integrity
 ///
 /// This command verifies that the Stroma installation is correct and complete:

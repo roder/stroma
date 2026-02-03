@@ -48,7 +48,6 @@ pub async fn execute(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
