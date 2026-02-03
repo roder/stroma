@@ -1,0 +1,56 @@
+name: Code Coverage
+
+on:
+  workflow_call:
+    inputs:
+      enforce-100:
+        description: 'Enforce 100% coverage requirement'
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      CODECOV_TOKEN:
+        required: false
+
+jobs:
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: ./.github/actions/rust-setup
+        with:
+          toolchain: stable
+          components: llvm-tools-preview
+          cache-key: coverage
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Generate coverage
+        run: cargo llvm-cov nextest --all-features --lcov --output-path lcov.info
+
+      - name: Verify 100% coverage
+        if: ${{ inputs.enforce-100 }}
+        run: |
+          COVERAGE=$(cargo llvm-cov report --summary-only --json | jq '.data[0].totals.lines.percent')
+          echo "Coverage: $COVERAGE%"
+
+          if (( $(echo "$COVERAGE < 100.0" | bc -l) )); then
+            echo "::error::Coverage is $COVERAGE%, but 100% is required"
+            exit 1
+          fi
+          echo "✓ Coverage requirement met: $COVERAGE%"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./lcov.info
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
