@@ -16,8 +16,10 @@ pub mod group;
 pub mod pm;
 pub mod polls;
 pub mod bot;
+pub mod bootstrap;
 
 pub use traits::{SignalClient, SignalError, SignalResult};
 pub use store::StromaProtocolStore;
 pub use mock::MockSignalClient;
 pub use bot::{StromaBot, BotConfig};
+pub use bootstrap::{BootstrapManager, BootstrapState};

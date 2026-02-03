@@ -17,7 +17,7 @@ impl fmt::Display for ServiceId {
 }
 
 /// Signal group identifier
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct GroupId(pub Vec<u8>);
 
 impl fmt::Display for GroupId {
@@ -98,6 +98,9 @@ pub trait SignalClient: Send + Sync + Clone {
 
     /// Send message to a group
     async fn send_group_message(&self, group: &GroupId, text: &str) -> SignalResult<()>;
+
+    /// Create a new group
+    async fn create_group(&self, name: &str) -> SignalResult<GroupId>;
 
     /// Add member to group
     async fn add_group_member(&self, group: &GroupId, member: &ServiceId) -> SignalResult<()>;

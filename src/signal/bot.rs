@@ -9,8 +9,9 @@
 //! See: .beads/signal-integration.bead
 
 use super::{
+    bootstrap::BootstrapManager,
     group::{EjectionTrigger, GroupManager},
-    pm::{handle_pm_command, parse_command},
+    pm::{handle_pm_command, parse_command, Command},
     polls::PollManager,
     traits::*,
 };
@@ -19,6 +20,7 @@ use super::{
 pub struct BotConfig {
     pub group_id: GroupId,
     pub min_vouch_threshold: u32,
+    pub pepper: Vec<u8>,
 }
 
 impl Default for BotConfig {
@@ -26,6 +28,7 @@ impl Default for BotConfig {
         Self {
             group_id: GroupId(vec![]),
             min_vouch_threshold: 2,
+            pepper: b"default-pepper".to_vec(),
         }
     }
 }
@@ -37,12 +40,17 @@ pub struct StromaBot<C: SignalClient, F: crate::freenet::FreenetClient> {
     config: BotConfig,
     group_manager: GroupManager<C>,
     poll_manager: PollManager<C>,
+    bootstrap_manager: BootstrapManager<C>,
 }
 
 impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     pub fn new(client: C, freenet: F, config: BotConfig) -> Self {
         let group_manager = GroupManager::new(client.clone(), config.group_id.clone());
         let poll_manager = PollManager::new(client.clone(), config.group_id.clone());
+        let bootstrap_manager = BootstrapManager::new(
+            client.clone(),
+            config.pepper.clone(),
+        );
 
         Self {
             client,
@@ -50,6 +58,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             config,
             group_manager,
             poll_manager,
+            bootstrap_manager,
         }
     }
 
@@ -79,7 +88,24 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         match message.content {
             MessageContent::Text(text) => {
                 let command = parse_command(&text);
-                handle_pm_command(&self.client, &message.sender, command).await?;
+
+                // Route bootstrap commands to bootstrap manager
+                match command {
+                    Command::CreateGroup { ref group_name } => {
+                        self.bootstrap_manager
+                            .handle_create_group(&message.sender, group_name.clone())
+                            .await?;
+                    }
+                    Command::AddSeed { ref username } => {
+                        self.bootstrap_manager
+                            .handle_add_seed(&self.freenet, &message.sender, username)
+                            .await?;
+                    }
+                    _ => {
+                        // Other commands go through normal handler
+                        handle_pm_command(&self.client, &message.sender, command).await?;
+                    }
+                }
             }
 
             MessageContent::Poll(_) => {
@@ -200,6 +226,7 @@ mod tests {
         let config = BotConfig {
             group_id: group.clone(),
             min_vouch_threshold: 2,
+            pepper: b"test-pepper".to_vec(),
         };
         let mut bot = StromaBot::new(client.clone(), freenet, config);
 
@@ -231,6 +258,7 @@ mod tests {
         let config = BotConfig {
             group_id: group.clone(),
             min_vouch_threshold: 2,
+            pepper: b"test-pepper".to_vec(),
         };
         let mut bot = StromaBot::new(client.clone(), freenet, config);
 
@@ -256,6 +284,7 @@ mod tests {
         let config = BotConfig {
             group_id: GroupId(vec![1, 2, 3]),
             min_vouch_threshold: 2,
+            pepper: b"test-pepper".to_vec(),
         };
         let bot = StromaBot::new(client, freenet, config);
 

@@ -6,11 +6,17 @@
 //! See: .beads/signal-integration.bead § Privacy-First UX
 
 use super::{group::GroupManager, traits::*};
-use crate::freenet::{contract::MemberHash, traits::ContractHash, FreenetClient};
+use crate::freenet::{traits::ContractHash, FreenetClient};
 
 /// PM command types
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
+    /// Create new group (bootstrap)
+    CreateGroup { group_name: String },
+
+    /// Add seed member (bootstrap)
+    AddSeed { username: String },
+
     /// Invite someone (counts as first vouch)
     Invite {
         username: String,
@@ -67,6 +73,24 @@ pub fn parse_command(text: &str) -> Command {
     }
 
     match parts[0] {
+        "/create-group" => {
+            if parts.len() < 2 {
+                return Command::Unknown(text.to_string());
+            }
+            // Group name is everything after /create-group (may contain spaces)
+            let group_name = parts[1..].join(" ").trim_matches('"').to_string();
+            Command::CreateGroup { group_name }
+        }
+
+        "/add-seed" => {
+            if parts.len() < 2 {
+                return Command::Unknown(text.to_string());
+            }
+            Command::AddSeed {
+                username: parts[1].to_string(),
+            }
+        }
+
         "/invite" => {
             if parts.len() < 2 {
                 return Command::Unknown(text.to_string());
@@ -144,6 +168,26 @@ pub async fn handle_pm_command(
     command: Command,
 ) -> SignalResult<()> {
     match command {
+        Command::CreateGroup { group_name: _ } => {
+            // Bootstrap commands handled by BootstrapManager
+            client
+                .send_message(
+                    sender,
+                    "Bootstrap commands must be handled by BootstrapManager. This is a stub.",
+                )
+                .await
+        }
+
+        Command::AddSeed { username: _ } => {
+            // Bootstrap commands handled by BootstrapManager
+            client
+                .send_message(
+                    sender,
+                    "Bootstrap commands must be handled by BootstrapManager. This is a stub.",
+                )
+                .await
+        }
+
         Command::Invite { username, context } => {
             handle_invite(client, sender, &username, context.as_deref()).await
         }
@@ -337,6 +381,39 @@ async fn handle_audit(
 mod tests {
     use super::*;
     use crate::signal::mock::MockSignalClient;
+
+    #[test]
+    fn test_parse_create_group() {
+        let cmd = parse_command("/create-group \"Mission Control\"");
+        assert_eq!(
+            cmd,
+            Command::CreateGroup {
+                group_name: "Mission Control".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_create_group_without_quotes() {
+        let cmd = parse_command("/create-group Mission Control");
+        assert_eq!(
+            cmd,
+            Command::CreateGroup {
+                group_name: "Mission Control".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_add_seed() {
+        let cmd = parse_command("/add-seed @alice");
+        assert_eq!(
+            cmd,
+            Command::AddSeed {
+                username: "@alice".to_string(),
+            }
+        );
+    }
 
     #[test]
     fn test_parse_invite() {

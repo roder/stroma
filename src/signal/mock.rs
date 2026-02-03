@@ -21,6 +21,7 @@ struct MockState {
     incoming_messages: Vec<Message>,
     polls: HashMap<u64, (GroupId, Poll)>,
     next_poll_id: u64,
+    next_group_id: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -102,6 +103,20 @@ impl SignalClient for MockSignalClient {
             content: text.to_string(),
         });
         Ok(())
+    }
+
+    async fn create_group(&self, _name: &str) -> SignalResult<GroupId> {
+        let mut state = self.state.lock().unwrap();
+        let group_id = state.next_group_id;
+        state.next_group_id += 1;
+
+        // Create group ID from counter
+        let group = GroupId(group_id.to_le_bytes().to_vec());
+
+        // Initialize empty member list
+        state.group_members.insert(group.clone(), Vec::new());
+
+        Ok(group)
     }
 
     async fn add_group_member(&self, group: &GroupId, member: &ServiceId) -> SignalResult<()> {
