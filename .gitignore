@@ -72,3 +72,6 @@ plugins/
 
 # Beads export state (updates on every git operation)
 .beads/export-state/
+
+# Gas Town (added by gt)
+.beads/
