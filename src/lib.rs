@@ -13,3 +13,4 @@
 pub mod freenet;
 pub mod identity;
 pub mod signal;
+pub mod stark;

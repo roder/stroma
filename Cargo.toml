@@ -5,6 +5,10 @@ edition = "2021"
 rust-version = "1.93"  # Required for musl 1.2.5 with improved DNS resolver
 license = "Apache-2.0"
 
+[lib]
+name = "stroma"
+path = "src/lib.rs"
+
 [[bin]]
 name = "stroma"
 path = "src/main.rs"
@@ -89,8 +93,10 @@ hkdf = "0.12"
 sha2 = "0.10"
 hex = "0.4"
 
-# ZK-proofs
+# ZK-proofs (STARK implementation)
 winterfell = "0.9"
+winter-math = "0.9"
+winter-crypto = "0.9"
 
 # Binary serialization (CBOR for Freenet, NOT JSON)
 ciborium = "0.2"
@@ -109,6 +115,11 @@ proptest = "1.6"
 [dev-dependencies]
 rand = "0.8"
 tempfile = "3.10"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "stark_vouch"
+harness = false
 
 # Protocol v8 poll support via our fork of libsignal-service-rs
 # Branch based directly on b48b42fbc (commit presage pins to)
