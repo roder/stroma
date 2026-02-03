@@ -48,6 +48,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install Protocol Buffers compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -71,6 +74,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Install Protocol Buffers compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable

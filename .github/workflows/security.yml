@@ -30,6 +30,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install Protocol Buffers compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v2
         with:
@@ -69,7 +72,8 @@ jobs:
         run: |
           echo "Checking for prohibited dependencies..."
           # Check for presage-store-sqlite (prohibited by security-constraints.bead)
-          if grep -q "presage-store-sqlite" Cargo.toml; then
+          # Only check in dependencies sections, not comments
+          if grep -E '^\s*(presage-store-sqlite)\s*=' Cargo.toml; then
             echo "::error::presage-store-sqlite is prohibited - must use custom StromaProtocolStore"
             exit 1
           fi
@@ -99,8 +103,8 @@ jobs:
         with:
           targets: x86_64-unknown-linux-musl
 
-      - name: Install musl-tools
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y musl-tools protobuf-compiler
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -182,8 +186,14 @@ jobs:
       - name: Verify no presage-store-sqlite usage
         run: |
           echo "Checking for prohibited presage-store-sqlite..."
-          if grep -q "presage-store-sqlite\|SqliteStore" Cargo.toml src/**/*.rs; then
+          # Check Cargo.toml for actual dependency (not comments)
+          if grep -E '^\s*(presage-store-sqlite)\s*=' Cargo.toml; then
             echo "::error::presage-store-sqlite is prohibited - must use custom StromaProtocolStore per security-constraints.bead §10"
+            exit 1
+          fi
+          # Check source files for SqliteStore usage
+          if grep -r "SqliteStore" --include="*.rs" src/; then
+            echo "::error::SqliteStore usage is prohibited - must use custom StromaProtocolStore per security-constraints.bead §10"
             exit 1
           fi
           echo "✓ No prohibited store usage detected"
