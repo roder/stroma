@@ -25,6 +25,8 @@ jobs:
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          # rustfmt: Code formatting checker
+          # clippy: Rust linter for catching common mistakes and style issues
           components: rustfmt, clippy
 
       - name: Rust cache
@@ -75,6 +77,7 @@ jobs:
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          # llvm-tools-preview: Required for code coverage analysis (cargo-llvm-cov)
           components: llvm-tools-preview
 
       - name: Rust cache
