@@ -79,7 +79,7 @@ The bot acts as a **"Blind Matchmaker"** - it optimizes the trust mesh using gra
 3. **Metadata isolation**: All vetting in 1-on-1 PMs (no Signal group metadata), bot operator least-privilege (service runner only), vetting conversations ephemeral (never persisted to disk)
 Together: **Even if adversary seizes the bot server, they get: small encrypted file (~100KB protocol state), hashes (not identities), topology (not relationship context), NO vetting conversations, NO message history.**
 
-**For developers & contributors**: Built on embedded [freenet-core](https://github.com/freenet/freenet-core) kernel (in-process, not external service). Contracts use ComposableState trait for mergeable state with CRDT-like semantics (Q1-Q2 validated). Set-based membership (BTreeSet) with on-demand Merkle Tree generation for ZK-proof verification (Q5: 0.09ms @ 1000 members). Internal cluster detection via Bridge Removal algorithm (Tarjan's, Q3 validated) achieving optimal mesh topology. Matchmaking uses DVR optimization (Distinct Validators, non-overlapping voucher sets) with MST fallback. Bot-side STARK proof verification for Phase 0 (Q4 validated). Persistence via Reciprocal Network with registry-based discovery (Q7), PoW Sybil resistance (Q8), challenge-response verification (Q9), rendezvous hashing (Q11), 64KB chunks (Q12), 1% spot checks (Q13), and contract distribution (Q14). External federation via Private Set Intersection with Cardinality (PSI-CA) and Social Anchor Hashing (emergent discovery, Phase 4+). See [ALGORITHMS.md](docs/ALGORITHMS.md) for MST implementation and complexity, [freenet-contract-design.mdc](.cursor/rules/freenet-contract-design.mdc) for patterns, [SPIKE-WEEK-BRIEFING.md](docs/spike/SPIKE-WEEK-BRIEFING.md) and [SPIKE-WEEK-2-BRIEFING.md](docs/spike/SPIKE-WEEK-2-BRIEFING.md) for validation results.
+**For developers & contributors**: Built on embedded [freenet-core](https://github.com/freenet/freenet-core) kernel (in-process, not external service). Contracts use ComposableState trait for mergeable state with CRDT-like semantics (Q1-Q2 validated). Set-based membership (BTreeSet) with on-demand Merkle Tree generation for ZK-proof verification (Q5: 0.09ms @ 1000 members). Internal cluster detection via Bridge Removal algorithm (Tarjan's, Q3 validated) achieving optimal mesh topology. Matchmaking uses DVR optimization (Distinct Validators, non-overlapping voucher sets) with MST fallback. Bot-side STARK proof verification for Phase 0 (Q4 validated). Persistence via Reciprocal Network with registry-based discovery (Q7), PoW Sybil resistance (Q8), challenge-response verification (Q9), rendezvous hashing (Q11), 64KB chunks (Q12), 1% spot checks (Q13), and contract distribution (Q14). External federation via Private Set Intersection with Cardinality (PSI-CA) and Social Anchor Hashing (emergent discovery, Phase 4+). See [ALGORITHMS.md](docs/ALGORITHMS.md) for MST implementation and complexity, [freenet-contract-design.mdc](.cursor/rules/freenet-contract-design.mdc) for patterns.
 
 ## Why "Stroma"?
 
@@ -103,7 +103,6 @@ Stroma serves three audiences. Choose your path:
 **You want to run a Stroma bot for your community.**
 
 - **[Operator Guide](docs/OPERATOR-GUIDE.md)** - Installation, configuration, maintenance
-- **[Spike Week Briefing](docs/spike/SPIKE-WEEK-BRIEFING.md)** - Technology validation checklist
 - **Prerequisites**: Linux server, Signal account, Rust 1.93+, freenet-core
 
 ### 💻 For Developers (Contributors)
@@ -157,7 +156,6 @@ Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/propose`, 
 
 → **[Developer Guide](docs/DEVELOPER-GUIDE.md)** - Architecture, contract design, tech stack
 → **[Persistence](docs/PERSISTENCE.md)** - State durability & recovery
-→ **[Spike Week 2](docs/spike/)** - Validated persistence architecture (Q7-Q14)
 
 ---
 
@@ -315,65 +313,6 @@ cargo build --release --target x86_64-unknown-linux-musl
 ```
 
 → **[Developer Guide](docs/DEVELOPER-GUIDE.md)** - Architecture, testing, contributing  
-→ **[Spike Week](docs/spike/SPIKE-WEEK-BRIEFING.md)** - Technology validation checklist
-
-## Implementation Roadmap
-
-### ✅ Completed: Protocol v8 Poll Support
-**Agent-Signal implemented protocol v8 poll support in forked libsignal-service-rs**
-
-**Status**: Complete (feature/protocol-v8-polls-fixed)
-- ✅ Added protocol v8 messages (PollCreate, PollVote, PollTerminate, etc.)
-- ✅ Unit tests pass (21 tests: 16 existing + 5 new)
-- ✅ Integrated into Stroma via Cargo.toml patch
-
-### ✅ Completed: Spike Week 1 (Technology Validation)
-**All 6 critical architecture questions answered — GO decision**
-
-**Validations Complete:**
-- ✅ **Q1**: Freenet merge conflicts — Commutative deltas with set-based state + ejected set (GO)
-- ✅ **Q2**: Contract validation — `update_state()` + `validate_state()` enforce invariants (GO)
-- ✅ **Q3**: Cluster detection — Bridge Removal (Tarjan's) distinguishes tight clusters (GO)
-- ✅ **Q4**: STARK verification — Bot-side for Phase 0, Wasm experimental (PARTIAL)
-- ✅ **Q5**: Merkle Tree performance — 0.09ms @ 1000 members (GO)
-- ✅ **Q6**: Proof storage — Store outcomes only, not proofs (DECIDED)
-
-**Decision**: ✅ **PROCEED TO PHASE 0**
-
-→ **[Spike Week Briefing](docs/spike/SPIKE-WEEK-BRIEFING.md)** - Complete analysis with all findings
-
-### ✅ Completed: Spike Week 2 (Persistence Validation)
-**All 8 persistence architecture questions answered — GO decision**
-
-**Validations Complete:**
-- ✅ **Q7**: Registry-based bot discovery — <1ms latency, exact network size (GO) → [Results](docs/spike/q7/RESULTS.md)
-- ✅ **Q8**: PoW + Reputation + Capacity verification — >90% fake bot detection (GO) → [Results](docs/spike/q8/RESULTS.md)
-- ✅ **Q9**: Challenge-response chunk verification — SHA-256 nonce protocol, 128 bytes overhead (GO) → [Results](docs/spike/q9/RESULTS.md)
-- ✅ **Q11**: Rendezvous hashing — Deterministic holder assignment (GO)
-- ✅ **Q12**: 64KB chunk size — Optimal balance: 32% distribution, 0.2% overhead (GO) → [Results](docs/spike/q12/RESULTS.md)
-- ✅ **Q13**: 1% spot check fairness — <1% false positive, 100% free-rider detection (GO) → [Results](docs/spike/q13/RESULTS.md)
-- ✅ **Q14**: Contract-based chunk distribution — Phase 0 simple, hybrid P2P in Phase 1+ (GO) → [Results](docs/spike/q14/RESULTS.md)
-
-**Decision**: ✅ **PROCEED TO PERSISTENCE IMPLEMENTATION**
-
-**Key Findings:**
-- Registry contract provides single source of truth for bot discovery
-- Multi-layered defense (PoW + reputation + capacity) raises Sybil attack cost significantly
-- 64KB chunks balance security (32% distribution) with efficiency (0.2% overhead)
-- Challenge-response verification proves chunk possession without content leakage
-- Contract-based distribution meets Phase 0 latency requirements (<10s)
-
-→ **[Spike Week 2 Briefing](docs/spike/SPIKE-WEEK-2-BRIEFING.md)** - Persistence network validation plan
-
-### Development Phases
-- **Phase -1** (Weeks 1-2): Protocol v8 Polls (Agent-Signal priority task)
-- **Phase 0** (Weeks 1-2): Spike Week + Foundation (Kernel, Freenet, Signal, Crypto, Contract)
-- **Phase 1** (Weeks 3-4): Bootstrap & Core Trust (Vetting, admission, ejection)
-- **Phase 2** (Weeks 5-6): Proposals & Mesh (Voting system, graph analysis)
-- **Phase 3** (Week 7): Federation Prep (Validate design, don't broadcast)
-- **Phase 4+** (Future): Federation (Emergent discovery, cross-mesh vouching)
-
-→ **[Complete TODO Checklist](docs/todo/TODO.md)** - 390+ implementation tasks
 
 ## Design Philosophy
 
