@@ -17,9 +17,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.93
         with:
-          toolchain: 1.93
           targets: x86_64-unknown-linux-musl
 
       - name: Install musl tools

@@ -61,6 +61,30 @@ This guide explains Stroma's architecture, technical stack, and development work
 - **Networking**: More reliable for Signal and freenet-core
 - **DNS handling**: Better with large records and recursive name servers
 
+### Rust Toolchain Components
+
+**Required components for development and CI:**
+
+- **rustfmt**: Code formatting (enforced in CI)
+- **clippy**: Linting with zero-warning policy
+- **llvm-tools-preview**: Code coverage instrumentation
+
+**Required targets:**
+
+- **x86_64-unknown-linux-musl**: Static binary builds (release workflow)
+
+**Installation:**
+
+```bash
+# Install components
+rustup component add rustfmt clippy llvm-tools-preview
+
+# Install musl target
+rustup target add x86_64-unknown-linux-musl
+```
+
+**Note**: All CI workflows use `dtolnay/rust-toolchain` action for consistent toolchain setup across jobs.
+
 ### Why STARKs (not PLONK)
 
 | Feature | STARKs | PLONK |
