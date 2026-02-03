@@ -1,0 +1,51 @@
+# Git and version control
+.git/
+.github/
+.gitignore
+.gitattributes
+
+# Build artifacts and caches
+target/
+*.log
+*.tmp
+
+# Documentation and non-essential files
+README.md
+AGENTS.md
+docs/
+*.md
+
+# IDE and editor files
+.vscode/
+.idea/
+.cursor/
+*.swp
+*.swo
+*~
+
+# Beads project management
+.beads/
+
+# Cargo lock (copied explicitly if needed)
+Cargo.lock
+
+# CI/CD files
+.github/
+deny.toml
+
+# Development utilities
+utils/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Docker files themselves
+Dockerfile*
+.dockerignore
