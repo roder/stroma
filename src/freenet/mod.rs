@@ -10,8 +10,12 @@ pub mod contract;
 pub mod embedded_kernel;
 pub mod state_stream;
 pub mod traits;
+pub mod trust_contract;
 
 pub use contract::TrustContract;
 pub use embedded_kernel::EmbeddedKernel;
 pub use state_stream::StateStream;
 pub use traits::FreenetClient;
+pub use trust_contract::{
+    ConfigUpdate, ContractHash, GroupConfig, StateDelta, TrustNetworkState,
+};

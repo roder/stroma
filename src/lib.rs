@@ -14,5 +14,6 @@ pub mod crypto;
 pub mod freenet;
 pub mod identity;
 pub mod persistence;
+pub mod serialization;
 pub mod signal;
 pub mod stark;
