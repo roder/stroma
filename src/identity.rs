@@ -60,10 +60,7 @@ impl MaskedIdentity {
 /// - Derives key material for HMAC-SHA256
 /// - Key is returned on stack (caller must zeroize if needed)
 fn derive_identity_masking_key(aci_private_key: &[u8]) -> [u8; 32] {
-    let hk = Hkdf::<Sha256>::new(
-        Some(b"stroma-identity-masking-v1"),
-        aci_private_key,
-    );
+    let hk = Hkdf::<Sha256>::new(Some(b"stroma-identity-masking-v1"), aci_private_key);
     let mut key = [0u8; 32];
     hk.expand(b"hmac-sha256-key", &mut key)
         .expect("HKDF expand should never fail with valid length");
@@ -181,7 +178,10 @@ mod tests {
         let hash1 = mask_identity(signal_id1, aci_key);
         let hash2 = mask_identity(signal_id2, aci_key);
 
-        assert_ne!(hash1, hash2, "Different Signal IDs must produce different hashes");
+        assert_ne!(
+            hash1, hash2,
+            "Different Signal IDs must produce different hashes"
+        );
     }
 
     /// Test: Different ACI keys produce different hashes (key isolation)
@@ -229,7 +229,10 @@ mod tests {
 
         // Verify we can round-trip through bytes
         let masked2 = MaskedIdentity::from_bytes(bytes);
-        assert_eq!(masked, masked2, "MaskedIdentity should round-trip through bytes");
+        assert_eq!(
+            masked, masked2,
+            "MaskedIdentity should round-trip through bytes"
+        );
 
         // Verify byte length
         assert_eq!(bytes.len(), 32, "MaskedIdentity should be 32 bytes");

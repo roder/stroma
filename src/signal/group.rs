@@ -32,19 +32,25 @@ impl<C: SignalClient> GroupManager<C> {
     ///
     /// Called immediately when ejection triggers met (no grace period).
     pub async fn remove_member(&self, member: &ServiceId) -> SignalResult<()> {
-        self.client.remove_group_member(&self.group_id, member).await
+        self.client
+            .remove_group_member(&self.group_id, member)
+            .await
     }
 
     /// Announce member admission (hashes only, no names)
     pub async fn announce_admission(&self, member_hash: &str) -> SignalResult<()> {
         let message = format!("New member admitted: {}", member_hash);
-        self.client.send_group_message(&self.group_id, &message).await
+        self.client
+            .send_group_message(&self.group_id, &message)
+            .await
     }
 
     /// Announce member ejection (hashes only, no reasons)
     pub async fn announce_ejection(&self, member_hash: &str) -> SignalResult<()> {
         let message = format!("Member ejected: {}", member_hash);
-        self.client.send_group_message(&self.group_id, &message).await
+        self.client
+            .send_group_message(&self.group_id, &message)
+            .await
     }
 }
 

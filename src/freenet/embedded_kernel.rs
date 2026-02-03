@@ -208,14 +208,8 @@ mod tests {
         let kernel = EmbeddedKernel::new_in_memory().await.unwrap();
 
         // Deploy two contracts
-        let hash1 = kernel
-            .deploy_contract(b"code1", b"state1")
-            .await
-            .unwrap();
-        let hash2 = kernel
-            .deploy_contract(b"code2", b"state2")
-            .await
-            .unwrap();
+        let hash1 = kernel.deploy_contract(b"code1", b"state1").await.unwrap();
+        let hash2 = kernel.deploy_contract(b"code2", b"state2").await.unwrap();
 
         // Verify they have different hashes
         assert_ne!(hash1, hash2);
@@ -231,10 +225,7 @@ mod tests {
     #[tokio::test]
     async fn test_concurrent_delta_application() {
         let kernel = Arc::new(EmbeddedKernel::new_in_memory().await.unwrap());
-        let contract_hash = kernel
-            .deploy_contract(b"code", b"initial")
-            .await
-            .unwrap();
+        let contract_hash = kernel.deploy_contract(b"code", b"initial").await.unwrap();
 
         // Apply deltas concurrently
         let mut handles = vec![];

@@ -10,7 +10,7 @@
 //!
 //! See: .beads/bootstrap-seed.bead
 
-use super::traits::{SignalClient, SignalError, SignalResult, ServiceId, GroupId};
+use super::traits::{GroupId, ServiceId, SignalClient, SignalError, SignalResult};
 use crate::freenet::{
     contract::{MemberHash, TrustContract, TrustDelta},
     traits::{ContractHash, FreenetClient},
@@ -29,7 +29,7 @@ pub enum BootstrapState {
     CollectingSeeds {
         group_name: String,
         initiator: MemberHash,
-        seeds: Vec<MemberHash>,  // Includes initiator + additional seeds
+        seeds: Vec<MemberHash>, // Includes initiator + additional seeds
     },
 
     /// Bootstrap complete, normal operation
@@ -199,7 +199,8 @@ impl<C: SignalClient> BootstrapManager<C> {
             self.signal.send_message(from, &message).await?;
 
             // Complete bootstrap
-            self.complete_bootstrap(freenet, group_name, updated_seeds).await?;
+            self.complete_bootstrap(freenet, group_name, updated_seeds)
+                .await?;
         }
 
         // TODO: Notify new seed member
@@ -266,9 +267,7 @@ impl<C: SignalClient> BootstrapManager<C> {
             Type /help for all commands.",
             group_name
         );
-        self.signal
-            .send_group_message(&group_id, &message)
-            .await?;
+        self.signal.send_group_message(&group_id, &message).await?;
 
         // 5. Transition to complete state
         self.state = BootstrapState::Complete {
@@ -316,7 +315,10 @@ mod tests {
         let signal = MockSignalClient::new(ServiceId("bot".to_string()));
         let manager = BootstrapManager::new(signal, test_pepper());
 
-        assert!(matches!(manager.state(), BootstrapState::AwaitingInitiation));
+        assert!(matches!(
+            manager.state(),
+            BootstrapState::AwaitingInitiation
+        ));
         assert!(!manager.is_complete());
     }
 
@@ -335,9 +337,7 @@ mod tests {
         // Check state transition
         match manager.state() {
             BootstrapState::CollectingSeeds {
-                group_name,
-                seeds,
-                ..
+                group_name, seeds, ..
             } => {
                 assert_eq!(group_name, "Test Group");
                 assert_eq!(seeds.len(), 1); // Initiator is first seed
@@ -357,7 +357,9 @@ mod tests {
         let mut manager = BootstrapManager::new(signal, test_pepper());
 
         let initiator = ServiceId("alice".to_string());
-        let result = manager.handle_create_group(&initiator, "   ".to_string()).await;
+        let result = manager
+            .handle_create_group(&initiator, "   ".to_string())
+            .await;
 
         assert!(result.is_err());
     }
@@ -438,7 +440,9 @@ mod tests {
         }
 
         // Add second seed
-        let result = manager.handle_add_seed(&freenet, &initiator, "@charlie").await;
+        let result = manager
+            .handle_add_seed(&freenet, &initiator, "@charlie")
+            .await;
         assert!(result.is_ok());
 
         // Should now be complete
@@ -458,7 +462,10 @@ mod tests {
             .unwrap();
 
         // Add seed
-        manager.handle_add_seed(&freenet, &initiator, "@bob").await.unwrap();
+        manager
+            .handle_add_seed(&freenet, &initiator, "@bob")
+            .await
+            .unwrap();
 
         // Try to add same seed again
         let result = manager.handle_add_seed(&freenet, &initiator, "@bob").await;
@@ -490,7 +497,10 @@ mod tests {
             .await
             .unwrap();
 
-        manager.handle_add_seed(&freenet, &initiator, "@bob").await.unwrap();
+        manager
+            .handle_add_seed(&freenet, &initiator, "@bob")
+            .await
+            .unwrap();
         manager
             .handle_add_seed(&freenet, &initiator, "@charlie")
             .await

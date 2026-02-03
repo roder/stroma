@@ -8,18 +8,18 @@
 //!
 //! See: .beads/signal-integration.bead, .beads/security-constraints.bead § 10
 
-pub mod traits;
-pub mod store;
-pub mod mock;
-pub mod linking;
+pub mod bootstrap;
+pub mod bot;
 pub mod group;
+pub mod linking;
+pub mod mock;
 pub mod pm;
 pub mod polls;
-pub mod bot;
-pub mod bootstrap;
+pub mod store;
+pub mod traits;
 
-pub use traits::{SignalClient, SignalError, SignalResult};
-pub use store::StromaProtocolStore;
-pub use mock::MockSignalClient;
-pub use bot::{StromaBot, BotConfig};
 pub use bootstrap::{BootstrapManager, BootstrapState};
+pub use bot::{BotConfig, StromaBot};
+pub use mock::MockSignalClient;
+pub use store::StromaProtocolStore;
+pub use traits::{SignalClient, SignalError, SignalResult};

@@ -58,11 +58,7 @@ mod tests {
         writeln!(temp_file, "[signal]").unwrap();
         writeln!(temp_file, "store_path = \"/tmp/store\"").unwrap();
 
-        let result = execute(
-            temp_file.path().to_string_lossy().to_string(),
-            None,
-        )
-        .await;
+        let result = execute(temp_file.path().to_string_lossy().to_string(), None).await;
 
         assert!(result.is_ok());
     }
@@ -83,11 +79,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_run_with_missing_config() {
-        let result = execute(
-            "/nonexistent/config.toml".to_string(),
-            None,
-        )
-        .await;
+        let result = execute("/nonexistent/config.toml".to_string(), None).await;
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));

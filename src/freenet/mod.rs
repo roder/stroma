@@ -19,9 +19,7 @@ pub use contract::TrustContract;
 pub use embedded_kernel::EmbeddedKernel;
 pub use state_stream::StateStream;
 pub use traits::FreenetClient;
-pub use trust_contract::{
-    ConfigUpdate, ContractHash, GroupConfig, StateDelta, TrustNetworkState,
-};
+pub use trust_contract::{ConfigUpdate, ContractHash, GroupConfig, StateDelta, TrustNetworkState};
 
 #[cfg(test)]
 pub use mock::MockFreenetClient;

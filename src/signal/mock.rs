@@ -215,7 +215,10 @@ mod tests {
         client.add_group_member(&group, &member).await.unwrap();
 
         // Send group message
-        client.send_group_message(&group, "Hello group").await.unwrap();
+        client
+            .send_group_message(&group, "Hello group")
+            .await
+            .unwrap();
 
         let sent = client.sent_messages();
         assert_eq!(sent.len(), 1);

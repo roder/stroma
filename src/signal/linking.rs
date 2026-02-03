@@ -46,7 +46,9 @@ pub async fn link_secondary_device(_config: LinkingConfig) -> SignalResult<()> {
     // 4. Wait for linking confirmation
     // 5. Save identity to store
 
-    Err(SignalError::NotImplemented("link_secondary_device".to_string()))
+    Err(SignalError::NotImplemented(
+        "link_secondary_device".to_string(),
+    ))
 }
 
 #[cfg(test)]
@@ -55,14 +57,13 @@ mod tests {
 
     #[test]
     fn test_linking_config() {
-        let config = LinkingConfig::new(
-            "Stroma Bot",
-            "/tmp/store.bin",
-            "secure-passphrase",
-        );
+        let config = LinkingConfig::new("Stroma Bot", "/tmp/store.bin", "secure-passphrase");
 
         assert_eq!(config.device_name, "Stroma Bot");
-        assert_eq!(config.store_path, std::path::PathBuf::from("/tmp/store.bin"));
+        assert_eq!(
+            config.store_path,
+            std::path::PathBuf::from("/tmp/store.bin")
+        );
         assert_eq!(config.passphrase, "secure-passphrase");
     }
 

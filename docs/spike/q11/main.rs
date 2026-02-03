@@ -79,7 +79,11 @@ impl RendezvousHasher {
         scores.sort_by(|a, b| b.1.cmp(&a.1));
 
         // Take top N
-        scores.into_iter().take(replicas).map(|(bot, _)| bot).collect()
+        scores
+            .into_iter()
+            .take(replicas)
+            .map(|(bot, _)| bot)
+            .collect()
     }
 
     /// Compute rendezvous score for a candidate holder
@@ -124,7 +128,10 @@ fn test_assignment_determinism() {
     assert_eq!(holders1, holders2, "Same inputs must produce same outputs");
 
     println!("✅ Assignment is deterministic");
-    println!("   Chunk 0 holders: {:?}", holders1.iter().map(|b| b.0[0]).collect::<Vec<_>>());
+    println!(
+        "   Chunk 0 holders: {:?}",
+        holders1.iter().map(|b| b.0[0]).collect::<Vec<_>>()
+    );
     println!("   Repeated computation produces identical results");
 }
 
@@ -144,7 +151,8 @@ fn test_distribution_uniformity() {
         let owner = BotId::new(owner_id);
 
         for chunk_idx in 0..8 {
-            let holders = RendezvousHasher::compute_chunk_holders(&owner, chunk_idx, &bots, epoch, 2);
+            let holders =
+                RendezvousHasher::compute_chunk_holders(&owner, chunk_idx, &bots, epoch, 2);
 
             for holder in holders {
                 *holder_counts.entry(holder).or_default() += 1;
@@ -154,7 +162,11 @@ fn test_distribution_uniformity() {
 
     // Total chunks distributed: 50 owners × 8 chunks × 2 replicas = 800 chunk assignments
     let total_assignments: usize = holder_counts.values().sum();
-    assert_eq!(total_assignments, 50 * 8 * 2, "Total assignments should be correct");
+    assert_eq!(
+        total_assignments,
+        50 * 8 * 2,
+        "Total assignments should be correct"
+    );
 
     // Calculate distribution statistics
     let counts: Vec<usize> = holder_counts.values().copied().collect();
@@ -162,22 +174,35 @@ fn test_distribution_uniformity() {
     let min_count = *counts.iter().min().unwrap();
     let avg_count = total_assignments as f64 / bots.len() as f64;
     let std_dev = {
-        let variance: f64 = counts.iter().map(|&c| {
-            let diff = c as f64 - avg_count;
-            diff * diff
-        }).sum::<f64>() / counts.len() as f64;
+        let variance: f64 = counts
+            .iter()
+            .map(|&c| {
+                let diff = c as f64 - avg_count;
+                diff * diff
+            })
+            .sum::<f64>()
+            / counts.len() as f64;
         variance.sqrt()
     };
 
     println!("✅ Distribution statistics:");
     println!("   Total assignments: {}", total_assignments);
     println!("   Bots with assignments: {}", holder_counts.len());
-    println!("   Min: {}, Max: {}, Avg: {:.2}, StdDev: {:.2}", min_count, max_count, avg_count, std_dev);
-    println!("   Max/Avg ratio: {:.2}x (should be close to 1.0 for uniform distribution)", max_count as f64 / avg_count);
+    println!(
+        "   Min: {}, Max: {}, Avg: {:.2}, StdDev: {:.2}",
+        min_count, max_count, avg_count, std_dev
+    );
+    println!(
+        "   Max/Avg ratio: {:.2}x (should be close to 1.0 for uniform distribution)",
+        max_count as f64 / avg_count
+    );
 
     // Check uniformity: max should be within 2.5x of average (reasonable for random distribution)
     // Note: Perfect uniformity would be 1.0x, but random hashing naturally has some variance
-    assert!(max_count as f64 <= avg_count * 2.5, "Distribution too skewed (hot holder detected)");
+    assert!(
+        max_count as f64 <= avg_count * 2.5,
+        "Distribution too skewed (hot holder detected)"
+    );
     println!("✅ No hot holders detected (max ≤ 2.5× average)");
 }
 
@@ -191,9 +216,13 @@ fn test_churn_stability() {
 
     // Compute initial holders (epoch 5)
     let epoch = 5;
-    let holders_before = RendezvousHasher::compute_chunk_holders(&owner, chunk_idx, &bots, epoch, 2);
+    let holders_before =
+        RendezvousHasher::compute_chunk_holders(&owner, chunk_idx, &bots, epoch, 2);
 
-    println!("   Initial holders: {:?}", holders_before.iter().map(|b| b.0[0]).collect::<Vec<_>>());
+    println!(
+        "   Initial holders: {:?}",
+        holders_before.iter().map(|b| b.0[0]).collect::<Vec<_>>()
+    );
 
     // Remove one bot that is NOT a holder (simulate bot leaving)
     let bot_to_remove = BotId::new(50); // Arbitrary non-holder
@@ -201,26 +230,46 @@ fn test_churn_stability() {
         bots.retain(|b| *b != bot_to_remove);
 
         // Compute holders after bot leave (SAME epoch - rendezvous hashing with new bot list)
-        let holders_after = RendezvousHasher::compute_chunk_holders(&owner, chunk_idx, &bots, epoch, 2);
+        let holders_after =
+            RendezvousHasher::compute_chunk_holders(&owner, chunk_idx, &bots, epoch, 2);
 
-        println!("   After non-holder leave: {:?}", holders_after.iter().map(|b| b.0[0]).collect::<Vec<_>>());
+        println!(
+            "   After non-holder leave: {:?}",
+            holders_after.iter().map(|b| b.0[0]).collect::<Vec<_>>()
+        );
 
         // Count how many holders remained the same
-        let unchanged: usize = holders_before.iter().filter(|h| holders_after.contains(h)).count();
+        let unchanged: usize = holders_before
+            .iter()
+            .filter(|h| holders_after.contains(h))
+            .count();
 
-        println!("✅ Churn stability (non-holder leave): {}/2 holders unchanged", unchanged);
+        println!(
+            "✅ Churn stability (non-holder leave): {}/2 holders unchanged",
+            unchanged
+        );
 
         // All holders should remain (we removed a non-holder)
-        assert_eq!(unchanged, 2, "All holders should remain when non-holder leaves");
+        assert_eq!(
+            unchanged, 2,
+            "All holders should remain when non-holder leaves"
+        );
     }
 
     // Now remove one of the actual holders
     let holder_to_remove = holders_before[0];
     bots.retain(|b| *b != holder_to_remove);
 
-    let holders_after_holder_removal = RendezvousHasher::compute_chunk_holders(&owner, chunk_idx, &bots, epoch, 2);
+    let holders_after_holder_removal =
+        RendezvousHasher::compute_chunk_holders(&owner, chunk_idx, &bots, epoch, 2);
 
-    println!("   After holder removal: {:?}", holders_after_holder_removal.iter().map(|b| b.0[0]).collect::<Vec<_>>());
+    println!(
+        "   After holder removal: {:?}",
+        holders_after_holder_removal
+            .iter()
+            .map(|b| b.0[0])
+            .collect::<Vec<_>>()
+    );
 
     // Exactly one holder should change (the one we removed)
     let unchanged_after_holder_removal: usize = holders_before
@@ -228,8 +277,14 @@ fn test_churn_stability() {
         .filter(|h| holders_after_holder_removal.contains(h))
         .count();
 
-    println!("✅ After holder removal: {}/2 holders unchanged", unchanged_after_holder_removal);
-    assert_eq!(unchanged_after_holder_removal, 1, "Exactly 1 holder should remain after removing 1 holder");
+    println!(
+        "✅ After holder removal: {}/2 holders unchanged",
+        unchanged_after_holder_removal
+    );
+    assert_eq!(
+        unchanged_after_holder_removal, 1,
+        "Exactly 1 holder should remain after removing 1 holder"
+    );
 
     println!("✅ Churn is graceful (minimal reassignment)");
 }
@@ -239,10 +294,10 @@ fn test_owner_cannot_game() {
     println!("\n=== Test 4: Owner Cannot Game Assignment ===");
 
     let bots = vec![
-        BotId::new(1),  // Potential holder
-        BotId::new(2),  // Potential holder
-        BotId::new(3),  // Potential holder
-        BotId::new(4),  // Adversary
+        BotId::new(1), // Potential holder
+        BotId::new(2), // Potential holder
+        BotId::new(3), // Potential holder
+        BotId::new(4), // Adversary
     ];
 
     let owner = BotId::new(10);
@@ -251,9 +306,11 @@ fn test_owner_cannot_game() {
     // Compute holders for chunk 0
     let holders = RendezvousHasher::compute_chunk_holders(&owner, 0, &bots, epoch, 2);
 
-    println!("   Holders for owner {:?}: {:?}",
-             owner.0[0],
-             holders.iter().map(|b| b.0[0]).collect::<Vec<_>>());
+    println!(
+        "   Holders for owner {:?}: {:?}",
+        owner.0[0],
+        holders.iter().map(|b| b.0[0]).collect::<Vec<_>>()
+    );
 
     // Owner cannot predict or control which bots are selected
     // Assignment is deterministic based on hash, not owner choice
@@ -282,9 +339,18 @@ fn test_chunk_independence() {
     let holders_chunk_1 = RendezvousHasher::compute_chunk_holders(&owner, 1, &bots, epoch, 2);
     let holders_chunk_2 = RendezvousHasher::compute_chunk_holders(&owner, 2, &bots, epoch, 2);
 
-    println!("   Chunk 0: {:?}", holders_chunk_0.iter().map(|b| b.0[0]).collect::<Vec<_>>());
-    println!("   Chunk 1: {:?}", holders_chunk_1.iter().map(|b| b.0[0]).collect::<Vec<_>>());
-    println!("   Chunk 2: {:?}", holders_chunk_2.iter().map(|b| b.0[0]).collect::<Vec<_>>());
+    println!(
+        "   Chunk 0: {:?}",
+        holders_chunk_0.iter().map(|b| b.0[0]).collect::<Vec<_>>()
+    );
+    println!(
+        "   Chunk 1: {:?}",
+        holders_chunk_1.iter().map(|b| b.0[0]).collect::<Vec<_>>()
+    );
+    println!(
+        "   Chunk 2: {:?}",
+        holders_chunk_2.iter().map(|b| b.0[0]).collect::<Vec<_>>()
+    );
 
     // Chunks should have different holders (distribution across network)
     let all_holders: HashSet<BotId> = holders_chunk_0
@@ -294,8 +360,14 @@ fn test_chunk_independence() {
         .copied()
         .collect();
 
-    println!("✅ {} unique holders across 3 chunks (distribution verified)", all_holders.len());
-    assert!(all_holders.len() >= 4, "Chunks should be distributed across multiple bots");
+    println!(
+        "✅ {} unique holders across 3 chunks (distribution verified)",
+        all_holders.len()
+    );
+    assert!(
+        all_holders.len() >= 4,
+        "Chunks should be distributed across multiple bots"
+    );
 }
 
 /// Test 6: Security comparison - deterministic vs random

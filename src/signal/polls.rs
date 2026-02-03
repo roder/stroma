@@ -194,8 +194,8 @@ mod tests {
         manager.active_polls.insert(poll_id, proposal);
 
         let votes = VoteAggregate {
-            approve: 8,      // 80% of voters
-            reject: 2,       // 20% of voters
+            approve: 8, // 80% of voters
+            reject: 2,  // 20% of voters
             total_members: 10,
         };
 
@@ -232,8 +232,8 @@ mod tests {
         manager.active_polls.insert(poll_id, proposal);
 
         let votes = VoteAggregate {
-            approve: 3,        // 30% of voters (below 70% threshold)
-            reject: 7,         // 70% of voters
+            approve: 3, // 30% of voters (below 70% threshold)
+            reject: 7,  // 70% of voters
             total_members: 10,
         };
 
@@ -270,7 +270,7 @@ mod tests {
         manager.active_polls.insert(poll_id, proposal);
 
         let votes = VoteAggregate {
-            approve: 4,        // Only 50% participation
+            approve: 4, // Only 50% participation
             reject: 1,
             total_members: 10,
         };

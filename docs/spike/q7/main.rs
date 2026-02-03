@@ -33,9 +33,9 @@ type Timestamp = u64;
 /// Size bucket for state storage requirements
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SizeBucket {
-    Small,   // < 100 KB
-    Medium,  // 100 KB - 1 MB
-    Large,   // > 1 MB
+    Small,  // < 100 KB
+    Medium, // 100 KB - 1 MB
+    Large,  // > 1 MB
 }
 
 /// Entry in the persistence registry
@@ -114,7 +114,9 @@ impl DhtDiscovery {
         let key = Self::hash(DISCOVERY_KEY);
 
         let mut dht = self.dht.lock().unwrap();
-        dht.entry(key).or_insert_with(HashSet::new).insert(bot_pubkey);
+        dht.entry(key)
+            .or_insert_with(HashSet::new)
+            .insert(bot_pubkey);
 
         Ok(())
     }
@@ -248,17 +250,27 @@ async fn test_registry_unregistration() {
 
     // Register
     bot.register_registry(&registry).await.unwrap();
-    assert!(registry.is_registered(&bot.pubkey()), "Bot should be registered");
+    assert!(
+        registry.is_registered(&bot.pubkey()),
+        "Bot should be registered"
+    );
     println!("✅ Bot registered successfully");
 
     // Clean shutdown - unregister
     registry.unregister(&bot.pubkey()).unwrap();
-    assert!(!registry.is_registered(&bot.pubkey()), "Bot should be unregistered");
+    assert!(
+        !registry.is_registered(&bot.pubkey()),
+        "Bot should be unregistered"
+    );
     println!("✅ Bot unregistered successfully");
 
     // Verify not in discovery
     let peers = registry.discover_bots();
-    assert_eq!(peers.len(), 0, "Registry should be empty after unregistration");
+    assert_eq!(
+        peers.len(),
+        0,
+        "Registry should be empty after unregistration"
+    );
     println!("✅ Registry correctly empty after unregistration");
 }
 
@@ -276,7 +288,10 @@ async fn test_registry_network_size() {
 
     let size = registry.network_size();
     assert_eq!(size, 10, "Should have exactly 10 bots");
-    assert!(size >= 3, "Network size meets replication requirement (N >= 3)");
+    assert!(
+        size >= 3,
+        "Network size meets replication requirement (N >= 3)"
+    );
 
     println!("✅ Network size: {} bots", size);
     println!("✅ Replication requirement satisfied (N >= 3)");
@@ -387,7 +402,10 @@ async fn test_discovery_latency() {
     let latency = start.elapsed();
 
     println!("✅ Discovery latency: {:?} (100 bots)", latency);
-    assert!(latency < Duration::from_secs(5), "Discovery should be < 5 seconds");
+    assert!(
+        latency < Duration::from_secs(5),
+        "Discovery should be < 5 seconds"
+    );
     println!("✅ Latency requirement satisfied (< 5s)");
 }
 

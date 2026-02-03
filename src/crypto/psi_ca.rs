@@ -25,7 +25,7 @@
 //! See: docs/ALGORITHMS.md § "External Federation: Private Set Intersection Algorithm"
 
 use ring::rand::{SecureRandom, SystemRandom};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use thiserror::Error;
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -145,10 +145,7 @@ impl PsiProtocol {
     /// protocol instance is dropped.
     ///
     /// See: docs/ALGORITHMS.md lines 456-472 for security rationale
-    pub fn new(
-        members: Vec<String>,
-        threshold: FederationThreshold,
-    ) -> Result<Self, PsiError> {
+    pub fn new(members: Vec<String>, threshold: FederationThreshold) -> Result<Self, PsiError> {
         let key = EphemeralKey::generate()?;
 
         Ok(Self {
@@ -272,7 +269,9 @@ impl PsiProtocol {
     /// For commutative property, we use the SAME operation as encrypt.
     fn reencrypt(&self, key: &EphemeralKey, ciphertext: &[u8]) -> Result<Vec<u8>, PsiError> {
         if ciphertext.len() != 32 {
-            return Err(PsiError::Encryption("Invalid ciphertext length".to_string()));
+            return Err(PsiError::Encryption(
+                "Invalid ciphertext length".to_string(),
+            ));
         }
 
         // Use same encryption operation as encrypt() for commutativity
@@ -336,11 +335,11 @@ mod tests {
 
     fn mock_signal_ids_group_b() -> Vec<String> {
         vec![
-            "carol.03".to_string(),  // Overlap
-            "david.04".to_string(),  // Overlap
-            "eve.05".to_string(),    // Overlap
-            "frank.06".to_string(),  // Overlap
-            "grace.07".to_string(),  // Overlap
+            "carol.03".to_string(), // Overlap
+            "david.04".to_string(), // Overlap
+            "eve.05".to_string(),   // Overlap
+            "frank.06".to_string(), // Overlap
+            "grace.07".to_string(), // Overlap
             "kate.11".to_string(),
             "leo.12".to_string(),
             "mia.13".to_string(),
@@ -415,16 +414,12 @@ mod tests {
 
         // Phase 3: Both groups calculate overlap
         // A compares their own double-blind members with B's double-blind members
-        let overlap_calculated_by_a = PsiProtocol::phase3_calculate_overlap(
-            &a_double_blind,
-            &b_double_blind,
-        );
+        let overlap_calculated_by_a =
+            PsiProtocol::phase3_calculate_overlap(&a_double_blind, &b_double_blind);
 
         // B compares their own double-blind members with A's double-blind members
-        let overlap_calculated_by_b = PsiProtocol::phase3_calculate_overlap(
-            &b_double_blind,
-            &a_double_blind,
-        );
+        let overlap_calculated_by_b =
+            PsiProtocol::phase3_calculate_overlap(&b_double_blind, &a_double_blind);
 
         // Both should get the same overlap count
         assert_eq!(overlap_calculated_by_a, overlap_calculated_by_b);
@@ -484,10 +479,7 @@ mod tests {
             .phase2_double_blind(psi_a.public_key(), &a_encrypted, &b_encrypted)
             .unwrap();
 
-        let overlap = PsiProtocol::phase3_calculate_overlap(
-            &a_double_blind,
-            &b_double_blind,
-        );
+        let overlap = PsiProtocol::phase3_calculate_overlap(&a_double_blind, &b_double_blind);
 
         // Should be zero overlap
         assert_eq!(overlap, 0);
@@ -521,10 +513,7 @@ mod tests {
             .phase2_double_blind(psi_a.public_key(), &a_encrypted, &b_encrypted)
             .unwrap();
 
-        let overlap = PsiProtocol::phase3_calculate_overlap(
-            &a_double_blind,
-            &b_double_blind,
-        );
+        let overlap = PsiProtocol::phase3_calculate_overlap(&a_double_blind, &b_double_blind);
 
         // Should be complete overlap
         assert_eq!(overlap, 3);

@@ -2,9 +2,9 @@
 // These tests verify that the CLI parsing and command execution work correctly
 // without requiring the full Signal/Freenet stack to be operational.
 
+use std::io::Write;
 use std::process::Command;
 use tempfile::{NamedTempFile, TempDir};
-use std::io::Write;
 
 fn get_binary_path() -> String {
     // The binary path will be in target/debug/ or target/release/
@@ -230,7 +230,11 @@ fn test_subcommand_help() {
 
         assert!(output.status.success(), "Command {} --help failed", cmd);
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(!stdout.is_empty(), "Command {} --help produced no output", cmd);
+        assert!(
+            !stdout.is_empty(),
+            "Command {} --help produced no output",
+            cmd
+        );
     }
 }
 

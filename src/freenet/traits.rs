@@ -105,8 +105,11 @@ pub trait FreenetClient: Send + Sync {
     ) -> FreenetResult<Box<dyn futures::Stream<Item = StateChange> + Send + Unpin>>;
 
     /// Deploy a new contract.
-    async fn deploy_contract(&self, code: &[u8], initial_state: &[u8])
-        -> FreenetResult<ContractHash>;
+    async fn deploy_contract(
+        &self,
+        code: &[u8],
+        initial_state: &[u8],
+    ) -> FreenetResult<ContractHash>;
 }
 
 #[cfg(test)]

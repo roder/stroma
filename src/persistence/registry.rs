@@ -447,11 +447,7 @@ mod tests {
             !registry.register(bot),
             "Tombstone should prevent re-registration"
         );
-        assert_eq!(
-            registry.network_size(),
-            0,
-            "Bot should remain unregistered"
-        );
+        assert_eq!(registry.network_size(), 0, "Bot should remain unregistered");
     }
 
     #[test]

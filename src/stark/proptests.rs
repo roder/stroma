@@ -5,7 +5,11 @@
 //! - Soundness: Invalid claims cannot produce verifying proofs
 //! - Determinism: Same input produces same proof
 
-use super::{prove_vouch_claim, verify_vouch_proof, types::{MemberHash, VouchClaim}};
+use super::{
+    prove_vouch_claim,
+    types::{MemberHash, VouchClaim},
+    verify_vouch_proof,
+};
 use proptest::prelude::*;
 use std::collections::BTreeSet;
 

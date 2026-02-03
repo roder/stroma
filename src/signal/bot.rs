@@ -47,10 +47,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     pub fn new(client: C, freenet: F, config: BotConfig) -> Self {
         let group_manager = GroupManager::new(client.clone(), config.group_id.clone());
         let poll_manager = PollManager::new(client.clone(), config.group_id.clone());
-        let bootstrap_manager = BootstrapManager::new(
-            client.clone(),
-            config.pepper.clone(),
-        );
+        let bootstrap_manager = BootstrapManager::new(client.clone(), config.pepper.clone());
 
         Self {
             client,
