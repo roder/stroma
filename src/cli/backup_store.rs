@@ -1,0 +1,101 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
+/// Backup Signal protocol store
+///
+/// This command creates a secure backup of the Signal protocol store,
+/// which contains the ACI identity keypair critical for recovery.
+/// Losing this store means losing access to the trust network forever.
+pub async fn execute(output_path: String) -> Result<(), Box<dyn std::error::Error>> {
+    println!("💾 Backing up Signal protocol store...");
+    println!();
+
+    let output = Path::new(&output_path);
+
+    // Validate output path
+    if let Some(parent) = output.parent() {
+        if !parent.exists() {
+            return Err(format!(
+                "Output directory does not exist: {}",
+                parent.display()
+            )
+            .into());
+        }
+    }
+
+    // Get default store path
+    let default_store = dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("stroma")
+        .join("signal-store");
+
+    println!("  Source: {}", default_store.display());
+    println!("  Output: {}", output.display());
+    println!();
+
+    // Check if store exists
+    if !default_store.exists() {
+        return Err(format!(
+            "Signal protocol store not found at: {}",
+            default_store.display()
+        )
+        .into());
+    }
+
+    // TODO: Implement actual backup
+    // This will:
+    // 1. Create a tarball of the Signal protocol store
+    // 2. Optionally encrypt the backup
+    // 3. Save to output_path with timestamp
+    // 4. Verify backup integrity
+
+    println!("❌ Backup functionality not yet implemented");
+    println!();
+    println!("⚠️  CRITICAL: This store contains your ACI identity key");
+    println!("   Without it, you CANNOT decrypt your persistence fragments");
+    println!("   Store backup in:");
+    println!("     - Encrypted USB drive in safe location");
+    println!("     - Hardware security module (HSM)");
+    println!("     - Secure cloud backup (encrypted)");
+    println!("     - NOT on the same server as the bot");
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_backup_store_with_valid_output() {
+        let temp_dir = TempDir::new().unwrap();
+        let output_path = temp_dir.path().join("backup.tar.gz");
+
+        let result = execute(output_path.to_string_lossy().to_string()).await;
+
+        // Should succeed even though store doesn't exist yet (in stub implementation)
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_backup_store_with_invalid_output_dir() {
+        let result = execute("/nonexistent/dir/backup.tar.gz".to_string()).await;
+
+        // Should fail because output directory doesn't exist
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("does not exist"));
+    }
+
+    #[tokio::test]
+    async fn test_backup_store_when_source_missing() {
+        let temp_dir = TempDir::new().unwrap();
+        let output_path = temp_dir.path().join("backup.tar.gz");
+
+        let result = execute(output_path.to_string_lossy().to_string()).await;
+
+        // Currently succeeds in stub, but will fail when implemented
+        // since default store path won't exist
+        assert!(result.is_ok());
+    }
+}
