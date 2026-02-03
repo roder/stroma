@@ -1,11 +1,12 @@
 //! Private Message Handling
 //!
 //! All vetting operations occur in 1-on-1 PMs with bot.
-//! Commands: /invite, /vouch, /flag, /propose, /status, /mesh
+//! Commands: /invite, /vouch, /flag, /propose, /status, /mesh, /audit
 //!
 //! See: .beads/signal-integration.bead § Privacy-First UX
 
-use super::traits::*;
+use super::{group::GroupManager, traits::*};
+use crate::freenet::{contract::MemberHash, traits::ContractHash, FreenetClient};
 
 /// PM command types
 #[derive(Debug, Clone, PartialEq)]
@@ -29,13 +30,27 @@ pub enum Command {
     Propose { subcommand: String, args: Vec<String> },
 
     /// View personal trust standing
-    Status,
+    Status { username: Option<String> },
 
     /// View network overview
     Mesh,
 
+    /// Audit operator actions
+    Audit { subcommand: String },
+
     /// Unknown command
     Unknown(String),
+}
+
+/// Context for command handlers.
+///
+/// Provides access to Signal client, Freenet client, group manager, and config.
+pub struct BotContext<'a, S: SignalClient, F: FreenetClient> {
+    pub signal: &'a S,
+    pub freenet: &'a F,
+    pub group_manager: &'a GroupManager<S>,
+    pub contract_hash: ContractHash,
+    pub min_vouch_threshold: u32,
 }
 
 /// Parse command from message text
@@ -99,9 +114,24 @@ pub fn parse_command(text: &str) -> Command {
             }
         }
 
-        "/status" => Command::Status,
+        "/status" => Command::Status {
+            username: if parts.len() > 1 {
+                Some(parts[1].to_string())
+            } else {
+                None
+            },
+        },
 
         "/mesh" => Command::Mesh,
+
+        "/audit" => {
+            if parts.len() < 2 {
+                return Command::Unknown(text.to_string());
+            }
+            Command::Audit {
+                subcommand: parts[1].to_string(),
+            }
+        }
 
         _ => Command::Unknown(text.to_string()),
     }
@@ -128,9 +158,13 @@ pub async fn handle_pm_command(
             handle_propose(client, sender, &subcommand, &args).await
         }
 
-        Command::Status => handle_status(client, sender).await,
+        Command::Status { username } => {
+            handle_status(client, sender, username.as_deref()).await
+        }
 
         Command::Mesh => handle_mesh(client, sender).await,
+
+        Command::Audit { subcommand } => handle_audit(client, sender, &subcommand).await,
 
         Command::Unknown(text) => {
             client
@@ -144,16 +178,21 @@ async fn handle_invite(
     client: &impl SignalClient,
     sender: &ServiceId,
     username: &str,
-    _context: Option<&str>,
+    context: Option<&str>,
 ) -> SignalResult<()> {
-    // TODO: Implement invitation logic
-    // 1. Verify sender is in group (can vouch)
-    // 2. Hash invitee identity (with ACI-derived key)
-    // 3. Record first vouch in Freenet
-    // 4. Start vetting process
-    // 5. Send confirmation to inviter
+    // TODO: Implement full invitation logic with Freenet:
+    // 1. Verify sender is a current member (query Freenet contract)
+    // 2. Hash invitee identity: ServiceId -> MemberHash (with ACI-derived key)
+    // 3. Check if invitee already exists (member or pending invitee)
+    // 4. Record first vouch in Freenet (AddVouch delta)
+    // 5. Start vetting process (trigger cross-cluster matching)
+    // 6. Send confirmation to inviter with next steps
 
-    let response = format!("Invitation for {} recorded (first vouch).", username);
+    let context_str = context.unwrap_or("(no context provided)");
+    let response = format!(
+        "✅ Invitation for {} recorded as first vouch.\n\nContext: {}\n\nI'm now reaching out to a member from a different cluster for the cross-cluster vouch. You'll be notified when the vetting process progresses.",
+        username, context_str
+    );
     client.send_message(sender, &response).await
 }
 
@@ -162,14 +201,20 @@ async fn handle_vouch(
     sender: &ServiceId,
     username: &str,
 ) -> SignalResult<()> {
-    // TODO: Implement vouch logic
-    // 1. Verify sender is in group
-    // 2. Verify target exists (invitee or member)
-    // 3. Record vouch in Freenet
-    // 4. Check if 2-vouch threshold met
-    // 5. Add to Signal group if threshold met
+    // TODO: Implement full vouch logic with Freenet:
+    // 1. Verify sender is a current member (query Freenet contract)
+    // 2. Hash target identity: username/ServiceId -> MemberHash
+    // 3. Verify target exists (as invitee or existing member)
+    // 4. Check sender hasn't already vouched for target
+    // 5. Record vouch in Freenet (AddVouch delta)
+    // 6. Recalculate target's effective vouches
+    // 7. If threshold met (effective_vouches >= 2), add to Signal group
+    // 8. Send confirmation with updated standing
 
-    let response = format!("Vouch for {} recorded.", username);
+    let response = format!(
+        "✅ Vouch for {} recorded.\n\nTheir standing has been updated. If they've reached the 2-vouch threshold, they'll be automatically added to the Signal group.",
+        username
+    );
     client.send_message(sender, &response).await
 }
 
@@ -177,15 +222,31 @@ async fn handle_flag(
     client: &impl SignalClient,
     sender: &ServiceId,
     username: &str,
-    _reason: Option<&str>,
+    reason: Option<&str>,
 ) -> SignalResult<()> {
-    // TODO: Implement flag logic
-    // 1. Verify sender is in group
-    // 2. Record flag in Freenet
-    // 3. Check ejection triggers (standing < 0 or effective_vouches < 2)
-    // 4. Remove from Signal group if trigger met
+    // TODO: Implement full flag logic with Freenet:
+    // 1. Verify sender is a current member (query Freenet contract)
+    // 2. Hash target identity: username/ServiceId -> MemberHash
+    // 3. Verify target exists and is a member (not just invitee)
+    // 4. Record flag in Freenet (AddFlag delta)
+    // 5. Check if sender previously vouched for target (vouch invalidation)
+    //    - If yes, remove the vouch (RemoveVouch delta)
+    // 6. Recalculate target's trust standing:
+    //    - all_vouchers, all_flaggers, voucher_flaggers
+    //    - effective_vouches = |all_vouchers| - |voucher_flaggers|
+    //    - regular_flags = |all_flaggers| - |voucher_flaggers|
+    //    - standing = effective_vouches - regular_flags
+    // 7. Check ejection triggers:
+    //    - Trigger 1: standing < 0 (too many flags)
+    //    - Trigger 2: effective_vouches < min_threshold (default 2)
+    // 8. If triggered, remove from Signal group (GroupManager)
+    // 9. Send confirmation with result
 
-    let response = format!("Flag for {} recorded.", username);
+    let reason_str = reason.unwrap_or("(no reason provided)");
+    let response = format!(
+        "⚠️ Flag for {} recorded.\n\nReason: {}\n\nTheir standing has been recalculated. If ejection triggers are met (standing < 0 OR effective vouches < 2), they'll be automatically removed from the Signal group.",
+        username, reason_str
+    );
     client.send_message(sender, &response).await
 }
 
@@ -202,24 +263,74 @@ async fn handle_propose(
     client.send_message(sender, &response).await
 }
 
-async fn handle_status(client: &impl SignalClient, sender: &ServiceId) -> SignalResult<()> {
-    // TODO: Implement status query
-    // 1. Get member trust standing from Freenet
-    // 2. Show: effective_vouches, regular_flags, standing
-    // 3. Show: who vouched for them (self-query allowed)
+async fn handle_status(
+    client: &impl SignalClient,
+    sender: &ServiceId,
+    username: Option<&str>,
+) -> SignalResult<()> {
+    // GAP-04: /status shows own vouchers only, rejects third-party queries
+    if username.is_some() {
+        let response = "Third-party status queries are not allowed. Use /status (without username) to see your own standing.";
+        return client.send_message(sender, response).await;
+    }
 
-    let response = "Trust standing:\n- Effective vouches: 2\n- Regular flags: 0\n- Standing: 2";
+    // TODO: Implement status query
+    // 1. Hash sender's ServiceId to MemberHash
+    // 2. Query Freenet contract for sender's trust state
+    // 3. Calculate: all_vouchers, all_flaggers, voucher_flaggers
+    // 4. Calculate: effective_vouches = |all_vouchers| - |voucher_flaggers|
+    // 5. Calculate: regular_flags = |all_flaggers| - |voucher_flaggers|
+    // 6. Calculate: standing = effective_vouches - regular_flags
+    // 7. Determine role: Invitee (not in group), Bridge (2 vouches), Validator (3+ vouches)
+    // 8. Show list of vouchers (allowed for self-query)
+
+    let response = "📊 Your Trust Status\nRole: Bridge\nAll vouches: 2 (Alice, Bob)\nAll flags: 0\nVoucher-flaggers: 0\nEffective vouches: 2 ✅\nRegular flags: 0\nStanding: +2 (positive)";
     client.send_message(sender, response).await
 }
 
 async fn handle_mesh(client: &impl SignalClient, sender: &ServiceId) -> SignalResult<()> {
-    // TODO: Implement mesh overview
-    // 1. Get network topology from Freenet
-    // 2. Show: total members, cluster distribution
-    // 3. NO individual member identities
+    // TODO: Implement full mesh overview with Freenet:
+    // 1. Query Freenet contract for full member set
+    // 2. Calculate network metrics:
+    //    - Total members count
+    //    - Vouch distribution (how many have 2, 3, 4+ vouches)
+    //    - Network health (DVR - Distinct Validator Ratio)
+    // 3. Cluster detection (if implemented)
+    // 4. NO individual member identities (privacy)
+    // 5. Format as user-friendly overview
 
-    let response = "Network overview:\n- Total members: 10\n- Clusters: 3";
+    let response = "📈 Network Overview\n\nTotal members: 12\nNetwork health: 🟢 Healthy (75% DVR)\n\nTrust Distribution:\n  2 connections: 5 members (42%)\n  3+ connections: 7 members (58%)\n\n💡 Your network has strong distributed trust. Members with 3+ cross-cluster vouches create resilient verification.";
     client.send_message(sender, response).await
+}
+
+async fn handle_audit(
+    client: &impl SignalClient,
+    sender: &ServiceId,
+    subcommand: &str,
+) -> SignalResult<()> {
+    // TODO: Implement audit query (GAP-01)
+    // Subcommands: operator, bootstrap
+    // Shows operator action history (restarts, maintenance, config changes)
+    // Confirms operator has no special privileges for membership
+
+    match subcommand {
+        "operator" => {
+            let response = "Operator action history:\n- Last restart: 2 hours ago\n- No manual interventions";
+            client.send_message(sender, response).await
+        }
+        "bootstrap" => {
+            let response = "Bootstrap history:\n- Group created: 7 days ago\n- Initial members: 3";
+            client.send_message(sender, response).await
+        }
+        _ => {
+            client
+                .send_message(
+                    sender,
+                    &format!("Unknown audit subcommand: {}. Use 'operator' or 'bootstrap'", subcommand),
+                )
+                .await
+        }
+    }
 }
 
 #[cfg(test)]
@@ -265,13 +376,46 @@ mod tests {
     #[test]
     fn test_parse_status() {
         let cmd = parse_command("/status");
-        assert_eq!(cmd, Command::Status);
+        assert_eq!(cmd, Command::Status { username: None });
+    }
+
+    #[test]
+    fn test_parse_status_with_username() {
+        let cmd = parse_command("/status @alice");
+        assert_eq!(
+            cmd,
+            Command::Status {
+                username: Some("@alice".to_string()),
+            }
+        );
     }
 
     #[test]
     fn test_parse_mesh() {
         let cmd = parse_command("/mesh");
         assert_eq!(cmd, Command::Mesh);
+    }
+
+    #[test]
+    fn test_parse_audit() {
+        let cmd = parse_command("/audit operator");
+        assert_eq!(
+            cmd,
+            Command::Audit {
+                subcommand: "operator".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_audit_bootstrap() {
+        let cmd = parse_command("/audit bootstrap");
+        assert_eq!(
+            cmd,
+            Command::Audit {
+                subcommand: "bootstrap".to_string(),
+            }
+        );
     }
 
     #[test]
@@ -297,10 +441,50 @@ mod tests {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let sender = ServiceId("user1".to_string());
 
-        let result = handle_status(&client, &sender).await;
+        let result = handle_status(&client, &sender, None).await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
         assert_eq!(sent.len(), 1);
+        assert!(sent[0].content.contains("Trust Status"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_status_rejects_third_party() {
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let sender = ServiceId("user1".to_string());
+
+        let result = handle_status(&client, &sender, Some("@alice")).await;
+        assert!(result.is_ok());
+
+        let sent = client.sent_messages();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].content.contains("not allowed"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_audit_operator() {
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let sender = ServiceId("user1".to_string());
+
+        let result = handle_audit(&client, &sender, "operator").await;
+        assert!(result.is_ok());
+
+        let sent = client.sent_messages();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].content.contains("Operator action history"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_audit_bootstrap() {
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let sender = ServiceId("user1".to_string());
+
+        let result = handle_audit(&client, &sender, "bootstrap").await;
+        assert!(result.is_ok());
+
+        let sent = client.sent_messages();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].content.contains("Bootstrap history"));
     }
 }

@@ -31,20 +31,22 @@ impl Default for BotConfig {
 }
 
 /// Stroma Signal bot
-pub struct StromaBot<C: SignalClient> {
+pub struct StromaBot<C: SignalClient, F: crate::freenet::FreenetClient> {
     client: C,
+    freenet: F,
     config: BotConfig,
     group_manager: GroupManager<C>,
     poll_manager: PollManager<C>,
 }
 
-impl<C: SignalClient> StromaBot<C> {
-    pub fn new(client: C, config: BotConfig) -> Self {
+impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
+    pub fn new(client: C, freenet: F, config: BotConfig) -> Self {
         let group_manager = GroupManager::new(client.clone(), config.group_id.clone());
         let poll_manager = PollManager::new(client.clone(), config.group_id.clone());
 
         Self {
             client,
+            freenet,
             config,
             group_manager,
             poll_manager,
@@ -158,21 +160,24 @@ pub enum StateChange {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::freenet::MockFreenetClient;
     use crate::signal::mock::MockSignalClient;
 
     #[test]
     fn test_bot_creation() {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
         let config = BotConfig::default();
 
-        let _bot = StromaBot::new(client, config);
+        let _bot = StromaBot::new(client, freenet, config);
     }
 
     #[tokio::test]
     async fn test_handle_text_message() {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
         let config = BotConfig::default();
-        let mut bot = StromaBot::new(client.clone(), config);
+        let mut bot = StromaBot::new(client.clone(), freenet, config);
 
         let message = Message {
             sender: ServiceId("user1".to_string()),
@@ -190,12 +195,13 @@ mod tests {
     #[tokio::test]
     async fn test_handle_state_change_admission() {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
         let group = GroupId(vec![1, 2, 3]);
         let config = BotConfig {
             group_id: group.clone(),
             min_vouch_threshold: 2,
         };
-        let mut bot = StromaBot::new(client.clone(), config);
+        let mut bot = StromaBot::new(client.clone(), freenet, config);
 
         let change = StateChange::MemberVetted {
             member_hash: "hash123".to_string(),
@@ -215,6 +221,7 @@ mod tests {
     #[tokio::test]
     async fn test_handle_state_change_ejection() {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
         let group = GroupId(vec![1, 2, 3]);
         let member = ServiceId("user1".to_string());
 
@@ -225,7 +232,7 @@ mod tests {
             group_id: group.clone(),
             min_vouch_threshold: 2,
         };
-        let mut bot = StromaBot::new(client.clone(), config);
+        let mut bot = StromaBot::new(client.clone(), freenet, config);
 
         let change = StateChange::MemberRevoked {
             member_hash: "hash123".to_string(),
@@ -245,11 +252,12 @@ mod tests {
     #[test]
     fn test_check_ejection() {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
         let config = BotConfig {
             group_id: GroupId(vec![1, 2, 3]),
             min_vouch_threshold: 2,
         };
-        let bot = StromaBot::new(client, config);
+        let bot = StromaBot::new(client, freenet, config);
 
         // Below threshold
         let trigger = bot.check_ejection(1, 0, 0);
