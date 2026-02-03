@@ -216,21 +216,21 @@ fn calculate_root_from_leaves(leaves: &[Hash]) -> Hash {
         return leaves[0];
     }
 
-    // Pair up and hash
-    let mut next_level: Vec<Hash> = Vec::with_capacity((leaves.len() + 1) / 2);
+    // Split in half (if odd, left side gets extra) - same as build_tree
+    let mid = (leaves.len() + 1) / 2;
+    let (left_hashes, right_hashes) = leaves.split_at(mid);
 
-    let mut i = 0;
-    while i < leaves.len() {
-        if i + 1 < leaves.len() {
-            next_level.push(hash_pair(&leaves[i], &leaves[i + 1]));
-        } else {
-            // Odd number: duplicate last
-            next_level.push(hash_pair(&leaves[i], &leaves[i]));
-        }
-        i += 2;
-    }
+    // Handle odd number of leaves by duplicating last
+    let right_hashes = if right_hashes.is_empty() {
+        left_hashes
+    } else {
+        right_hashes
+    };
 
-    calculate_root_from_leaves(&next_level)
+    let left_hash = calculate_root_from_leaves(left_hashes);
+    let right_hash = calculate_root_from_leaves(right_hashes);
+
+    hash_pair(&left_hash, &right_hash)
 }
 
 #[cfg(test)]
