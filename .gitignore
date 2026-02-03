@@ -3,6 +3,7 @@
 docs/chats/*
 docs/SESSION-SUMMARY-*.md
 /target
+proptest-regressions/
 
 # Gas Town Infrastructure (Moved to ~/gastown/stroma/)
 # Track: Only .beads/*.bead files (architectural docs) and issues.jsonl

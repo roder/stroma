@@ -62,8 +62,8 @@ path = "docs/spike/q14/main.rs"
 # Freenet node (in-process embedding via SimNetwork for testing, or Node for production)
 # - freenet: The node itself (SimNetwork for testing, NodeConfig for production)
 # - freenet-stdlib: For writing Wasm contracts that run inside the node
-freenet = "0.1"
-freenet-stdlib = { version = "=0.1.30", features = ["contract", "net"] }
+# freenet = "0.1"  # FIXME: Temporarily disabled to test identity module, re-enable later
+# freenet-stdlib = { version = "=0.1.30", features = ["contract", "net"] }  # FIXME: Temporarily disabled
 
 # Signal integration (uses forked libsignal-service-rs with poll support)
 # ❌ DO NOT USE: presage-store-sqlite (stores ALL messages - server seizure risk!)
@@ -84,7 +84,7 @@ thiserror = "2.0"
 
 # Cryptography
 ring = { version = "0.17", features = ["std"] }
-zeroize = { version = "1.7", features = ["zeroize_derive"] }
+zeroize = { version = "1.8", features = ["derive"] }
 hkdf = "0.12"
 sha2 = "0.10"
 hex = "0.4"
@@ -101,6 +101,18 @@ clap = { version = "4", features = ["derive"] }
 # Logging
 tracing = "0.1"
 tracing-subscriber = "0.3"
+
+# Property-based testing
+proptest = "1.6"
+
+[dev-dependencies]
+rand = "0.8"
+
+# TODO: Add remaining dependencies during implementation
+# - ZK-proofs (winterfell)
+# - CLI (clap)
+# - Binary serialization (ciborium)
+>>>>>>> 0066433 (feat: Implement HMAC identity masking with ACI-derived key)
 
 # Protocol v8 poll support via our fork of libsignal-service-rs
 # Branch based directly on b48b42fbc (commit presage pins to)
