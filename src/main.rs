@@ -1,3 +1,3 @@
 fn main() {
-    println!("Hello, world!");
+    println!("Stroma - Privacy-preserving trust network");
 }

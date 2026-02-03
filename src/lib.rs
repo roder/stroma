@@ -10,4 +10,5 @@
 //!
 //! See: .beads/signal-integration.bead, .beads/security-constraints.bead
 
+pub mod freenet;
 pub mod signal;
