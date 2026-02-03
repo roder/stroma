@@ -75,14 +75,24 @@ presage = { git = "https://github.com/whisperfish/presage", rev = "07413c5ae64c7
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 
-# Cryptographic hashing
+# Cryptography
+ring = { version = "0.17", features = ["std"] }
+zeroize = { version = "1.7", features = ["zeroize_derive"] }
+hkdf = "0.12"
 sha2 = "0.10"
 
-# TODO: Add remaining dependencies during implementation
-# - ZK-proofs (winterfell)
-# - Crypto (ring, zeroize)
-# - CLI (clap)
-# - Binary serialization (ciborium)
+# ZK-proofs
+winterfell = "0.9"
+
+# Binary serialization (CBOR for Freenet, NOT JSON)
+ciborium = "0.2"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
 
 # Protocol v8 poll support via our fork of libsignal-service-rs
 # Branch based directly on b48b42fbc (commit presage pins to)
