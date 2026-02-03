@@ -112,7 +112,6 @@ rand = "0.8"
 # - ZK-proofs (winterfell)
 # - CLI (clap)
 # - Binary serialization (ciborium)
->>>>>>> 0066433 (feat: Implement HMAC identity masking with ACI-derived key)
 
 # Protocol v8 poll support via our fork of libsignal-service-rs
 # Branch based directly on b48b42fbc (commit presage pins to)

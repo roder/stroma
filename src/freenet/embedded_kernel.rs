@@ -10,7 +10,7 @@ use crate::freenet::traits::{
     StateChange,
 };
 use async_trait::async_trait;
-use freenet::local_node::Executor;
+// use freenet::local_node::Executor;  // FIXME: Disabled while freenet dependency is commented out
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
