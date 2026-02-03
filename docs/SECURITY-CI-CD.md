@@ -104,7 +104,12 @@ cargo deny check
 # All of the above, plus:
 
 # Tests with coverage
-cargo install cargo-llvm-cov cargo-nextest
+# Note: CI uses taiki-e/install-action for fast binary installation
+# For local development, use cargo-binstall for faster installs (recommended):
+#   cargo install cargo-binstall
+#   cargo binstall cargo-llvm-cov cargo-nextest
+# Or use cargo install (slower, builds from source):
+#   cargo install cargo-llvm-cov cargo-nextest
 cargo llvm-cov nextest --all-features
 
 # Build release binary

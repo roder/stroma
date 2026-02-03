@@ -1468,6 +1468,10 @@ git clone https://github.com/roder/stroma.git
 cd stroma
 
 # Install audit tools
+# Recommended: Use cargo-binstall for faster installation (downloads precompiled binaries)
+#   cargo install cargo-binstall
+#   cargo binstall cargo-audit cargo-deny
+# Or use cargo install (slower, builds from source):
 cargo install cargo-audit cargo-deny
 
 # Run audits
