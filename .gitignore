@@ -76,3 +76,4 @@ plugins/
 
 # Gas Town (added by gt)
 .beads/
+*.info
