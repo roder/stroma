@@ -13,7 +13,7 @@ All three core enforcement mechanisms are **live and operational** in production
 ### 1. Pre-Push Hook ✅ DEPLOYED
 
 **Location**: Centralized at `/Users/matt/gt/scripts/hooks/pre-push`
-**Installation**: Symlinked to `.git/hooks/pre-push` in all gastown GitHub repos
+**Installation**: Copied to `.git/hooks/pre-push` in all gastown GitHub repos
 **Task**: hq-a3nl5 (Closed)
 
 **What it does**:
@@ -112,10 +112,10 @@ deny.toml              # Dependency policy
 All scripts are **centralized at gastown workspace level** (`/Users/matt/gt/scripts/`) and work with **any GitHub repository** automatically.
 
 ### Why Centralized?
-- ✅ Single source of truth (update once, applies everywhere)
+- ✅ Single source of truth (update once, re-run installer to propagate)
 - ✅ No gastown-specific code in application repositories
 - ✅ Works with any GitHub repository via auto-detection
-- ✅ Symlink-based installation for automatic propagation
+- ✅ Portable: Works on all developer machines and CI systems (copied, not symlinked)
 
 ### Auto-Detection Mechanism
 
@@ -248,8 +248,14 @@ bd list --priority=0 --label=ci-failure --status=open
 
 **Update hooks after script changes**:
 ```bash
-# Hooks are symlinks, so changes propagate automatically
-# No action needed - just edit the centralized scripts
+# Hooks are copied (not symlinked), so re-run installer after editing:
+vim /Users/matt/gt/scripts/hooks/pre-push  # 1. Edit
+
+# 2. Re-install to all repos (bash):
+/Users/matt/gt/scripts/install-hooks.sh
+
+# Or fish shell:
+fish /Users/matt/gt/scripts/install-hooks.fish
 ```
 
 **Add new repository to gastown**:
@@ -261,7 +267,8 @@ bd list --priority=0 --label=ci-failure --status=open
 fish /Users/matt/gt/scripts/install-hooks.fish
 
 # Or install manually:
-ln -s /Users/matt/gt/scripts/hooks/pre-push <repo>/.git/hooks/pre-push
+cp /Users/matt/gt/scripts/hooks/pre-push <repo>/.git/hooks/pre-push
+chmod +x <repo>/.git/hooks/pre-push
 ```
 
 **Restart patrol service**:
@@ -281,11 +288,11 @@ If critical issues arise, rollback steps:
 
 ### Disable Pre-Push Hook
 ```bash
-# Remove symlinks from all repos:
-find /Users/matt/gt -name "pre-push" -type l -path "*/.git/hooks/*" -delete
+# Remove hooks from all repos:
+find /Users/matt/gt -name "pre-push" -type f -path "*/.git/hooks/*" -delete
 
-# Or rename to disable:
-mv /Users/matt/gt/scripts/hooks/pre-push /Users/matt/gt/scripts/hooks/pre-push.disabled
+# Or rename in each repo:
+mv <repo>/.git/hooks/pre-push <repo>/.git/hooks/pre-push.disabled
 ```
 
 ### Disable CI Monitor
