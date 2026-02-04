@@ -1,159 +1,211 @@
 description = """
-Boot triage cycle - the daemon's watchdog for Deacon health.
+Enhanced Boot triage cycle - monitors Deacon AND Refinery/MQ health.
 
-Boot is spawned fresh on each daemon tick to decide whether to start/wake/nudge/interrupt
-the Deacon, or do nothing. This centralizes the "when to wake" decision in an agent that
-can reason about context rather than relying on mechanical thresholds.
+This version extends the original boot-triage to also:
+1. Check merge queue for pending work
+2. Monitor Refinery responsiveness (not just existence)
+3. Auto-spawn Refinery when MRs arrive
+4. Detect idle agents with pending work
 
 Boot lifecycle:
-1. Observe (wisps, mail, git state, tmux panes)
-2. Decide (start/wake/nudge/interrupt/nothing)
-3. Act
-4. Clean inbox (discard stale handoffs)
-5. Exit (or handoff in non-degraded mode)
+1. Observe (Deacon + Refinery + MQ state)
+2. Decide (start/wake/nudge/interrupt for both agents)
+3. Act on both Deacon and Refinery
+4. Clean inbox
+5. Exit
 
 Boot is always fresh - no persistent state between invocations.
-Handoff mail provides continuity for the next Boot instance.
 """
-formula = "mol-boot-triage"
+formula = "mol-boot-triage-enhanced"
 version = 1
 
 [[steps]]
 id = "observe"
-title = "Observe system state"
+title = "Observe system state (Deacon + Refinery + MQ)"
 description = """
-Observe the current system state to inform triage decisions.
+Observe the current system state for ALL critical agents.
 
 **Step 1: Check Deacon state**
 ```bash
 # Is Deacon session alive?
-tmux has-session -t hq-deacon 2>/dev/null && echo "alive" || echo "dead"
-
-# If alive, what's the pane output showing?
-gt peek deacon --lines 20
+if tmux has-session -t hq-deacon 2>/dev/null; then
+    echo "Deacon: alive"
+    # Check last 20 lines of pane for activity
+    tmux capture-pane -t hq-deacon -p -S -20 | tail -5
+else
+    echo "Deacon: dead"
+fi
 ```
 
-**Step 2: Check agent bead state**
+**Step 2: Check Refinery state for each rig**
 ```bash
-bd show hq-deacon 2>/dev/null
-# Look for:
-# - state: running/working/idle
-# - last_activity: when was last update?
+# For each rig with a merge queue
+for rig in stromarig; do
+    echo "Checking refinery for $rig..."
+
+    # Does refinery session exist?
+    tmux has-session -t "gt-${rig}-refinery" 2>/dev/null && echo "Session exists" || echo "Session dead"
+
+    # If exists, check if it's responsive (not just existing)
+    if tmux has-session -t "gt-${rig}-refinery" 2>/dev/null; then
+        # Check pane output for activity indicators
+        last_output=$(tmux capture-pane -t "gt-${rig}-refinery" -p -S -20)
+
+        # Check for idle indicators:
+        # - Prompt waiting: "❯"
+        # - Error loop: repeated errors
+        # - Silence: no recent output
+
+        if echo "$last_output" | tail -1 | grep -q "❯"; then
+            echo "Refinery is IDLE (at prompt)"
+        elif echo "$last_output" | grep -q "Running\\|thinking\\|Bash"; then
+            echo "Refinery is ACTIVE"
+        else
+            echo "Refinery state UNKNOWN"
+        fi
+    fi
+done
 ```
 
-**Step 3: Check recent activity**
+**Step 3: Check merge queue for pending work**
 ```bash
-# Recent feed events
-gt feed --since 10m --plain | head -20
+# For each rig
+for rig in stromarig; do
+    # Check if merge queue has ready work
+    mq_status=$(gt mq list "$rig" 2>/dev/null)
+    ready_count=$(echo "$mq_status" | grep -c "ready" || echo "0")
 
-# Recent wisps (operational state)
-ls -lt $GT_ROOT/.beads-wisp/*.wisp.json 2>/dev/null | head -5
+    echo "MQ $rig: $ready_count ready MRs"
+done
 ```
 
-**Step 4: Check Deacon mail**
+**Step 4: Check Deacon/Refinery mail** (optional, can skip if slow)
 ```bash
-# Does Deacon have unread mail?
-gt mail inbox deacon 2>/dev/null | head -10
+# Quick mail check with timeout
+timeout 2s gt mail inbox deacon 2>/dev/null | wc -l || echo "0"
+timeout 2s gt mail inbox gt-stromarig-refinery 2>/dev/null | wc -l || echo "0"
 ```
 
-Record observations for the decide step:
+**Step 5: Check recent activity** (optional, not critical for triage decision)
+```bash
+# Quick check of recent feed - use JSONL directly instead of gt feed
+if [ -f "$GT_ROOT/.feed.jsonl" ]; then
+    tail -20 "$GT_ROOT/.feed.jsonl" 2>/dev/null || echo "No recent feed"
+else
+    echo "Feed file not found, skipping"
+fi
+```
+
+Record observations:
 - deacon_alive: true/false
-- pane_activity: active/idle/stuck
-- last_activity_age: duration since last activity
-- pending_mail: count of unread messages
-- error_signals: any errors observed
+- deacon_activity: active/idle/stuck
+- refinery_alive: true/false (per rig)
+- refinery_activity: active/idle/stuck (per rig)
+- mq_ready_count: number of pending MRs (per rig)
+- pending_mail: count for each agent
 """
 
 [[steps]]
 id = "decide"
-title = "Decide on action"
+title = "Decide on actions for Deacon and Refinery"
 needs = ["observe"]
 description = """
-Analyze observations and decide what action to take.
+Analyze observations and decide actions for BOTH agents.
 
-**Decision Matrix**
-
+**Deacon Decision Matrix** (same as original)
 | Deacon State | Pane Activity | Action |
 |--------------|---------------|--------|
 | Dead session | N/A | START |
-| Alive, active output | N/A | NOTHING |
+| Alive, active | N/A | NOTHING |
 | Alive, idle < 5 min | N/A | NOTHING |
 | Alive, idle 5-15 min | No mail | NOTHING |
 | Alive, idle 5-15 min | Has mail | NUDGE |
 | Alive, idle > 15 min | Any | WAKE |
-| Alive, stuck (errors) | Any | INTERRUPT |
+| Alive, stuck | Any | INTERRUPT |
 
-**Judgment Guidance**
+**Refinery Decision Matrix** (NEW)
+| Refinery State | MQ Status | Last Activity | Action |
+|----------------|-----------|---------------|--------|
+| Dead session | MRs pending | N/A | START |
+| Dead session | MQ empty | N/A | NOTHING |
+| Alive, active | Any | N/A | NOTHING |
+| Alive, idle at prompt | MRs pending | < 2 min | NOTHING (just finished) |
+| Alive, idle at prompt | MRs pending | > 2 min | WAKE (has work!) |
+| Alive, idle at prompt | MQ empty | Any | NOTHING |
+| Alive, stuck/error | Any | Any | INTERRUPT |
+| Unknown state | MRs pending | > 5 min | RESTART |
 
-Agents may take several minutes on legitimate work. Ten minutes or more in edge cases.
-Don't be too aggressive - false positives are disruptive.
+**Key Insight**: If Refinery session exists but is idle with pending MRs,
+that's a bug - it should be processing. Wake it or restart it.
 
-Signs of stuck:
-- Same error repeated in pane
-- Tool prompt waiting indefinitely
-- Silence with pending mail
-- Agent reporting issues but not progressing
-
-Signs of working:
-- Tool calls in progress
-- File reads/writes happening
-- Recent commits or beads updates
-
-**Output**: Record decision as one of:
-- NOTHING: Let Deacon continue
-- NUDGE: Gentle wake signal (gt nudge)
-- WAKE: Stronger wake (escape + message)
-- INTERRUPT: Force restart needed
-- START: Session is dead, start fresh
+**Output**: Record decisions as:
+- deacon_action: NOTHING/NUDGE/WAKE/INTERRUPT/START
+- refinery_action: NOTHING/NUDGE/WAKE/INTERRUPT/START (per rig)
 """
 
 [[steps]]
 id = "act"
-title = "Execute decided action"
+title = "Execute actions for both agents"
 needs = ["decide"]
 description = """
-Execute the action decided in the previous step.
+Execute the actions decided for Deacon and Refinery.
+
+**For Deacon** (same as original):
+- NOTHING: Log and continue
+- NUDGE: `gt nudge deacon "Boot check-in: you have pending work"`
+- WAKE: Send escape + wake message
+- INTERRUPT: Send mail about stuck state
+- START: Daemon will restart (log detection)
+
+**For Refinery** (NEW):
 
 **NOTHING**
-No action needed. Log observation and exit.
-
-**NUDGE**
 ```bash
-gt nudge deacon "Boot check-in: you have pending work"
+echo "Refinery: No action needed"
 ```
 
-**WAKE**
+**START** (when dead with pending MRs)
 ```bash
-# Send escape to break any tool waiting
-tmux send-keys -t hq-deacon Escape
+echo "Starting refinery for $rig (MRs pending)..."
+gt refinery start "$rig"
+```
 
-# Brief pause
+**WAKE** (when idle at prompt with pending MRs)
+```bash
+echo "Waking idle refinery for $rig (has pending work)..."
+
+# Send escape to break prompt
+tmux send-keys -t "gt-${rig}-refinery" Escape
 sleep 1
 
 # Send wake message
-gt nudge deacon "Boot wake: please check your inbox and pending work"
+gt nudge "gt-${rig}-refinery" "Boot wake: You have pending MRs in queue. Please check: gt mq list $rig"
 ```
 
-**INTERRUPT**
+**INTERRUPT** (when stuck/error loop)
 ```bash
-# This is more aggressive - signals Deacon to restart
-gt mail send deacon -s "INTERRUPT: Boot detected stuck state" \
-  -m "Boot observed stuck state. Please check your context and consider handoff.
+echo "Interrupting stuck refinery for $rig..."
 
-Observations:
-- <summary of what was observed>
+gt mail send "gt-${rig}-refinery" -s "INTERRUPT: Boot detected stuck state" \
+  -m "Boot observed stuck/error state. Consider handoff or restart.
 
-If you're making progress, please update your agent bead to reflect activity."
+Observations: <summary>
+
+Check your context and merge queue status."
 ```
 
-**START**
+**RESTART** (when unknown state with pending work)
 ```bash
-# Deacon is dead - daemon will restart it
-# Just log that we detected this
-echo "Boot detected dead Deacon session - daemon will restart"
+echo "Restarting refinery for $rig (unknown state with pending work)..."
+
+# Kill session
+tmux kill-session -t "gt-${rig}-refinery" 2>/dev/null || true
+
+# Start fresh
+gt refinery start "$rig"
 ```
 
-Record action taken for status update.
+Record all actions taken.
 """
 
 [[steps]]
@@ -161,68 +213,76 @@ id = "cleanup"
 title = "Clean stale handoffs"
 needs = ["act"]
 description = """
-Clean up stale handoff messages from Deacon's inbox.
+Clean up stale handoff messages from agent inboxes.
 
-Handoff messages older than 1 hour are likely stale - the intended recipient
-either processed them or crashed before seeing them.
+**For Deacon** (same as original):
+- Archive handoffs older than 1 hour
 
-**Step 1: List Deacon inbox**
-```bash
-gt mail inbox deacon --json 2>/dev/null
-```
-
-**Step 2: Archive stale handoffs**
-For each message:
-- Check if subject contains "HANDOFF" or "handoff"
-- Check if age > 1 hour
-- If both: archive it
+**For Refinery**:
+- Archive MERGE_READY notifications already processed
+- Archive handoffs older than 1 hour
+- Archive old MERGED notifications
 
 ```bash
-# For each stale handoff:
-gt mail archive <message-id>
+# For each refinery inbox (with timeout to avoid hanging)
+for rig in stromarig; do
+    timeout 5s gt mail inbox "gt-${rig}-refinery" --json 2>/dev/null | \
+        jq -r '.[] | select(.age_hours > 1) | .id' | \
+        xargs -I {} timeout 2s gt mail archive {} 2>/dev/null || true
+done
 ```
 
-**Step 3: Archive Boot's own old mail**
-Boot doesn't need persistent inbox. Archive anything processed:
+**For Boot's own inbox**:
+Archive everything - Boot is ephemeral.
 ```bash
-gt mail inbox boot --json 2>/dev/null
-# Archive any messages older than current session
+timeout 5s gt mail inbox gt-boot --json 2>/dev/null | \
+    jq -r '.[].id' | \
+    xargs -I {} timeout 2s gt mail archive {} 2>/dev/null || true
 ```
-
-Keep the system clean - old handoffs just add noise.
 """
 
 [[steps]]
 id = "exit"
-title = "Exit or handoff"
+title = "Exit with status"
 needs = ["cleanup"]
 description = """
-Complete this Boot cycle.
+Complete this Boot cycle with status update.
 
-**In degraded mode (GT_DEGRADED=true)**
-Exit directly - no handoff needed:
+**Write status file**:
 ```bash
-# Log completion
-echo "Boot triage complete: <action taken>"
+# Summary of what was done
+cat > "$GT_ROOT/deacon/dogs/boot/.boot-status.json" <<EOF
+{
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "deacon_action": "$deacon_action",
+  "refinery_actions": {
+    "stromarig": "$stromarig_refinery_action"
+  },
+  "mq_status": {
+    "stromarig": $stromarig_mq_ready_count
+  }
+}
+EOF
+```
+
+**In degraded mode**:
+Exit directly:
+```bash
+echo "Boot triage complete (deacon: $deacon_action, refinery: $stromarig_refinery_action)"
 exit 0
 ```
 
-**In normal mode**
-Write brief handoff for next Boot instance:
+**In normal mode**:
+Send handoff to next Boot instance:
 ```bash
-gt mail send boot -s "Boot handoff" -m "Completed triage cycle.
-Action: <action taken>
-Observations: <brief summary>
+gt mail send boot -s "Boot handoff" -m "Completed enhanced triage cycle.
+
+Deacon: $deacon_action
+Refinery(stromarig): $stromarig_refinery_action
+MQ ready count: $stromarig_mq_ready_count
+
 Time: $(date)"
 ```
 
-Then exit. The next daemon tick will spawn a fresh Boot.
-
-**Update status file**
-```bash
-# The gt boot command handles this automatically
-# Status is written to $GT_ROOT/deacon/dogs/boot/.boot-status.json
-```
-
-Boot is ephemeral by design. Each instance runs fresh.
+Then exit. Next daemon tick will spawn fresh Boot.
 """

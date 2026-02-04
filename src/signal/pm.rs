@@ -465,10 +465,7 @@ async fn handle_flag<F: crate::freenet::FreenetClient>(
         let target_hash_hex = hex::encode(target_hash.as_bytes());
         if let Err(e) = _group_manager.announce_ejection(&target_hash_hex).await {
             client
-                .send_message(
-                    sender,
-                    &format!("⚠️ Failed to announce ejection: {}", e),
-                )
+                .send_message(sender, &format!("⚠️ Failed to announce ejection: {}", e))
                 .await?;
         }
 
