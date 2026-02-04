@@ -490,16 +490,13 @@ Even though federation isn't implemented, the architecture is **ready**:
 ### Contract Schema Includes Federation Hooks
 
 ```rust
-#[composable]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TrustNetworkState {
-    // ... MVP fields ...
-    
+    // ... MVP fields (members, ejected, vouches, flags, config) ...
+
     // Federation hooks (PRESENT but EMPTY in MVP)
-    #[cfg(feature = "federation")]
-    federation_contracts: Vec<ContractHash>,  // Empty: []
-    
-    #[cfg(feature = "federation")]
-    validator_anchors: BloomFilter,           // Computed but not broadcast
+    #[serde(default)]
+    pub federation_contracts: Vec<ContractHash>,  // Always: []
 }
 ```
 
@@ -508,6 +505,50 @@ pub struct TrustNetworkState {
 - Ensures merge semantics support federated state
 - No breaking changes needed in Phase 4
 - Can test PSI-CA locally in Phase 3
+
+### GAP-08: Backward Compatibility Guarantee
+
+**Problem**: Adding new fields to serialized state can break deserialization of old contracts.
+
+**Solution**: `#[serde(default)]` on `federation_contracts` field.
+
+**Backward Compatibility**:
+- **Old contracts** (without `federation_contracts`): Deserialize successfully with empty Vec
+- **New contracts** (with `federation_contracts`): Deserialize with actual values
+- **Forward compatibility**: Old code ignores unknown fields (CBOR lenient mode)
+
+**Implementation** (see `src/freenet/trust_contract.rs:47`):
+```rust
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TrustNetworkState {
+    // ... other fields ...
+
+    /// Federation contract addresses (added in v2).
+    #[serde(default)]
+    pub federation_contracts: Vec<ContractHash>,
+}
+```
+
+**Test Coverage** (see `src/freenet/trust_contract.rs:537`):
+```rust
+#[test]
+fn test_federation_contracts_default() {
+    // Test backward compatibility with #[serde(default)]
+    let state = TrustNetworkState::new();
+    assert!(state.federation_contracts.is_empty());
+}
+```
+
+**Federation Logic Status**:
+- ✅ Field present in schema
+- ✅ Backward compatible with `#[serde(default)]`
+- ✅ Merge semantics support federation (set union)
+- ❌ **NO federation logic executed in MVP**
+- ❌ No Shadow Beacon broadcast (Phase 4+)
+- ❌ No PSI-CA handshakes (Phase 4+)
+- ❌ No cross-mesh vouching (Phase 4+)
+
+**Validation**: The `federation_contracts` field is UNUSED in MVP. No production code calls federation discovery functions. See `src/federation/mod.rs` - functions exist but are not integrated into bot logic.
 
 ### Module Structure Includes federation/
 
