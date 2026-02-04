@@ -3,6 +3,8 @@
 //! This module implements the bot discovery registry that enables
 //! bots to find each other for chunk distribution and recovery.
 
+pub mod health;
 pub mod registry;
 
+pub use health::{HealthStatus, ReplicationHealth};
 pub use registry::{PersistenceRegistry, RegistryEntry, SizeBucket};
