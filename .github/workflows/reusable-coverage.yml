@@ -34,7 +34,9 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Generate coverage
-        run: cargo llvm-cov nextest --all-features --lcov --output-path lcov.info
+        run: |
+          cargo llvm-cov nextest --all-features --lcov --output-path lcov.info \
+            --ignore-filename-regex '(docs/spike/.*\.rs|src/main\.rs)$'
 
       - name: Verify 100% coverage
         if: ${{ inputs.enforce-100 }}
