@@ -123,6 +123,9 @@ mod tests {
         let bytes1 = data.to_canonical_bytes().unwrap();
         let bytes2 = data.to_canonical_bytes().unwrap();
 
-        assert_eq!(bytes1, bytes2, "Canonical serialization must be deterministic");
+        assert_eq!(
+            bytes1, bytes2,
+            "Canonical serialization must be deterministic"
+        );
     }
 }
