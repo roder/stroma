@@ -15,6 +15,7 @@ pub mod federation;
 pub mod freenet;
 pub mod gatekeeper;
 pub mod identity;
+pub mod matchmaker;
 pub mod persistence;
 pub mod serialization;
 pub mod signal;
