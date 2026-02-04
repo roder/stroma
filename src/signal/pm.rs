@@ -42,7 +42,9 @@ pub enum Command {
     Status { username: Option<String> },
 
     /// View network overview
-    Mesh,
+    Mesh {
+        subcommand: Option<String>,
+    },
 
     /// Audit operator actions
     Audit { subcommand: String },
@@ -149,7 +151,13 @@ pub fn parse_command(text: &str) -> Command {
             },
         },
 
-        "/mesh" => Command::Mesh,
+        "/mesh" => Command::Mesh {
+            subcommand: if parts.len() > 1 {
+                Some(parts[1].to_string())
+            } else {
+                None
+            },
+        },
 
         "/audit" => {
             if parts.len() < 2 {
@@ -207,7 +215,7 @@ pub async fn handle_pm_command(
 
         Command::Status { username } => handle_status(client, sender, username.as_deref()).await,
 
-        Command::Mesh => handle_mesh(client, sender).await,
+        Command::Mesh { subcommand } => handle_mesh(client, sender, subcommand.as_deref()).await,
 
         Command::Audit { subcommand } => handle_audit(client, sender, &subcommand).await,
 
@@ -333,7 +341,34 @@ async fn handle_status(
     client.send_message(sender, response).await
 }
 
-async fn handle_mesh(client: &impl SignalClient, sender: &ServiceId) -> SignalResult<()> {
+async fn handle_mesh(
+    client: &impl SignalClient,
+    sender: &ServiceId,
+    subcommand: Option<&str>,
+) -> SignalResult<()> {
+    match subcommand {
+        None => handle_mesh_overview(client, sender).await,
+        Some("strength") => handle_mesh_strength(client, sender).await,
+        Some("replication") => handle_mesh_replication(client, sender).await,
+        Some("config") => handle_mesh_config(client, sender).await,
+        Some(unknown) => {
+            client
+                .send_message(
+                    sender,
+                    &format!(
+                        "Unknown /mesh subcommand: {}.\n\nAvailable: /mesh, /mesh strength, /mesh replication, /mesh config",
+                        unknown
+                    ),
+                )
+                .await
+        }
+    }
+}
+
+async fn handle_mesh_overview(
+    client: &impl SignalClient,
+    sender: &ServiceId,
+) -> SignalResult<()> {
     // TODO: Implement full mesh overview with Freenet:
     // 1. Query Freenet contract for full member set
     // 2. Calculate network metrics:
@@ -345,6 +380,59 @@ async fn handle_mesh(client: &impl SignalClient, sender: &ServiceId) -> SignalRe
     // 5. Format as user-friendly overview
 
     let response = "📈 Network Overview\n\nTotal members: 12\nNetwork health: 🟢 Healthy (75% DVR)\n\nTrust Distribution:\n  2 connections: 5 members (42%)\n  3+ connections: 7 members (58%)\n\n💡 Your network has strong distributed trust. Members with 3+ cross-cluster vouches create resilient verification.";
+    client.send_message(sender, response).await
+}
+
+async fn handle_mesh_strength(
+    client: &impl SignalClient,
+    sender: &ServiceId,
+) -> SignalResult<()> {
+    // TODO: Implement detailed DVR (Distinct Validator Ratio):
+    // 1. Query Freenet contract for full trust graph
+    // 2. Identify validators (members with 3+ vouches)
+    // 3. Calculate DVR metric:
+    //    - For each cluster, measure overlap in validator sets
+    //    - High DVR = validators are well-distributed across clusters
+    //    - Low DVR = validators are concentrated, creating single points of failure
+    // 4. Show distribution histogram
+    // 5. Response time: <100ms (per requirements)
+
+    let response = "💪 Network Strength (DVR Analysis)\n\n🟢 DVR Score: 75%\n\nValidator Distribution:\n  Cluster A: 4 validators\n  Cluster B: 3 validators\n  Overlap: 1 shared validator (14%)\n\nStrength Indicators:\n  ✅ Multiple validation paths\n  ✅ Low validator concentration\n  ⚠️  Consider recruiting more validators in Cluster C\n\n💡 Your network can withstand single-validator failures without losing trust paths.";
+    client.send_message(sender, response).await
+}
+
+async fn handle_mesh_replication(
+    client: &impl SignalClient,
+    sender: &ServiceId,
+) -> SignalResult<()> {
+    // TODO: Implement persistence health monitoring:
+    // 1. Query PersistenceRegistry to get network size and bot list
+    // 2. Calculate replication metrics:
+    //    - Total bots available for persistence
+    //    - Chunk holder distribution (from rendezvous hashing)
+    //    - Health indicators (are we meeting k=3 replication?)
+    // 3. Show warnings if network too small for reliable persistence
+    // 4. Response time: <100ms
+
+    let response = "🔄 Persistence Health\n\n🟢 Replication Status: Healthy\n\nPersistence Network:\n  Available bots: 15\n  Required holders per chunk: 3\n  Coverage: 100% (all chunks have 3+ holders)\n\nSize Distribution:\n  Small groups: 8 bots\n  Medium groups: 5 bots\n  Large groups: 2 bots\n\n💡 Your network has sufficient bots for reliable k=3 replication.";
+    client.send_message(sender, response).await
+}
+
+async fn handle_mesh_config(
+    client: &impl SignalClient,
+    sender: &ServiceId,
+) -> SignalResult<()> {
+    // TODO: Implement config display:
+    // 1. Query Freenet contract for GroupConfig
+    // 2. Show current settings:
+    //    - min_vouches (default: 2)
+    //    - max_flags (default: 3)
+    //    - open_membership (default: false)
+    //    - operators (list of hashes, or count)
+    // 3. Self-query safe, third-party restricted
+    // 4. Response time: <100ms
+
+    let response = "⚙️ Group Configuration\n\n🔧 Trust Settings:\n  Minimum vouches: 2\n  Maximum flags: 3\n  Open membership: No\n\n👥 Operators: 1\n\n🔐 Security:\n  Self-query: ✅ Allowed\n  Third-party query: ❌ Restricted\n\n💡 Configuration changes require operator approval via /propose.";
     client.send_message(sender, response).await
 }
 
@@ -475,7 +563,40 @@ mod tests {
     #[test]
     fn test_parse_mesh() {
         let cmd = parse_command("/mesh");
-        assert_eq!(cmd, Command::Mesh);
+        assert_eq!(cmd, Command::Mesh { subcommand: None });
+    }
+
+    #[test]
+    fn test_parse_mesh_strength() {
+        let cmd = parse_command("/mesh strength");
+        assert_eq!(
+            cmd,
+            Command::Mesh {
+                subcommand: Some("strength".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_mesh_replication() {
+        let cmd = parse_command("/mesh replication");
+        assert_eq!(
+            cmd,
+            Command::Mesh {
+                subcommand: Some("replication".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_mesh_config() {
+        let cmd = parse_command("/mesh config");
+        assert_eq!(
+            cmd,
+            Command::Mesh {
+                subcommand: Some("config".to_string())
+            }
+        );
     }
 
     #[test]
@@ -568,5 +689,71 @@ mod tests {
         let sent = client.sent_messages();
         assert_eq!(sent.len(), 1);
         assert!(sent[0].content.contains("Bootstrap history"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_mesh_overview() {
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let sender = ServiceId("user1".to_string());
+
+        let result = handle_mesh(&client, &sender, None).await;
+        assert!(result.is_ok());
+
+        let sent = client.sent_messages();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].content.contains("Network Overview"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_mesh_strength() {
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let sender = ServiceId("user1".to_string());
+
+        let result = handle_mesh(&client, &sender, Some("strength")).await;
+        assert!(result.is_ok());
+
+        let sent = client.sent_messages();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].content.contains("Network Strength"));
+        assert!(sent[0].content.contains("DVR"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_mesh_replication() {
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let sender = ServiceId("user1".to_string());
+
+        let result = handle_mesh(&client, &sender, Some("replication")).await;
+        assert!(result.is_ok());
+
+        let sent = client.sent_messages();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].content.contains("Persistence Health"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_mesh_config() {
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let sender = ServiceId("user1".to_string());
+
+        let result = handle_mesh(&client, &sender, Some("config")).await;
+        assert!(result.is_ok());
+
+        let sent = client.sent_messages();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].content.contains("Group Configuration"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_mesh_unknown_subcommand() {
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let sender = ServiceId("user1".to_string());
+
+        let result = handle_mesh(&client, &sender, Some("unknown")).await;
+        assert!(result.is_ok());
+
+        let sent = client.sent_messages();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].content.contains("Unknown /mesh subcommand"));
     }
 }
