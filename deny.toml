@@ -8,12 +8,10 @@
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 
-# Ignored unmaintained crate advisories (transitive dependencies from freenet/wasmer)
+# Ignored unmaintained crate advisories (transitive dependencies)
 # These are acknowledged and accepted until upstream crates migrate
 ignore = [
-    { id = "RUSTSEC-2025-0141", reason = "bincode unmaintained - used by freenet/libsignal, alternatives being evaluated" },
-    { id = "RUSTSEC-2024-0436", reason = "paste unmaintained - used by wasmer (freenet dep), alternatives being evaluated" },
-    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile unmaintained - used by hickory-proto, migrate to rustls-pki-types pending" },
+    { id = "RUSTSEC-2025-0141", reason = "bincode unmaintained - used by libsignal, alternatives being evaluated" },
 ]
 
 [licenses]
@@ -31,25 +29,15 @@ allow = [
     "BSD-3-Clause",
     "BSL-1.0",              # Boost Software License 1.0 (OSI approved, from xxhash-rust)
     "ISC",
-    "Unicode-DFS-2016",
     "Unicode-3.0",          # Unicode License v3 (OSI approved, from ICU crates)
-    "Zlib",
-    "0BSD",                 # BSD Zero Clause License (ultra-permissive, from wasmer deps)
-    "CC0-1.0",              # Creative Commons Zero (public domain, from wasmer/notify)
-    "MPL-2.0",              # Mozilla Public License 2.0 (weak copyleft, from wasmer deps)
-    "CDLA-Permissive-2.0",  # Community Data License Agreement (permissive, for webpki-roots)
+    "CC0-1.0",              # Creative Commons Zero (public domain)
+    "MPL-2.0",              # Mozilla Public License 2.0 (weak copyleft)
 ]
 
 # Per-crate license exceptions for essential dependencies
-# CRITICAL: Freenet and Signal libraries use AGPL/LGPL (copyleft)
+# CRITICAL: Signal libraries use AGPL (copyleft)
 # These are core dependencies required for the protocol - policy decision needed
 exceptions = [
-    # Freenet (decentralized network layer)
-    { allow = ["AGPL-3.0-or-later"], crate = "freenet" },
-    { allow = ["LGPL-3.0-only"], crate = "freenet-stdlib" },
-    { allow = ["LGPL-3.0-only"], crate = "freenet-macros" },
-    { allow = ["LGPL-3.0-or-later"], crate = "pav_regression" },
-
     # Signal Protocol dependencies (AGPL-3.0-only)
     { allow = ["AGPL-3.0-only"], crate = "libsignal-account-keys" },
     { allow = ["AGPL-3.0-only"], crate = "libsignal-core" },
@@ -75,20 +63,6 @@ license-files = [
     { path = "LICENSE", hash = 0xbd0eed23 }
 ]
 
-[[licenses.clarify]]
-name = "wasmer-compiler-singlepass"
-expression = "MIT"
-license-files = [
-    { path = "LICENSE", hash = 0xd0e07eb4 }
-]
-
-[[licenses.clarify]]
-name = "freenet"
-expression = "AGPL-3.0-or-later"
-license-files = [
-    { path = "LICENSE.md", hash = 0x0 }
-]
-
 [licenses.private]
 # Allow unlicensed private/internal crates
 ignore = false
@@ -109,10 +83,7 @@ allow = []
 # Skip certain crates from duplicate version checks
 # These duplicates are from incompatible dependency requirements
 # and cannot be easily resolved without upstream changes
-skip = [
-    { crate = "tokio-tungstenite", reason = "freenet/axum require different versions" },
-    { crate = "tungstenite", reason = "websocket library version mismatch between freenet and presage" },
-]
+skip = []
 
 # Skip dependency trees
 skip-tree = []
