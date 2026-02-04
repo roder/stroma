@@ -12,11 +12,13 @@ pub mod bootstrap;
 pub mod bot;
 pub mod group;
 pub mod linking;
+pub mod matchmaker;
 pub mod mock;
 pub mod pm;
 pub mod polls;
 pub mod store;
 pub mod traits;
+pub mod vetting;
 
 pub use bootstrap::{BootstrapManager, BootstrapState};
 pub use bot::{BotConfig, StromaBot};
