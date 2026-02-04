@@ -22,6 +22,7 @@ pub struct BotConfig {
     pub group_id: GroupId,
     pub min_vouch_threshold: u32,
     pub pepper: Vec<u8>,
+    pub contract_hash: Option<crate::freenet::traits::ContractHash>,
 }
 
 impl Default for BotConfig {
@@ -30,6 +31,7 @@ impl Default for BotConfig {
             group_id: GroupId(vec![]),
             min_vouch_threshold: 2,
             pepper: b"default-pepper".to_vec(),
+            contract_hash: None,
         }
     }
 }
@@ -426,6 +428,7 @@ mod tests {
             group_id: group.clone(),
             min_vouch_threshold: 2,
             pepper: b"test-pepper".to_vec(),
+            contract_hash: None,
         };
         let mut bot = StromaBot::new(client.clone(), freenet, config);
 
@@ -458,6 +461,7 @@ mod tests {
             group_id: group.clone(),
             min_vouch_threshold: 2,
             pepper: b"test-pepper".to_vec(),
+            contract_hash: None,
         };
         let mut bot = StromaBot::new(client.clone(), freenet, config);
 
@@ -484,6 +488,7 @@ mod tests {
             group_id: GroupId(vec![1, 2, 3]),
             min_vouch_threshold: 2,
             pepper: b"test-pepper".to_vec(),
+            contract_hash: None,
         };
         let bot = StromaBot::new(client, freenet, config);
 
@@ -572,6 +577,7 @@ mod tests {
             group_id: GroupId(vec![1, 2, 3]),
             min_vouch_threshold: 2,
             pepper: b"test-pepper".to_vec(),
+            contract_hash: None,
         };
         let bot = StromaBot::new(client, freenet, config);
 
@@ -598,6 +604,7 @@ mod tests {
             group_id: GroupId(vec![1, 2, 3]),
             min_vouch_threshold: 2,
             pepper: b"test-pepper".to_vec(),
+            contract_hash: None,
         };
         let bot = StromaBot::new(client, freenet, config);
 
@@ -624,6 +631,7 @@ mod tests {
             group_id: GroupId(vec![1, 2, 3]),
             min_vouch_threshold: 2,
             pepper: b"test-pepper".to_vec(),
+            contract_hash: None,
         };
         let bot = StromaBot::new(client, freenet, config);
 
@@ -654,6 +662,7 @@ mod tests {
             group_id: GroupId(vec![1, 2, 3]),
             min_vouch_threshold: 2,
             pepper: b"test-pepper".to_vec(),
+            contract_hash: None,
         };
         let bot = StromaBot::new(client, freenet, config);
 

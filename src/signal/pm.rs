@@ -292,7 +292,7 @@ async fn handle_flag<F: crate::freenet::FreenetClient>(
 ) -> SignalResult<()> {
     use crate::freenet::{
         contract::MemberHash,
-        traits::{ContractDelta, ContractHash, FreenetError},
+        traits::{ContractDelta, FreenetError},
         trust_contract::{StateDelta, TrustNetworkState},
     };
     use crate::serialization::{from_cbor, to_cbor};
@@ -303,8 +303,18 @@ async fn handle_flag<F: crate::freenet::FreenetClient>(
     let target_hash = MemberHash::from_identity(username, &config.pepper);
 
     // Query Freenet for current contract state
-    // TODO: Get actual contract hash from config
-    let contract = ContractHash::from_bytes(&[0u8; 32]); // Placeholder
+    let contract = match &config.contract_hash {
+        Some(hash) => hash.clone(),
+        None => {
+            client
+                .send_message(
+                    sender,
+                    "❌ Trust contract not configured. Has the group been bootstrapped?",
+                )
+                .await?;
+            return Ok(());
+        }
+    };
 
     let state_bytes = match freenet.get_state(&contract).await {
         Ok(state) => state.data,
@@ -438,8 +448,30 @@ async fn handle_flag<F: crate::freenet::FreenetClient>(
 
     if let Some(trigger) = ejection_trigger {
         // Remove from Signal group
-        // TODO: We need ServiceId for target, not just MemberHash
-        // For now, send message about ejection
+        // Convert username to ServiceId for group removal
+        // TODO: In production, resolve username to actual ServiceId via Signal directory
+        let target_service_id = ServiceId(username.to_string());
+
+        if let Err(e) = _group_manager.remove_member(&target_service_id).await {
+            client
+                .send_message(
+                    sender,
+                    &format!("⚠️ Failed to remove member from Signal group: {}", e),
+                )
+                .await?;
+        }
+
+        // Announce ejection to group (using hash for privacy)
+        let target_hash_hex = hex::encode(target_hash.as_bytes());
+        if let Err(e) = _group_manager.announce_ejection(&target_hash_hex).await {
+            client
+                .send_message(
+                    sender,
+                    &format!("⚠️ Failed to announce ejection: {}", e),
+                )
+                .await?;
+        }
+
         match trigger {
             EjectionTrigger::NegativeStanding {
                 effective_vouches,
