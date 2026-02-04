@@ -32,6 +32,7 @@ allow = [
     "Unicode-3.0",          # Unicode License v3 (OSI approved, from ICU crates)
     "CC0-1.0",              # Creative Commons Zero (public domain)
     "MPL-2.0",              # Mozilla Public License 2.0 (weak copyleft)
+    "AGPL-3.0-or-later",    # Project license
 ]
 
 # Per-crate license exceptions for essential dependencies
