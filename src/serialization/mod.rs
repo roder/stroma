@@ -51,6 +51,18 @@ impl std::fmt::Display for SerializationError {
 
 impl std::error::Error for SerializationError {}
 
+/// Serialize a value to CBOR bytes
+pub fn to_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>, SerializationError> {
+    let mut bytes = Vec::new();
+    into_writer(value, &mut bytes)?;
+    Ok(bytes)
+}
+
+/// Deserialize a value from CBOR bytes
+pub fn from_cbor<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, SerializationError> {
+    from_reader(bytes).map_err(Into::into)
+}
+
 /// Trait for types that can be serialized to/from CBOR bytes
 pub trait CborSerializable: Serialize + for<'de> Deserialize<'de> {
     /// Serialize to CBOR bytes
