@@ -136,9 +136,9 @@ pub fn compute_chunk_holders(
 fn compute_rendezvous_score(owner: &str, chunk_index: u32, candidate: &str, epoch: u64) -> Vec<u8> {
     let mut hasher = Sha256::new();
     hasher.update(owner.as_bytes());
-    hasher.update(&chunk_index.to_le_bytes());
+    hasher.update(chunk_index.to_le_bytes());
     hasher.update(candidate.as_bytes());
-    hasher.update(&epoch.to_le_bytes());
+    hasher.update(epoch.to_le_bytes());
     hasher.finalize().to_vec()
 }
 

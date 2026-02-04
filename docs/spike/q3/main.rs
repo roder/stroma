@@ -2,6 +2,7 @@
 //!
 //! Tests whether various cluster detection algorithms can distinguish
 //! tight clusters connected by bridges.
+#![allow(dead_code)]
 
 mod cluster;
 

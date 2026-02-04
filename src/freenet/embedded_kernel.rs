@@ -100,7 +100,7 @@ impl FreenetClient for EmbeddedKernel {
         let mut executor = self.executor.write().await;
         executor
             .apply_delta(contract, &delta.data)
-            .map_err(|e| FreenetError::Other(e))
+            .map_err(FreenetError::Other)
     }
 
     async fn subscribe(

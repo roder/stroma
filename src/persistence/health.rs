@@ -163,7 +163,7 @@ impl ReplicationHealth {
     pub fn record_attestation(&mut self, chunk_index: u32, holder_id: &str, confirmed: bool) {
         self.chunk_attestations
             .entry(chunk_index)
-            .or_insert_with(HashMap::new)
+            .or_default()
             .insert(holder_id.to_string(), confirmed);
 
         // Recompute cached status

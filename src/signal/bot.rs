@@ -399,7 +399,7 @@ mod tests {
 
         // Verify announcement sent
         let sent = client.sent_messages();
-        assert!(sent.len() > 0);
+        assert!(!sent.is_empty());
     }
 
     #[tokio::test]

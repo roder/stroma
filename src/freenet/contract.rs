@@ -109,10 +109,7 @@ impl TrustContract {
                 self.flags.remove(member);
             }
             TrustDelta::AddVouch { voucher, vouchee } => {
-                self.vouches
-                    .entry(*voucher)
-                    .or_insert_with(BTreeSet::new)
-                    .insert(*vouchee);
+                self.vouches.entry(*voucher).or_default().insert(*vouchee);
             }
             TrustDelta::RemoveVouch { voucher, vouchee } => {
                 if let Some(vouchees) = self.vouches.get_mut(voucher) {
@@ -123,10 +120,7 @@ impl TrustContract {
                 }
             }
             TrustDelta::AddFlag { flagger, flagged } => {
-                self.flags
-                    .entry(*flagger)
-                    .or_insert_with(BTreeSet::new)
-                    .insert(*flagged);
+                self.flags.entry(*flagger).or_default().insert(*flagged);
             }
             TrustDelta::RemoveFlag { flagger, flagged } => {
                 if let Some(flagged_members) = self.flags.get_mut(flagger) {
@@ -150,7 +144,7 @@ impl TrustContract {
         for (voucher, vouchees) in &other.vouches {
             self.vouches
                 .entry(*voucher)
-                .or_insert_with(BTreeSet::new)
+                .or_default()
                 .extend(vouchees.iter().copied());
         }
 
@@ -158,7 +152,7 @@ impl TrustContract {
         for (flagger, flagged_members) in &other.flags {
             self.flags
                 .entry(*flagger)
-                .or_insert_with(BTreeSet::new)
+                .or_default()
                 .extend(flagged_members.iter().copied());
         }
     }

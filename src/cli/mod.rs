@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn test_cli_parse_link_device() {
-        let cli = Cli::parse_from(&[
+        let cli = Cli::parse_from([
             "stroma",
             "link-device",
             "--device-name",
@@ -113,7 +113,7 @@ mod tests {
 
     #[test]
     fn test_cli_parse_run() {
-        let cli = Cli::parse_from(&["stroma", "run", "--config", "/etc/stroma/config.toml"]);
+        let cli = Cli::parse_from(["stroma", "run", "--config", "/etc/stroma/config.toml"]);
 
         match cli.command {
             Commands::Run {
@@ -129,19 +129,19 @@ mod tests {
 
     #[test]
     fn test_cli_parse_status() {
-        let cli = Cli::parse_from(&["stroma", "status"]);
+        let cli = Cli::parse_from(["stroma", "status"]);
         matches!(cli.command, Commands::Status);
     }
 
     #[test]
     fn test_cli_parse_verify() {
-        let cli = Cli::parse_from(&["stroma", "verify"]);
+        let cli = Cli::parse_from(["stroma", "verify"]);
         matches!(cli.command, Commands::Verify);
     }
 
     #[test]
     fn test_cli_parse_backup_store() {
-        let cli = Cli::parse_from(&["stroma", "backup-store", "--output", "/tmp/backup.tar.gz"]);
+        let cli = Cli::parse_from(["stroma", "backup-store", "--output", "/tmp/backup.tar.gz"]);
 
         match cli.command {
             Commands::BackupStore { output } => {
@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn test_cli_parse_version() {
-        let cli = Cli::parse_from(&["stroma", "version"]);
+        let cli = Cli::parse_from(["stroma", "version"]);
         matches!(cli.command, Commands::Version);
     }
 }

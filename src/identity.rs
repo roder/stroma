@@ -265,7 +265,7 @@ mod tests {
             use sha2::{Sha256, Digest};
             let mut hasher = Sha256::new();
             hasher.update(b"proptest-aci-key");
-            hasher.update(&aci_key_seed.to_le_bytes());
+            hasher.update(aci_key_seed.to_le_bytes());
             let aci_key: [u8; 32] = hasher.finalize().into();
 
             let hash1 = mask_identity(&signal_id, &aci_key);
@@ -289,7 +289,7 @@ mod tests {
             use sha2::{Sha256, Digest};
             let mut hasher = Sha256::new();
             hasher.update(b"proptest-aci-key");
-            hasher.update(&aci_key_seed.to_le_bytes());
+            hasher.update(aci_key_seed.to_le_bytes());
             let aci_key: [u8; 32] = hasher.finalize().into();
 
             let hash1 = mask_identity(&signal_id1, &aci_key);
@@ -315,12 +315,12 @@ mod tests {
 
             let mut hasher1 = Sha256::new();
             hasher1.update(b"proptest-aci-key");
-            hasher1.update(&aci_key1_seed.to_le_bytes());
+            hasher1.update(aci_key1_seed.to_le_bytes());
             let aci_key1: [u8; 32] = hasher1.finalize().into();
 
             let mut hasher2 = Sha256::new();
             hasher2.update(b"proptest-aci-key");
-            hasher2.update(&aci_key2_seed.to_le_bytes());
+            hasher2.update(aci_key2_seed.to_le_bytes());
             let aci_key2: [u8; 32] = hasher2.finalize().into();
 
             let hash1 = mask_identity(&signal_id, &aci_key1);

@@ -21,6 +21,7 @@ pub struct StromaProtocolStore {
     state_path: std::path::PathBuf,
 
     /// Operator-provided passphrase for encryption
+    #[allow(dead_code)]
     passphrase: String,
 
     /// In-memory session cache (ephemeral)
@@ -29,7 +30,7 @@ pub struct StromaProtocolStore {
 
 /// Protocol state persisted to disk
 #[derive(Serialize, Deserialize)]
-struct ProtocolState {
+pub struct ProtocolState {
     /// Signal identity (ACI/PNI)
     identity: IdentityData,
 
@@ -54,10 +55,11 @@ struct PreKeyData {
 }
 
 #[derive(Clone)]
-struct SessionData {
+pub struct SessionData {
     // Ephemeral session data for active conversations
     // Not persisted - reconstructed on restart
-    session_cipher: Vec<u8>,
+    #[allow(dead_code)]
+    pub session_cipher: Vec<u8>,
 }
 
 impl StromaProtocolStore {

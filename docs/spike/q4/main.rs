@@ -6,6 +6,7 @@
 //! 1. Native test: Document winterfell API and verification patterns
 //! 2. Wasm test: Attempt compilation and document results
 
+#![allow(dead_code)]
 mod verifier;
 
 use verifier::*;

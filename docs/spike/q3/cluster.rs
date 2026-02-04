@@ -44,7 +44,7 @@ impl VouchGraph {
         let mut edges = HashSet::new();
         for (voucher, vouchees) in &self.vouches {
             for vouchee in vouchees {
-                let mut pair = vec![voucher.clone(), vouchee.clone()];
+                let mut pair = [voucher.clone(), vouchee.clone()];
                 pair.sort();
                 edges.insert((pair[0].clone(), pair[1].clone()));
             }
@@ -61,7 +61,7 @@ impl VouchGraph {
                 // Check if the reverse vouch exists
                 if let Some(reverse_vouchees) = self.vouches.get(vouchee) {
                     if reverse_vouchees.contains(voucher) {
-                        let mut pair = vec![voucher.clone(), vouchee.clone()];
+                        let mut pair = [voucher.clone(), vouchee.clone()];
                         pair.sort();
                         edges.insert((pair[0].clone(), pair[1].clone()));
                     }
@@ -305,7 +305,7 @@ pub fn cluster_by_bridge_removal(graph: &VouchGraph) -> HashMap<String, Vec<Stri
     let non_bridge_edges: Vec<(String, String)> = edges
         .into_iter()
         .filter(|(a, b)| {
-            let mut pair = vec![a.clone(), b.clone()];
+            let mut pair = [a.clone(), b.clone()];
             pair.sort();
             !bridges.contains(&(pair[0].clone(), pair[1].clone()))
         })
@@ -356,7 +356,7 @@ fn find_bridges(
 
                     // If low[v] > disc[u], then (u, v) is a bridge
                     if low_v > *disc.get(u).unwrap() {
-                        let mut pair = vec![u.to_string(), v.clone()];
+                        let mut pair = [u.to_string(), v.clone()];
                         pair.sort();
                         bridges.insert((pair[0].clone(), pair[1].clone()));
                     }
@@ -428,7 +428,7 @@ pub fn build_bridge_problem_graph() -> VouchGraph {
 /// Build a fully connected graph (should return 1 cluster)
 pub fn build_fully_connected_graph() -> VouchGraph {
     let mut graph = VouchGraph::new();
-    let members = vec!["A", "B", "C", "D", "E"];
+    let members = ["A", "B", "C", "D", "E"];
 
     for i in 0..members.len() {
         for j in 0..members.len() {

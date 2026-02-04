@@ -226,7 +226,7 @@ fn test_subcommand_help() {
             .arg(cmd)
             .arg("--help")
             .output()
-            .expect(&format!("Failed to execute {} --help", cmd));
+            .unwrap_or_else(|_| panic!("Failed to execute {} --help", cmd));
 
         assert!(output.status.success(), "Command {} --help failed", cmd);
         let stdout = String::from_utf8_lossy(&output.stdout);

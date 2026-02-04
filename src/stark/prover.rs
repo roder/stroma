@@ -126,7 +126,7 @@ fn generate_proof_bytes(claim: &VouchClaim, trace: &[[BaseElement; TRACE_WIDTH]]
     for row in trace {
         let mut hasher = Sha256::new();
         for &element in row.iter() {
-            hasher.update(&element.as_int().to_le_bytes());
+            hasher.update(element.as_int().to_le_bytes());
         }
         let commitment = hasher.finalize();
         proof.extend_from_slice(&commitment);

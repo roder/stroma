@@ -189,7 +189,7 @@ where
         let mapping = self.member_mapping.read().await;
         let service_id = mapping
             .get(member)
-            .ok_or_else(|| MonitorError::MemberNotMapped(*member))?;
+            .ok_or(MonitorError::MemberNotMapped(*member))?;
 
         // Remove from Signal group
         self.signal

@@ -29,6 +29,7 @@ pub struct SimpleMemberSetDelta {
     pub new_version: u64,
 }
 
+#[allow(dead_code)]
 impl SimpleMemberSet {
     pub fn new() -> Self {
         Self {

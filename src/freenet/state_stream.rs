@@ -210,7 +210,7 @@ mod tests {
 
         // Now consume all
         let mut count = 0;
-        while let Some(_) = stream.next().await {
+        while stream.next().await.is_some() {
             count += 1;
             if count >= 100 {
                 break;

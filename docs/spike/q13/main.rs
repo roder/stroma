@@ -99,7 +99,7 @@ impl ChunkResponse {
         let sample = &chunk_data[challenge.offset..challenge.offset + challenge.length];
 
         let mut hasher = Sha256::new();
-        hasher.update(&challenge.nonce);
+        hasher.update(challenge.nonce);
         hasher.update(sample);
         let proof: Hash = hasher.finalize().into();
 
@@ -115,7 +115,7 @@ impl ChunkResponse {
         let sample = &expected_chunk_data[challenge.offset..challenge.offset + challenge.length];
 
         let mut hasher = Sha256::new();
-        hasher.update(&challenge.nonce);
+        hasher.update(challenge.nonce);
         hasher.update(sample);
         let expected_proof: Hash = hasher.finalize().into();
 
@@ -170,7 +170,7 @@ impl FreeRider {
         None
     }
 
-    pub fn try_fake_response(&self, challenge: &ChunkChallenge) -> ChunkResponse {
+    pub fn try_fake_response(&self, _challenge: &ChunkChallenge) -> ChunkResponse {
         // Try to fake a response with random data (will fail verification)
         let fake_proof = [0u8; 32]; // All zeros - obviously fake
         ChunkResponse {

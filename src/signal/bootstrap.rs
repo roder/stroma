@@ -20,9 +20,10 @@ use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
 /// Bootstrap state machine
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum BootstrapState {
     /// Awaiting /create-group command
+    #[default]
     AwaitingInitiation,
 
     /// Collecting seed members (1-2 collected so far)
@@ -38,12 +39,6 @@ pub enum BootstrapState {
         group_name: String,
         contract_hash: ContractHash,
     },
-}
-
-impl Default for BootstrapState {
-    fn default() -> Self {
-        Self::AwaitingInitiation
-    }
 }
 
 /// Bootstrap manager

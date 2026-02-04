@@ -124,7 +124,7 @@ impl SignalClient for MockSignalClient {
         state
             .group_members
             .entry(group.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(member.clone());
         Ok(())
     }

@@ -5,6 +5,7 @@
 // - Option C: Hybrid approach (P2P + attestation)
 // - Cost and latency comparison
 
+#![allow(dead_code)]
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -87,10 +88,7 @@ impl FreenetContractStore {
         tokio::time::sleep(Duration::from_millis(self.write_latency_ms)).await;
 
         let mut contracts = self.contracts.lock().unwrap();
-        contracts
-            .entry(contract)
-            .or_insert_with(Vec::new)
-            .push(chunk);
+        contracts.entry(contract).or_default().push(chunk);
 
         Ok(())
     }
@@ -129,7 +127,7 @@ impl P2PNetwork {
         tokio::time::sleep(Duration::from_millis(self.transfer_latency_ms)).await;
 
         let mut peers = self.peers.lock().unwrap();
-        peers.entry(to).or_insert_with(Vec::new).push(chunk);
+        peers.entry(to).or_default().push(chunk);
 
         Ok(())
     }

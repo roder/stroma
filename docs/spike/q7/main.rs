@@ -54,6 +54,12 @@ pub struct PersistenceRegistry {
     entries: Arc<Mutex<HashMap<PublicKey, RegistryEntry>>>,
 }
 
+impl Default for PersistenceRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PersistenceRegistry {
     pub fn new() -> Self {
         Self {
@@ -101,6 +107,12 @@ pub struct DhtDiscovery {
     dht: Arc<Mutex<HashMap<Hash, HashSet<PublicKey>>>>,
 }
 
+impl Default for DhtDiscovery {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DhtDiscovery {
     pub fn new() -> Self {
         Self {
@@ -114,9 +126,7 @@ impl DhtDiscovery {
         let key = Self::hash(DISCOVERY_KEY);
 
         let mut dht = self.dht.lock().unwrap();
-        dht.entry(key)
-            .or_insert_with(HashSet::new)
-            .insert(bot_pubkey);
+        dht.entry(key).or_default().insert(bot_pubkey);
 
         Ok(())
     }
@@ -224,7 +234,7 @@ async fn test_registry_basic_discovery() {
 
     let registry = PersistenceRegistry::new();
 
-    let bot_a = Bot::new(1);
+    let _bot_a = Bot::new(1);
     let bot_b = Bot::new(2);
 
     // Bot B registers

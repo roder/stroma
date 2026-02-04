@@ -34,7 +34,7 @@ impl SocialAnchor {
 
     /// Convert to hex string for display/logging.
     pub fn to_hex(&self) -> String {
-        hex::encode(&self.0)
+        hex::encode(self.0)
     }
 }
 

@@ -15,6 +15,7 @@
 //! 3. Capacity Verification - Prove actual storage exists
 //! 4. Combined Approach - Use multiple techniques
 
+#![allow(dead_code)]
 use std::collections::HashMap;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -100,6 +101,12 @@ pub struct BotReputation {
     failed_returns: u32,
     age_days: u32,
     chunks_held: u32,
+}
+
+impl Default for BotReputation {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BotReputation {

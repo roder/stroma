@@ -340,11 +340,7 @@ impl PersistenceRegistry {
             return false; // Don't increment on first bot
         }
 
-        let change = if new_count > old_count {
-            new_count - old_count
-        } else {
-            old_count - new_count
-        };
+        let change = new_count.abs_diff(old_count);
 
         let change_ratio = change as f64 / old_count as f64;
         change_ratio > 0.10

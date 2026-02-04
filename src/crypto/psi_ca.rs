@@ -81,6 +81,7 @@ impl EphemeralKey {
     ///
     /// This derives a per-element key from the private key and element hash,
     /// ensuring commutative property: encrypt(k_a, encrypt(k_b, m)) = encrypt(k_b, encrypt(k_a, m))
+    #[allow(dead_code)]
     fn derive_element_key(&self, element_hash: &[u8]) -> Vec<u8> {
         let mut hasher = Sha256::new();
         hasher.update(&self.private_key);
@@ -176,6 +177,7 @@ impl PsiProtocol {
     /// - Our already-encrypted members (from phase1), re-encrypted with their key (double-blind)
     ///
     /// Note: We need our own phase1 encrypted set to properly double-blind it
+    #[allow(clippy::type_complexity)]
     pub fn phase2_double_blind(
         &self,
         their_public_key: &[u8],
@@ -226,11 +228,10 @@ impl PsiProtocol {
     /// Evaluate if federation should be proposed
     pub fn evaluate_federation(&self, overlap: usize, _other_group_size: usize) -> bool {
         // Check if we accept
-        let we_accept = self.threshold.accepts(overlap);
 
         // We can't evaluate if they accept without knowing their threshold,
         // but we return our decision
-        we_accept
+        self.threshold.accepts(overlap)
     }
 
     /// Get our public key to send to other group

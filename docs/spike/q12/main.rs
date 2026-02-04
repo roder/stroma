@@ -16,15 +16,16 @@
 //! - No hot holders (max 2x average chunk count)
 //! - Coordination overhead < 10% of data transferred
 
+#![allow(dead_code)]
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Hash type representing bot identity
 type BotId = u8;
 
 /// Chunk size configurations to test
 const CHUNK_SIZES: &[(usize, &str)] = &[
-    (1 * 1024, "1KB"),
+    (1024, "1KB"),
     (16 * 1024, "16KB"),
     (64 * 1024, "64KB (default)"),
     (256 * 1024, "256KB"),
@@ -172,7 +173,7 @@ impl ChunkAnalysis {
         println!("└────────────────────────────────────────────────────────────┘");
     }
 
-    fn passes_criteria(&self, config: &TestConfig) -> bool {
+    fn passes_criteria(&self, _config: &TestConfig) -> bool {
         let recovery_ok = self.recovery_latency < Duration::from_secs(5);
         let distribution_ok = self.holder_distribution > 50.0;
         let no_hot_holders = self.max_chunks_per_holder as f64 <= self.avg_chunks_per_holder * 2.5;
@@ -267,7 +268,7 @@ fn test_edge_cases() {
         network_latency_ms: 50,
     };
 
-    let analysis_1kb = ChunkAnalysis::analyze(1 * 1024, "1KB", &large_state_config);
+    let analysis_1kb = ChunkAnalysis::analyze(1024, "1KB", &large_state_config);
     let analysis_64kb = ChunkAnalysis::analyze(64 * 1024, "64KB", &large_state_config);
 
     println!(

@@ -82,6 +82,7 @@ impl VettingSessionManager {
     }
 
     /// Create new vetting session
+    #[allow(clippy::too_many_arguments)]
     pub fn create_session(
         &mut self,
         invitee_id: ServiceId,

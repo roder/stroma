@@ -135,7 +135,7 @@ pub fn encrypt_and_chunk(
         .map_err(|e| ChunkError::EncryptionFailed(format!("Encryption failed: {}", e)))?;
 
     // Split into 64KB chunks
-    let num_chunks = (ciphertext.len() + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    let num_chunks = ciphertext.len().div_ceil(CHUNK_SIZE);
     let mut chunks = Vec::with_capacity(num_chunks);
 
     for (index, chunk_data) in ciphertext.chunks(CHUNK_SIZE).enumerate() {

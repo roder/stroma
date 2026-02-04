@@ -38,7 +38,7 @@ pub fn simulate_verification(iterations: usize) -> f64 {
             .wrapping_add(i as u64)
             .wrapping_mul(0x517cc1b727220a95);
         state[1] = state[1].wrapping_add(state[0]).rotate_left(17);
-        state[2] = state[2] ^ state[1];
+        state[2] ^= state[1];
         state[3] = state[3].wrapping_add(state[2]).rotate_right(13);
     }
 

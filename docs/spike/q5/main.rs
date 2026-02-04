@@ -3,6 +3,7 @@
 //! Benchmarks Merkle tree operations at various member counts to determine
 //! if on-demand generation is viable.
 
+#![allow(dead_code)]
 mod merkle;
 
 use merkle::*;

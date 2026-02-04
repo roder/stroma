@@ -62,7 +62,7 @@ impl MerkleTree {
         }
 
         // Split in half (if odd, left side gets extra)
-        let mid = (hashes.len() + 1) / 2;
+        let mid = hashes.len().div_ceil(2);
         let (left_hashes, right_hashes) = hashes.split_at(mid);
 
         // Handle odd number of leaves by duplicating last
@@ -97,7 +97,7 @@ impl MerkleTree {
         match node {
             MerkleNode::Leaf(_) => vec![],
             MerkleNode::Internal { left, right, .. } => {
-                let left_size = (size + 1) / 2;
+                let left_size = size.div_ceil(2);
 
                 if index < left_size {
                     // Go left
@@ -146,8 +146,6 @@ pub fn verify_proof(proof: &MerkleProof, root: &Hash) -> bool {
 
 /// Hash two children to create parent hash
 fn hash_pair(left: &Hash, right: &Hash) -> Hash {
-    use std::hash::Hasher;
-
     // Simple concatenation + hash
     let mut data = [0u8; 64];
     data[..32].copy_from_slice(left);
@@ -217,7 +215,7 @@ fn calculate_root_from_leaves(leaves: &[Hash]) -> Hash {
     }
 
     // Split in half (if odd, left side gets extra) - same as build_tree
-    let mid = (leaves.len() + 1) / 2;
+    let mid = leaves.len().div_ceil(2);
     let (left_hashes, right_hashes) = leaves.split_at(mid);
 
     // Handle odd number of leaves by duplicating last
