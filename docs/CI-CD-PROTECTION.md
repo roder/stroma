@@ -253,7 +253,7 @@ deny.toml                        # Dependency policy
 
 3. **Request human review:**
    ```bash
-   gt mail send human \
+   gt mail send /Users/matt/gt/stromarig/crew/matt \
      -s "CI/CD Change Request: <issue-id>" \
      -m "See <issue-id> for details. Requesting approval to modify <file-path>."
    ```
