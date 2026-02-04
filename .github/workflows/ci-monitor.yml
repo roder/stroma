@@ -1,0 +1,72 @@
+name: CI Monitor
+
+# Monitors CI/Security workflow failures on main branch
+# Creates GitHub issues for immediate alerting
+# Mayor patrol syncs these to beads for local tracking
+
+on:
+  workflow_run:
+    workflows: ["CI", "Security"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  alert-on-failure:
+    name: Alert on CI Failure
+    runs-on: ubuntu-latest
+    # Only run if workflow failed
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      - name: Create CI Failure Alert
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          WORKFLOW_NAME="${{ github.event.workflow_run.name }}"
+          RUN_URL="${{ github.event.workflow_run.html_url }}"
+          COMMIT_SHA="${{ github.event.workflow_run.head_sha }}"
+          COMMIT_MSG="${{ github.event.workflow_run.head_commit.message }}"
+          BRANCH="${{ github.event.workflow_run.head_branch }}"
+
+          # Create GitHub issue with P0 and ci-failure labels
+          gh issue create \
+            --repo ${{ github.repository }} \
+            --title "🚨 CI BROKEN: ${WORKFLOW_NAME} failed on ${BRANCH}" \
+            --label "P0,ci-failure,auto-alert" \
+            --body "## CI Failure Detected on Main Branch
+
+          **Workflow**: ${WORKFLOW_NAME}
+          **Branch**: ${BRANCH}
+          **Run**: ${RUN_URL}
+          **Commit**: ${COMMIT_SHA}
+          **Message**: ${COMMIT_MSG}
+
+          ---
+
+          ### ⚠️ IMMEDIATE ACTION REQUIRED
+
+          **DO NOT MERGE MORE PRs** until this is fixed.
+
+          ### Steps to Fix:
+
+          1. **Review the failure logs**: [View failed run](${RUN_URL})
+          2. **Identify the breaking change**: Check commit ${COMMIT_SHA}
+          3. **Choose a fix strategy**:
+             - **Fix forward**: Create hotfix branch, fix issue, test, merge
+             - **Revert**: \`git revert ${COMMIT_SHA} && git push\`
+          4. **Verify CI passes**: Check that main is green again
+          5. **Close this issue**: Once fixed, close with resolution notes
+
+          ### Target Resolution Time: 15 minutes
+
+          ---
+
+          **This issue was auto-created by CI Monitor workflow.**
+          A corresponding beads issue will be created by mayor patrol."
+
+          echo "✅ Created GitHub issue for CI failure"
+          echo "Mayor patrol will sync this to beads within 5 minutes"
