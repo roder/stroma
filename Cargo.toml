@@ -74,7 +74,8 @@ path = "docs/spike/q14/main.rs"
 # See: .beads/security-constraints.bead § 10, .cursor/rules/security-guardrails.mdc
 # NOTE: Presage currently doesn't compile with our libsignal-service-rs fork
 # We've implemented trait abstractions that will work once presage is updated
-presage = { git = "https://github.com/whisperfish/presage", optional = true }
+# FIXME: Commented out until presage is compatible with our libsignal fork (st-rvzl)
+# presage = { git = "https://github.com/whisperfish/presage", optional = true }
 
 # Async runtime and serialization
 tokio = { version = "1", features = ["full"] }
