@@ -253,10 +253,12 @@ deny.toml                        # Dependency policy
 
 3. **Request human review:**
    ```bash
-   gt mail send /Users/matt/gt/stromarig/crew/matt \
+   gt mail send crew-approvals \
      -s "CI/CD Change Request: <issue-id>" \
      -m "See <issue-id> for details. Requesting approval to modify <file-path>."
    ```
+
+   **Note**: `crew-approvals` is a mail group (`*/crew/*`) that routes to all crew members, making this workflow reusable across different gastown workspaces.
 
 4. **WAIT for approval**
    - Human will respond via mail or issue comment
