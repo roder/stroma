@@ -329,7 +329,63 @@ Co-authored-by: Claude <noreply@anthropic.com>
 
 ## License
 
-[To be determined]
+**AGPL-3.0-or-later** (GNU Affero General Public License v3.0 or later)
+
+### Why AGPL (Not MIT/Apache)?
+
+Stroma uses AGPL-3.0-or-later for three critical reasons:
+
+**1. Legal Requirement (Dependency Licensing)**
+
+Stroma depends on AGPL-3.0 libraries:
+- `libsignal-service-rs` (AGPL-3.0-only) - Signal protocol implementation
+- `presage` (AGPL-3.0) - High-level Signal client library
+
+AGPL is a copyleft license. Any software linking to AGPL code must also be AGPL. We cannot legally use MIT/Apache-2.0 while depending on these libraries.
+
+**2. Security Alignment (Threat Model Defense)**
+
+Stroma's primary threat is **trust map seizure by compromised operator or state-level adversary**. The security model has three defense layers:
+
+1. **No centralized storage** (Freenet distributed state)
+2. **Cryptographic privacy** (HMAC hashing, ZK-proofs, zeroization)
+3. **Metadata isolation** (1-on-1 PMs, operator least-privilege)
+
+AGPL adds a **fourth layer: enforced transparency**.
+
+Even though "nobody will host this as a service," every operator **is** running a service for their group. AGPL ensures:
+- ✅ Group members can **inspect the bot's source code** to verify it's not leaking Signal IDs
+- ✅ Operators cannot hide modifications that violate the Eight Absolutes (§ security-constraints.bead)
+- ✅ Audit trail prevents backdoors (must provide source to group members on request)
+- ✅ Fork protection prevents proprietary surveillance variants
+
+**The transparency requirement is a security feature, not just a sharing norm.**
+
+**3. Philosophical Alignment (Power Distribution)**
+
+Stroma's core principle is **"Power With" vs "Power Over"** — distributing power laterally rather than concentrating it. AGPL's copyleft ensures:
+- ✅ No single entity can capture the trust infrastructure via proprietary fork
+- ✅ Network effects strengthen the commons, not a vendor
+- ✅ All federated groups benefit from improvements
+- ✅ Community ownership of trust network is legally protected
+
+### What This Means for You
+
+**If you run a Stroma bot:**
+- You must provide the source code to your group members if requested (AGPL § 13)
+- You can modify the bot, but must share modifications with your group
+- This protects your group from hidden surveillance modifications
+
+**If you want to use Stroma's cryptographic primitives without Signal:**
+- The AGPL requirement comes from Signal dependencies, not our core crypto
+- You could potentially extract non-Signal modules under a different license (contact maintainers)
+
+**If you want to fork Stroma:**
+- Your fork must also be AGPL-3.0-or-later
+- This prevents proprietary surveillance forks that violate the trust model
+- Federation between forks benefits all users equally
+
+See [LICENSE](LICENSE) for full license text.
 
 ---
 
