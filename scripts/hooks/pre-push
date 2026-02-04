@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Pre-push hook with CI status check
+# Part of CI/CD Green Branch Protection (hq-a3nl5, hq-diq31)
+#
+# Installation:
+#   cp scripts/hooks/pre-push .git/hooks/pre-push
+#   chmod +x .git/hooks/pre-push
+#
+# This hook:
+# 1. Runs bd hooks for beads sync (if available)
+# 2. Checks CI status before pushing to main branch
+# 3. Blocks push if main CI is red (unless --no-verify)
+
+set -e
+
+# ============================================================================
+# Step 1: Run bd hooks for beads sync
+# ============================================================================
+
+if command -v bd >/dev/null 2>&1; then
+    # bd is available, run its pre-push hook logic
+    bd hooks run pre-push "$@" || exit $?
+fi
+
+# ============================================================================
+# Step 2: CI Status Check (only for pushes to main)
+# ============================================================================
+
+remote="$1"
+url="$2"
+
+# Read push details from stdin
+while read local_ref local_sha remote_ref remote_sha; do
+    # Check if pushing to main branch
+    if [ "$remote_ref" = "refs/heads/main" ]; then
+        echo "🔍 Checking CI status on main branch..." >&2
+
+        # Check if gh CLI is available
+        if ! command -v gh >/dev/null 2>&1; then
+            echo "⚠️  Warning: gh CLI not found, skipping CI check" >&2
+            echo "   Install with: brew install gh" >&2
+            exit 0
+        fi
+
+        # Check if gh is authenticated
+        if ! gh auth status >/dev/null 2>&1; then
+            echo "⚠️  Warning: gh CLI not authenticated, skipping CI check" >&2
+            echo "   Run: gh auth login" >&2
+            exit 0
+        fi
+
+        # Get repository name
+        repo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
+        if [ -z "$repo" ]; then
+            echo "⚠️  Warning: Could not determine repository, skipping CI check" >&2
+            exit 0
+        fi
+
+        # Check main branch CI status
+        echo "   Repository: $repo" >&2
+        ci_state=$(gh api "repos/$repo/commits/main/status" --jq '.state' 2>/dev/null || echo "unknown")
+
+        case "$ci_state" in
+            "success")
+                echo "✅ CI is passing on main" >&2
+                exit 0
+                ;;
+            "pending")
+                echo "⏳ CI is currently running on main" >&2
+                echo "   Allowing push (check will complete asynchronously)" >&2
+                exit 0
+                ;;
+            "failure"|"error")
+                echo "" >&2
+                echo "❌ ERROR: CI is currently FAILING on main branch" >&2
+                echo "   CI State: $ci_state" >&2
+                echo "" >&2
+                echo "Cannot push to main while CI is broken." >&2
+                echo "" >&2
+                echo "📋 To fix:" >&2
+                echo "  1. File P0 bug: bd create --title='CI BROKEN: ...' --type=bug --priority=0" >&2
+                echo "  2. Check failure: gh run list --branch=main --limit=5" >&2
+                echo "  3. Fix or revert the breaking commit" >&2
+                echo "  4. Verify CI passes before pushing" >&2
+                echo "" >&2
+                echo "🚨 Emergency bypass: git push --no-verify" >&2
+                echo "   (Use only for reverting the breaking commit or critical hotfixes)" >&2
+                echo "" >&2
+                exit 1
+                ;;
+            "unknown"|"")
+                echo "⚠️  Warning: Could not determine CI state (might be no checks configured)" >&2
+                echo "   Allowing push, but verify CI manually" >&2
+                exit 0
+                ;;
+            *)
+                echo "⚠️  Warning: Unknown CI state: $ci_state" >&2
+                echo "   Allowing push, but verify CI manually" >&2
+                exit 0
+                ;;
+        esac
+    fi
+done
+
+# If not pushing to main, allow
+exit 0
