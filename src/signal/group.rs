@@ -30,7 +30,7 @@ impl<C: SignalClient> GroupManager<C> {
 
     /// Remove member from Signal group
     ///
-    /// Called immediately when ejection triggers met (no grace period).
+    /// Called immediately when ejection triggers met (no delay).
     pub async fn remove_member(&self, member: &ServiceId) -> SignalResult<()> {
         self.client
             .remove_group_member(&self.group_id, member)
