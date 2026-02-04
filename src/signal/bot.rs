@@ -114,7 +114,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                     }
                     _ => {
                         // Other commands go through normal handler
-                        handle_pm_command(&self.client, &message.sender, command).await?;
+                        handle_pm_command(&self.client, &self.freenet, &self.group_manager, &self.config, &message.sender, command).await?;
                     }
                 }
             }

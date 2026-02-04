@@ -1,0 +1,5 @@
+[default]
+# Property test configuration for trust-critical code
+# Increased case count for better coverage of edge cases
+cases = 1000
+max_shrink_iters = 10000

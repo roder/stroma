@@ -245,23 +245,36 @@ impl TrustNetworkState {
 
     /// Calculate standing for a member.
     ///
-    /// Standing = vouches - (flags * weight)
+    /// Standing = Effective_Vouches - Regular_Flags
+    /// Where:
+    ///   Effective_Vouches = All_Vouchers - Voucher_Flaggers
+    ///   Regular_Flags = All_Flaggers - Voucher_Flaggers
+    ///
+    /// This ensures voucher-flaggers are excluded from BOTH counts,
+    /// preventing the 2-point swing when a voucher flags a member.
+    ///
     /// Returns None if member is not active.
     pub fn calculate_standing(&self, member: &MemberHash) -> Option<i32> {
         if !self.members.contains(member) {
             return None;
         }
 
-        let vouch_count = self
-            .vouches
-            .get(member)
-            .map(|v| v.len() as i32)
-            .unwrap_or(0);
+        let vouchers = self.vouches.get(member).cloned().unwrap_or_default();
+        let flaggers = self.flags.get(member).cloned().unwrap_or_default();
 
-        let flag_count = self.flags.get(member).map(|f| f.len() as i32).unwrap_or(0);
+        // Find voucher-flaggers (intersection of vouchers and flaggers)
+        let voucher_flaggers: std::collections::HashSet<_> =
+            vouchers.intersection(&flaggers).cloned().collect();
 
-        // Flags have 2x weight in standing calculation
-        Some(vouch_count - (flag_count * 2))
+        // Calculate effective vouches and regular flags
+        let all_vouchers = vouchers.len() as i32;
+        let all_flaggers = flaggers.len() as i32;
+        let voucher_flagger_count = voucher_flaggers.len() as i32;
+
+        let effective_vouches = all_vouchers - voucher_flagger_count;
+        let regular_flags = all_flaggers - voucher_flagger_count;
+
+        Some(effective_vouches - regular_flags)
     }
 
     /// Check if member has good standing.
@@ -453,8 +466,11 @@ mod tests {
             .insert(member, [voucher1, voucher2].into_iter().collect());
         state.flags.insert(member, [flagger].into_iter().collect());
 
-        // Standing = 2 vouches - (1 flag * 2) = 0
-        assert_eq!(state.calculate_standing(&member), Some(0));
+        // Standing = effective_vouches - regular_flags
+        // effective_vouches = 2 (no voucher-flaggers)
+        // regular_flags = 1 (no voucher-flaggers)
+        // Standing = 2 - 1 = 1
+        assert_eq!(state.calculate_standing(&member), Some(1));
     }
 
     #[test]
@@ -653,7 +669,7 @@ mod property_tests {
             let member = MemberHash::from_bytes(&[1; 32]);
             state.members.insert(member);
 
-            // Add vouchers
+            // Add vouchers (using range 10-19 to avoid overlap with flaggers)
             let mut vouchers = HashSet::new();
             for i in 0..vouch_count {
                 vouchers.insert(MemberHash::from_bytes(&[10 + i as u8; 32]));
@@ -662,7 +678,7 @@ mod property_tests {
                 state.vouches.insert(member, vouchers);
             }
 
-            // Add flaggers
+            // Add flaggers (using range 100-109 to avoid overlap with vouchers)
             let mut flaggers = HashSet::new();
             for i in 0..flag_count {
                 flaggers.insert(MemberHash::from_bytes(&[100 + i as u8; 32]));
@@ -671,10 +687,159 @@ mod property_tests {
                 state.flags.insert(member, flaggers);
             }
 
+            // With no overlap: effective_vouches = vouch_count, regular_flags = flag_count
             let standing = state.calculate_standing(&member).unwrap();
-            let expected = vouch_count as i32 - (flag_count as i32 * 2);
+            let expected = vouch_count as i32 - flag_count as i32;
 
             prop_assert_eq!(standing, expected);
+        }
+
+        /// Property test: No 2-point swing when voucher flags
+        ///
+        /// This is the KEY REQUIREMENT: when someone who vouched for a member
+        /// then flags that member, they should be excluded from BOTH counts,
+        /// preventing a 2-point swing in standing.
+        #[test]
+        fn test_no_2point_swing_voucher_flags(
+            base_vouchers in 0u32..5,
+            base_flaggers in 0u32..5,
+            voucher_flaggers in 1u32..3,
+        ) {
+            let mut state = TrustNetworkState::new();
+            let member = MemberHash::from_bytes(&[1; 32]);
+            state.members.insert(member);
+
+            // Add some base vouchers (no overlap)
+            let mut vouchers = HashSet::new();
+            for i in 0..base_vouchers {
+                vouchers.insert(MemberHash::from_bytes(&[10 + i as u8; 32]));
+            }
+
+            // Add some base flaggers (no overlap)
+            let mut flaggers = HashSet::new();
+            for i in 0..base_flaggers {
+                flaggers.insert(MemberHash::from_bytes(&[100 + i as u8; 32]));
+            }
+
+            // Add voucher-flaggers (people who both vouched AND flagged)
+            for i in 0..voucher_flaggers {
+                let vf = MemberHash::from_bytes(&[200 + i as u8; 32]);
+                vouchers.insert(vf);
+                flaggers.insert(vf);
+            }
+
+            state.vouches.insert(member, vouchers.clone());
+            state.flags.insert(member, flaggers.clone());
+
+            // Calculate standing
+            let standing = state.calculate_standing(&member).unwrap();
+
+            // Expected: voucher-flaggers excluded from BOTH counts
+            let expected = base_vouchers as i32 - base_flaggers as i32;
+
+            prop_assert_eq!(
+                standing,
+                expected,
+                "Standing should exclude voucher-flaggers from both counts"
+            );
+        }
+
+        /// Property test: Vouch invalidation maintains correct standing
+        ///
+        /// When a voucher flags someone, their vouch should be invalidated.
+        /// This tests that the standing calculation handles this correctly.
+        #[test]
+        fn test_vouch_invalidation_standing(
+            vouchers in 2u32..10,
+            flaggers in 0u32..5,
+            invalidated in 1u32..3,
+        ) {
+            prop_assume!(invalidated <= vouchers.min(5));
+
+            let mut state = TrustNetworkState::new();
+            let member = MemberHash::from_bytes(&[1; 32]);
+            state.members.insert(member);
+
+            let mut voucher_set = HashSet::new();
+            let mut flagger_set = HashSet::new();
+
+            // Add vouchers
+            for i in 0..vouchers {
+                voucher_set.insert(MemberHash::from_bytes(&[10 + i as u8; 32]));
+            }
+
+            // Add non-voucher flaggers
+            for i in 0..flaggers {
+                flagger_set.insert(MemberHash::from_bytes(&[100 + i as u8; 32]));
+            }
+
+            // Invalidate some vouches by having those vouchers also flag
+            let vouchers_vec: Vec<_> = voucher_set.iter().cloned().collect();
+            for i in 0..invalidated {
+                if i < vouchers_vec.len() as u32 {
+                    flagger_set.insert(vouchers_vec[i as usize]);
+                }
+            }
+
+            state.vouches.insert(member, voucher_set);
+            state.flags.insert(member, flagger_set);
+
+            let standing = state.calculate_standing(&member).unwrap();
+
+            // Expected standing:
+            // effective_vouches = vouchers - invalidated
+            // regular_flags = flaggers (non-voucher flaggers only, since voucher-flaggers excluded)
+            let expected = (vouchers - invalidated) as i32 - flaggers as i32;
+
+            prop_assert_eq!(standing, expected);
+        }
+
+        /// Property test: Standing never decreases by more than 1 per flag
+        ///
+        /// A single flag should decrease standing by at most 1 (when the
+        /// flagger is not a voucher). If the flagger is a voucher, standing
+        /// decreases by 1 (vouch removed) not 2.
+        #[test]
+        fn test_single_flag_max_decrease(
+            initial_vouchers in 2u32..10,
+            is_voucher_flag in prop::bool::ANY,
+        ) {
+            let mut state_before = TrustNetworkState::new();
+            let member = MemberHash::from_bytes(&[1; 32]);
+            state_before.members.insert(member);
+
+            let mut vouchers = HashSet::new();
+            for i in 0..initial_vouchers {
+                vouchers.insert(MemberHash::from_bytes(&[10 + i as u8; 32]));
+            }
+            state_before.vouches.insert(member, vouchers.clone());
+
+            let standing_before = state_before.calculate_standing(&member).unwrap();
+
+            // Add a single flag
+            let mut state_after = state_before.clone();
+            let flagger = if is_voucher_flag {
+                // Use an existing voucher as the flagger
+                *vouchers.iter().next().unwrap()
+            } else {
+                // Use a new person as the flagger
+                MemberHash::from_bytes(&[100; 32])
+            };
+
+            state_after
+                .flags
+                .insert(member, [flagger].into_iter().collect());
+
+            let standing_after = state_after.calculate_standing(&member).unwrap();
+            let decrease = standing_before - standing_after;
+
+            if is_voucher_flag {
+                // Voucher flags: standing decreases by 1 (vouch excluded, flag excluded = net -1)
+                prop_assert_eq!(decrease, 1);
+            } else {
+                // Non-voucher flags: standing decreases by 1 (just adds to regular_flags)
+                prop_assert_eq!(decrease, 1);
+            }
         }
     }
 }

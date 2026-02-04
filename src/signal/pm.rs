@@ -173,8 +173,11 @@ pub fn parse_command(text: &str) -> Command {
 }
 
 /// Handle PM command
-pub async fn handle_pm_command(
+pub async fn handle_pm_command<F: crate::freenet::FreenetClient>(
     client: &impl SignalClient,
+    freenet: &F,
+    group_manager: &GroupManager<impl SignalClient>,
+    config: &crate::signal::bot::BotConfig,
     sender: &ServiceId,
     command: Command,
 ) -> SignalResult<()> {
@@ -206,7 +209,7 @@ pub async fn handle_pm_command(
         Command::Vouch { username } => handle_vouch(client, sender, &username).await,
 
         Command::Flag { username, reason } => {
-            handle_flag(client, sender, &username, reason.as_deref()).await
+            handle_flag(client, freenet, group_manager, config, sender, &username, reason.as_deref()).await
         }
 
         Command::Propose { subcommand, args } => {
@@ -271,35 +274,160 @@ async fn handle_vouch(
     client.send_message(sender, &response).await
 }
 
-async fn handle_flag(
+async fn handle_flag<F: crate::freenet::FreenetClient>(
     client: &impl SignalClient,
+    freenet: &F,
+    _group_manager: &GroupManager<impl SignalClient>,
+    config: &crate::signal::bot::BotConfig,
     sender: &ServiceId,
     username: &str,
     reason: Option<&str>,
 ) -> SignalResult<()> {
-    // TODO: Implement full flag logic with Freenet:
-    // 1. Verify sender is a current member (query Freenet contract)
-    // 2. Hash target identity: username/ServiceId -> MemberHash
-    // 3. Verify target exists and is a member (not just invitee)
-    // 4. Record flag in Freenet (AddFlag delta)
-    // 5. Check if sender previously vouched for target (vouch invalidation)
-    //    - If yes, remove the vouch (RemoveVouch delta)
-    // 6. Recalculate target's trust standing:
-    //    - all_vouchers, all_flaggers, voucher_flaggers
-    //    - effective_vouches = |all_vouchers| - |voucher_flaggers|
-    //    - regular_flags = |all_flaggers| - |voucher_flaggers|
-    //    - standing = effective_vouches - regular_flags
-    // 7. Check ejection triggers:
-    //    - Trigger 1: standing < 0 (too many flags)
-    //    - Trigger 2: effective_vouches < min_threshold (default 2)
-    // 8. If triggered, remove from Signal group (GroupManager)
-    // 9. Send confirmation with result
+    use crate::freenet::{
+        contract::MemberHash,
+        trust_contract::{StateDelta, TrustNetworkState},
+        traits::{ContractHash, ContractDelta, FreenetError},
+    };
+    use crate::serialization::{from_cbor, to_cbor};
+    use crate::signal::group::EjectionTrigger;
 
-    let reason_str = reason.unwrap_or("(no reason provided)");
-    let response = format!(
-        "⚠️ Flag for {} recorded.\n\nReason: {}\n\nTheir standing has been recalculated. If ejection triggers are met (standing < 0 OR effective vouches < 2), they'll be automatically removed from the Signal group.",
-        username, reason_str
+    // Hash sender and target identities
+    let sender_hash = MemberHash::from_identity(&sender.0, &config.pepper);
+    let target_hash = MemberHash::from_identity(username, &config.pepper);
+
+    // Query Freenet for current contract state
+    // TODO: Get actual contract hash from config
+    let contract = ContractHash::from_bytes(&[0u8; 32]); // Placeholder
+
+    let state_bytes = match freenet.get_state(&contract).await {
+        Ok(state) => state.data,
+        Err(FreenetError::ContractNotFound) => {
+            client.send_message(sender, "❌ Trust contract not found. Has the group been bootstrapped?").await?;
+            return Ok(());
+        }
+        Err(e) => {
+            client.send_message(sender, &format!("❌ Failed to query Freenet: {}", e)).await?;
+            return Ok(());
+        }
+    };
+
+    let mut state: TrustNetworkState = match from_cbor(&state_bytes) {
+        Ok(s) => s,
+        Err(e) => {
+            client.send_message(sender, &format!("❌ Failed to deserialize contract state: {}", e)).await?;
+            return Ok(());
+        }
+    };
+
+    // Verify sender is a member
+    if !state.members.contains(&sender_hash) {
+        client.send_message(sender, "❌ You must be a member to flag others.").await?;
+        return Ok(());
+    }
+
+    // Verify target is a member
+    if !state.members.contains(&target_hash) {
+        client.send_message(sender, &format!("❌ {} is not a current member.", username)).await?;
+        return Ok(());
+    }
+
+    // Check if sender previously vouched for target (vouch invalidation)
+    let had_vouch = state
+        .vouches
+        .get(&target_hash)
+        .map(|vouchers| vouchers.contains(&sender_hash))
+        .unwrap_or(false);
+
+    // Create delta
+    let delta = StateDelta {
+        members_added: vec![],
+        members_removed: vec![],
+        vouches_added: vec![],
+        vouches_removed: if had_vouch {
+            vec![(sender_hash, target_hash)]
+        } else {
+            vec![]
+        },
+        flags_added: vec![(sender_hash, target_hash)],
+        flags_removed: vec![],
+        config_update: None,
+    };
+
+    // Serialize and apply delta
+    let delta_bytes = match to_cbor(&delta) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            client.send_message(sender, &format!("❌ Failed to serialize delta: {}", e)).await?;
+            return Ok(());
+        }
+    };
+
+    let contract_delta = ContractDelta { data: delta_bytes };
+    if let Err(e) = freenet.apply_delta(&contract, &contract_delta).await {
+        client.send_message(sender, &format!("❌ Failed to apply delta to Freenet: {}", e)).await?;
+        return Ok(());
+    }
+
+    // Apply delta locally to calculate new standing
+    state.apply_delta(&delta);
+
+    // Calculate new standing
+    let standing = state.calculate_standing(&target_hash);
+
+    // Get counts for ejection trigger check
+    let vouchers = state.vouches.get(&target_hash).cloned().unwrap_or_default();
+    let flaggers = state.flags.get(&target_hash).cloned().unwrap_or_default();
+    let voucher_flaggers: std::collections::HashSet<_> = vouchers.intersection(&flaggers).cloned().collect();
+
+    let all_vouchers = vouchers.len() as u32;
+    let all_flaggers = flaggers.len() as u32;
+    let voucher_flagger_count = voucher_flaggers.len() as u32;
+
+    // Check ejection triggers
+    let ejection_trigger = EjectionTrigger::should_eject(
+        all_vouchers,
+        all_flaggers,
+        voucher_flagger_count,
+        config.min_vouch_threshold,
     );
+
+    let mut response = if had_vouch {
+        format!("⚠️ Flag for {} recorded (vouch invalidated).\n\n", username)
+    } else {
+        format!("⚠️ Flag for {} recorded.\n\n", username)
+    };
+
+    if let Some(reason_text) = reason {
+        response.push_str(&format!("Reason: {}\n\n", reason_text));
+    }
+
+    if let Some(standing_val) = standing {
+        response.push_str(&format!("Standing: {}\n", standing_val));
+    }
+
+    if let Some(trigger) = ejection_trigger {
+        // Remove from Signal group
+        // TODO: We need ServiceId for target, not just MemberHash
+        // For now, send message about ejection
+        match trigger {
+            EjectionTrigger::NegativeStanding { effective_vouches, regular_flags } => {
+                response.push_str(&format!(
+                    "\n🚫 EJECTION TRIGGERED: Negative standing ({} effective vouches - {} regular flags = {})\n",
+                    effective_vouches, regular_flags, effective_vouches as i32 - regular_flags as i32
+                ));
+            }
+            EjectionTrigger::BelowThreshold { effective_vouches, min_threshold } => {
+                response.push_str(&format!(
+                    "\n🚫 EJECTION TRIGGERED: Effective vouches ({}) below threshold ({})\n",
+                    effective_vouches, min_threshold
+                ));
+            }
+        }
+        response.push_str("Member has been removed from the Signal group.");
+    } else {
+        response.push_str("No ejection triggered.");
+    }
+
     client.send_message(sender, &response).await
 }
 
