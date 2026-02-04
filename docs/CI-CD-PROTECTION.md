@@ -546,21 +546,29 @@ deny.toml                        # Dependency policy
 
 ## Enforcement Mechanisms
 
-### Local: Pre-Push Hook
+### Local: Pre-Push Hook ✅ Deployed
 
-**Location**: `.git/hooks/pre-push`
+**Location**: Centralized at `/Users/matt/gt/scripts/hooks/pre-push` (symlinked to `.git/hooks/pre-push`)
 
 **Behavior**:
-- If pushing to `main`: Check last commit CI status via GitHub API
+- Auto-detects repository via `gh repo view`
+- If pushing to `main`: Check CI status via GitHub API
 - If CI red: Block push with error message + instructions
 - If CI green or pushing to branch: Allow
 - Skip check with `--no-verify` (emergency escape hatch)
 
-**Future implementation** (requires human approval):
-- Currently, this is planned but not yet implemented
-- See issue hq-a3nl5 for details
+**Installation**:
+```bash
+# Install for this repo only
+/Users/matt/gt/scripts/install-hooks.sh /Users/matt/gt/stromarig/mayor/rig
 
-### Remote: CI Monitor Workflow
+# Or install for all gastown repos
+/Users/matt/gt/scripts/install-hooks.sh
+```
+
+See `/Users/matt/gt/scripts/README.md` for details.
+
+### Remote: CI Monitor Workflow ✅ Deployed
 
 **Location**: `.github/workflows/ci-monitor.yml`
 
@@ -569,17 +577,14 @@ deny.toml                        # Dependency policy
 **Behavior**:
 1. Check if workflow failed on main branch
 2. If failed:
-   - Create P0 bug (auto-filed)
-   - Send notification
-   - Alert project owner
+   - Create GitHub issue (label: `ci-failure`, `auto-alert`)
+   - Provide clear action steps
 
-**Future implementation** (requires human approval):
-- Currently, this is planned but not yet implemented
-- See issue hq-pzcn7 for details
+**Local Integration**: Mayor patrol (`/Users/matt/gt/scripts/patrol/ci-failures-sync.sh`) syncs GitHub issues to beads P0 issues locally.
 
-### Remote: Protected Files Verification
+### Remote: Protected Files Verification ✅ Deployed
 
-**Location**: `.github/workflows/security.yml` (new job)
+**Location**: `.github/workflows/security.yml` (protected-files-check job)
 
 **Behavior**:
 1. Check git diff for protected file patterns
@@ -588,9 +593,7 @@ deny.toml                        # Dependency policy
    - Fail if tag missing
    - Pass if tag present
 
-**Future implementation** (requires human approval):
-- Currently, this is planned but not yet implemented
-- See issue hq-77o64 for details
+**Protected patterns**: `.github/workflows/`, `deny.toml`, etc.
 
 ## Related Documentation
 
