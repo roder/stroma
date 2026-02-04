@@ -27,12 +27,12 @@
 //! - Design: docs/PERSISTENCE.md § Distribution
 //! - Agent: Agent-Freenet
 
+use super::chunk_storage::{ChunkStorage, StorageError};
 use super::chunks::{encrypt_and_chunk, ChunkError};
 use super::health::ReplicationHealth;
 use super::registry::PersistenceRegistry;
 use super::rendezvous::compute_chunk_holders;
 use super::write_blocking::WriteBlockingManager;
-use super::chunk_storage::{ChunkStorage, StorageError};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -293,7 +293,8 @@ impl<S: ChunkStorage> ChunkDistributor<S> {
                     Ok(_) => {
                         // Record attestation
                         self.health.record_attestation(chunk.index, holder, true);
-                        self.write_blocking.update_chunk_status(chunk.index, (successful_holders + 1) as u8 + 1); // +1 for local
+                        self.write_blocking
+                            .update_chunk_status(chunk.index, (successful_holders + 1) as u8 + 1); // +1 for local
                         successful_holders += 1;
                     }
                     Err(e) => {
@@ -489,7 +490,10 @@ mod tests {
         };
 
         let aci_key = test_aci_key();
-        let result = distributor.distribute(state, &aci_key, &registry).await.unwrap();
+        let result = distributor
+            .distribute(state, &aci_key, &registry)
+            .await
+            .unwrap();
 
         assert!(result.chunks_distributed > 0);
         assert_eq!(result.failed, 0);
@@ -542,7 +546,10 @@ mod tests {
         };
 
         let aci_key = test_aci_key();
-        let result = distributor.distribute(state, &aci_key, &registry).await.unwrap();
+        let result = distributor
+            .distribute(state, &aci_key, &registry)
+            .await
+            .unwrap();
 
         // Should have some partial replication due to holder-a failures
         assert!(result.chunks_distributed > 0);
@@ -563,7 +570,10 @@ mod tests {
         };
 
         let aci_key = test_aci_key();
-        distributor.distribute(state, &aci_key, &registry).await.unwrap();
+        distributor
+            .distribute(state, &aci_key, &registry)
+            .await
+            .unwrap();
 
         // After successful distribution, writes should be allowed
         assert!(distributor.allows_writes());
