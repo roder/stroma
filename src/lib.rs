@@ -13,6 +13,7 @@
 pub mod crypto;
 pub mod federation;
 pub mod freenet;
+pub mod gatekeeper;
 pub mod identity;
 pub mod persistence;
 pub mod serialization;
