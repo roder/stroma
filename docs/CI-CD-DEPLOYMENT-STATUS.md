@@ -32,8 +32,11 @@ All three core enforcement mechanisms are **live and operational** in production
 
 **Installation across gastown**:
 ```bash
-# Already installed via:
+# Already installed via (bash):
 /Users/matt/gt/scripts/install-hooks.sh
+
+# Or fish shell:
+fish /Users/matt/gt/scripts/install-hooks.fish
 
 # Installed in 3 repositories:
 # - /Users/matt/gt/stromarig/crew/matt
@@ -251,8 +254,11 @@ bd list --priority=0 --label=ci-failure --status=open
 
 **Add new repository to gastown**:
 ```bash
-# Hooks install automatically on next run:
+# Hooks install automatically on next run (bash):
 /Users/matt/gt/scripts/install-hooks.sh
+
+# Or fish shell:
+fish /Users/matt/gt/scripts/install-hooks.fish
 
 # Or install manually:
 ln -s /Users/matt/gt/scripts/hooks/pre-push <repo>/.git/hooks/pre-push

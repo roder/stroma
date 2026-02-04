@@ -559,11 +559,15 @@ deny.toml                        # Dependency policy
 
 **Installation**:
 ```bash
-# Install for this repo only
+# Install for this repo only (bash)
 /Users/matt/gt/scripts/install-hooks.sh /Users/matt/gt/stromarig/mayor/rig
 
-# Or install for all gastown repos
+# Or install for all gastown repos (bash)
 /Users/matt/gt/scripts/install-hooks.sh
+
+# Fish shell users:
+fish /Users/matt/gt/scripts/install-hooks.fish /Users/matt/gt/stromarig/mayor/rig  # Single repo
+fish /Users/matt/gt/scripts/install-hooks.fish                                     # All repos
 ```
 
 See `/Users/matt/gt/scripts/README.md` for details.
