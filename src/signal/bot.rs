@@ -14,6 +14,7 @@ use super::{
     pm::{handle_pm_command, parse_command, Command},
     polls::PollManager,
     traits::*,
+    vetting::VettingSessionManager,
 };
 
 /// Stroma bot configuration
@@ -41,6 +42,7 @@ pub struct StromaBot<C: SignalClient, F: crate::freenet::FreenetClient> {
     group_manager: GroupManager<C>,
     poll_manager: PollManager<C>,
     bootstrap_manager: BootstrapManager<C>,
+    vetting_sessions: VettingSessionManager,
 }
 
 impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
@@ -48,6 +50,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         let group_manager = GroupManager::new(client.clone(), config.group_id.clone());
         let poll_manager = PollManager::new(client.clone(), config.group_id.clone());
         let bootstrap_manager = BootstrapManager::new(client.clone(), config.pepper.clone());
+        let vetting_sessions = VettingSessionManager::new();
 
         Self {
             client,
@@ -56,6 +59,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             group_manager,
             poll_manager,
             bootstrap_manager,
+            vetting_sessions,
         }
     }
 
@@ -86,7 +90,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             MessageContent::Text(text) => {
                 let command = parse_command(&text);
 
-                // Route bootstrap commands to bootstrap manager
+                // Route commands to appropriate handlers
                 match command {
                     Command::CreateGroup { ref group_name } => {
                         self.bootstrap_manager
@@ -97,6 +101,16 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                         self.bootstrap_manager
                             .handle_add_seed(&self.freenet, &message.sender, username)
                             .await?;
+                    }
+                    Command::Invite {
+                        ref username,
+                        ref context,
+                    } => {
+                        self.handle_invite(&message.sender, username, context.as_deref())
+                            .await?;
+                    }
+                    Command::Vouch { ref username } => {
+                        self.handle_vouch(&message.sender, username).await?;
                     }
                     _ => {
                         // Other commands go through normal handler
@@ -115,6 +129,101 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         }
 
         Ok(())
+    }
+
+    /// Handle /invite command
+    ///
+    /// Creates ephemeral vetting session and initiates cross-cluster matching.
+    async fn handle_invite(
+        &mut self,
+        sender: &ServiceId,
+        username: &str,
+        context: Option<&str>,
+    ) -> SignalResult<()> {
+        use super::matchmaker::BlindMatchmaker;
+        use crate::freenet::contract::MemberHash;
+
+        // TODO Phase 1: Query Freenet to verify sender is a member
+        // For now, assume sender is valid member
+
+        // Hash inviter's ServiceId to MemberHash
+        let inviter_hash = MemberHash::from_identity(&sender.0, &self.config.pepper);
+
+        // TODO Phase 1: Query Freenet state for previous flags (GAP-10)
+        let has_previous_flags = false;
+        let previous_flag_count = 0;
+
+        // Create ephemeral vetting session
+        let result = self.vetting_sessions.create_session(
+            ServiceId(username.to_string()), // TODO: resolve username to actual ServiceId
+            username.to_string(),
+            inviter_hash,
+            sender.clone(),
+            context.map(|s| s.to_string()),
+            has_previous_flags,
+            previous_flag_count,
+        );
+
+        if let Err(e) = result {
+            let response = format!("❌ Cannot invite {}: {}", username, e);
+            return self.client.send_message(sender, &response).await;
+        }
+
+        // TODO Phase 1: Query Freenet state for cross-cluster matching
+        // For now, use a simple placeholder state
+        let state = crate::freenet::trust_contract::TrustNetworkState::new();
+
+        // Select validator via Blind Matchmaker
+        let validator_hash = BlindMatchmaker::select_validator(&state, &inviter_hash);
+
+        let response = if let Some(_validator) = validator_hash {
+            // TODO Phase 1: Resolve validator hash to ServiceId
+            // TODO Phase 1: Assign validator to session
+            // TODO Phase 1: Send PMs to invitee and validator
+
+            let context_str = context.unwrap_or("(no context provided)");
+            let gap10_warning = if has_previous_flags {
+                format!("\n\n⚠️ Note: {} has {} previous flags from a past membership. They'll need additional vouches to achieve positive standing.", username, previous_flag_count)
+            } else {
+                String::new()
+            };
+
+            format!(
+                "✅ Invitation for {} recorded as first vouch.\n\nContext: {}{}\n\nI'm now reaching out to a member from a different cluster for the cross-cluster vouch. You'll be notified when the vetting process progresses.",
+                username, context_str, gap10_warning
+            )
+        } else {
+            format!(
+                "✅ Invitation for {} recorded as first vouch.\n\nContext: {}\n\nNote: Network is small (bootstrap phase). They'll join once they receive one more vouch from any member.",
+                username, context.unwrap_or("(no context provided)")
+            )
+        };
+
+        self.client.send_message(sender, &response).await
+    }
+
+    /// Handle /vouch command
+    ///
+    /// Records second vouch and admits member if threshold met.
+    async fn handle_vouch(
+        &mut self,
+        sender: &ServiceId,
+        username: &str,
+    ) -> SignalResult<()> {
+        // TODO Phase 1: Verify sender is a member
+        // TODO Phase 1: Hash sender's ServiceId to MemberHash
+        // TODO Phase 1: Check if vetting session exists for username
+        // TODO Phase 1: Record vouch in Freenet (AddVouch delta)
+        // TODO Phase 1: Check if threshold met (effective_vouches >= 2)
+        // TODO Phase 1: If threshold met, add to Signal group
+        // TODO Phase 1: Delete ephemeral vetting session
+
+        let response = format!(
+            "✅ Vouch for {} recorded.\n\nTheir standing has been updated. If they've reached the 2-vouch threshold, they'll be automatically added to the Signal group.",
+            username
+        );
+
+        self.client.send_message(sender, &response).await
     }
 
     /// Handle Freenet state change

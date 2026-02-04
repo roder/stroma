@@ -94,9 +94,10 @@ impl BlindMatchmaker {
         // Check voucher set overlap
         let overlap: HashSet<_> = vouchers1.intersection(&vouchers2).collect();
 
-        // If more than 50% overlap, likely same cluster
+        // If ALL vouchers overlap AND both have 2+ vouchers, likely same cluster
+        // Single shared voucher in small network is acceptable (bootstrap scenario)
         let min_size = vouchers1.len().min(vouchers2.len());
-        if min_size > 0 && overlap.len() * 2 > min_size {
+        if min_size >= 2 && overlap.len() == min_size {
             return false;
         }
 
