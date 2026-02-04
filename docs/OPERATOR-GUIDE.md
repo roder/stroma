@@ -1146,6 +1146,90 @@ sudo systemctl restart stroma
 - ⚠️ Persistence network must have your fragments (other bots hold them)
 - ❌ Without Signal store backup, you CANNOT decrypt your fragments
 
+### Crash Recovery (Automatic)
+
+**Scenario**: Bot crashes or restarts, loses all in-memory state
+
+**What Happens Automatically:**
+The bot implements **automatic crash recovery** via the Reciprocal Persistence Network:
+
+1. **On startup**, bot detects it has no local state
+2. **Queries registry** to discover which bots hold its fragments
+3. **Fetches all chunks** from holders (tries primary, falls back to secondary if unavailable)
+4. **Reassembles and decrypts** state using ACI key from Signal protocol store
+5. **Verifies signatures** to ensure data integrity
+6. **Resumes normal operation** with full trust map intact
+
+**Recovery Flow:**
+```
+Bot crashes → Loses all state in RAM
+           ↓
+Bot restarts → "Where's my state?"
+           ↓
+Query registry → "5 bots exist, I have 8 chunks"
+           ↓
+Compute holders → Chunk[0] held by bot-A and bot-B
+           ↓
+Fetch chunks → Try bot-A (success) ✅
+           ↓
+Decrypt → Use ACI key from Signal store
+           ↓
+Verify → HMAC signature valid ✅
+           ↓
+Recovered! → Full trust map restored
+```
+
+**Expected Recovery Time:**
+- **Small state** (<100KB): <1 second
+- **Medium state** (500KB): 1-3 seconds
+- **Large state** (5MB): 5-10 seconds
+
+**Fallback Behavior:**
+If primary holder unavailable:
+```
+Try holder-A → Network error ❌
+Try holder-B → Success ✅
+```
+
+Recovery succeeds if **any 1 of 2 replicas** is available for each chunk.
+
+**Monitoring Recovery:**
+```bash
+# Watch recovery in real-time
+journalctl -u stroma -f | grep -i recovery
+
+# Expected output:
+# Feb 03 16:42:10 stroma[1234]: INFO persistence::recovery: Starting state recovery
+# Feb 03 16:42:10 stroma[1234]: INFO persistence::recovery: Fetched registry: 5 bots, epoch=3
+# Feb 03 16:42:10 stroma[1234]: INFO persistence::recovery: Recovering 8 chunks...
+# Feb 03 16:42:11 stroma[1234]: INFO persistence::recovery: Chunk 0/8 recovered
+# Feb 03 16:42:11 stroma[1234]: INFO persistence::recovery: Chunk 1/8 recovered
+# ...
+# Feb 03 16:42:12 stroma[1234]: INFO persistence::recovery: Recovery complete: 8/8 chunks, 958ms
+```
+
+**When Recovery Fails:**
+
+| Error | Cause | Action |
+|-------|-------|--------|
+| `ChunkFetchFailed` | All holders for a chunk are down | Wait and retry |
+| `DecryptionFailed` | Wrong ACI key | Restore correct Signal store backup |
+| `SignatureVerificationFailed` | Chunk tampered or corrupted | Contact holder to re-send chunk |
+| `OwnerNotInRegistry` | Bot never registered | Check bot initialization |
+| `InsufficientReplicas` | Network has <3 bots | Wait for more bots to join |
+
+**Verifying Recovery Success:**
+```bash
+# Check bot is operational
+stroma health
+
+# Expected output:
+# Status: ACTIVE
+# Trust map: 47 members
+# Last state update: 2 hours ago
+# Replication health: 🟢 Replicated
+```
+
 ### Embedded Kernel Data Loss
 
 **Symptoms:**
@@ -1174,9 +1258,10 @@ sudo systemctl start stroma
 
 **Process:**
 1. Bot starts with fresh Freenet kernel
-2. Bot fetches encrypted fragments from other bots in persistence network
-3. Bot decrypts using ACI identity from Signal store
-4. Trust state fully recovered
+2. Bot automatically triggers crash recovery (see above)
+3. Bot fetches encrypted fragments from other bots in persistence network
+4. Bot decrypts using ACI identity from Signal store
+5. Trust state fully recovered
 
 **CRITICAL**: This only works if you have your Signal protocol store (contains ACI key for decryption).
 
