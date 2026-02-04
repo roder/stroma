@@ -5,6 +5,10 @@
 
 pub mod health;
 pub mod registry;
+pub mod write_blocking;
 
 pub use health::{HealthStatus, ReplicationHealth};
 pub use registry::{PersistenceRegistry, RegistryEntry, SizeBucket};
+pub use write_blocking::{
+    ChunkReplicationStatus, ReplicationHealth, WriteBlockingManager, WriteBlockingState,
+};
