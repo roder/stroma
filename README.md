@@ -1,5 +1,7 @@
 # Stroma
 
+> **⚠️ EARLY DEVELOPMENT**: This project is currently in exploratory development and is not functional. Do not use in production.
+
 **Signal groups where trust is verified by many, exposed to none.**
 
 ## Mission
