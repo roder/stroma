@@ -25,6 +25,6 @@ pub mod verifier;
 mod proptests;
 
 pub use circuit::VouchAir;
-pub use prover::prove_vouch_claim;
+pub use prover::{generate_vouch_proof, prove_vouch_claim};
 pub use types::{VouchClaim, VouchProof};
 pub use verifier::verify_vouch_proof;

@@ -271,6 +271,53 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             self.config.min_vouch_threshold,
         )
     }
+
+    /// Verify admission with ZK-proof
+    ///
+    /// Generates and verifies a STARK proof of vouch verification before admission.
+    /// This ensures the member meets the 2-vouch requirement (cross-cluster during
+    /// normal operation, suspended during bootstrap).
+    ///
+    /// # Returns
+    /// - Ok(()) if proof is valid and member can be admitted
+    /// - Err() if proof generation fails or verification fails
+    pub fn verify_admission_proof(
+        &self,
+        member_hash: crate::stark::types::MemberHash,
+        vouchers: std::collections::BTreeSet<crate::stark::types::MemberHash>,
+        flaggers: std::collections::BTreeSet<crate::stark::types::MemberHash>,
+    ) -> Result<(), String> {
+        use crate::stark::{generate_vouch_proof, verify_vouch_proof, VouchClaim};
+
+        // Build claim from vouch data
+        let claim = VouchClaim::new(member_hash, vouchers, flaggers);
+
+        // Verify claim meets minimum threshold
+        if claim.effective_vouches < self.config.min_vouch_threshold as usize {
+            return Err(format!(
+                "Insufficient vouches: {} (required: {})",
+                claim.effective_vouches, self.config.min_vouch_threshold
+            ));
+        }
+
+        // Verify standing is non-negative
+        if claim.standing < 0 {
+            return Err(format!(
+                "Negative standing: {} (too many flags)",
+                claim.standing
+            ));
+        }
+
+        // Generate ZK-proof
+        let proof = generate_vouch_proof(&claim)
+            .map_err(|e| format!("Proof generation failed: {}", e))?;
+
+        // Verify ZK-proof
+        verify_vouch_proof(&proof).map_err(|e| format!("Proof verification failed: {}", e))?;
+
+        // Proof is valid - admission criteria met
+        Ok(())
+    }
 }
 
 /// Freenet state changes (from real-time stream)
@@ -466,5 +513,117 @@ mod tests {
         assert!(session.is_some());
         assert!(session.unwrap().has_previous_flags);
         assert_eq!(session.unwrap().previous_flag_count, 3);
+    }
+
+    #[test]
+    fn test_verify_admission_proof_valid() {
+        use crate::stark::types::MemberHash;
+        use std::collections::BTreeSet;
+
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
+        let config = BotConfig {
+            group_id: GroupId(vec![1, 2, 3]),
+            min_vouch_threshold: 2,
+            pepper: b"test-pepper".to_vec(),
+        };
+        let bot = StromaBot::new(client, freenet, config);
+
+        // Create test member and vouchers
+        let member = MemberHash([1; 32]);
+        let voucher1 = MemberHash([2; 32]);
+        let voucher2 = MemberHash([3; 32]);
+        let vouchers: BTreeSet<_> = [voucher1, voucher2].into_iter().collect();
+        let flaggers: BTreeSet<_> = BTreeSet::new();
+
+        // Verify admission proof
+        let result = bot.verify_admission_proof(member, vouchers, flaggers);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_verify_admission_proof_insufficient_vouches() {
+        use crate::stark::types::MemberHash;
+        use std::collections::BTreeSet;
+
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
+        let config = BotConfig {
+            group_id: GroupId(vec![1, 2, 3]),
+            min_vouch_threshold: 2,
+            pepper: b"test-pepper".to_vec(),
+        };
+        let bot = StromaBot::new(client, freenet, config);
+
+        // Create test member with only 1 voucher
+        let member = MemberHash([1; 32]);
+        let voucher1 = MemberHash([2; 32]);
+        let vouchers: BTreeSet<_> = [voucher1].into_iter().collect();
+        let flaggers: BTreeSet<_> = BTreeSet::new();
+
+        // Verify admission proof fails
+        let result = bot.verify_admission_proof(member, vouchers, flaggers);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Insufficient vouches"));
+    }
+
+    #[test]
+    fn test_verify_admission_proof_negative_standing() {
+        use crate::stark::types::MemberHash;
+        use std::collections::BTreeSet;
+
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
+        let config = BotConfig {
+            group_id: GroupId(vec![1, 2, 3]),
+            min_vouch_threshold: 2,
+            pepper: b"test-pepper".to_vec(),
+        };
+        let bot = StromaBot::new(client, freenet, config);
+
+        // Create test member with vouchers but more flags
+        let member = MemberHash([1; 32]);
+        let voucher1 = MemberHash([2; 32]);
+        let voucher2 = MemberHash([3; 32]);
+        let vouchers: BTreeSet<_> = [voucher1, voucher2].into_iter().collect();
+        let flagger1 = MemberHash([4; 32]);
+        let flagger2 = MemberHash([5; 32]);
+        let flagger3 = MemberHash([6; 32]);
+        let flaggers: BTreeSet<_> = [flagger1, flagger2, flagger3].into_iter().collect();
+
+        // Verify admission proof fails due to negative standing
+        let result = bot.verify_admission_proof(member, vouchers, flaggers);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Negative standing"));
+    }
+
+    #[test]
+    fn test_verify_admission_proof_with_voucher_flaggers() {
+        use crate::stark::types::MemberHash;
+        use std::collections::BTreeSet;
+
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
+        let config = BotConfig {
+            group_id: GroupId(vec![1, 2, 3]),
+            min_vouch_threshold: 2,
+            pepper: b"test-pepper".to_vec(),
+        };
+        let bot = StromaBot::new(client, freenet, config);
+
+        // Create test member where one voucher also flagged (overlap)
+        let member = MemberHash([1; 32]);
+        let voucher1 = MemberHash([2; 32]);
+        let voucher2 = MemberHash([3; 32]);
+        let voucher3 = MemberHash([4; 32]);
+        let vouchers: BTreeSet<_> = [voucher1, voucher2, voucher3].into_iter().collect();
+        // voucher2 also flags (creates overlap)
+        let flaggers: BTreeSet<_> = [voucher2].into_iter().collect();
+
+        // effective_vouches = 3 - 1 = 2 (meets threshold)
+        // regular_flags = 1 - 1 = 0
+        // standing = 2 - 0 = 2 (positive)
+        let result = bot.verify_admission_proof(member, vouchers, flaggers);
+        assert!(result.is_ok());
     }
 }

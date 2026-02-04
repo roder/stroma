@@ -140,6 +140,16 @@ fn generate_proof_bytes(claim: &VouchClaim, trace: &[[BaseElement; TRACE_WIDTH]]
     proof
 }
 
+/// Generate a vouch proof (alias for prove_vouch_claim)
+///
+/// This function name matches the bead specification requirement.
+/// # Performance Requirements
+/// - Generation time: < 10 seconds
+/// - Proof size: < 100KB
+pub fn generate_vouch_proof(claim: &VouchClaim) -> Result<VouchProof, String> {
+    prove_vouch_claim(claim)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
