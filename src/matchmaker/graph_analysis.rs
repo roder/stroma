@@ -61,10 +61,7 @@ impl TrustGraph {
 
     /// Get all vouchers for a member
     pub fn get_vouchers(&self, member: &MemberHash) -> HashSet<MemberHash> {
-        self.vouches
-            .get(member)
-            .cloned()
-            .unwrap_or_default()
+        self.vouches.get(member).cloned().unwrap_or_default()
     }
 
     /// Check if two members are in the same cluster
@@ -98,7 +95,8 @@ impl TrustGraph {
     /// Calculate centrality score (simple degree centrality)
     pub fn centrality(&self, member: &MemberHash) -> usize {
         let in_degree = self.effective_vouches(member);
-        let out_degree = self.reverse_vouches
+        let out_degree = self
+            .reverse_vouches
             .get(member)
             .map(|vouchees| vouchees.len())
             .unwrap_or(0);
@@ -253,10 +251,7 @@ fn connected_components(
     }
 
     // Find with path compression
-    fn find(
-        x: MemberHash,
-        parent: &mut HashMap<MemberHash, MemberHash>,
-    ) -> MemberHash {
+    fn find(x: MemberHash, parent: &mut HashMap<MemberHash, MemberHash>) -> MemberHash {
         let p = *parent.get(&x).unwrap();
         if p != x {
             let root = find(p, parent);

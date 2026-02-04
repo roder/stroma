@@ -122,9 +122,8 @@ pub fn encrypt_and_chunk(
 
     // Generate random nonce for this encryption session
     let nonce_bytes = generate_nonce();
-    let nonce = Nonce::try_assume_unique_for_key(&nonce_bytes).map_err(|_| {
-        ChunkError::EncryptionFailed("Failed to create nonce".to_string())
-    })?;
+    let nonce = Nonce::try_assume_unique_for_key(&nonce_bytes)
+        .map_err(|_| ChunkError::EncryptionFailed("Failed to create nonce".to_string()))?;
 
     // Encrypt the full state
     let unbound_key = UnboundKey::new(&AES_256_GCM, &encryption_key)
@@ -217,8 +216,13 @@ pub fn decrypt_and_reassemble(chunks: &[Chunk], aci_key: &[u8]) -> Result<Vec<u8
 
     // Verify signature on each chunk
     for chunk in &sorted_chunks {
-        if !verify_chunk_signature(owner, chunk.index, &chunk.data, &chunk.signature, &signing_key)
-        {
+        if !verify_chunk_signature(
+            owner,
+            chunk.index,
+            &chunk.data,
+            &chunk.signature,
+            &signing_key,
+        ) {
             return Err(ChunkError::SignatureVerificationFailed);
         }
     }
@@ -433,7 +437,10 @@ mod tests {
 
         // Should fail signature verification
         let result = decrypt_and_reassemble(&chunks, &aci_key);
-        assert!(matches!(result, Err(ChunkError::SignatureVerificationFailed)));
+        assert!(matches!(
+            result,
+            Err(ChunkError::SignatureVerificationFailed)
+        ));
     }
 
     #[test]

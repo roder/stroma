@@ -42,9 +42,7 @@ pub enum Command {
     Status { username: Option<String> },
 
     /// View network overview
-    Mesh {
-        subcommand: Option<String>,
-    },
+    Mesh { subcommand: Option<String> },
 
     /// Audit operator actions
     Audit { subcommand: String },
@@ -209,7 +207,16 @@ pub async fn handle_pm_command<F: crate::freenet::FreenetClient>(
         Command::Vouch { username } => handle_vouch(client, sender, &username).await,
 
         Command::Flag { username, reason } => {
-            handle_flag(client, freenet, group_manager, config, sender, &username, reason.as_deref()).await
+            handle_flag(
+                client,
+                freenet,
+                group_manager,
+                config,
+                sender,
+                &username,
+                reason.as_deref(),
+            )
+            .await
         }
 
         Command::Propose { subcommand, args } => {
@@ -285,8 +292,8 @@ async fn handle_flag<F: crate::freenet::FreenetClient>(
 ) -> SignalResult<()> {
     use crate::freenet::{
         contract::MemberHash,
+        traits::{ContractDelta, ContractHash, FreenetError},
         trust_contract::{StateDelta, TrustNetworkState},
-        traits::{ContractHash, ContractDelta, FreenetError},
     };
     use crate::serialization::{from_cbor, to_cbor};
     use crate::signal::group::EjectionTrigger;
@@ -302,11 +309,18 @@ async fn handle_flag<F: crate::freenet::FreenetClient>(
     let state_bytes = match freenet.get_state(&contract).await {
         Ok(state) => state.data,
         Err(FreenetError::ContractNotFound) => {
-            client.send_message(sender, "❌ Trust contract not found. Has the group been bootstrapped?").await?;
+            client
+                .send_message(
+                    sender,
+                    "❌ Trust contract not found. Has the group been bootstrapped?",
+                )
+                .await?;
             return Ok(());
         }
         Err(e) => {
-            client.send_message(sender, &format!("❌ Failed to query Freenet: {}", e)).await?;
+            client
+                .send_message(sender, &format!("❌ Failed to query Freenet: {}", e))
+                .await?;
             return Ok(());
         }
     };
@@ -314,20 +328,29 @@ async fn handle_flag<F: crate::freenet::FreenetClient>(
     let mut state: TrustNetworkState = match from_cbor(&state_bytes) {
         Ok(s) => s,
         Err(e) => {
-            client.send_message(sender, &format!("❌ Failed to deserialize contract state: {}", e)).await?;
+            client
+                .send_message(
+                    sender,
+                    &format!("❌ Failed to deserialize contract state: {}", e),
+                )
+                .await?;
             return Ok(());
         }
     };
 
     // Verify sender is a member
     if !state.members.contains(&sender_hash) {
-        client.send_message(sender, "❌ You must be a member to flag others.").await?;
+        client
+            .send_message(sender, "❌ You must be a member to flag others.")
+            .await?;
         return Ok(());
     }
 
     // Verify target is a member
     if !state.members.contains(&target_hash) {
-        client.send_message(sender, &format!("❌ {} is not a current member.", username)).await?;
+        client
+            .send_message(sender, &format!("❌ {} is not a current member.", username))
+            .await?;
         return Ok(());
     }
 
@@ -357,14 +380,21 @@ async fn handle_flag<F: crate::freenet::FreenetClient>(
     let delta_bytes = match to_cbor(&delta) {
         Ok(bytes) => bytes,
         Err(e) => {
-            client.send_message(sender, &format!("❌ Failed to serialize delta: {}", e)).await?;
+            client
+                .send_message(sender, &format!("❌ Failed to serialize delta: {}", e))
+                .await?;
             return Ok(());
         }
     };
 
     let contract_delta = ContractDelta { data: delta_bytes };
     if let Err(e) = freenet.apply_delta(&contract, &contract_delta).await {
-        client.send_message(sender, &format!("❌ Failed to apply delta to Freenet: {}", e)).await?;
+        client
+            .send_message(
+                sender,
+                &format!("❌ Failed to apply delta to Freenet: {}", e),
+            )
+            .await?;
         return Ok(());
     }
 
@@ -377,7 +407,8 @@ async fn handle_flag<F: crate::freenet::FreenetClient>(
     // Get counts for ejection trigger check
     let vouchers = state.vouches.get(&target_hash).cloned().unwrap_or_default();
     let flaggers = state.flags.get(&target_hash).cloned().unwrap_or_default();
-    let voucher_flaggers: std::collections::HashSet<_> = vouchers.intersection(&flaggers).cloned().collect();
+    let voucher_flaggers: std::collections::HashSet<_> =
+        vouchers.intersection(&flaggers).cloned().collect();
 
     let all_vouchers = vouchers.len() as u32;
     let all_flaggers = flaggers.len() as u32;
@@ -410,13 +441,19 @@ async fn handle_flag<F: crate::freenet::FreenetClient>(
         // TODO: We need ServiceId for target, not just MemberHash
         // For now, send message about ejection
         match trigger {
-            EjectionTrigger::NegativeStanding { effective_vouches, regular_flags } => {
+            EjectionTrigger::NegativeStanding {
+                effective_vouches,
+                regular_flags,
+            } => {
                 response.push_str(&format!(
                     "\n🚫 EJECTION TRIGGERED: Negative standing ({} effective vouches - {} regular flags = {})\n",
                     effective_vouches, regular_flags, effective_vouches as i32 - regular_flags as i32
                 ));
             }
-            EjectionTrigger::BelowThreshold { effective_vouches, min_threshold } => {
+            EjectionTrigger::BelowThreshold {
+                effective_vouches,
+                min_threshold,
+            } => {
                 response.push_str(&format!(
                     "\n🚫 EJECTION TRIGGERED: Effective vouches ({}) below threshold ({})\n",
                     effective_vouches, min_threshold
@@ -493,10 +530,7 @@ async fn handle_mesh(
     }
 }
 
-async fn handle_mesh_overview(
-    client: &impl SignalClient,
-    sender: &ServiceId,
-) -> SignalResult<()> {
+async fn handle_mesh_overview(client: &impl SignalClient, sender: &ServiceId) -> SignalResult<()> {
     // TODO: Implement full mesh overview with Freenet:
     // 1. Query Freenet contract for full member set
     // 2. Calculate network metrics:
@@ -511,10 +545,7 @@ async fn handle_mesh_overview(
     client.send_message(sender, response).await
 }
 
-async fn handle_mesh_strength(
-    client: &impl SignalClient,
-    sender: &ServiceId,
-) -> SignalResult<()> {
+async fn handle_mesh_strength(client: &impl SignalClient, sender: &ServiceId) -> SignalResult<()> {
     // TODO: Implement detailed DVR (Distinct Validator Ratio):
     // 1. Query Freenet contract for full trust graph
     // 2. Identify validators (members with 3+ vouches)
@@ -546,10 +577,7 @@ async fn handle_mesh_replication(
     client.send_message(sender, response).await
 }
 
-async fn handle_mesh_config(
-    client: &impl SignalClient,
-    sender: &ServiceId,
-) -> SignalResult<()> {
+async fn handle_mesh_config(client: &impl SignalClient, sender: &ServiceId) -> SignalResult<()> {
     // TODO: Implement config display:
     // 1. Query Freenet contract for GroupConfig
     // 2. Show current settings:

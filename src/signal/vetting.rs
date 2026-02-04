@@ -94,9 +94,7 @@ impl VettingSessionManager {
     ) -> Result<(), VettingError> {
         // Check if session already exists
         if self.sessions.contains_key(&invitee_username) {
-            return Err(VettingError::SessionAlreadyExists(
-                invitee_username.clone(),
-            ));
+            return Err(VettingError::SessionAlreadyExists(invitee_username.clone()));
         }
 
         let session = VettingSession {
@@ -275,11 +273,8 @@ mod tests {
             )
             .unwrap();
 
-        let result = manager.assign_validator(
-            "@alice",
-            test_member_hash(3),
-            test_service_id("carol_id"),
-        );
+        let result =
+            manager.assign_validator("@alice", test_member_hash(3), test_service_id("carol_id"));
 
         assert!(result.is_ok());
 

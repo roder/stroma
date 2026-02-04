@@ -45,12 +45,7 @@ where
     S: SignalClient + 'static,
 {
     /// Create a new health monitor.
-    pub fn new(
-        freenet: Arc<F>,
-        signal: S,
-        contract: ContractHash,
-        group_id: GroupId,
-    ) -> Self {
+    pub fn new(freenet: Arc<F>, signal: S, contract: ContractHash, group_id: GroupId) -> Self {
         Self {
             freenet,
             signal,
@@ -159,23 +154,19 @@ where
     /// - Regular_Flags = |All_Flaggers| - |Voucher_Flaggers|
     /// - Standing = Effective_Vouches - Regular_Flags
     /// - Voucher_Flaggers = members who both vouch AND flag the same person
-    fn calculate_standing(&self, member: &MemberHash, state: &TrustNetworkState) -> StandingMetrics {
+    fn calculate_standing(
+        &self,
+        member: &MemberHash,
+        state: &TrustNetworkState,
+    ) -> StandingMetrics {
         // Get all vouchers and flaggers
-        let all_vouchers: HashSet<MemberHash> = state
-            .vouchers_for(member)
-            .into_iter()
-            .collect();
+        let all_vouchers: HashSet<MemberHash> = state.vouchers_for(member).into_iter().collect();
 
-        let all_flaggers: HashSet<MemberHash> = state
-            .flaggers_for(member)
-            .into_iter()
-            .collect();
+        let all_flaggers: HashSet<MemberHash> = state.flaggers_for(member).into_iter().collect();
 
         // Calculate voucher-flaggers (contradictory members)
-        let voucher_flaggers: HashSet<MemberHash> = all_vouchers
-            .intersection(&all_flaggers)
-            .copied()
-            .collect();
+        let voucher_flaggers: HashSet<MemberHash> =
+            all_vouchers.intersection(&all_flaggers).copied().collect();
 
         // Calculate metrics
         let effective_vouches = (all_vouchers.len() - voucher_flaggers.len()) as u32;
@@ -271,11 +262,19 @@ mod tests {
 
     #[async_trait]
     impl SignalClient for MockSignalClient {
-        async fn send_message(&self, _recipient: &ServiceId, _text: &str) -> Result<(), SignalError> {
+        async fn send_message(
+            &self,
+            _recipient: &ServiceId,
+            _text: &str,
+        ) -> Result<(), SignalError> {
             Ok(())
         }
 
-        async fn send_group_message(&self, _group: &GroupId, _text: &str) -> Result<(), SignalError> {
+        async fn send_group_message(
+            &self,
+            _group: &GroupId,
+            _text: &str,
+        ) -> Result<(), SignalError> {
             Ok(())
         }
 
@@ -283,20 +282,34 @@ mod tests {
             Ok(GroupId(vec![1, 2, 3]))
         }
 
-        async fn add_group_member(&self, _group: &GroupId, _member: &ServiceId) -> Result<(), SignalError> {
+        async fn add_group_member(
+            &self,
+            _group: &GroupId,
+            _member: &ServiceId,
+        ) -> Result<(), SignalError> {
             Ok(())
         }
 
-        async fn remove_group_member(&self, _group: &GroupId, member: &ServiceId) -> Result<(), SignalError> {
+        async fn remove_group_member(
+            &self,
+            _group: &GroupId,
+            member: &ServiceId,
+        ) -> Result<(), SignalError> {
             self.removed_members.lock().await.push(member.clone());
             Ok(())
         }
 
-        async fn create_poll(&self, _group: &GroupId, _poll: &crate::signal::traits::Poll) -> Result<u64, SignalError> {
+        async fn create_poll(
+            &self,
+            _group: &GroupId,
+            _poll: &crate::signal::traits::Poll,
+        ) -> Result<u64, SignalError> {
             Ok(1)
         }
 
-        async fn receive_messages(&self) -> Result<Vec<crate::signal::traits::Message>, SignalError> {
+        async fn receive_messages(
+            &self,
+        ) -> Result<Vec<crate::signal::traits::Message>, SignalError> {
             Ok(Vec::new())
         }
 
@@ -329,7 +342,9 @@ mod tests {
         let voucher2 = test_member(3);
 
         state.members.insert(member);
-        state.vouches.insert(member, [voucher1, voucher2].into_iter().collect());
+        state
+            .vouches
+            .insert(member, [voucher1, voucher2].into_iter().collect());
 
         let metrics = monitor.calculate_standing(&member, &state);
 
@@ -354,7 +369,9 @@ mod tests {
         let carol = test_member(3);
 
         state.members.insert(bob);
-        state.vouches.insert(bob, [alice, carol].into_iter().collect());
+        state
+            .vouches
+            .insert(bob, [alice, carol].into_iter().collect());
         state.flags.insert(bob, [alice].into_iter().collect());
 
         let metrics = monitor.calculate_standing(&bob, &state);
@@ -385,9 +402,14 @@ mod tests {
         let voucher = test_member(2);
 
         state.members.insert(member);
-        state.vouches.insert(member, [voucher].into_iter().collect());
+        state
+            .vouches
+            .insert(member, [voucher].into_iter().collect());
 
-        let should_eject = monitor.should_eject(&member, &state, state.config.min_vouches).await.unwrap();
+        let should_eject = monitor
+            .should_eject(&member, &state, state.config.min_vouches)
+            .await
+            .unwrap();
         assert!(should_eject);
     }
 
@@ -411,10 +433,17 @@ mod tests {
         let flagger3 = test_member(6);
 
         state.members.insert(member);
-        state.vouches.insert(member, [voucher1, voucher2].into_iter().collect());
-        state.flags.insert(member, [flagger1, flagger2, flagger3].into_iter().collect());
+        state
+            .vouches
+            .insert(member, [voucher1, voucher2].into_iter().collect());
+        state
+            .flags
+            .insert(member, [flagger1, flagger2, flagger3].into_iter().collect());
 
-        let should_eject = monitor.should_eject(&member, &state, state.config.min_vouches).await.unwrap();
+        let should_eject = monitor
+            .should_eject(&member, &state, state.config.min_vouches)
+            .await
+            .unwrap();
         assert!(should_eject);
     }
 
@@ -435,9 +464,14 @@ mod tests {
         let voucher2 = test_member(3);
 
         state.members.insert(member);
-        state.vouches.insert(member, [voucher1, voucher2].into_iter().collect());
+        state
+            .vouches
+            .insert(member, [voucher1, voucher2].into_iter().collect());
 
-        let should_eject = monitor.should_eject(&member, &state, state.config.min_vouches).await.unwrap();
+        let should_eject = monitor
+            .should_eject(&member, &state, state.config.min_vouches)
+            .await
+            .unwrap();
         assert!(!should_eject);
     }
 
@@ -478,7 +512,10 @@ mod tests {
         let result = monitor.eject_member(&member).await;
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), MonitorError::MemberNotMapped(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            MonitorError::MemberNotMapped(_)
+        ));
     }
 
     #[tokio::test]
@@ -506,14 +543,27 @@ mod tests {
         state.members.insert(member3);
 
         // Member 1: 2 vouches (good)
-        state.vouches.insert(member1, [test_member(10), test_member(11)].into_iter().collect());
+        state.vouches.insert(
+            member1,
+            [test_member(10), test_member(11)].into_iter().collect(),
+        );
 
         // Member 2: 1 vouch (below threshold)
-        state.vouches.insert(member2, [test_member(12)].into_iter().collect());
+        state
+            .vouches
+            .insert(member2, [test_member(12)].into_iter().collect());
 
         // Member 3: 2 vouches, 3 flags (negative standing)
-        state.vouches.insert(member3, [test_member(13), test_member(14)].into_iter().collect());
-        state.flags.insert(member3, [test_member(15), test_member(16), test_member(17)].into_iter().collect());
+        state.vouches.insert(
+            member3,
+            [test_member(13), test_member(14)].into_iter().collect(),
+        );
+        state.flags.insert(
+            member3,
+            [test_member(15), test_member(16), test_member(17)]
+                .into_iter()
+                .collect(),
+        );
 
         // Register all members
         monitor.register_member(member1, test_service_id(1)).await;

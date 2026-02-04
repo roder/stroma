@@ -26,10 +26,7 @@ impl BlindMatchmaker {
     /// For Phase 0 MVP:
     /// - Simple selection: any member not in inviter's voucher set
     /// - TODO Phase 1: Full cluster detection and MST-based matching
-    pub fn select_validator(
-        state: &TrustNetworkState,
-        inviter: &MemberHash,
-    ) -> Option<MemberHash> {
+    pub fn select_validator(state: &TrustNetworkState, inviter: &MemberHash) -> Option<MemberHash> {
         // Get inviter's vouchers (their cluster/peer circle)
         let inviter_vouchers = state
             .vouches

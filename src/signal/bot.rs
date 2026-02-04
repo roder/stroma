@@ -114,7 +114,15 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                     }
                     _ => {
                         // Other commands go through normal handler
-                        handle_pm_command(&self.client, &self.freenet, &self.group_manager, &self.config, &message.sender, command).await?;
+                        handle_pm_command(
+                            &self.client,
+                            &self.freenet,
+                            &self.group_manager,
+                            &self.config,
+                            &message.sender,
+                            command,
+                        )
+                        .await?;
                     }
                 }
             }
@@ -205,11 +213,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     /// Handle /vouch command
     ///
     /// Records second vouch and admits member if threshold met.
-    async fn handle_vouch(
-        &mut self,
-        sender: &ServiceId,
-        username: &str,
-    ) -> SignalResult<()> {
+    async fn handle_vouch(&mut self, sender: &ServiceId, username: &str) -> SignalResult<()> {
         // TODO Phase 1: Verify sender is a member
         // TODO Phase 1: Hash sender's ServiceId to MemberHash
         // TODO Phase 1: Check if vetting session exists for username
@@ -309,8 +313,8 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         }
 
         // Generate ZK-proof
-        let proof = generate_vouch_proof(&claim)
-            .map_err(|e| format!("Proof generation failed: {}", e))?;
+        let proof =
+            generate_vouch_proof(&claim).map_err(|e| format!("Proof generation failed: {}", e))?;
 
         // Verify ZK-proof
         verify_vouch_proof(&proof).map_err(|e| format!("Proof verification failed: {}", e))?;

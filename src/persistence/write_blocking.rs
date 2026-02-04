@@ -331,8 +331,7 @@ impl WriteBlockingManager {
     pub fn initialize_chunks(&mut self, num_chunks: u32) {
         self.chunk_status.clear();
         for i in 0..num_chunks {
-            self.chunk_status
-                .push(ChunkReplicationStatus::new(i, 0));
+            self.chunk_status.push(ChunkReplicationStatus::new(i, 0));
         }
         self.recompute_state();
     }

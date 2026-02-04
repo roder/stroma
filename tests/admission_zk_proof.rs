@@ -238,15 +238,13 @@ fn test_multiple_proofs_independent() {
         let claim = VouchClaim::new(member, vouchers, flaggers);
 
         // Generate and verify proof
-        let proof = generate_vouch_proof(&claim)
-            .expect(&format!("Proof generation should succeed for member {}", member_id));
+        let proof = generate_vouch_proof(&claim).expect(&format!(
+            "Proof generation should succeed for member {}",
+            member_id
+        ));
         let result = verify_vouch_proof(&proof);
 
-        assert!(
-            result.is_ok(),
-            "Member {} proof should verify",
-            member_id
-        );
+        assert!(result.is_ok(), "Member {} proof should verify", member_id);
     }
 }
 

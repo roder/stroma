@@ -80,7 +80,10 @@ pub trait RegistryFetcher: Send + Sync {
     /// # Returns
     ///
     /// Registry entry if bot is registered
-    async fn get_bot_entry(&self, contract_hash: &str) -> Result<Option<RegistryEntry>, RecoveryError>;
+    async fn get_bot_entry(
+        &self,
+        contract_hash: &str,
+    ) -> Result<Option<RegistryEntry>, RecoveryError>;
 }
 
 /// Chunk fetcher trait for abstracting chunk retrieval.
@@ -326,10 +329,12 @@ where
     }
 
     // All holders failed
-    Err(last_error.unwrap_or_else(|| RecoveryError::ChunkFetchFailed {
-        chunk_index,
-        reason: "All holders unavailable".to_string(),
-    }))
+    Err(
+        last_error.unwrap_or_else(|| RecoveryError::ChunkFetchFailed {
+            chunk_index,
+            reason: "All holders unavailable".to_string(),
+        }),
+    )
 }
 
 #[cfg(test)]
@@ -485,8 +490,7 @@ mod tests {
                 .into_iter()
                 .map(|e| e.contract_hash)
                 .collect::<Vec<_>>();
-            let holders =
-                compute_chunk_holders(owner, chunk.index, &all_bots, registry.epoch(), 2);
+            let holders = compute_chunk_holders(owner, chunk.index, &all_bots, registry.epoch(), 2);
             for holder in holders {
                 chunk_fetcher.store_chunk(&holder, chunk.clone()).await;
             }
@@ -577,8 +581,7 @@ mod tests {
                 .into_iter()
                 .map(|e| e.contract_hash)
                 .collect::<Vec<_>>();
-            let holders =
-                compute_chunk_holders(owner, chunk.index, &all_bots, registry.epoch(), 2);
+            let holders = compute_chunk_holders(owner, chunk.index, &all_bots, registry.epoch(), 2);
 
             // Store with all holders
             for holder in &holders {
@@ -600,7 +603,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(recovered.state, original_state);
-        assert!(recovered.stats.chunks_with_fallback > 0, "Should use fallback");
+        assert!(
+            recovered.stats.chunks_with_fallback > 0,
+            "Should use fallback"
+        );
         assert!(
             recovered.stats.failed_fetch_attempts > 0,
             "Should have some failures"
@@ -665,9 +671,13 @@ mod tests {
         let registry_fetcher = MockRegistryFetcher::new(registry);
         let config = RecoveryConfig::default();
 
-        let result = recover_state(owner, &aci_key, &registry_fetcher, &chunk_fetcher, &config).await;
+        let result =
+            recover_state(owner, &aci_key, &registry_fetcher, &chunk_fetcher, &config).await;
 
         assert!(result.is_err());
-        assert!(matches!(result, Err(RecoveryError::ChunkFetchFailed { .. })));
+        assert!(matches!(
+            result,
+            Err(RecoveryError::ChunkFetchFailed { .. })
+        ));
     }
 }

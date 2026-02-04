@@ -14,6 +14,6 @@ pub mod display;
 pub mod graph_analysis;
 pub mod strategic_intro;
 
-pub use display::{IntroductionMessage, resolve_display_name};
-pub use graph_analysis::{ClusterId, TrustGraph, detect_clusters};
-pub use strategic_intro::{Introduction, suggest_introductions};
+pub use display::{resolve_display_name, IntroductionMessage};
+pub use graph_analysis::{detect_clusters, ClusterId, TrustGraph};
+pub use strategic_intro::{suggest_introductions, Introduction};

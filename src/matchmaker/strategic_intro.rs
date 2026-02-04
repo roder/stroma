@@ -296,7 +296,9 @@ mod tests {
         state.members.insert(carol);
 
         // Alice and Bob vouch for Carol (Carol is a Bridge with 2 vouches)
-        state.vouches.insert(carol, [alice, bob].into_iter().collect());
+        state
+            .vouches
+            .insert(carol, [alice, bob].into_iter().collect());
 
         let mut graph = TrustGraph::from_state(&state);
         detect_clusters(&mut graph);

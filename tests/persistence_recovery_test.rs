@@ -20,13 +20,13 @@
 //! - Agent: Agent-Freenet
 
 use async_trait::async_trait;
+use std::collections::HashMap;
+use std::sync::Arc;
 use stroma::persistence::{
     compute_chunk_holders, encrypt_and_chunk, recover_state, Chunk, ChunkFetcher,
     PersistenceRegistry, RecoveredState, RecoveryConfig, RecoveryError, RegistryEntry,
     RegistryFetcher, SizeBucket,
 };
-use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::Mutex;
 
 // === Test Fixtures ===
@@ -317,7 +317,10 @@ async fn test_recovery_fails_with_all_holders_unavailable() {
 
     let result = recover_state(owner, &aci_key, &registry_fetcher, &storage, &config).await;
 
-    assert!(result.is_err(), "Recovery should fail when no holders available");
+    assert!(
+        result.is_err(),
+        "Recovery should fail when no holders available"
+    );
     // Should fail with either ChunkFetchFailed or NetworkError
     assert!(matches!(
         result,
@@ -354,24 +357,11 @@ async fn test_recovery_fails_with_wrong_aci_key() {
     let registry_fetcher = MockRegistryFetcher::new(registry);
     let config = RecoveryConfig::default();
 
-    let result = recover_state(
-        owner,
-        &wrong_aci_key,
-        &registry_fetcher,
-        &storage,
-        &config,
-    )
-    .await;
+    let result = recover_state(owner, &wrong_aci_key, &registry_fetcher, &storage, &config).await;
 
-    assert!(
-        result.is_err(),
-        "Recovery should fail with wrong ACI key"
-    );
+    assert!(result.is_err(), "Recovery should fail with wrong ACI key");
     // Should fail during signature verification or decryption
-    assert!(matches!(
-        result,
-        Err(RecoveryError::DecryptionFailed(_))
-    ));
+    assert!(matches!(result, Err(RecoveryError::DecryptionFailed(_))));
 }
 
 #[tokio::test]
@@ -410,14 +400,8 @@ async fn test_recovery_fails_with_tampered_chunk() {
 
     let result = recover_state(owner, &aci_key, &registry_fetcher, &storage, &config).await;
 
-    assert!(
-        result.is_err(),
-        "Recovery should fail with tampered chunk"
-    );
-    assert!(matches!(
-        result,
-        Err(RecoveryError::DecryptionFailed(_))
-    ));
+    assert!(result.is_err(), "Recovery should fail with tampered chunk");
+    assert!(matches!(result, Err(RecoveryError::DecryptionFailed(_))));
 }
 
 #[tokio::test]
