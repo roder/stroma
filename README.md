@@ -215,23 +215,6 @@ Stroma uses a **Reciprocal Persistence Network** — bots hold encrypted chunks 
 
 → **[Federation Roadmap](docs/FEDERATION.md)** - North star design
 
-## Project Status
-
-### MVP Scope (Phase 0-3)
-✅ Single-group trust network with full security model  
-✅ All bot commands and mesh optimization  
-❌ Federation (Phase 4+ - designed but not implemented)
-
-### Federation as North Star
-Even though federation isn't in MVP, **every design decision optimizes for it**:
-- Contract schema federation-ready
-- Identity hashing re-computable
-- Module structure includes `federation/` (disabled)
-
-**Goal**: Connect as many people as possible anonymously via trust
-
-→ **[Implementation Roadmap](docs/todo/TODO.md)** - Phased development plan
-
 ## Technical Architecture
 
 ### Core Innovation: Recursive ZK-Vouching
