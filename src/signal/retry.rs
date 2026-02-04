@@ -36,8 +36,8 @@ const MAX_BACKOFF_SECS: u64 = 3600;
 /// # Example
 ///
 /// ```no_run
-/// use stromarig::signal::retry::retry_with_backoff;
-/// use stromarig::signal::traits::SignalError;
+/// use stroma::signal::retry::retry_with_backoff;
+/// use stroma::signal::traits::SignalError;
 ///
 /// async fn remove_member() -> Result<(), SignalError> {
 ///     retry_with_backoff(
