@@ -412,4 +412,59 @@ mod tests {
         let trigger = bot.check_ejection(3, 1, 0);
         assert!(trigger.is_none());
     }
+
+    #[tokio::test]
+    async fn test_handle_invite_command() {
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
+        let config = BotConfig::default();
+        let mut bot = StromaBot::new(client.clone(), freenet, config);
+
+        let message = Message {
+            sender: ServiceId("alice".to_string()),
+            content: MessageContent::Text("/invite @bob Great activist".to_string()),
+            timestamp: 1234567890,
+        };
+
+        bot.handle_message(message).await.unwrap();
+
+        // Verify bot sent response
+        let sent = client.sent_messages();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].content.contains("Invitation for @bob recorded"));
+
+        // Verify ephemeral session created
+        assert_eq!(bot.vetting_sessions.active_count(), 1);
+        let session = bot.vetting_sessions.get_session("@bob");
+        assert!(session.is_some());
+        assert_eq!(session.unwrap().invitee_username, "@bob");
+    }
+
+    #[tokio::test]
+    async fn test_handle_invite_with_previous_flags() {
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
+        let config = BotConfig::default();
+        let mut bot = StromaBot::new(client.clone(), freenet, config);
+
+        // Manually create session with previous flags for testing
+        bot.vetting_sessions
+            .create_session(
+                ServiceId("@bob".to_string()),
+                "@bob".to_string(),
+                crate::freenet::contract::MemberHash::from_bytes(&[1; 32]),
+                ServiceId("alice".to_string()),
+                Some("Context".to_string()),
+                true,
+                3,
+            )
+            .ok();
+
+        // Note: In Phase 1, this would query Freenet for previous flags
+        // For now, we're testing the session management structure
+        let session = bot.vetting_sessions.get_session("@bob");
+        assert!(session.is_some());
+        assert!(session.unwrap().has_previous_flags);
+        assert_eq!(session.unwrap().previous_flag_count, 3);
+    }
 }
