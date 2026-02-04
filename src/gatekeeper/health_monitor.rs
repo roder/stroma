@@ -307,6 +307,14 @@ mod tests {
             Ok(1)
         }
 
+        async fn terminate_poll(
+            &self,
+            _group: &crate::signal::traits::GroupId,
+            _poll_timestamp: u64,
+        ) -> Result<(), SignalError> {
+            Ok(())
+        }
+
         async fn receive_messages(
             &self,
         ) -> Result<Vec<crate::signal::traits::Message>, SignalError> {

@@ -132,7 +132,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             }
 
             MessageContent::PollVote(vote) => {
-                self.poll_manager.process_vote(&vote).await?;
+                self.poll_manager.process_vote(&vote)?;
             }
         }
 
@@ -256,6 +256,49 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                 // Apply proposal changes
                 // e.g., update GroupConfig in Freenet
             }
+
+            StateChange::ProposalExpired {
+                poll_id,
+                poll_timestamp,
+            } => {
+                // 1. Terminate the poll
+                self.poll_manager.terminate_poll(poll_timestamp).await?;
+
+                // 2. Get vote aggregate
+                let votes = self.poll_manager.get_vote_aggregate(poll_id);
+
+                if let Some(aggregate) = votes {
+                    // 3. Check quorum and threshold
+                    if let Some(outcome) = self.poll_manager.check_poll_outcome(poll_id, aggregate)
+                    {
+                        match outcome {
+                            crate::signal::polls::PollOutcome::Passed {
+                                approve_count: _,
+                                reject_count: _,
+                            } => {
+                                // 4. Announce outcome (TODO)
+                                // self.group_manager.announce_proposal_passed().await?;
+
+                                // 5. Execute proposal
+                                // TODO: Get actual contract hash from config
+                                // TODO: Get current GroupConfig from Freenet state
+                                // For now, use placeholder
+                                // let contract = ContractHash::from_bytes(&[0u8; 32]);
+                                // let current_config = GroupConfig::default();
+                                // if let Some(proposal) = self.poll_manager.get_proposal(poll_id) {
+                                //     execute_proposal(&self.freenet, &contract, &proposal.proposal_type, &current_config).await?;
+                                // }
+                            }
+                            _ => {
+                                // Failed or quorum not met - announce outcome
+                                // TODO: Announce failure/quorum-not-met
+                            }
+                        }
+                    }
+                }
+
+                // 6. TODO: Mark proposal as checked in Freenet
+            }
         }
 
         Ok(())
@@ -337,6 +380,11 @@ pub enum StateChange {
     },
     ProposalPassed {
         proposal: String,
+    },
+    /// Proposal timeout expired - time to terminate and check results
+    ProposalExpired {
+        poll_id: u64,
+        poll_timestamp: u64,
     },
 }
 

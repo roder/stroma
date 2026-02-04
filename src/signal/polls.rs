@@ -13,6 +13,9 @@ pub struct PollManager<C: SignalClient> {
     client: C,
     group_id: GroupId,
     active_polls: HashMap<u64, PollProposal>,
+    /// Vote aggregates (only counts, NEVER individual voter identities).
+    /// Per GAP-02: Individual votes MUST NOT be persisted.
+    vote_aggregates: HashMap<u64, VoteAggregate>,
 }
 
 /// Proposal being voted on
@@ -38,7 +41,25 @@ impl<C: SignalClient> PollManager<C> {
             client,
             group_id,
             active_polls: HashMap::new(),
+            vote_aggregates: HashMap::new(),
         }
+    }
+
+    /// Initialize vote aggregate for a new poll.
+    pub fn init_vote_aggregate(&mut self, poll_id: u64, total_members: u32) {
+        self.vote_aggregates.insert(
+            poll_id,
+            VoteAggregate {
+                approve: 0,
+                reject: 0,
+                total_members,
+            },
+        );
+    }
+
+    /// Get vote aggregate for a poll (if it exists).
+    pub fn get_vote_aggregate(&self, poll_id: u64) -> Option<&VoteAggregate> {
+        self.vote_aggregates.get(&poll_id)
     }
 
     /// Create poll for proposal
@@ -60,14 +81,52 @@ impl<C: SignalClient> PollManager<C> {
     ///
     /// CRITICAL: Individual votes MUST NEVER be persisted.
     /// See: .beads/security-constraints.bead § Vote Privacy
-    pub async fn process_vote(&self, _vote: &PollVote) -> SignalResult<()> {
-        // TODO: Aggregate vote counts (not individual voter identities)
-        // 1. Update aggregate counts (approve: N, reject: M)
-        // 2. Check quorum and threshold
-        // 3. If passed, update Freenet with OUTCOME only (no voter info)
-        // 4. Never persist who voted for what
+    ///
+    /// This method:
+    /// 1. Updates aggregate counts (approve: N, reject: M)
+    /// 2. NEVER stores voter identities
+    /// 3. Only tracks totals in memory (ephemeral)
+    pub fn process_vote(&mut self, vote: &PollVote) -> SignalResult<()> {
+        let poll_id = vote.poll_id;
+
+        // Get or create aggregate for this poll
+        let aggregate = self
+            .vote_aggregates
+            .entry(poll_id)
+            .or_insert_with(|| VoteAggregate {
+                approve: 0,
+                reject: 0,
+                total_members: 0, // Will be set during poll creation
+            });
+
+        // Update aggregate based on selected options
+        // Assuming option 0 = Approve, option 1 = Reject
+        for option in &vote.selected_options {
+            match option {
+                0 => aggregate.approve += 1,
+                1 => aggregate.reject += 1,
+                _ => {
+                    // Unknown option, ignore
+                }
+            }
+        }
+
+        // CRITICAL: We do NOT persist this vote anywhere.
+        // The aggregate counts are in-memory only.
 
         Ok(())
+    }
+
+    /// Terminate a poll (closes voting).
+    ///
+    /// Per proposal-system.bead:
+    /// - Sends PollTerminate message to close the poll
+    /// - Prevents late votes after timeout expires
+    /// - Visual feedback in Signal UI
+    pub async fn terminate_poll(&self, poll_timestamp: u64) -> SignalResult<()> {
+        self.client
+            .terminate_poll(&self.group_id, poll_timestamp)
+            .await
     }
 
     /// Check if poll has reached quorum and threshold

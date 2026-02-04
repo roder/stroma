@@ -13,6 +13,7 @@ use crate::freenet::contract::MemberHash;
 use crate::serialization::{from_cbor, to_cbor, SerializationError};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::time::Duration;
 
 /// Trust network state (Freenet contract state).
 ///
@@ -63,6 +64,33 @@ pub struct GroupConfig {
     /// Operator member hashes (can modify config).
     #[serde(default)]
     pub operators: BTreeSet<MemberHash>,
+
+    /// Default poll timeout in seconds (used when --timeout not specified).
+    /// Must be between 3600 (1h) and 604800 (168h).
+    #[serde(default = "default_poll_timeout_secs")]
+    pub default_poll_timeout_secs: u64,
+
+    /// Threshold for config change proposals (fraction 0.0-1.0).
+    /// e.g., 0.70 = 70% of votes must be "approve" to pass.
+    #[serde(default = "default_config_change_threshold")]
+    pub config_change_threshold: f32,
+
+    /// Minimum quorum (fraction 0.0-1.0).
+    /// e.g., 0.50 = at least 50% of members must vote.
+    #[serde(default = "default_min_quorum")]
+    pub min_quorum: f32,
+}
+
+fn default_poll_timeout_secs() -> u64 {
+    172800 // 48 hours
+}
+
+fn default_config_change_threshold() -> f32 {
+    0.70 // 70%
+}
+
+fn default_min_quorum() -> f32 {
+    0.50 // 50%
 }
 
 impl Default for GroupConfig {
@@ -72,7 +100,17 @@ impl Default for GroupConfig {
             max_flags: 3,
             open_membership: false,
             operators: BTreeSet::new(),
+            default_poll_timeout_secs: default_poll_timeout_secs(),
+            config_change_threshold: default_config_change_threshold(),
+            min_quorum: default_min_quorum(),
         }
+    }
+}
+
+impl GroupConfig {
+    /// Get default poll timeout as Duration.
+    pub fn default_poll_timeout(&self) -> Duration {
+        Duration::from_secs(self.default_poll_timeout_secs)
     }
 }
 

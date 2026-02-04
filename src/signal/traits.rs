@@ -111,6 +111,14 @@ pub trait SignalClient: Send + Sync + Clone {
     /// Create poll in group
     async fn create_poll(&self, group: &GroupId, poll: &Poll) -> SignalResult<u64>;
 
+    /// Terminate a poll (closes voting)
+    ///
+    /// Per proposal-system.bead:
+    /// - Sends PollTerminate message to group
+    /// - Prevents late votes after timeout
+    /// - Visual feedback in Signal UI (shows as closed)
+    async fn terminate_poll(&self, group: &GroupId, poll_timestamp: u64) -> SignalResult<()>;
+
     /// Receive messages (blocking until message arrives)
     async fn receive_messages(&self) -> SignalResult<Vec<Message>>;
 

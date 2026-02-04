@@ -158,6 +158,23 @@ impl SignalClient for MockSignalClient {
         Ok(poll_id)
     }
 
+    async fn terminate_poll(&self, group: &GroupId, poll_timestamp: u64) -> SignalResult<()> {
+        let mut state = self.state.lock().unwrap();
+
+        if !state.group_members.contains_key(group) {
+            return Err(SignalError::GroupNotFound(group.to_string()));
+        }
+
+        // In mock, just track that poll was terminated
+        // Real implementation would send PollTerminate message to group
+        state.sent_messages.push(SentMessage {
+            recipient: Recipient::Group(group.clone()),
+            content: format!("Poll {} terminated", poll_timestamp),
+        });
+
+        Ok(())
+    }
+
     async fn receive_messages(&self) -> SignalResult<Vec<Message>> {
         let mut state = self.state.lock().unwrap();
         let messages = state.incoming_messages.drain(..).collect();

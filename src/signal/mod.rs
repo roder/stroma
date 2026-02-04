@@ -16,6 +16,7 @@ pub mod matchmaker;
 pub mod mock;
 pub mod pm;
 pub mod polls;
+pub mod proposals;
 pub mod retry;
 pub mod store;
 pub mod traits;

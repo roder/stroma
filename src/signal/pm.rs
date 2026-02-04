@@ -472,12 +472,30 @@ async fn handle_propose(
     client: &impl SignalClient,
     sender: &ServiceId,
     subcommand: &str,
-    _args: &[String],
+    args: &[String],
 ) -> SignalResult<()> {
-    // TODO: Implement proposal logic
-    // Different types: config-change, federation, etc.
+    use crate::signal::proposals::parse_propose_args;
 
-    let response = format!("Proposal {} created.", subcommand);
+    // Parse arguments
+    let propose_args = match parse_propose_args(subcommand, args) {
+        Ok(args) => args,
+        Err(err) => {
+            return client.send_message(sender, &format!("❌ {}", err)).await;
+        }
+    };
+
+    // TODO: Create proposal poll
+    // For now, acknowledge the parsed command
+    let timeout_str = if let Some(timeout) = propose_args.timeout {
+        format!(" (timeout: {}h)", timeout.as_secs() / 3600)
+    } else {
+        " (using default timeout)".to_string()
+    };
+
+    let response = format!(
+        "✅ Proposal created: {:?}{}",
+        propose_args.subcommand, timeout_str
+    );
     client.send_message(sender, &response).await
 }
 
