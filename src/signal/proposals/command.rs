@@ -118,8 +118,7 @@ fn parse_timeout_flag(args: &[String]) -> Result<Option<Duration>, String> {
 ///
 /// Supports hours only (e.g., "48h").
 fn parse_duration(s: &str) -> Result<Duration, String> {
-    if s.ends_with('h') {
-        let hours_str = &s[..s.len() - 1];
+    if let Some(hours_str) = s.strip_suffix('h') {
         let hours: u64 = hours_str
             .parse()
             .map_err(|_| format!("Invalid hour value: {}", hours_str))?;

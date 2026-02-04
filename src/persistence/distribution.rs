@@ -354,6 +354,7 @@ mod tests {
     use tokio::sync::Mutex;
 
     // Mock storage for testing
+    #[allow(clippy::type_complexity)]
     struct MockStorage {
         local: Arc<Mutex<HashMap<(String, u32), Chunk>>>,
         remote: Arc<Mutex<HashMap<(String, String, u32), Chunk>>>,

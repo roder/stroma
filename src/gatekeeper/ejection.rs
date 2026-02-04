@@ -274,6 +274,7 @@ mod tests {
             self.group_messages.lock().await.clone()
         }
 
+        #[allow(dead_code)]
         fn set_fail_remove(&self, fail: bool) {
             *self.fail_remove.blocking_lock() = fail;
         }
