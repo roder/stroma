@@ -126,11 +126,7 @@ pub fn count_distinct_validators(state: &TrustNetworkState) -> usize {
         .members
         .iter()
         .filter(|m| {
-            let vouch_count = state
-                .vouches
-                .get(m)
-                .map(|v| v.len())
-                .unwrap_or(0);
+            let vouch_count = state.vouches.get(m).map(|v| v.len()).unwrap_or(0);
             vouch_count >= 3
         })
         .copied()

@@ -109,7 +109,10 @@ fn build_graph(state: &TrustNetworkState) -> HashMap<MemberHash, HashSet<MemberH
 fn find_connected_components(
     graph: &HashMap<MemberHash, HashSet<MemberHash>>,
     members: &[MemberHash],
-) -> (HashMap<MemberHash, ClusterId>, HashMap<ClusterId, HashSet<MemberHash>>) {
+) -> (
+    HashMap<MemberHash, ClusterId>,
+    HashMap<ClusterId, HashSet<MemberHash>>,
+) {
     let mut visited = HashSet::new();
     let mut member_clusters = HashMap::new();
     let mut clusters = HashMap::new();
@@ -222,7 +225,11 @@ mod tests {
         state.vouches.insert(test_member(3), vouchers3);
 
         let result = detect_clusters(&state);
-        assert_eq!(result.cluster_count, 2, "Expected 2 clusters, got {}", result.cluster_count);
+        assert_eq!(
+            result.cluster_count, 2,
+            "Expected 2 clusters, got {}",
+            result.cluster_count
+        );
         assert!(result.needs_announcement());
     }
 
@@ -381,8 +388,14 @@ mod tests {
         let graph = build_graph(&state);
 
         // Check bidirectional edges
-        assert!(graph.get(&test_member(1)).unwrap().contains(&test_member(2)));
-        assert!(graph.get(&test_member(2)).unwrap().contains(&test_member(1)));
+        assert!(graph
+            .get(&test_member(1))
+            .unwrap()
+            .contains(&test_member(2)));
+        assert!(graph
+            .get(&test_member(2))
+            .unwrap()
+            .contains(&test_member(1)));
 
         // Member 3 should have no edges
         assert_eq!(graph.get(&test_member(3)).unwrap().len(), 0);

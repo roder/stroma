@@ -23,6 +23,6 @@ pub use cluster_detection::{detect_clusters, ClusterId, ClusterResult};
 pub use dvr::{calculate_dvr, count_distinct_validators, health_status, DvrResult, HealthStatus};
 
 // Re-exports for strategic introduction features
-pub use display::{IntroductionMessage, resolve_display_name};
+pub use display::{resolve_display_name, IntroductionMessage};
 pub use graph_analysis::TrustGraph;
-pub use strategic_intro::{Introduction, suggest_introductions};
+pub use strategic_intro::{suggest_introductions, Introduction};
