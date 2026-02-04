@@ -304,7 +304,7 @@ async fn handle_flag<F: crate::freenet::FreenetClient>(
 
     // Query Freenet for current contract state
     let contract = match &config.contract_hash {
-        Some(hash) => hash.clone(),
+        Some(hash) => *hash,
         None => {
             client
                 .send_message(
