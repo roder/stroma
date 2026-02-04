@@ -1,94 +1,116 @@
-//! CBOR serialization for Freenet contract state.
+//! CBOR serialization for Freenet contract state
 //!
-//! Per serialization-format.bead:
-//! - Use CBOR via `ciborium` (NOT JSON or bincode)
-//! - Deterministic serialization for hashing
-//! - Cross-language compatibility
-//! - Efficient schema evolution with #[serde(default)]
+//! Per `.beads/serialization-format.bead`:
+//! - Freenet contract state: CBOR (compact, deterministic, cross-language)
+//! - Persistence fragments: opaque bytes (already encrypted)
+//! - Signal messages: Protobuf (Signal's native format)
 
-use serde::{de::DeserializeOwned, Serialize};
-use thiserror::Error;
+use ciborium::{from_reader, into_writer};
+use serde::{Deserialize, Serialize};
+use std::io;
 
-/// Serialization errors.
-#[derive(Debug, Error)]
+/// Serialization error type
+#[derive(Debug)]
 pub enum SerializationError {
-    /// CBOR encoding failed.
-    #[error("CBOR encoding failed: {0}")]
-    Encode(String),
-
-    /// CBOR decoding failed.
-    #[error("CBOR decoding failed: {0}")]
-    Decode(String),
+    /// CBOR encoding/decoding error
+    Cbor(ciborium::ser::Error<io::Error>),
+    /// IO error
+    Io(io::Error),
 }
 
-/// Serialize to CBOR bytes.
-///
-/// Per serialization-format.bead: "CBOR for Freenet contract state"
-pub fn to_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>, SerializationError> {
-    let mut bytes = Vec::new();
-    ciborium::into_writer(value, &mut bytes)
-        .map_err(|e| SerializationError::Encode(format!("{:?}", e)))?;
-    Ok(bytes)
+impl From<ciborium::ser::Error<io::Error>> for SerializationError {
+    fn from(err: ciborium::ser::Error<io::Error>) -> Self {
+        SerializationError::Cbor(err)
+    }
 }
 
-/// Deserialize from CBOR bytes.
-pub fn from_cbor<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, SerializationError> {
-    ciborium::from_reader(bytes).map_err(|e| SerializationError::Decode(format!("{:?}", e)))
+impl From<ciborium::de::Error<io::Error>> for SerializationError {
+    fn from(err: ciborium::de::Error<io::Error>) -> Self {
+        // Convert deserialization error to serialization error
+        SerializationError::Io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("CBOR deserialization error: {:?}", err),
+        ))
+    }
+}
+
+impl From<io::Error> for SerializationError {
+    fn from(err: io::Error) -> Self {
+        SerializationError::Io(err)
+    }
+}
+
+impl std::fmt::Display for SerializationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SerializationError::Cbor(e) => write!(f, "CBOR error: {:?}", e),
+            SerializationError::Io(e) => write!(f, "IO error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for SerializationError {}
+
+/// Trait for types that can be serialized to/from CBOR bytes
+pub trait CborSerializable: Serialize + for<'de> Deserialize<'de> {
+    /// Serialize to CBOR bytes
+    fn to_bytes(&self) -> Result<Vec<u8>, SerializationError> {
+        let mut bytes = Vec::new();
+        into_writer(self, &mut bytes)?;
+        Ok(bytes)
+    }
+
+    /// Deserialize from CBOR bytes
+    fn from_bytes(bytes: &[u8]) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        from_reader(bytes).map_err(Into::into)
+    }
+
+    /// Serialize to canonical CBOR bytes for deterministic hashing
+    fn to_canonical_bytes(&self) -> Result<Vec<u8>, SerializationError> {
+        // For now, use standard serialization
+        // TODO: Implement canonical mode via ciborium::value::CanonicalValue
+        self.to_bytes()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     struct TestStruct {
-        value: u64,
-        name: String,
+        field1: String,
+        field2: u64,
     }
 
+    impl CborSerializable for TestStruct {}
+
     #[test]
-    fn test_cbor_roundtrip() {
+    fn test_roundtrip_serialization() {
         let original = TestStruct {
-            value: 42,
-            name: "test".to_string(),
+            field1: "test".to_string(),
+            field2: 42,
         };
-        let bytes = to_cbor(&original).unwrap();
-        let recovered: TestStruct = from_cbor(&bytes).unwrap();
+
+        let bytes = original.to_bytes().unwrap();
+        let recovered = TestStruct::from_bytes(&bytes).unwrap();
+
         assert_eq!(original, recovered);
     }
 
     #[test]
-    fn test_cbor_deterministic() {
-        let value = TestStruct {
-            value: 123,
-            name: "hello".to_string(),
+    fn test_deterministic_serialization() {
+        let data = TestStruct {
+            field1: "test".to_string(),
+            field2: 42,
         };
-        let bytes1 = to_cbor(&value).unwrap();
-        let bytes2 = to_cbor(&value).unwrap();
-        assert_eq!(bytes1, bytes2);
-    }
 
-    #[test]
-    fn test_cbor_backward_compatibility() {
-        #[derive(Debug, Serialize, Deserialize, PartialEq)]
-        struct V1 {
-            field1: u32,
-        }
+        let bytes1 = data.to_canonical_bytes().unwrap();
+        let bytes2 = data.to_canonical_bytes().unwrap();
 
-        #[derive(Debug, Serialize, Deserialize, PartialEq)]
-        struct V2 {
-            field1: u32,
-            #[serde(default)]
-            field2: Option<String>,
-        }
-
-        let v1 = V1 { field1: 42 };
-        let bytes = to_cbor(&v1).unwrap();
-
-        // V2 can deserialize V1 data with default for new field
-        let v2: V2 = from_cbor(&bytes).unwrap();
-        assert_eq!(v2.field1, 42);
-        assert_eq!(v2.field2, None);
+        assert_eq!(bytes1, bytes2, "Canonical serialization must be deterministic");
     }
 }

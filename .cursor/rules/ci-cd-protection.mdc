@@ -1,0 +1,84 @@
+---
+description: CI/CD green branch protection policy - main must always pass, infrastructure changes require human approval
+alwaysApply: true
+---
+
+# CI/CD Green Branch Protection
+
+**Canonical Source**: `.beads/ci-cd-protection.bead`
+
+All CI/CD requirements, enforcement mechanisms, authorization processes, and emergency procedures are defined in the CI/CD protection bead. Read that file for complete specifications.
+
+## The Two Absolutes
+
+1. **Main branch CI MUST be ✅ passing at all times** - No exceptions
+2. **CI/CD infrastructure changes REQUIRE human authorization** - No self-modification
+
+## Pre-Push Requirements
+
+**Before pushing to main, ALWAYS:**
+
+```bash
+# Local quality gates
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo nextest run --all-features
+cargo llvm-cov nextest --all-features  # 100% coverage
+cargo deny check
+
+# Remote CI status check
+gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/commits/main/status --jq '.state'
+# Must return "success"
+```
+
+## If CI Fails on Main
+
+**IMMEDIATE response:**
+1. File P0 bug: `bd create --title="CI BROKEN: <description>" --type=bug --priority=0`
+2. Notify owner: `gt mail send mayor/ -s "🚨 CI BROKEN"`
+3. **DO NOT push more code** until fixed
+4. Fix or revert within 15 minutes
+
+## Protected Files (Human Authorization Required)
+
+**Cannot modify without explicit approval:**
+- `.github/workflows/*.yml` - All workflow files
+- `.github/actions/*` - Custom actions
+- `.github/codeql/codeql-config.yml` - CodeQL config
+- `deny.toml` - Dependency policy
+- `.git/hooks/*` - Git hooks (logic changes)
+
+**Authorization process:**
+1. File issue: `bd create --title="CI/CD: <change>" --type=bug --priority=1`
+2. Request approval: `gt mail send human -s "CI/CD Change Request: <id>"`
+3. **WAIT for human approval**
+4. After approval: Make changes, test, submit PR
+5. Add to PR body: `HUMAN_APPROVED: <approval-message-id>`
+
+## What Does NOT Require Approval
+
+Agents can freely modify:
+- Source code (fix the code, not the CI)
+- Test code (to achieve coverage)
+- Documentation in `docs/`
+- Dependencies (if allowed by deny.toml)
+
+## Rationale
+
+**Why main must stay green:**
+- Enables continuous integration (always safe to merge)
+- Maintains bisectability (git bisect works)
+- Prevents merge conflict accumulation
+- Signals deployable state
+
+**Why infrastructure needs approval:**
+- Conflict of interest (agent incentivized to weaken gates)
+- Cascading failures (bad CI breaks all future work)
+- Security implications (CI has access to secrets)
+- Expertise required (GHA debugging is specialized)
+
+## Related Beads
+
+- `.beads/security-constraints.bead` - Security policy structure
+- `.beads/git-standards.bead` - Commit standards
+- `.beads/testing-standards.bead` - Coverage requirements

@@ -38,6 +38,71 @@ cargo build --release --target x86_64-unknown-linux-musl  # Binary size check
 
 **See**: `docs/SECURITY-CI-CD.md` for complete security requirements and fix patterns.
 
+## CI/CD Green Branch Protection
+
+**ABSOLUTE REQUIREMENT**: Main branch CI/CD status MUST be ✅ passing at all times.
+
+### Before Pushing to Main:
+
+1. **Verify local quality gates pass:**
+   ```bash
+   cargo fmt --check
+   cargo clippy --all-targets --all-features -- -D warnings
+   cargo nextest run --all-features
+   cargo llvm-cov nextest --all-features  # 100% coverage required
+   cargo deny check
+   ```
+
+2. **Check remote CI status before merge:**
+   ```bash
+   # If pushing to PR:
+   gh pr checks --watch
+
+   # Before merging to main, verify main is currently green:
+   gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/commits/main/status --jq '.state'
+   # Must return "success" before merging
+   ```
+
+3. **If CI fails on main:**
+   - **IMMEDIATE**: File P0 bug: `bd create --title="CI BROKEN: <description>" --type=bug --priority=0`
+   - Notify mayor: `gt mail send mayor/ -s "🚨 CI BROKEN"`
+   - **DO NOT push more code** until main is green
+   - Fix or revert the breaking commit immediately
+
+### CI/CD Infrastructure Changes (Human Authorization Required)
+
+**ABSOLUTE RULE**: Changes to CI/CD infrastructure REQUIRE human authorization.
+
+**Protected Files** (Cannot modify without approval):
+- `.github/workflows/*.yml` (All workflow files)
+- `.github/actions/*` (Custom actions)
+- `.github/codeql/codeql-config.yml` (CodeQL config)
+- `deny.toml` (Dependency policy)
+- Git hooks (if modifying hook logic, not just beads updates)
+
+**Process for CI/CD Changes**:
+1. Identify CI/CD bug or improvement need
+2. File issue: `bd create --title="CI/CD: <description>" --type=bug --priority=1`
+3. Document proposed change in issue description
+4. Request human review: `gt mail send human -s "CI/CD Change Request: <issue-id>"`
+5. **WAIT for human approval** before modifying workflow files
+6. After approval: Make changes, test in branch, submit PR
+7. Human must approve PR before merge
+
+**What qualifies as CI/CD infrastructure**:
+- GitHub Actions workflow definitions
+- Job configurations, dependencies, triggers
+- Security check configurations (CodeQL, cargo-deny)
+- Coverage thresholds or enforcement logic
+- Binary size baselines or limits
+- Any automation that gates merges
+
+**What does NOT require authorization** (can be changed by agents):
+- Source code that causes CI failures (fix the code, not the CI)
+- Test code to achieve coverage
+- Documentation in docs/ folder
+- Dependency updates (as long as deny.toml allows)
+
 ## Landing the Plane (Session Completion)
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
