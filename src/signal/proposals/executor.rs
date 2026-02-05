@@ -138,9 +138,8 @@ async fn execute_federation_proposal<F: FreenetClient>(
         )));
     }
 
-    let target_bytes = hex::decode(target_group).map_err(|e| {
-        SignalError::InvalidMessage(format!("Invalid contract hash hex: {}", e))
-    })?;
+    let target_bytes = hex::decode(target_group)
+        .map_err(|e| SignalError::InvalidMessage(format!("Invalid contract hash hex: {}", e)))?;
 
     if target_bytes.len() != 32 {
         return Err(SignalError::InvalidMessage(format!(

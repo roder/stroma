@@ -167,9 +167,17 @@ pub struct ActiveProposal {
 /// Result of a proposal after timeout.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ProposalResult {
-    Passed { approve_count: u32, reject_count: u32 },
-    Failed { approve_count: u32, reject_count: u32 },
-    QuorumNotMet { participation_rate: f32 },
+    Passed {
+        approve_count: u32,
+        reject_count: u32,
+    },
+    Failed {
+        approve_count: u32,
+        reject_count: u32,
+    },
+    QuorumNotMet {
+        participation_rate: f32,
+    },
 }
 
 /// State delta for commutative merge.
@@ -376,12 +384,10 @@ impl TrustNetworkState {
             self.active_proposals
                 .entry(*poll_id)
                 .and_modify(|existing| {
-                    // If other has a result and existing doesn't, use other's
-                    if proposal.result.is_some() && existing.result.is_none() {
-                        *existing = proposal.clone();
-                    }
-                    // If other is checked and existing isn't, use other's
-                    else if proposal.checked && !existing.checked {
+                    // Prefer proposals with results or that are checked
+                    if (proposal.result.is_some() && existing.result.is_none())
+                        || (proposal.checked && !existing.checked)
+                    {
                         *existing = proposal.clone();
                     }
                 })

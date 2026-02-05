@@ -374,9 +374,8 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                         ))
                     })?;
 
-                    let contract_delta = crate::freenet::traits::ContractDelta {
-                        data: delta_bytes,
-                    };
+                    let contract_delta =
+                        crate::freenet::traits::ContractDelta { data: delta_bytes };
                     self.freenet
                         .apply_delta(contract, &contract_delta)
                         .await
