@@ -249,6 +249,7 @@ mod test_mocks {
         Failed { reason: String },
     }
 
+    #[allow(dead_code)]
     pub enum ProposalType {
         ConfigChange { key: String, value: String },
     }
@@ -265,6 +266,7 @@ mod test_mocks {
         pub phase: IntroductionPhase,
     }
 
+    #[allow(dead_code)]
     pub struct Matchmaker {
         graph: MeshGraph,
     }
@@ -652,7 +654,7 @@ async fn test_scenario_3_proposal_lifecycle() {
     }
 
     // a) Member sends /propose config name "New Name" --timeout 5m
-    let proposal_type = ProposalType::ConfigChange {
+    let _proposal_type = ProposalType::ConfigChange {
         key: "name".to_string(),
         value: "New Name".to_string(),
     };
@@ -685,7 +687,7 @@ async fn test_scenario_3_proposal_lifecycle() {
 
     // d) Wait for timeout to expire (simulated)
     let created_at = SystemTime::now();
-    let expires_at = created_at + timeout;
+    let _expires_at = created_at + timeout;
 
     // e) Verify: PollTerminate sent to Signal
     // In real implementation, this would be triggered by timeout
@@ -769,7 +771,7 @@ async fn test_scenario_4_proposal_quorum_fail() {
     let min_voters = (total_members as f64 * quorum_threshold).ceil() as usize;
 
     // b) Create proposal, only 3 members vote (all approve)
-    let proposal_type = ProposalType::ConfigChange {
+    let _proposal_type = ProposalType::ConfigChange {
         key: "max_members".to_string(),
         value: "20".to_string(),
     };
@@ -793,7 +795,7 @@ async fn test_scenario_4_proposal_quorum_fail() {
         "total_votes": vote_count,
     });
 
-    let contract_hash = setup_contract(&freenet_client, vote_data.to_string().into_bytes()).await;
+    let _contract_hash = setup_contract(&freenet_client, vote_data.to_string().into_bytes()).await;
 
     // c) Wait for timeout (simulated)
     signal_client.terminate_poll(&group, poll_id).await.unwrap();
@@ -840,7 +842,7 @@ async fn test_scenario_4_proposal_quorum_fail() {
 
     // Verify announcement sent to group
     signal_client
-        .send_group_message(&group, &format!("Proposal failed: Quorum not met"))
+        .send_group_message(&group, "Proposal failed: Quorum not met")
         .await
         .unwrap();
 
