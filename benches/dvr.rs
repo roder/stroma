@@ -49,6 +49,7 @@ fn create_test_network(size: usize, avg_vouches: usize) -> TrustNetworkState {
         config_timestamp: 0,
         schema_version: 1,
         federation_contracts: vec![],
+        gap11_announcement_sent: false,
     }
 }
 

@@ -53,6 +53,7 @@ fn create_clustered_network(cluster_count: usize, cluster_size: usize) -> TrustN
         config_timestamp: 0,
         schema_version: 1,
         federation_contracts: vec![],
+        gap11_announcement_sent: false,
     }
 }
 
@@ -86,6 +87,7 @@ fn create_single_cluster_network(size: usize) -> TrustNetworkState {
         config_timestamp: 0,
         schema_version: 1,
         federation_contracts: vec![],
+        gap11_announcement_sent: false,
     }
 }
 
