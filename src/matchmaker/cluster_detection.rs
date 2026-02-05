@@ -86,14 +86,24 @@ pub fn detect_clusters(state: &TrustNetworkState) -> ClusterResult {
     // 4. For small components (< 4 members), keep original (don't apply bridge removal)
     // 5. For large components, use post-bridge separation but merge singletons
 
+    // Filter edges to only include members in the members set
+    // (vouchers/vouchees might not be in state.members)
+    let member_set: HashSet<MemberHash> = members.iter().copied().collect();
+    let filtered_edges: Vec<(MemberHash, MemberHash)> = edges
+        .iter()
+        .filter(|(a, b)| member_set.contains(a) && member_set.contains(b))
+        .copied()
+        .collect();
+
     // Find connected components before bridge removal
-    let (_initial_member_clusters, initial_clusters) = find_components_union_find(&members, &edges);
+    let (_initial_member_clusters, initial_clusters) =
+        find_components_union_find(&members, &filtered_edges);
 
     // Find bridges once on the entire graph (O(V + E))
     let bridges = find_bridges(&members, &graph);
 
-    // Build non-bridge edge list
-    let non_bridge_edges: Vec<(MemberHash, MemberHash)> = edges
+    // Build non-bridge edge list (from filtered_edges to avoid non-members)
+    let non_bridge_edges: Vec<(MemberHash, MemberHash)> = filtered_edges
         .iter()
         .filter(|(a, b)| {
             let mut pair = [*a, *b];
