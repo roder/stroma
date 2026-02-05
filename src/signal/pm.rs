@@ -225,7 +225,9 @@ pub async fn handle_pm_command<F: crate::freenet::FreenetClient>(
 
         Command::Status { username } => handle_status(client, sender, username.as_deref()).await,
 
-        Command::Mesh { subcommand } => handle_mesh(client, sender, subcommand.as_deref()).await,
+        Command::Mesh { subcommand } => {
+            handle_mesh(client, freenet, config, sender, subcommand.as_deref()).await
+        }
 
         Command::Audit { subcommand } => handle_audit(client, sender, &subcommand).await,
 
@@ -553,16 +555,18 @@ async fn handle_status(
     client.send_message(sender, response).await
 }
 
-async fn handle_mesh(
+async fn handle_mesh<F: crate::freenet::FreenetClient>(
     client: &impl SignalClient,
+    freenet: &F,
+    config: &crate::signal::bot::BotConfig,
     sender: &ServiceId,
     subcommand: Option<&str>,
 ) -> SignalResult<()> {
     match subcommand {
-        None => handle_mesh_overview(client, sender).await,
-        Some("strength") => handle_mesh_strength(client, sender).await,
-        Some("replication") => handle_mesh_replication(client, sender).await,
-        Some("config") => handle_mesh_config(client, sender).await,
+        None => handle_mesh_overview(client, freenet, config, sender).await,
+        Some("strength") => handle_mesh_strength(client, freenet, config, sender).await,
+        Some("replication") => handle_mesh_replication(client, freenet, config, sender).await,
+        Some("config") => handle_mesh_config(client, freenet, config, sender).await,
         Some(unknown) => {
             client
                 .send_message(
@@ -577,66 +581,395 @@ async fn handle_mesh(
     }
 }
 
-async fn handle_mesh_overview(client: &impl SignalClient, sender: &ServiceId) -> SignalResult<()> {
-    // TODO: Implement full mesh overview with Freenet:
-    // 1. Query Freenet contract for full member set
-    // 2. Calculate network metrics:
-    //    - Total members count
-    //    - Vouch distribution (how many have 2, 3, 4+ vouches)
-    //    - Network health (DVR - Distinct Validator Ratio)
-    // 3. Cluster detection (if implemented)
-    // 4. NO individual member identities (privacy)
-    // 5. Format as user-friendly overview
-
-    let response = "📈 Network Overview\n\nTotal members: 12\nNetwork health: 🟢 Healthy (75% DVR)\n\nTrust Distribution:\n  2 connections: 5 members (42%)\n  3+ connections: 7 members (58%)\n\n💡 Your network has strong distributed trust. Members with 3+ cross-cluster vouches create resilient verification.";
-    client.send_message(sender, response).await
-}
-
-async fn handle_mesh_strength(client: &impl SignalClient, sender: &ServiceId) -> SignalResult<()> {
-    // TODO: Implement detailed DVR (Distinct Validator Ratio):
-    // 1. Query Freenet contract for full trust graph
-    // 2. Identify validators (members with 3+ vouches)
-    // 3. Calculate DVR metric:
-    //    - For each cluster, measure overlap in validator sets
-    //    - High DVR = validators are well-distributed across clusters
-    //    - Low DVR = validators are concentrated, creating single points of failure
-    // 4. Show distribution histogram
-    // 5. Response time: <100ms (per requirements)
-
-    let response = "💪 Network Strength (DVR Analysis)\n\n🟢 DVR Score: 75%\n\nValidator Distribution:\n  Cluster A: 4 validators\n  Cluster B: 3 validators\n  Overlap: 1 shared validator (14%)\n\nStrength Indicators:\n  ✅ Multiple validation paths\n  ✅ Low validator concentration\n  ⚠️  Consider recruiting more validators in Cluster C\n\n💡 Your network can withstand single-validator failures without losing trust paths.";
-    client.send_message(sender, response).await
-}
-
-async fn handle_mesh_replication(
+async fn handle_mesh_overview<F: crate::freenet::FreenetClient>(
     client: &impl SignalClient,
+    freenet: &F,
+    config: &crate::signal::bot::BotConfig,
+    sender: &ServiceId,
+) -> SignalResult<()> {
+    use crate::freenet::traits::FreenetError;
+    use crate::matchmaker::{calculate_dvr, detect_clusters};
+    use crate::serialization::from_cbor;
+
+    // Get contract hash
+    let contract = match &config.contract_hash {
+        Some(hash) => *hash,
+        None => {
+            client
+                .send_message(
+                    sender,
+                    "❌ Trust contract not configured. Has the group been bootstrapped?",
+                )
+                .await?;
+            return Ok(());
+        }
+    };
+
+    // Query Freenet for current state
+    let state_bytes = match freenet.get_state(&contract).await {
+        Ok(state) => state.data,
+        Err(FreenetError::ContractNotFound) => {
+            client
+                .send_message(
+                    sender,
+                    "❌ Trust contract not found. Has the group been bootstrapped?",
+                )
+                .await?;
+            return Ok(());
+        }
+        Err(e) => {
+            client
+                .send_message(sender, &format!("❌ Failed to query Freenet: {}", e))
+                .await?;
+            return Ok(());
+        }
+    };
+
+    let state: crate::freenet::trust_contract::TrustNetworkState = match from_cbor(&state_bytes) {
+        Ok(s) => s,
+        Err(e) => {
+            client
+                .send_message(
+                    sender,
+                    &format!("❌ Failed to deserialize contract state: {}", e),
+                )
+                .await?;
+            return Ok(());
+        }
+    };
+
+    // Calculate DVR
+    let dvr_result = calculate_dvr(&state);
+
+    // Detect clusters
+    let cluster_result = detect_clusters(&state);
+
+    // Calculate vouch distribution
+    let total_members = state.members.len();
+    let mut vouch_counts: std::collections::HashMap<usize, usize> =
+        std::collections::HashMap::new();
+    for member in &state.members {
+        let vouch_count = state.vouches.get(member).map(|v| v.len()).unwrap_or(0);
+        *vouch_counts.entry(vouch_count).or_insert(0) += 1;
+    }
+
+    let members_with_2 = vouch_counts.get(&2).copied().unwrap_or(0);
+    let members_with_3_plus: usize = vouch_counts
+        .iter()
+        .filter(|(&count, _)| count >= 3)
+        .map(|(_, &num_members)| num_members)
+        .sum();
+
+    // Format response
+    let mut response = format!(
+        "📈 Network Overview\n\nTotal members: {}\nNetwork health: {} {} ({:.0}% DVR)\n",
+        total_members,
+        dvr_result.health.emoji(),
+        dvr_result.health.name(),
+        dvr_result.percentage()
+    );
+
+    if cluster_result.cluster_count > 1 {
+        response.push_str(&format!(
+            "\nClusters detected: {}\n",
+            cluster_result.cluster_count
+        ));
+    }
+
+    response.push_str("\nTrust Distribution:\n");
+    if members_with_2 > 0 {
+        let pct = (members_with_2 as f32 / total_members as f32) * 100.0;
+        response.push_str(&format!(
+            "  2 connections: {} members ({:.0}%)\n",
+            members_with_2, pct
+        ));
+    }
+    if members_with_3_plus > 0 {
+        let pct = (members_with_3_plus as f32 / total_members as f32) * 100.0;
+        response.push_str(&format!(
+            "  3+ connections: {} members ({:.0}%)\n",
+            members_with_3_plus, pct
+        ));
+    }
+
+    response.push_str("\n💡 ");
+    match dvr_result.health {
+        crate::matchmaker::dvr::HealthStatus::Healthy => {
+            response.push_str("Your network has strong distributed trust. Members with 3+ cross-cluster vouches create resilient verification.");
+        }
+        crate::matchmaker::dvr::HealthStatus::Developing => {
+            response.push_str("Your network is developing. Consider suggesting strategic introductions to improve distributed trust.");
+        }
+        crate::matchmaker::dvr::HealthStatus::Unhealthy => {
+            response.push_str("Your network needs more validators. Use strategic introductions to strengthen distributed trust.");
+        }
+    }
+
+    response
+        .push_str("\n\nFor detailed metrics: /mesh strength, /mesh replication, /mesh config");
+
+    client.send_message(sender, &response).await
+}
+
+async fn handle_mesh_strength<F: crate::freenet::FreenetClient>(
+    client: &impl SignalClient,
+    freenet: &F,
+    config: &crate::signal::bot::BotConfig,
+    sender: &ServiceId,
+) -> SignalResult<()> {
+    use crate::freenet::traits::FreenetError;
+    use crate::matchmaker::{calculate_dvr, detect_clusters};
+    use crate::serialization::from_cbor;
+
+    // Get contract hash
+    let contract = match &config.contract_hash {
+        Some(hash) => *hash,
+        None => {
+            client
+                .send_message(
+                    sender,
+                    "❌ Trust contract not configured. Has the group been bootstrapped?",
+                )
+                .await?;
+            return Ok(());
+        }
+    };
+
+    // Query Freenet for current state
+    let state_bytes = match freenet.get_state(&contract).await {
+        Ok(state) => state.data,
+        Err(FreenetError::ContractNotFound) => {
+            client
+                .send_message(
+                    sender,
+                    "❌ Trust contract not found. Has the group been bootstrapped?",
+                )
+                .await?;
+            return Ok(());
+        }
+        Err(e) => {
+            client
+                .send_message(sender, &format!("❌ Failed to query Freenet: {}", e))
+                .await?;
+            return Ok(());
+        }
+    };
+
+    let state: crate::freenet::trust_contract::TrustNetworkState = match from_cbor(&state_bytes) {
+        Ok(s) => s,
+        Err(e) => {
+            client
+                .send_message(
+                    sender,
+                    &format!("❌ Failed to deserialize contract state: {}", e),
+                )
+                .await?;
+            return Ok(());
+        }
+    };
+
+    // Calculate DVR
+    let dvr_result = calculate_dvr(&state);
+
+    // Detect clusters
+    let cluster_result = detect_clusters(&state);
+
+    // Calculate vouch distribution histogram
+    let mut vouch_distribution: std::collections::BTreeMap<usize, usize> =
+        std::collections::BTreeMap::new();
+    for member in &state.members {
+        let vouch_count = state.vouches.get(member).map(|v| v.len()).unwrap_or(0);
+        *vouch_distribution.entry(vouch_count).or_insert(0) += 1;
+    }
+
+    // Format response
+    let mut response = format!(
+        "💪 Network Strength (DVR Analysis)\n\n{} DVR Score: {:.0}%\n",
+        dvr_result.health.emoji(),
+        dvr_result.percentage()
+    );
+
+    response.push_str(&format!(
+        "\nDistinct Validators: {} / {} possible\n",
+        dvr_result.distinct_validators, dvr_result.max_possible
+    ));
+
+    response.push_str(&format!(
+        "Network Size: {} members\n",
+        dvr_result.network_size
+    ));
+
+    if cluster_result.cluster_count > 1 {
+        response.push_str(&format!("Clusters: {}\n", cluster_result.cluster_count));
+    }
+
+    // Show vouch distribution histogram
+    response.push_str("\nVouch Distribution:\n");
+    for (&vouch_count, &num_members) in vouch_distribution.iter() {
+        let pct = (num_members as f32 / state.members.len() as f32) * 100.0;
+        let bar_length = (pct / 10.0) as usize;
+        let bar = "█".repeat(bar_length) + &"░".repeat(10 - bar_length);
+        response.push_str(&format!(
+            "  {} connections: {} {} members ({:.0}%)\n",
+            vouch_count, bar, num_members, pct
+        ));
+    }
+
+    // Strength indicators
+    response.push_str("\nStrength Indicators:\n");
+    match dvr_result.health {
+        crate::matchmaker::dvr::HealthStatus::Healthy => {
+            response.push_str("  ✅ Multiple validation paths\n");
+            response.push_str("  ✅ Low validator concentration\n");
+            response.push_str("  ✅ Network can withstand validator failures\n");
+        }
+        crate::matchmaker::dvr::HealthStatus::Developing => {
+            response.push_str("  ⚠️  Growing validator coverage\n");
+            response.push_str("  ⚠️  Consider recruiting more validators\n");
+            if cluster_result.cluster_count <= 1 {
+                response
+                    .push_str("  ⚠️  Network may benefit from more cross-cluster connections\n");
+            }
+        }
+        crate::matchmaker::dvr::HealthStatus::Unhealthy => {
+            response.push_str("  ❌ Insufficient validator coverage\n");
+            response.push_str("  ❌ Network vulnerable to single points of failure\n");
+            response.push_str("  ❌ Urgently needs more cross-cluster validators\n");
+        }
+    }
+
+    // Add improvement suggestion based on health
+    response.push_str("\n💡 ");
+    match dvr_result.health {
+        crate::matchmaker::dvr::HealthStatus::Healthy => {
+            response.push_str(
+                "Your network has excellent resilience. Maintain this by continuing to make cross-cluster vouches.",
+            );
+        }
+        crate::matchmaker::dvr::HealthStatus::Developing => {
+            response.push_str(
+                "Strengthen your network by vouching for members from different clusters. This improves distributed verification.",
+            );
+        }
+        crate::matchmaker::dvr::HealthStatus::Unhealthy => {
+            response.push_str(
+                "URGENT: Your network needs more validators with distinct voucher sets. Focus on cross-cluster vouches to build resilience.",
+            );
+        }
+    }
+
+    client.send_message(sender, &response).await
+}
+
+async fn handle_mesh_replication<F: crate::freenet::FreenetClient>(
+    client: &impl SignalClient,
+    _freenet: &F,
+    _config: &crate::signal::bot::BotConfig,
     sender: &ServiceId,
 ) -> SignalResult<()> {
     // TODO: Implement persistence health monitoring:
-    // 1. Query PersistenceRegistry to get network size and bot list
-    // 2. Calculate replication metrics:
-    //    - Total bots available for persistence
-    //    - Chunk holder distribution (from rendezvous hashing)
-    //    - Health indicators (are we meeting k=3 replication?)
-    // 3. Show warnings if network too small for reliable persistence
-    // 4. Response time: <100ms
+    // This requires access to the persistence layer (PersistenceRegistry, ReplicationHealth)
+    // which is not currently passed through the PM command context.
+    // Options:
+    // 1. Add persistence manager to BotContext/handler parameters
+    // 2. Query persistence state through Freenet (if it's stored there)
+    // 3. Expose persistence metrics through a separate module/service
+    //
+    // For now, returning placeholder that indicates feature is not fully connected.
 
-    let response = "🔄 Persistence Health\n\n🟢 Replication Status: Healthy\n\nPersistence Network:\n  Available bots: 15\n  Required holders per chunk: 3\n  Coverage: 100% (all chunks have 3+ holders)\n\nSize Distribution:\n  Small groups: 8 bots\n  Medium groups: 5 bots\n  Large groups: 2 bots\n\n💡 Your network has sufficient bots for reliable k=3 replication.";
+    let response = "🔄 Persistence Health\n\n🔵 Status: Initializing\n\nPersistence health monitoring requires access to the bot's persistence layer.\nThis feature will be fully implemented when persistence manager is integrated with PM command handlers.\n\n💡 Expected metrics:\n  • Replication status (🟢/🟡/🔴/🔵)\n  • Fragments distributed (e.g., 3/3)\n  • Recovery confidence\n  • Write permission status\n  • Last state change timestamp";
     client.send_message(sender, response).await
 }
 
-async fn handle_mesh_config(client: &impl SignalClient, sender: &ServiceId) -> SignalResult<()> {
-    // TODO: Implement config display:
-    // 1. Query Freenet contract for GroupConfig
-    // 2. Show current settings:
-    //    - min_vouches (default: 2)
-    //    - max_flags (default: 3)
-    //    - open_membership (default: false)
-    //    - operators (list of hashes, or count)
-    // 3. Self-query safe, third-party restricted
-    // 4. Response time: <100ms
+async fn handle_mesh_config<F: crate::freenet::FreenetClient>(
+    client: &impl SignalClient,
+    freenet: &F,
+    config: &crate::signal::bot::BotConfig,
+    sender: &ServiceId,
+) -> SignalResult<()> {
+    use crate::freenet::traits::FreenetError;
+    use crate::serialization::from_cbor;
 
-    let response = "⚙️ Group Configuration\n\n🔧 Trust Settings:\n  Minimum vouches: 2\n  Maximum flags: 3\n  Open membership: No\n\n👥 Operators: 1\n\n🔐 Security:\n  Self-query: ✅ Allowed\n  Third-party query: ❌ Restricted\n\n💡 Configuration changes require operator approval via /propose.";
-    client.send_message(sender, response).await
+    // Get contract hash
+    let contract = match &config.contract_hash {
+        Some(hash) => *hash,
+        None => {
+            client
+                .send_message(
+                    sender,
+                    "❌ Trust contract not configured. Has the group been bootstrapped?",
+                )
+                .await?;
+            return Ok(());
+        }
+    };
+
+    // Query Freenet for current state
+    let state_bytes = match freenet.get_state(&contract).await {
+        Ok(state) => state.data,
+        Err(FreenetError::ContractNotFound) => {
+            client
+                .send_message(
+                    sender,
+                    "❌ Trust contract not found. Has the group been bootstrapped?",
+                )
+                .await?;
+            return Ok(());
+        }
+        Err(e) => {
+            client
+                .send_message(sender, &format!("❌ Failed to query Freenet: {}", e))
+                .await?;
+            return Ok(());
+        }
+    };
+
+    let state: crate::freenet::trust_contract::TrustNetworkState = match from_cbor(&state_bytes) {
+        Ok(s) => s,
+        Err(e) => {
+            client
+                .send_message(
+                    sender,
+                    &format!("❌ Failed to deserialize contract state: {}", e),
+                )
+                .await?;
+            return Ok(());
+        }
+    };
+
+    // Format response
+    let group_config = &state.config;
+    let mut response = String::from("⚙️ Group Configuration\n\n🔧 Trust Settings:\n");
+
+    response.push_str(&format!(
+        "  Minimum vouches: {}\n",
+        config.min_vouch_threshold
+    ));
+
+    // Note: max_flags is not currently in the GroupConfig struct, so we'll use a default
+    response.push_str("  Maximum flags: 3 (default)\n");
+
+    response.push_str(&format!(
+        "  Open membership: {}\n",
+        if group_config.open_membership {
+            "Yes"
+        } else {
+            "No"
+        }
+    ));
+
+    response.push_str(&format!(
+        "\n👥 Operators: {}\n",
+        group_config.operators.len()
+    ));
+
+    response.push_str("\n🔐 Security:\n");
+    response.push_str("  Self-query: ✅ Allowed\n");
+    response.push_str("  Third-party query: ❌ Restricted\n");
+
+    response.push_str("\n💡 Configuration changes require operator approval via /propose.");
+
+    client.send_message(sender, &response).await
 }
 
 async fn handle_audit(
@@ -676,7 +1009,10 @@ async fn handle_audit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::freenet::mock::MockFreenetClient;
+    use crate::freenet::traits::ContractHash;
     use crate::signal::mock::MockSignalClient;
+    use crate::signal::traits::GroupId;
 
     #[test]
     fn test_parse_create_group() {
@@ -896,10 +1232,44 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_mesh_overview() {
+        use crate::freenet::traits::ContractState;
+        use crate::freenet::trust_contract::TrustNetworkState;
+        use crate::serialization::to_cbor;
+
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let sender = ServiceId("user1".to_string());
+        let freenet = MockFreenetClient::new();
 
-        let result = handle_mesh(&client, &sender, None).await;
+        let contract_hash = ContractHash::from_bytes(&[0u8; 32]);
+        let config = crate::signal::bot::BotConfig {
+            group_id: GroupId(vec![1, 2, 3]),
+            contract_hash: Some(contract_hash),
+            pepper: vec![0u8; 32],
+            min_vouch_threshold: 2,
+        };
+
+        // Set up test state with some members and vouches
+        let mut test_state = TrustNetworkState::new();
+        use crate::freenet::contract::MemberHash;
+        for i in 1..=5 {
+            let mut bytes = [0u8; 32];
+            bytes[0] = i;
+            test_state.members.insert(MemberHash::from_bytes(&bytes));
+        }
+
+        // Add some vouches to create validators
+        let member1 = MemberHash::from_bytes(&[1u8; 32]);
+        let member2 = MemberHash::from_bytes(&[2u8; 32]);
+        let member3 = MemberHash::from_bytes(&[3u8; 32]);
+        let mut vouchers = std::collections::HashSet::new();
+        vouchers.insert(member2);
+        vouchers.insert(member3);
+        test_state.vouches.insert(member1, vouchers);
+
+        let state_bytes = to_cbor(&test_state).unwrap();
+        freenet.put_state(contract_hash, ContractState { data: state_bytes });
+
+        let result = handle_mesh(&client, &freenet, &config, &sender, None).await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
@@ -909,10 +1279,35 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_mesh_strength() {
+        use crate::freenet::traits::ContractState;
+        use crate::freenet::trust_contract::TrustNetworkState;
+        use crate::serialization::to_cbor;
+
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let sender = ServiceId("user1".to_string());
+        let freenet = MockFreenetClient::new();
 
-        let result = handle_mesh(&client, &sender, Some("strength")).await;
+        let contract_hash = ContractHash::from_bytes(&[0u8; 32]);
+        let config = crate::signal::bot::BotConfig {
+            group_id: GroupId(vec![1, 2, 3]),
+            contract_hash: Some(contract_hash),
+            pepper: vec![0u8; 32],
+            min_vouch_threshold: 2,
+        };
+
+        // Set up test state
+        let mut test_state = TrustNetworkState::new();
+        use crate::freenet::contract::MemberHash;
+        for i in 1..=5 {
+            let mut bytes = [0u8; 32];
+            bytes[0] = i;
+            test_state.members.insert(MemberHash::from_bytes(&bytes));
+        }
+
+        let state_bytes = to_cbor(&test_state).unwrap();
+        freenet.put_state(contract_hash, ContractState { data: state_bytes });
+
+        let result = handle_mesh(&client, &freenet, &config, &sender, Some("strength")).await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
@@ -925,8 +1320,15 @@ mod tests {
     async fn test_handle_mesh_replication() {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let sender = ServiceId("user1".to_string());
+        let freenet = MockFreenetClient::new();
+        let config = crate::signal::bot::BotConfig {
+            group_id: GroupId(vec![1, 2, 3]),
+            contract_hash: Some(ContractHash::from_bytes(&[0u8; 32])),
+            pepper: vec![0u8; 32],
+            min_vouch_threshold: 2,
+        };
 
-        let result = handle_mesh(&client, &sender, Some("replication")).await;
+        let result = handle_mesh(&client, &freenet, &config, &sender, Some("replication")).await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
@@ -936,10 +1338,29 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_mesh_config() {
+        use crate::freenet::traits::ContractState;
+        use crate::freenet::trust_contract::TrustNetworkState;
+        use crate::serialization::to_cbor;
+
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let sender = ServiceId("user1".to_string());
+        let freenet = MockFreenetClient::new();
 
-        let result = handle_mesh(&client, &sender, Some("config")).await;
+        let contract_hash = ContractHash::from_bytes(&[0u8; 32]);
+        let config = crate::signal::bot::BotConfig {
+            group_id: GroupId(vec![1, 2, 3]),
+            contract_hash: Some(contract_hash),
+            pepper: vec![0u8; 32],
+            min_vouch_threshold: 2,
+        };
+
+        // Set up test state
+        let test_state = TrustNetworkState::new();
+
+        let state_bytes = to_cbor(&test_state).unwrap();
+        freenet.put_state(contract_hash, ContractState { data: state_bytes });
+
+        let result = handle_mesh(&client, &freenet, &config, &sender, Some("config")).await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
@@ -951,8 +1372,15 @@ mod tests {
     async fn test_handle_mesh_unknown_subcommand() {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let sender = ServiceId("user1".to_string());
+        let freenet = MockFreenetClient::new();
+        let config = crate::signal::bot::BotConfig {
+            group_id: GroupId(vec![1, 2, 3]),
+            contract_hash: Some(ContractHash::from_bytes(&[0u8; 32])),
+            pepper: vec![0u8; 32],
+            min_vouch_threshold: 2,
+        };
 
-        let result = handle_mesh(&client, &sender, Some("unknown")).await;
+        let result = handle_mesh(&client, &freenet, &config, &sender, Some("unknown")).await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
