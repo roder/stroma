@@ -129,6 +129,22 @@ harness = false
 name = "phase2_performance"
 harness = false
 
+[[bench]]
+name = "dvr"
+harness = false
+
+[[bench]]
+name = "cluster_detection"
+harness = false
+
+[[bench]]
+name = "matchmaker"
+harness = false
+
+[[bench]]
+name = "mesh_commands"
+harness = false
+
 # Protocol v8 poll support via our fork of libsignal-service-rs
 # Branch based directly on b48b42fbc (commit presage pins to)
 # See: .beads/poll-implementation-gastown.bead
