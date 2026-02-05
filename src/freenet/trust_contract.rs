@@ -287,7 +287,8 @@ impl TrustNetworkState {
         self.federation_contracts = combined.into_iter().collect();
 
         // GAP-11 announcement: logical OR (once sent in any replica, it's sent)
-        self.gap11_announcement_sent = self.gap11_announcement_sent || other.gap11_announcement_sent;
+        self.gap11_announcement_sent =
+            self.gap11_announcement_sent || other.gap11_announcement_sent;
     }
 
     /// Calculate standing for a member.

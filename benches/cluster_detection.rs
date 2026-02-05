@@ -7,10 +7,10 @@
 //! - Each component represents a cluster
 //! - GAP-11: Announce when ≥2 clusters detected
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use stroma::freenet::contract::MemberHash;
-use stroma::freenet::trust_contract::{TrustNetworkState, GroupConfig};
+use stroma::freenet::trust_contract::{GroupConfig, TrustNetworkState};
 use stroma::matchmaker::cluster_detection::detect_clusters;
 
 fn test_member(id: u8) -> MemberHash {

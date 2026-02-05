@@ -298,9 +298,13 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                             // Get contract hash from config
                             if let Some(ref contract) = self.config.contract_hash {
                                 // Get current GroupConfig from Freenet state
-                                let state = self.freenet.get_state(contract).await.map_err(|e| {
-                                    SignalError::Protocol(format!("Failed to get Freenet state: {}", e))
-                                })?;
+                                let state =
+                                    self.freenet.get_state(contract).await.map_err(|e| {
+                                        SignalError::Protocol(format!(
+                                            "Failed to get Freenet state: {}",
+                                            e
+                                        ))
+                                    })?;
                                 let trust_state: crate::freenet::trust_contract::TrustNetworkState =
                                     crate::serialization::from_cbor(&state.data).map_err(|e| {
                                         SignalError::Protocol(format!(
@@ -355,7 +359,9 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         // Check if announcement is needed (≥2 clusters)
         if cluster_result.needs_announcement() {
             let message = cluster_result.announcement_message();
-            self.group_manager.announce_cluster_formation(message).await?;
+            self.group_manager
+                .announce_cluster_formation(message)
+                .await?;
             return Ok(true);
         }
 
@@ -586,7 +592,10 @@ mod tests {
 
         // Initialize the group in the mock client
         let dummy_member = ServiceId("dummy".to_string());
-        client.add_group_member(&group, &dummy_member).await.unwrap();
+        client
+            .add_group_member(&group, &dummy_member)
+            .await
+            .unwrap();
 
         let config = BotConfig {
             group_id: group.clone(),
@@ -620,7 +629,10 @@ mod tests {
         state.vouches.insert(m3, vouchers3);
 
         // Check and announce - should send announcement
-        let announced = bot.check_and_announce_cluster_formation(&state).await.unwrap();
+        let announced = bot
+            .check_and_announce_cluster_formation(&state)
+            .await
+            .unwrap();
         assert!(announced, "Announcement should be sent for 2 clusters");
 
         // Verify announcement was sent to group
@@ -631,7 +643,10 @@ mod tests {
         // Check again - should not send announcement again
         let mut state_with_flag = state.clone();
         state_with_flag.gap11_announcement_sent = true;
-        let announced = bot.check_and_announce_cluster_formation(&state_with_flag).await.unwrap();
+        let announced = bot
+            .check_and_announce_cluster_formation(&state_with_flag)
+            .await
+            .unwrap();
         assert!(!announced, "Announcement should not be sent again");
 
         // Verify no new messages sent
@@ -650,7 +665,10 @@ mod tests {
         let state = crate::freenet::trust_contract::TrustNetworkState::new();
 
         // Check and announce - should NOT send announcement
-        let announced = bot.check_and_announce_cluster_formation(&state).await.unwrap();
+        let announced = bot
+            .check_and_announce_cluster_formation(&state)
+            .await
+            .unwrap();
         assert!(!announced, "No announcement should be sent for 0 clusters");
     }
 

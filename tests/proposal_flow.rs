@@ -12,7 +12,9 @@
 //! 9. Mark as checked
 
 use stroma::freenet::{
-    traits::{ContractHash, ContractState, FreenetClient, FreenetError, FreenetResult, StateChange},
+    traits::{
+        ContractHash, ContractState, FreenetClient, FreenetError, FreenetResult, StateChange,
+    },
     trust_contract::{GroupConfig, TrustNetworkState},
 };
 use stroma::serialization::to_cbor;
@@ -83,7 +85,11 @@ impl FreenetClient for TestFreenetClient {
         Ok(Box::new(stream::empty()))
     }
 
-    async fn deploy_contract(&self, _code: &[u8], _initial_state: &[u8]) -> FreenetResult<ContractHash> {
+    async fn deploy_contract(
+        &self,
+        _code: &[u8],
+        _initial_state: &[u8],
+    ) -> FreenetResult<ContractHash> {
         Ok(ContractHash::from_bytes(&[0u8; 32]))
     }
 }

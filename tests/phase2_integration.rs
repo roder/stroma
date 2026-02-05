@@ -13,11 +13,11 @@
 //! Phase 2 features that are still being implemented. Remove #[ignore] as
 //! each feature becomes available.
 
+use std::collections::{HashMap, HashSet};
+use std::time::{Duration, SystemTime};
 use stroma::freenet::traits::{ContractHash, ContractState, FreenetClient};
 use stroma::signal::traits::{GroupId, Poll, ServiceId, SignalClient};
 use stroma::stark::types::MemberHash;
-use std::collections::{HashMap, HashSet};
-use std::time::{Duration, SystemTime};
 
 // Mock implementations for testing (until real implementations are available)
 #[cfg(test)]
@@ -367,10 +367,7 @@ fn setup_network_with_vouches(vouches: Vec<(u8, Vec<u8>)>) -> MeshGraph {
 }
 
 /// Helper to setup a Freenet contract with initial state
-async fn setup_contract(
-    client: &MockFreenetClient,
-    initial_state: Vec<u8>,
-) -> ContractHash {
+async fn setup_contract(client: &MockFreenetClient, initial_state: Vec<u8>) -> ContractHash {
     let hash = ContractHash::from_bytes(&[1u8; 32]);
     let state = ContractState {
         data: initial_state,
@@ -458,10 +455,7 @@ async fn test_scenario_1_dvr_and_cluster_detection() {
 
     let messages = signal_client.sent_messages();
     assert_eq!(messages.len(), 1, "Expected GAP-11 announcement message");
-    assert!(matches!(
-        &messages[0].recipient,
-        Recipient::Group(_)
-    ));
+    assert!(matches!(&messages[0].recipient, Recipient::Group(_)));
 
     // d) Add new member with same-cluster vouches
     let new_member = test_member_hash(13);
@@ -527,10 +521,7 @@ async fn test_scenario_1_dvr_and_cluster_detection() {
 
     // With 14 members, floor(14/4) = 3 possible distinct validators
     let max_distinct_validators = 14 / 4;
-    assert!(
-        metrics.dvr <= 1.0,
-        "DVR should never exceed 1.0"
-    );
+    assert!(metrics.dvr <= 1.0, "DVR should never exceed 1.0");
     assert!(
         metrics.distinct_validators <= max_distinct_validators,
         "Distinct validators should not exceed floor(N/4)"
@@ -545,10 +536,7 @@ async fn test_scenario_1_dvr_and_cluster_detection() {
         "🔴 Unhealthy"
     };
 
-    assert!(
-        !health_tier.is_empty(),
-        "Health tier should be determined"
-    );
+    assert!(!health_tier.is_empty(), "Health tier should be determined");
 }
 
 // ============================================================================
@@ -560,14 +548,14 @@ async fn test_scenario_1_dvr_and_cluster_detection() {
 async fn test_scenario_2_blind_matchmaker() {
     // a) Create network with DVR 40% (🔴 Unhealthy)
     let graph = setup_network_with_vouches(vec![
-        (1, vec![2, 3, 4]),    // Member 1 vouched by 2, 3, 4
-        (2, vec![1, 3, 4]),    // Member 2 vouched by 1, 3, 4 (overlaps with 1)
-        (3, vec![1, 2, 4]),    // Member 3 vouched by 1, 2, 4 (overlaps)
-        (4, vec![1, 2, 3]),    // Member 4 vouched by 1, 2, 3 (overlaps)
-        (5, vec![6, 7, 8]),    // Member 5 vouched by 6, 7, 8
-        (6, vec![5, 7, 8]),    // Member 6 vouched by 5, 7, 8 (overlaps with 5)
-        (7, vec![9, 10, 11]),  // Member 7 vouched by 9, 10, 11
-        (8, vec![9, 10, 11]),  // Member 8 vouched by 9, 10, 11 (overlaps with 7)
+        (1, vec![2, 3, 4]),   // Member 1 vouched by 2, 3, 4
+        (2, vec![1, 3, 4]),   // Member 2 vouched by 1, 3, 4 (overlaps with 1)
+        (3, vec![1, 2, 4]),   // Member 3 vouched by 1, 2, 4 (overlaps)
+        (4, vec![1, 2, 3]),   // Member 4 vouched by 1, 2, 3 (overlaps)
+        (5, vec![6, 7, 8]),   // Member 5 vouched by 6, 7, 8
+        (6, vec![5, 7, 8]),   // Member 6 vouched by 5, 7, 8 (overlaps with 5)
+        (7, vec![9, 10, 11]), // Member 7 vouched by 9, 10, 11
+        (8, vec![9, 10, 11]), // Member 8 vouched by 9, 10, 11 (overlaps with 7)
     ]);
 
     let mut metrics = graph.calculate_metrics();
@@ -682,10 +670,7 @@ async fn test_scenario_3_proposal_lifecycle() {
 
     // Verify poll was created
     let sent_messages = signal_client.sent_messages();
-    assert!(
-        !sent_messages.is_empty(),
-        "Poll creation should be tracked"
-    );
+    assert!(!sent_messages.is_empty(), "Poll creation should be tracked");
 
     // c) Members vote (mix of approve/reject)
     // Simulate 3 approve, 2 reject
@@ -704,10 +689,7 @@ async fn test_scenario_3_proposal_lifecycle() {
 
     // e) Verify: PollTerminate sent to Signal
     // In real implementation, this would be triggered by timeout
-    signal_client
-        .terminate_poll(&group, poll_id)
-        .await
-        .unwrap();
+    signal_client.terminate_poll(&group, poll_id).await.unwrap();
 
     let messages_after_terminate = signal_client.sent_messages();
     assert!(
@@ -734,10 +716,7 @@ async fn test_scenario_3_proposal_lifecycle() {
     };
 
     assert!(
-        matches!(
-            outcome,
-            ProposalOutcome::Failed { .. }
-        ),
+        matches!(outcome, ProposalOutcome::Failed { .. }),
         "Proposal should fail (60% < 70% threshold)"
     );
 
@@ -817,10 +796,7 @@ async fn test_scenario_4_proposal_quorum_fail() {
     let contract_hash = setup_contract(&freenet_client, vote_data.to_string().into_bytes()).await;
 
     // c) Wait for timeout (simulated)
-    signal_client
-        .terminate_poll(&group, poll_id)
-        .await
-        .unwrap();
+    signal_client.terminate_poll(&group, poll_id).await.unwrap();
 
     // d) Verify: Proposal FAILED (quorum not met)
     let participation_rate = vote_count as f64 / total_members as f64;
@@ -842,10 +818,7 @@ async fn test_scenario_4_proposal_quorum_fail() {
     };
 
     assert!(
-        matches!(
-            outcome,
-            ProposalOutcome::Failed { .. }
-        ),
+        matches!(outcome, ProposalOutcome::Failed { .. }),
         "Proposal should fail due to quorum"
     );
 

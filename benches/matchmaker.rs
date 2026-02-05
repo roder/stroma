@@ -6,10 +6,10 @@
 //! - Cross-cluster validator selection
 //! - DVR optimization (distinct validators, non-overlapping voucher sets)
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use stroma::freenet::contract::MemberHash;
-use stroma::freenet::trust_contract::{TrustNetworkState, GroupConfig};
+use stroma::freenet::trust_contract::{GroupConfig, TrustNetworkState};
 use stroma::signal::matchmaker::BlindMatchmaker;
 
 fn test_member(id: u8) -> MemberHash {
@@ -129,7 +129,7 @@ fn benchmark_matchmaker_single_cluster(c: &mut Criterion) {
 
 fn benchmark_matchmaker_cross_cluster_check(c: &mut Criterion) {
     let state = create_clustered_network(4, 10);
-    let member1 = test_member(0);  // Cluster 0
+    let member1 = test_member(0); // Cluster 0
     let member2 = test_member(15); // Cluster 1
 
     c.bench_function("matchmaker_cross_cluster_check", |b| {
