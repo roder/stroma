@@ -17,6 +17,7 @@
 use crate::freenet::contract::MemberHash;
 use crate::freenet::traits::{ContractHash, FreenetClient};
 use crate::freenet::trust_contract::TrustNetworkState;
+use crate::matchmaker::cluster_detection::detect_clusters;
 use crate::signal::traits::{GroupId, ServiceId, SignalClient};
 use futures::StreamExt;
 use std::collections::{HashMap, HashSet};
@@ -37,6 +38,8 @@ where
     group_id: GroupId,
     /// Mapping from MemberHash to Signal ServiceId (HMAC-masked, never cleartext)
     member_mapping: Arc<RwLock<HashMap<MemberHash, ServiceId>>>,
+    /// Track if GAP-11 cluster formation announcement has been sent
+    cluster_announced: Arc<RwLock<bool>>,
 }
 
 impl<F, S> HealthMonitor<F, S>
@@ -52,6 +55,7 @@ where
             contract,
             group_id,
             member_mapping: Arc::new(RwLock::new(HashMap::new())),
+            cluster_announced: Arc::new(RwLock::new(false)),
         }
     }
 
@@ -109,14 +113,20 @@ where
     }
 
     /// Check standing for all members and trigger ejection if needed.
+    ///
+    /// Also performs cluster detection and sends GAP-11 announcement on first ≥2 cluster detection.
     async fn check_all_members(&self, state: &TrustNetworkState) -> Result<(), MonitorError> {
         let min_vouches = state.config.min_vouches;
 
+        // Check member standing and trigger ejections
         for member in &state.members {
             if self.should_eject(member, state, min_vouches).await? {
                 self.eject_member(member).await?;
             }
         }
+
+        // GAP-11: Detect clusters and announce formation when ≥2 clusters detected
+        self.check_cluster_formation(state).await?;
 
         Ok(())
     }
@@ -199,6 +209,38 @@ where
 
         Ok(())
     }
+
+    /// Check for cluster formation and send GAP-11 announcement if needed.
+    ///
+    /// Per GAP-11:
+    /// - Detect clusters using Bridge Removal algorithm
+    /// - Send group announcement when ≥2 clusters detected (first time only)
+    /// - Message: "📊 Network update: Your group now has distinct sub-communities!..."
+    async fn check_cluster_formation(&self, state: &TrustNetworkState) -> Result<(), MonitorError> {
+        // Check if we've already announced
+        let announced = *self.cluster_announced.read().await;
+        if announced {
+            return Ok(());
+        }
+
+        // Detect clusters
+        let cluster_result = detect_clusters(state);
+
+        // Send announcement if ≥2 clusters detected
+        if cluster_result.needs_announcement() {
+            let message = cluster_result.announcement_message();
+            self.signal
+                .send_group_message(&self.group_id, message)
+                .await
+                .map_err(|e| MonitorError::SignalError(e.to_string()))?;
+
+            // Mark as announced
+            let mut announced_lock = self.cluster_announced.write().await;
+            *announced_lock = true;
+        }
+
+        Ok(())
+    }
 }
 
 /// Standing metrics for a member.
@@ -244,6 +286,7 @@ mod tests {
     #[derive(Clone)]
     struct MockSignalClient {
         removed_members: Arc<Mutex<Vec<ServiceId>>>,
+        sent_messages: Arc<Mutex<Vec<String>>>,
         service_id: ServiceId,
     }
 
@@ -251,12 +294,17 @@ mod tests {
         fn new() -> Self {
             Self {
                 removed_members: Arc::new(Mutex::new(Vec::new())),
+                sent_messages: Arc::new(Mutex::new(Vec::new())),
                 service_id: ServiceId("bot".to_string()),
             }
         }
 
         async fn get_removed_members(&self) -> Vec<ServiceId> {
             self.removed_members.lock().await.clone()
+        }
+
+        async fn sent_messages(&self) -> Vec<String> {
+            self.sent_messages.lock().await.clone()
         }
     }
 
@@ -273,8 +321,9 @@ mod tests {
         async fn send_group_message(
             &self,
             _group: &GroupId,
-            _text: &str,
+            text: &str,
         ) -> Result<(), SignalError> {
+            self.sent_messages.lock().await.push(text.to_string());
             Ok(())
         }
 
@@ -586,5 +635,150 @@ mod tests {
         assert_eq!(removed.len(), 2);
         assert!(removed.contains(&test_service_id(2)));
         assert!(removed.contains(&test_service_id(3)));
+    }
+
+    #[tokio::test]
+    async fn test_gap11_cluster_announcement_sent() {
+        let freenet = Arc::new(MockFreenetClient::new());
+        let signal = MockSignalClient::new();
+        let contract = ContractHash::from_bytes(&[0u8; 32]);
+        let group_id = GroupId(vec![1, 2, 3]);
+
+        let monitor = HealthMonitor::new(freenet.clone(), signal.clone(), contract, group_id);
+
+        // Create state with 2 disconnected clusters
+        // Cluster 1: {1, 2}
+        // Cluster 2: {3, 4}
+        let mut state = TrustNetworkState::new();
+        state.config.min_vouches = 2;
+
+        let member1 = test_member(1);
+        let member2 = test_member(2);
+        let member3 = test_member(3);
+        let member4 = test_member(4);
+
+        state.members.insert(member1);
+        state.members.insert(member2);
+        state.members.insert(member3);
+        state.members.insert(member4);
+
+        // Cluster 1: 1-2 connected
+        state
+            .vouches
+            .insert(member1, [member2].into_iter().collect());
+
+        // Cluster 2: 3-4 connected
+        state
+            .vouches
+            .insert(member3, [member4].into_iter().collect());
+
+        // Register all members
+        monitor.register_member(member1, test_service_id(1)).await;
+        monitor.register_member(member2, test_service_id(2)).await;
+        monitor.register_member(member3, test_service_id(3)).await;
+        monitor.register_member(member4, test_service_id(4)).await;
+
+        // Check all members (should trigger cluster detection and announcement)
+        monitor.check_all_members(&state).await.unwrap();
+
+        // Verify announcement was sent
+        let messages = signal.sent_messages().await;
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].contains("sub-communities"));
+        assert!(messages[0].contains("grandfathered"));
+    }
+
+    #[tokio::test]
+    async fn test_gap11_announcement_sent_only_once() {
+        let freenet = Arc::new(MockFreenetClient::new());
+        let signal = MockSignalClient::new();
+        let contract = ContractHash::from_bytes(&[0u8; 32]);
+        let group_id = GroupId(vec![1, 2, 3]);
+
+        let monitor = HealthMonitor::new(freenet.clone(), signal.clone(), contract, group_id);
+
+        // Create state with 2 disconnected clusters
+        let mut state = TrustNetworkState::new();
+        state.config.min_vouches = 2;
+
+        let member1 = test_member(1);
+        let member2 = test_member(2);
+        let member3 = test_member(3);
+        let member4 = test_member(4);
+
+        state.members.insert(member1);
+        state.members.insert(member2);
+        state.members.insert(member3);
+        state.members.insert(member4);
+
+        // Cluster 1: 1-2 connected
+        state
+            .vouches
+            .insert(member1, [member2].into_iter().collect());
+
+        // Cluster 2: 3-4 connected
+        state
+            .vouches
+            .insert(member3, [member4].into_iter().collect());
+
+        // Register all members
+        monitor.register_member(member1, test_service_id(1)).await;
+        monitor.register_member(member2, test_service_id(2)).await;
+        monitor.register_member(member3, test_service_id(3)).await;
+        monitor.register_member(member4, test_service_id(4)).await;
+
+        // First check - should send announcement
+        monitor.check_all_members(&state).await.unwrap();
+        assert_eq!(signal.sent_messages().await.len(), 1);
+
+        // Second check - should NOT send another announcement
+        monitor.check_all_members(&state).await.unwrap();
+        assert_eq!(signal.sent_messages().await.len(), 1); // Still only 1 message
+
+        // Third check - still only one announcement
+        monitor.check_all_members(&state).await.unwrap();
+        assert_eq!(signal.sent_messages().await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_gap11_no_announcement_for_single_cluster() {
+        let freenet = Arc::new(MockFreenetClient::new());
+        let signal = MockSignalClient::new();
+        let contract = ContractHash::from_bytes(&[0u8; 32]);
+        let group_id = GroupId(vec![1, 2, 3]);
+
+        let monitor = HealthMonitor::new(freenet.clone(), signal.clone(), contract, group_id);
+
+        // Create state with 1 connected cluster (all members connected)
+        let mut state = TrustNetworkState::new();
+        state.config.min_vouches = 2;
+
+        let member1 = test_member(1);
+        let member2 = test_member(2);
+        let member3 = test_member(3);
+
+        state.members.insert(member1);
+        state.members.insert(member2);
+        state.members.insert(member3);
+
+        // All connected: 1-2-3
+        state
+            .vouches
+            .insert(member1, [member2].into_iter().collect());
+        state
+            .vouches
+            .insert(member2, [member3].into_iter().collect());
+
+        // Register all members
+        monitor.register_member(member1, test_service_id(1)).await;
+        monitor.register_member(member2, test_service_id(2)).await;
+        monitor.register_member(member3, test_service_id(3)).await;
+
+        // Check all members - should NOT send announcement (only 1 cluster)
+        monitor.check_all_members(&state).await.unwrap();
+
+        // Verify no announcement was sent
+        let messages = signal.sent_messages().await;
+        assert_eq!(messages.len(), 0);
     }
 }
