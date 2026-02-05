@@ -930,7 +930,7 @@ async fn test_proposal_timeout_bounds() {
     let min_timeout = Duration::from_secs(60 * 60); // 1 hour
     let max_timeout = Duration::from_secs(168 * 60 * 60); // 168 hours (7 days)
 
-    let test_timeouts = vec![
+    let test_timeouts = [
         Duration::from_secs(30 * 60),       // 30 min - too short
         Duration::from_secs(60 * 60),       // 1 hour - min valid
         Duration::from_secs(24 * 60 * 60),  // 1 day - valid
