@@ -56,6 +56,24 @@ impl MockSignalClient {
         self.state.lock().unwrap().sent_messages.clone()
     }
 
+    /// Get sent group messages for a specific group
+    pub fn sent_group_messages(&self, group: &GroupId) -> Vec<String> {
+        self.state
+            .lock()
+            .unwrap()
+            .sent_messages
+            .iter()
+            .filter_map(|msg| {
+                if let Recipient::Group(ref msg_group) = msg.recipient {
+                    if msg_group == group {
+                        return Some(msg.content.clone());
+                    }
+                }
+                None
+            })
+            .collect()
+    }
+
     /// Get group members for assertions
     pub fn group_members(&self, group: &GroupId) -> Option<Vec<ServiceId>> {
         self.state.lock().unwrap().group_members.get(group).cloned()

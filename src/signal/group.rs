@@ -52,6 +52,16 @@ impl<C: SignalClient> GroupManager<C> {
             .send_group_message(&self.group_id, &message)
             .await
     }
+
+    /// Announce GAP-11 cluster formation (one-time message)
+    ///
+    /// Per GAP-11: When ≥2 clusters detected, announce cross-cluster requirement activation.
+    /// See: docs/ALGORITHMS.md § Cluster Detection, .beads/cross-cluster-requirement.bead
+    pub async fn announce_cluster_formation(&self, message: &str) -> SignalResult<()> {
+        self.client
+            .send_group_message(&self.group_id, message)
+            .await
+    }
 }
 
 /// Ejection triggers (both independent)

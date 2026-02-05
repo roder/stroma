@@ -185,6 +185,7 @@ fn test_freenet_stores_outcomes_not_proofs() {
         config_timestamp: 0,
         schema_version: 1,
         federation_contracts: vec![],
+        gap11_announcement_sent: false,
     };
 
     // StateDelta should have no proof-related fields

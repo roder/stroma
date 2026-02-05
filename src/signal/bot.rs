@@ -235,7 +235,13 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     /// Handle Freenet state change
     ///
     /// React to trust model changes immediately (no polling).
-    pub async fn handle_state_change(&mut self, change: StateChange) -> SignalResult<()> {
+    pub async fn handle_state_change(
+        &mut self,
+        change: StateChange,
+        state: &crate::freenet::trust_contract::TrustNetworkState,
+    ) -> SignalResult<bool> {
+        let mut state_updated = false;
+
         match change {
             StateChange::MemberVetted {
                 member_hash,
@@ -243,6 +249,11 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             } => {
                 self.group_manager.add_member(&service_id).await?;
                 self.group_manager.announce_admission(&member_hash).await?;
+
+                // Check for GAP-11 cluster formation announcement
+                if self.check_and_announce_cluster_formation(state).await? {
+                    state_updated = true;
+                }
             }
 
             StateChange::MemberRevoked {
@@ -297,7 +308,37 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             }
         }
 
-        Ok(())
+        Ok(state_updated)
+    }
+
+    /// Check for GAP-11 cluster formation and announce if needed
+    ///
+    /// Per GAP-11: When ≥2 clusters first detected, announce cross-cluster requirement.
+    /// This is a one-time announcement tracked in state.
+    ///
+    /// Returns true if announcement was sent (caller should update Freenet state).
+    pub async fn check_and_announce_cluster_formation(
+        &mut self,
+        state: &crate::freenet::trust_contract::TrustNetworkState,
+    ) -> SignalResult<bool> {
+        use crate::matchmaker::cluster_detection::detect_clusters;
+
+        // Skip if announcement already sent
+        if state.gap11_announcement_sent {
+            return Ok(false);
+        }
+
+        // Detect clusters
+        let cluster_result = detect_clusters(state);
+
+        // Check if announcement is needed (≥2 clusters)
+        if cluster_result.needs_announcement() {
+            let message = cluster_result.announcement_message();
+            self.group_manager.announce_cluster_formation(message).await?;
+            return Ok(true);
+        }
+
+        Ok(false)
     }
 
     /// Check ejection triggers for member
@@ -437,7 +478,8 @@ mod tests {
             service_id: ServiceId("user1".to_string()),
         };
 
-        bot.handle_state_change(change).await.unwrap();
+        let state = crate::freenet::trust_contract::TrustNetworkState::new();
+        bot.handle_state_change(change, &state).await.unwrap();
 
         // Verify member added to group
         assert!(client.is_member(&group, &ServiceId("user1".to_string())));
@@ -474,7 +516,8 @@ mod tests {
             },
         };
 
-        bot.handle_state_change(change).await.unwrap();
+        let state = crate::freenet::trust_contract::TrustNetworkState::new();
+        bot.handle_state_change(change, &state).await.unwrap();
 
         // Verify member removed from group
         assert!(!client.is_member(&group, &member));
@@ -509,6 +552,85 @@ mod tests {
         // No ejection
         let trigger = bot.check_ejection(3, 1, 0);
         assert!(trigger.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_gap11_cluster_formation_announcement() {
+        use crate::freenet::contract::MemberHash;
+        use std::collections::HashSet;
+
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
+        let group = GroupId(vec![1, 2, 3]);
+
+        // Initialize the group in the mock client
+        let dummy_member = ServiceId("dummy".to_string());
+        client.add_group_member(&group, &dummy_member).await.unwrap();
+
+        let config = BotConfig {
+            group_id: group.clone(),
+            min_vouch_threshold: 2,
+            pepper: b"test-pepper".to_vec(),
+            contract_hash: None,
+        };
+        let mut bot = StromaBot::new(client.clone(), freenet, config);
+
+        // Create state with two disconnected clusters
+        let mut state = crate::freenet::trust_contract::TrustNetworkState::new();
+
+        // Cluster 1: members 1 and 2
+        let m1 = MemberHash::from_bytes(&[1u8; 32]);
+        let m2 = MemberHash::from_bytes(&[2u8; 32]);
+        state.members.insert(m1);
+        state.members.insert(m2);
+
+        let mut vouchers1 = HashSet::new();
+        vouchers1.insert(m2);
+        state.vouches.insert(m1, vouchers1);
+
+        // Cluster 2: members 3 and 4
+        let m3 = MemberHash::from_bytes(&[3u8; 32]);
+        let m4 = MemberHash::from_bytes(&[4u8; 32]);
+        state.members.insert(m3);
+        state.members.insert(m4);
+
+        let mut vouchers3 = HashSet::new();
+        vouchers3.insert(m4);
+        state.vouches.insert(m3, vouchers3);
+
+        // Check and announce - should send announcement
+        let announced = bot.check_and_announce_cluster_formation(&state).await.unwrap();
+        assert!(announced, "Announcement should be sent for 2 clusters");
+
+        // Verify announcement was sent to group
+        let sent = client.sent_group_messages(&group);
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("sub-communities"));
+
+        // Check again - should not send announcement again
+        let mut state_with_flag = state.clone();
+        state_with_flag.gap11_announcement_sent = true;
+        let announced = bot.check_and_announce_cluster_formation(&state_with_flag).await.unwrap();
+        assert!(!announced, "Announcement should not be sent again");
+
+        // Verify no new messages sent
+        let sent = client.sent_group_messages(&group);
+        assert_eq!(sent.len(), 1, "Should still be only one message");
+    }
+
+    #[tokio::test]
+    async fn test_gap11_no_announcement_for_single_cluster() {
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
+        let config = BotConfig::default();
+        let mut bot = StromaBot::new(client.clone(), freenet, config);
+
+        // Create state with single cluster (all connected)
+        let state = crate::freenet::trust_contract::TrustNetworkState::new();
+
+        // Check and announce - should NOT send announcement
+        let announced = bot.check_and_announce_cluster_formation(&state).await.unwrap();
+        assert!(!announced, "No announcement should be sent for 0 clusters");
     }
 
     #[tokio::test]
