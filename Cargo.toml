@@ -125,6 +125,10 @@ criterion = { version = "0.5", features = ["html_reports"] }
 name = "stark_vouch"
 harness = false
 
+[[bench]]
+name = "phase2_performance"
+harness = false
+
 # Protocol v8 poll support via our fork of libsignal-service-rs
 # Branch based directly on b48b42fbc (commit presage pins to)
 # See: .beads/poll-implementation-gastown.bead
