@@ -209,3 +209,138 @@ mod tests {
         assert!(result.unwrap_err().contains("Usage"));
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Property test: Timeout bounds validation
+        /// All timeouts in valid range [1h, 168h] should be accepted
+        /// All timeouts outside this range should be rejected
+        #[test]
+        fn prop_timeout_bounds_valid_range(
+            hours in 1u64..=168,
+        ) {
+            let timeout_str = format!("{}h", hours);
+            let result = parse_propose_args(
+                "config",
+                &[
+                    "min_vouches".to_string(),
+                    "3".to_string(),
+                    "--timeout".to_string(),
+                    timeout_str,
+                ],
+            );
+
+            // All timeouts in [1h, 168h] should succeed
+            prop_assert!(result.is_ok(), "Valid timeout {}h should be accepted", hours);
+
+            if let Ok(args) = result {
+                let expected_duration = Duration::from_secs(hours * 3600);
+                prop_assert_eq!(
+                    args.timeout,
+                    Some(expected_duration),
+                    "Timeout should be {} seconds",
+                    hours * 3600
+                );
+            }
+        }
+
+        /// Property test: Timeout below minimum should fail
+        /// Any timeout < 1h should be rejected with appropriate error
+        #[test]
+        fn prop_timeout_below_minimum(
+            // Use small values to test below minimum (0h is edge case)
+            _minutes in 0u64..60,
+        ) {
+            // Convert minutes to fractional hours, but parse_duration only handles hours
+            // So we test with 0h which should always fail
+            let result = parse_propose_args(
+                "config",
+                &[
+                    "min_vouches".to_string(),
+                    "3".to_string(),
+                    "--timeout".to_string(),
+                    "0h".to_string(),
+                ],
+            );
+
+            // Should fail with "at least 1h" message
+            prop_assert!(result.is_err(), "Timeout 0h should be rejected");
+            let error_msg = result.unwrap_err();
+            prop_assert!(
+                error_msg.contains("at least 1h"),
+                "Error should mention minimum of 1h, got: {}",
+                error_msg
+            );
+        }
+
+        /// Property test: Timeout above maximum should fail
+        /// Any timeout > 168h should be rejected with appropriate error
+        #[test]
+        fn prop_timeout_above_maximum(
+            extra_hours in 1u64..1000,
+        ) {
+            let invalid_hours = 168 + extra_hours;
+            let timeout_str = format!("{}h", invalid_hours);
+            let result = parse_propose_args(
+                "config",
+                &[
+                    "min_vouches".to_string(),
+                    "3".to_string(),
+                    "--timeout".to_string(),
+                    timeout_str.clone(),
+                ],
+            );
+
+            // Should fail with "at most 168h" message
+            prop_assert!(
+                result.is_err(),
+                "Timeout {} should be rejected",
+                timeout_str
+            );
+            let error_msg = result.unwrap_err();
+            prop_assert!(
+                error_msg.contains("at most 168h"),
+                "Error should mention maximum of 168h, got: {}",
+                error_msg
+            );
+        }
+
+        /// Property test: Timeout boundary validation consistency
+        /// Verify that MIN_TIMEOUT (1h) and MAX_TIMEOUT (168h) are correctly enforced
+        #[test]
+        fn prop_timeout_boundary_consistency(
+            timeout_hours in 0u64..200,
+        ) {
+            let timeout_str = format!("{}h", timeout_hours);
+            let result = parse_propose_args(
+                "config",
+                &[
+                    "min_vouches".to_string(),
+                    "3".to_string(),
+                    "--timeout".to_string(),
+                    timeout_str,
+                ],
+            );
+
+            if timeout_hours >= 1 && timeout_hours <= 168 {
+                // Valid range: should succeed
+                prop_assert!(
+                    result.is_ok(),
+                    "Timeout {}h is in valid range [1, 168] but was rejected",
+                    timeout_hours
+                );
+            } else {
+                // Invalid range: should fail
+                prop_assert!(
+                    result.is_err(),
+                    "Timeout {}h is outside valid range [1, 168] but was accepted",
+                    timeout_hours
+                );
+            }
+        }
+    }
+}

@@ -382,3 +382,205 @@ mod tests {
         assert_eq!(result.health, HealthStatus::Unhealthy);
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+    use std::collections::HashSet;
+
+    fn test_member(id: u8) -> MemberHash {
+        MemberHash::from_bytes(&[id; 32])
+    }
+
+    proptest! {
+        /// Property test: DVR ≤ 1.0 for all graphs
+        /// For any valid network configuration, DVR ratio must be in [0.0, 1.0]
+        #[test]
+        fn prop_dvr_bounded(
+            network_size in 0usize..100,
+            num_validators in 0usize..30,
+        ) {
+            let mut state = TrustNetworkState::new();
+
+            // Add members to network
+            for i in 0..network_size as u8 {
+                state.members.insert(test_member(i));
+            }
+
+            // Add validators with non-overlapping voucher sets
+            let mut voucher_pool = 100u8;
+            for i in 0..num_validators.min(network_size) {
+                let validator = test_member(i as u8);
+                let mut vouchers = HashSet::new();
+
+                // Give each validator 3 unique vouchers
+                for _ in 0..3 {
+                    vouchers.insert(test_member(voucher_pool));
+                    voucher_pool = voucher_pool.saturating_add(1);
+                }
+
+                state.vouches.insert(validator, vouchers);
+            }
+
+            let result = calculate_dvr(&state);
+
+            // DVR must be in [0.0, 1.0]
+            prop_assert!(result.ratio >= 0.0, "DVR ratio {} is negative", result.ratio);
+            prop_assert!(result.ratio <= 1.0, "DVR ratio {} exceeds 1.0", result.ratio);
+
+            // Distinct validators cannot exceed actual validator count
+            prop_assert!(
+                result.distinct_validators <= num_validators.min(network_size),
+                "Distinct validators {} exceeds actual validators {}",
+                result.distinct_validators,
+                num_validators.min(network_size)
+            );
+        }
+
+        /// Property test: Distinct validators have disjoint voucher sets
+        /// When count_distinct_validators returns N, those N validators must have
+        /// completely non-overlapping voucher sets
+        #[test]
+        fn prop_distinct_validators_disjoint_vouchers(
+            num_validators in 3usize..20,
+            vouchers_per_validator in 3usize..8,
+        ) {
+            let mut state = TrustNetworkState::new();
+
+            // Add enough members for the network
+            let network_size = num_validators + (num_validators * vouchers_per_validator);
+            for i in 0..network_size as u8 {
+                state.members.insert(test_member(i));
+            }
+
+            // Create validators with non-overlapping voucher sets
+            let mut voucher_pool = 100u8;
+            for i in 0..num_validators {
+                let validator = test_member(i as u8);
+                let mut vouchers = HashSet::new();
+
+                for _ in 0..vouchers_per_validator {
+                    vouchers.insert(test_member(voucher_pool));
+                    voucher_pool = voucher_pool.saturating_add(1);
+                }
+
+                state.vouches.insert(validator, vouchers);
+            }
+
+            let distinct_count = count_distinct_validators(&state);
+
+            // Verify that the selected distinct validators have disjoint voucher sets
+            // by re-implementing the greedy algorithm and checking
+            let mut validators: Vec<MemberHash> = state
+                .members
+                .iter()
+                .filter(|m| {
+                    let vouch_count = state.vouches.get(m).map(|v| v.len()).unwrap_or(0);
+                    vouch_count >= 3
+                })
+                .copied()
+                .collect();
+
+            validators.sort_by_key(|v| {
+                let vouch_count = state.vouches.get(v).map(|v| v.len()).unwrap_or(0);
+                std::cmp::Reverse(vouch_count)
+            });
+
+            let mut used_vouchers = HashSet::new();
+            let mut distinct_validators = Vec::new();
+
+            for validator in validators {
+                let vouchers: HashSet<MemberHash> = state
+                    .vouches
+                    .get(&validator)
+                    .map(|v| v.iter().copied().collect())
+                    .unwrap_or_default();
+
+                if vouchers.is_disjoint(&used_vouchers) {
+                    distinct_validators.push(validator);
+                    used_vouchers.extend(vouchers);
+                }
+            }
+
+            // All distinct validators must have disjoint voucher sets
+            for i in 0..distinct_validators.len() {
+                for j in (i + 1)..distinct_validators.len() {
+                    let vouchers_i: HashSet<MemberHash> = state
+                        .vouches
+                        .get(&distinct_validators[i])
+                        .map(|v| v.iter().copied().collect())
+                        .unwrap_or_default();
+                    let vouchers_j: HashSet<MemberHash> = state
+                        .vouches
+                        .get(&distinct_validators[j])
+                        .map(|v| v.iter().copied().collect())
+                        .unwrap_or_default();
+
+                    prop_assert!(
+                        vouchers_i.is_disjoint(&vouchers_j),
+                        "Distinct validators {:?} and {:?} have overlapping voucher sets",
+                        distinct_validators[i],
+                        distinct_validators[j]
+                    );
+                }
+            }
+
+            prop_assert_eq!(distinct_count, distinct_validators.len());
+        }
+
+        /// Property test: DVR calculation consistency
+        /// DVR = distinct_validators / max_possible
+        /// where max_possible = floor(N/4) for N >= 4
+        #[test]
+        fn prop_dvr_calculation_consistency(
+            network_size in 4usize..50,
+            num_validators in 0usize..20,
+        ) {
+            let mut state = TrustNetworkState::new();
+
+            // Add members
+            for i in 0..network_size as u8 {
+                state.members.insert(test_member(i));
+            }
+
+            // Add validators with unique voucher sets
+            let mut voucher_pool = 100u8;
+            for i in 0..num_validators.min(network_size) {
+                let validator = test_member(i as u8);
+                let mut vouchers = HashSet::new();
+
+                for _ in 0..3 {
+                    vouchers.insert(test_member(voucher_pool));
+                    voucher_pool = voucher_pool.saturating_add(1);
+                }
+
+                state.vouches.insert(validator, vouchers);
+            }
+
+            let result = calculate_dvr(&state);
+            let expected_max = network_size / 4;
+
+            prop_assert_eq!(
+                result.max_possible,
+                expected_max,
+                "max_possible should be floor(N/4) = floor({}/4) = {}",
+                network_size,
+                expected_max
+            );
+
+            // If we have distinct validators, verify the ratio calculation
+            if result.max_possible > 0 {
+                let expected_ratio = (result.distinct_validators as f32 / result.max_possible as f32).min(1.0);
+                let ratio_diff = (result.ratio - expected_ratio).abs();
+                prop_assert!(
+                    ratio_diff < 0.001,
+                    "DVR ratio {} does not match expected {} (diff: {})",
+                    result.ratio,
+                    expected_ratio,
+                    ratio_diff
+                );
+            }
+        }
+    }
+}
