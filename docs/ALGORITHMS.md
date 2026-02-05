@@ -173,7 +173,15 @@ Bridge Removal Result:
 
 **Complexity**: O(V + E) where V = members, E = vouch edges
 
-**See**: `docs/spike/q3/RESULTS.md` for validation results
+**Cross-Cluster Enforcement Activation (GAP-11):**
+When cluster detection identifies ≥2 distinct clusters (typically when group reaches 6+ members), the bot automatically activates cross-cluster vouching requirements:
+- **Announcement**: "📊 Network update: Your group now has distinct sub-communities! Cross-cluster vouching is now required for new members. Existing members are grandfathered."
+- **New invitees**: Must receive vouches from members in different clusters
+- **Existing members**: Grandfathered (no action needed)
+- **Detection frequency**: Runs on every membership change (fast, <1ms)
+- **One-time only**: Announcement sent once when threshold first crossed
+
+**See**: `docs/spike/q3/RESULTS.md` for validation results, `docs/USER-GUIDE.md` for user-facing behavior
 
 ### Centrality Measures
 
@@ -1446,6 +1454,9 @@ Output: Count of Validators with non-overlapping voucher sets
 - Cognitively simple (three states)
 - Equal ranges (no arbitrary "optimal zone")
 - Each state has clear action implications
+
+**Activation Note (GAP-11):**
+DVR calculation becomes meaningful once ≥2 clusters are detected. In bootstrap phase (single cluster), DVR is not displayed since cross-cluster requirements aren't yet enforced. Once Bridge Removal algorithm detects cluster formation, DVR tracking begins and the bot announces cross-cluster activation.
 
 ### Example Calculation
 

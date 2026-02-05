@@ -461,6 +461,19 @@ This means the trust data couldn't be fully replicated after the last change. Th
 ### Why isn't cross-cluster required in my small group?
 Cross-cluster vouching is enforced once your group has 2+ distinct clusters (typically 6+ members). During bootstrap phase (3-5 members), everyone is in the same cluster, so cross-cluster isn't possible yet. As your group grows and develops separate "peer circles," the bot will start enforcing cross-cluster vouches to prevent infiltration.
 
+### What happens when cross-cluster vouching activates?
+When the bot detects that your group has developed 2+ distinct clusters (using Bridge Removal algorithm), it will announce the activation in the group chat:
+
+> "📊 Network update: Your group now has distinct sub-communities! Cross-cluster vouching is now required for new members. Existing members are grandfathered."
+
+**What this means:**
+- **New invitees**: Must receive vouches from members in different clusters (as always intended)
+- **Existing members**: Keep their current status (grandfathered in, no need to get new vouches)
+- **Cluster detection**: Runs automatically on every membership change (fast, <1ms)
+- **One-time announcement**: Bot only announces this once when ≥2 clusters first detected
+
+This is called **GAP-11** in the implementation and ensures the cross-cluster requirement activates at the right time without disrupting existing members.
+
 ### What does "Network Health: 🟢 Healthy (75%)" mean?
 The percentage shows your **Distinct Validator Ratio (DVR)** — what fraction of maximum possible distinct Validators your network has achieved. "Distinct" means Validators whose voucher sets don't overlap. Higher DVR = more independent verification = better resilience.
 
