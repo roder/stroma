@@ -705,8 +705,7 @@ async fn handle_mesh_overview<F: crate::freenet::FreenetClient>(
         }
     }
 
-    response
-        .push_str("\n\nFor detailed metrics: /mesh strength, /mesh replication, /mesh config");
+    response.push_str("\n\nFor detailed metrics: /mesh strength, /mesh replication, /mesh config");
 
     client.send_message(sender, &response).await
 }
