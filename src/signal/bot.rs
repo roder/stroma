@@ -282,26 +282,47 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
                 if let Some(aggregate) = votes {
                     // 3. Check quorum and threshold
-                    if let Some(crate::signal::polls::PollOutcome::Passed {
-                        approve_count: _,
-                        reject_count: _,
-                    }) = self.poll_manager.check_poll_outcome(poll_id, aggregate)
-                    {
-                        // 4. Announce outcome (TODO)
-                        // self.group_manager.announce_proposal_passed().await?;
+                    let outcome = self.poll_manager.check_poll_outcome(poll_id, aggregate);
 
-                        // 5. Execute proposal
-                        // TODO: Get actual contract hash from config
-                        // TODO: Get current GroupConfig from Freenet state
-                        // For now, use placeholder
-                        // let contract = ContractHash::from_bytes(&[0u8; 32]);
-                        // let current_config = GroupConfig::default();
-                        // if let Some(proposal) = self.poll_manager.get_proposal(poll_id) {
-                        //     execute_proposal(&self.freenet, &contract, &proposal.proposal_type, &current_config).await?;
-                        // }
+                    if let Some(ref outcome_result) = outcome {
+                        // 4. Announce outcome
+                        self.group_manager
+                            .announce_proposal_result(poll_id, outcome_result)
+                            .await?;
+
+                        // 5. Execute proposal if passed
+                        if matches!(
+                            outcome_result,
+                            crate::signal::polls::PollOutcome::Passed { .. }
+                        ) {
+                            // Get contract hash from config
+                            if let Some(ref contract) = self.config.contract_hash {
+                                // Get current GroupConfig from Freenet state
+                                let state = self.freenet.get_state(contract).await.map_err(|e| {
+                                    SignalError::Protocol(format!("Failed to get Freenet state: {}", e))
+                                })?;
+                                let trust_state: crate::freenet::trust_contract::TrustNetworkState =
+                                    crate::serialization::from_cbor(&state.data).map_err(|e| {
+                                        SignalError::Protocol(format!(
+                                            "Failed to deserialize trust state: {}",
+                                            e
+                                        ))
+                                    })?;
+                                let current_config = &trust_state.config;
+
+                                // Execute proposal
+                                if let Some(proposal) = self.poll_manager.get_proposal(poll_id) {
+                                    crate::signal::proposals::execute_proposal(
+                                        &self.freenet,
+                                        contract,
+                                        &proposal.proposal_type,
+                                        current_config,
+                                    )
+                                    .await?;
+                                }
+                            }
+                        }
                     }
-                    // Failed or quorum not met - announce outcome
-                    // TODO: Announce failure/quorum-not-met
                 }
 
                 // 6. TODO: Mark proposal as checked in Freenet

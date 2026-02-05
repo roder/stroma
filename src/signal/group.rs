@@ -62,6 +62,51 @@ impl<C: SignalClient> GroupManager<C> {
             .send_group_message(&self.group_id, message)
             .await
     }
+
+    /// Announce proposal result
+    pub async fn announce_proposal_result(
+        &self,
+        poll_id: u64,
+        outcome: &crate::signal::polls::PollOutcome,
+    ) -> SignalResult<()> {
+        use crate::signal::polls::PollOutcome;
+
+        let message = match outcome {
+            PollOutcome::Passed {
+                approve_count,
+                reject_count,
+            } => {
+                format!(
+                    "Proposal #{} passed: {} approved, {} rejected",
+                    poll_id, approve_count, reject_count
+                )
+            }
+            PollOutcome::Failed {
+                approve_count,
+                reject_count,
+            } => {
+                format!(
+                    "Proposal #{} failed: {} approved, {} rejected (threshold not met)",
+                    poll_id, approve_count, reject_count
+                )
+            }
+            PollOutcome::QuorumNotMet {
+                participation_rate,
+                required_quorum,
+            } => {
+                format!(
+                    "Proposal #{} failed: Quorum not met ({:.1}% participated, {:.1}% required)",
+                    poll_id,
+                    participation_rate * 100.0,
+                    required_quorum * 100.0
+                )
+            }
+        };
+
+        self.client
+            .send_group_message(&self.group_id, &message)
+            .await
+    }
 }
 
 /// Ejection triggers (both independent)

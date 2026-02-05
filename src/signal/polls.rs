@@ -129,6 +129,13 @@ impl<C: SignalClient> PollManager<C> {
             .await
     }
 
+    /// Get proposal by poll_id.
+    ///
+    /// Returns the PollProposal if it exists in active_polls.
+    pub fn get_proposal(&self, poll_id: u64) -> Option<&PollProposal> {
+        self.active_polls.get(&poll_id)
+    }
+
     /// Check if poll has reached quorum and threshold
     pub fn check_poll_outcome(&self, poll_id: u64, votes: &VoteAggregate) -> Option<PollOutcome> {
         let proposal = self.active_polls.get(&poll_id)?;
