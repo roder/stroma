@@ -54,6 +54,7 @@ impl TestFreenetClient {
             schema_version: 1,
             federation_contracts: vec![],
             gap11_announcement_sent: false,
+            active_proposals: Default::default(),
         };
 
         Self { state }
@@ -124,8 +125,9 @@ async fn test_proposal_creation() {
 
     let mut poll_manager = stroma::signal::polls::PollManager::new(client.clone(), group_id);
     let config = freenet.state.config.clone();
+    let contract_hash = ContractHash::from_bytes(&[0u8; 32]);
 
-    let poll_id = create_proposal(&mut poll_manager, &freenet, args, &config)
+    let poll_id = create_proposal(&mut poll_manager, &freenet, args, &config, &contract_hash)
         .await
         .expect("Failed to create proposal");
 

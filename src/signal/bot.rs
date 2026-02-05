@@ -280,7 +280,8 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                 // 2. Get vote aggregate
                 let votes = self.poll_manager.get_vote_aggregate(poll_id);
 
-                if let Some(aggregate) = votes {
+                // Variable to store outcome for later use
+                let outcome = if let Some(aggregate) = votes {
                     // 3. Check quorum and threshold
                     let outcome = self.poll_manager.check_poll_outcome(poll_id, aggregate);
 
@@ -327,9 +328,65 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                             }
                         }
                     }
-                }
+                    outcome
+                } else {
+                    None
+                };
 
-                // 6. TODO: Mark proposal as checked in Freenet
+                // 6. Mark proposal as checked in Freenet
+                if let Some(ref contract) = self.config.contract_hash {
+                    // Create delta to mark proposal as checked
+                    let mut delta = crate::freenet::trust_contract::StateDelta::new();
+                    delta.proposals_checked.push(poll_id);
+
+                    // If outcome is available, also store the result
+                    if let Some(ref outcome_result) = outcome {
+                        let result = match outcome_result {
+                            crate::signal::polls::PollOutcome::Passed {
+                                approve_count,
+                                reject_count,
+                            } => crate::freenet::trust_contract::ProposalResult::Passed {
+                                approve_count: *approve_count,
+                                reject_count: *reject_count,
+                            },
+                            crate::signal::polls::PollOutcome::Failed {
+                                approve_count,
+                                reject_count,
+                            } => crate::freenet::trust_contract::ProposalResult::Failed {
+                                approve_count: *approve_count,
+                                reject_count: *reject_count,
+                            },
+                            crate::signal::polls::PollOutcome::QuorumNotMet {
+                                participation_rate,
+                                required_quorum: _,
+                            } => crate::freenet::trust_contract::ProposalResult::QuorumNotMet {
+                                participation_rate: *participation_rate,
+                            },
+                        };
+                        delta.proposals_with_results.push((poll_id, result));
+                    }
+
+                    // Serialize and apply delta
+                    let delta_bytes = crate::serialization::to_cbor(&delta).map_err(|e| {
+                        SignalError::Protocol(format!(
+                            "Failed to serialize proposal checked delta: {}",
+                            e
+                        ))
+                    })?;
+
+                    let contract_delta = crate::freenet::traits::ContractDelta {
+                        data: delta_bytes,
+                    };
+                    self.freenet
+                        .apply_delta(contract, &contract_delta)
+                        .await
+                        .map_err(|e| {
+                            SignalError::Protocol(format!(
+                                "Failed to mark proposal as checked in Freenet: {}",
+                                e
+                            ))
+                        })?;
+                }
             }
         }
 

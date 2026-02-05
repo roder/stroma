@@ -3,10 +3,15 @@
 //! Handles creation, monitoring, termination, and execution of proposals.
 
 use super::command::{ProposalSubcommand, ProposeArgs};
-use crate::freenet::{trust_contract::GroupConfig, FreenetClient};
+use crate::freenet::{
+    traits::ContractDelta,
+    trust_contract::{ActiveProposal, GroupConfig, StateDelta},
+    FreenetClient,
+};
+use crate::serialization::to_cbor;
 use crate::signal::{
     polls::{PollManager, PollProposal, ProposalType},
-    traits::{SignalClient, SignalResult},
+    traits::{SignalClient, SignalError, SignalResult},
 };
 
 /// Create a proposal poll.
@@ -19,9 +24,10 @@ use crate::signal::{
 /// 5. Return poll_id
 pub async fn create_proposal<C: SignalClient, F: FreenetClient>(
     poll_manager: &mut PollManager<C>,
-    _freenet: &F,
+    freenet: &F,
     args: ProposeArgs,
     config: &GroupConfig,
+    contract_hash: &crate::freenet::traits::ContractHash,
 ) -> SignalResult<u64> {
     // 1. Determine timeout
     let timeout = args
@@ -57,6 +63,17 @@ pub async fn create_proposal<C: SignalClient, F: FreenetClient>(
     let threshold = config.config_change_threshold;
     let quorum = config.min_quorum;
 
+    // Encode proposal type and details for storage (before moving proposal_type)
+    let (proposal_type_str, proposal_details) = match &proposal_type {
+        ProposalType::ConfigChange { key, value } => {
+            ("ConfigChange".to_string(), format!("{}={}", key, value))
+        }
+        ProposalType::Federation { target_group } => {
+            ("Federation".to_string(), target_group.clone())
+        }
+        ProposalType::Other { description } => ("Other".to_string(), description.clone()),
+    };
+
     let proposal = PollProposal {
         proposal_type,
         poll_id: 0, // Will be updated by poll_manager
@@ -71,31 +88,52 @@ pub async fn create_proposal<C: SignalClient, F: FreenetClient>(
         .create_proposal_poll(proposal, question, options)
         .await?;
 
-    // 5. TODO: Store in Freenet with expires_at
-    //
-    // Per proposal-system.bead, proposals should be persisted in Freenet:
-    //
-    // ```rust
-    // pub struct ActiveProposal {
-    //     proposal: PollProposal,
-    //     poll_timestamp: u64,        // Poll creation timestamp
-    //     expires_at: u64,            // created_at + timeout
-    //     approve_count: u32,         // Vote aggregates only (no individual votes)
-    //     reject_count: u32,
-    //     checked: bool,              // False until timeout expires
-    //     result: Option<ProposalResult>,
-    // }
-    // ```
-    //
-    // This requires:
-    // 1. Add `active_proposals: HashMap<u64, ActiveProposal>` to TrustNetworkState
-    // 2. Create ProposalDelta variant in StateDelta
-    // 3. Implement storage: freenet.store_proposal(poll_id, active_proposal).await?
-    // 4. Implement retrieval for checking expired proposals
-    // 5. Implement marking as checked after ProposalExpired is handled
-    //
-    // For now, proposals work in-memory via PollManager.active_polls.
-    // State stream monitoring generates ProposalExpired events from external source.
+    // 5. Store in Freenet with expires_at
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let expires_at = now + timeout_secs;
+
+    let active_proposal = ActiveProposal {
+        poll_id,
+        proposal_type: proposal_type_str,
+        proposal_details,
+        poll_timestamp: now,
+        expires_at,
+        timeout_secs,
+        threshold,
+        quorum,
+        checked: false,
+        result: None,
+    };
+
+    // Create delta to add proposal to Freenet
+    let delta = StateDelta {
+        members_added: vec![],
+        members_removed: vec![],
+        vouches_added: vec![],
+        vouches_removed: vec![],
+        flags_added: vec![],
+        flags_removed: vec![],
+        config_update: None,
+        proposals_created: vec![(poll_id, active_proposal)],
+        proposals_checked: vec![],
+        proposals_with_results: vec![],
+    };
+
+    // Serialize and apply delta
+    let delta_bytes = to_cbor(&delta)
+        .map_err(|e| SignalError::Protocol(format!("Failed to serialize proposal delta: {}", e)))?;
+
+    let contract_delta = ContractDelta { data: delta_bytes };
+    freenet
+        .apply_delta(contract_hash, &contract_delta)
+        .await
+        .map_err(|e| {
+            SignalError::Protocol(format!("Failed to store proposal in Freenet: {}", e))
+        })?;
 
     Ok(poll_id)
 }

@@ -48,6 +48,7 @@ fn create_single_cluster(size: usize) -> TrustNetworkState {
         schema_version: 1,
         federation_contracts: vec![],
         gap11_announcement_sent: false,
+        active_proposals: HashMap::new(),
     }
 }
 
@@ -87,6 +88,7 @@ fn create_multi_cluster(clusters: usize, cluster_size: usize) -> TrustNetworkSta
         schema_version: 1,
         federation_contracts: vec![],
         gap11_announcement_sent: false,
+        active_proposals: HashMap::new(),
     }
 }
 
@@ -128,6 +130,7 @@ fn create_sparse_clusters(clusters: usize, cluster_size: usize) -> TrustNetworkS
         schema_version: 1,
         federation_contracts: vec![],
         gap11_announcement_sent: false,
+        active_proposals: HashMap::new(),
     }
 }
 

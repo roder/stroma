@@ -162,6 +162,9 @@ where
         flags_added: vec![],
         flags_removed: vec![],
         config_update: None,
+        proposals_created: vec![],
+        proposals_checked: vec![],
+        proposals_with_results: vec![],
     };
 
     // Serialize delta to CBOR

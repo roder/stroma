@@ -386,6 +386,9 @@ async fn handle_flag<F: crate::freenet::FreenetClient>(
         flags_added: vec![(sender_hash, target_hash)],
         flags_removed: vec![],
         config_update: None,
+        proposals_created: vec![],
+        proposals_checked: vec![],
+        proposals_with_results: vec![],
     };
 
     // Serialize and apply delta

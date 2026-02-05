@@ -52,6 +52,11 @@ pub struct TrustNetworkState {
     /// Once ≥2 clusters detected, announcement sent once and this is set to true.
     #[serde(default)]
     pub gap11_announcement_sent: bool,
+
+    /// Active proposals awaiting timeout expiration.
+    /// Key: poll_id, Value: ActiveProposal
+    #[serde(default)]
+    pub active_proposals: HashMap<u64, ActiveProposal>,
 }
 
 /// Group configuration.
@@ -123,6 +128,50 @@ impl GroupConfig {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ContractHash(pub [u8; 32]);
 
+/// Active proposal awaiting expiration.
+///
+/// Stored in Freenet to persist proposal state across restarts.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ActiveProposal {
+    /// Poll ID from Signal.
+    pub poll_id: u64,
+
+    /// Proposal type (ConfigChange, Federation, Other).
+    pub proposal_type: String,
+
+    /// Proposal details (key=value for config, description for others).
+    pub proposal_details: String,
+
+    /// Poll creation timestamp.
+    pub poll_timestamp: u64,
+
+    /// Expiration timestamp (poll_timestamp + timeout).
+    pub expires_at: u64,
+
+    /// Timeout duration in seconds.
+    pub timeout_secs: u64,
+
+    /// Threshold for approval (e.g., 0.70 = 70%).
+    pub threshold: f32,
+
+    /// Minimum quorum (e.g., 0.50 = 50%).
+    pub quorum: f32,
+
+    /// Whether this proposal has been checked for expiration.
+    pub checked: bool,
+
+    /// Result after checking (if checked).
+    pub result: Option<ProposalResult>,
+}
+
+/// Result of a proposal after timeout.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ProposalResult {
+    Passed { approve_count: u32, reject_count: u32 },
+    Failed { approve_count: u32, reject_count: u32 },
+    QuorumNotMet { participation_rate: f32 },
+}
+
 /// State delta for commutative merge.
 ///
 /// Per freenet-contract-design.bead:
@@ -150,6 +199,18 @@ pub struct StateDelta {
     /// New config (if changed).
     #[serde(default)]
     pub config_update: Option<ConfigUpdate>,
+
+    /// Proposals created: (poll_id, ActiveProposal).
+    #[serde(default)]
+    pub proposals_created: Vec<(u64, ActiveProposal)>,
+
+    /// Proposals marked as checked: poll_id.
+    #[serde(default)]
+    pub proposals_checked: Vec<u64>,
+
+    /// Proposals with results: (poll_id, ProposalResult).
+    #[serde(default)]
+    pub proposals_with_results: Vec<(u64, ProposalResult)>,
 }
 
 /// Configuration update with timestamp.
@@ -172,6 +233,7 @@ impl TrustNetworkState {
             schema_version: 1,
             federation_contracts: Vec::new(),
             gap11_announcement_sent: false,
+            active_proposals: HashMap::new(),
         }
     }
 
@@ -239,6 +301,25 @@ impl TrustNetworkState {
                 self.config_timestamp = config_update.timestamp;
             }
         }
+
+        // Add proposals
+        for (poll_id, proposal) in &delta.proposals_created {
+            self.active_proposals.insert(*poll_id, proposal.clone());
+        }
+
+        // Mark proposals as checked
+        for poll_id in &delta.proposals_checked {
+            if let Some(proposal) = self.active_proposals.get_mut(poll_id) {
+                proposal.checked = true;
+            }
+        }
+
+        // Update proposal results
+        for (poll_id, result) in &delta.proposals_with_results {
+            if let Some(proposal) = self.active_proposals.get_mut(poll_id) {
+                proposal.result = Some(result.clone());
+            }
+        }
     }
 
     /// Merge two states (commutative).
@@ -289,6 +370,23 @@ impl TrustNetworkState {
         // GAP-11 announcement: logical OR (once sent in any replica, it's sent)
         self.gap11_announcement_sent =
             self.gap11_announcement_sent || other.gap11_announcement_sent;
+
+        // Active proposals: merge by poll_id, prefer one with result if available
+        for (poll_id, proposal) in &other.active_proposals {
+            self.active_proposals
+                .entry(*poll_id)
+                .and_modify(|existing| {
+                    // If other has a result and existing doesn't, use other's
+                    if proposal.result.is_some() && existing.result.is_none() {
+                        *existing = proposal.clone();
+                    }
+                    // If other is checked and existing isn't, use other's
+                    else if proposal.checked && !existing.checked {
+                        *existing = proposal.clone();
+                    }
+                })
+                .or_insert_with(|| proposal.clone());
+        }
     }
 
     /// Calculate standing for a member.
@@ -366,6 +464,9 @@ impl StateDelta {
             flags_added: Vec::new(),
             flags_removed: Vec::new(),
             config_update: None,
+            proposals_created: Vec::new(),
+            proposals_checked: Vec::new(),
+            proposals_with_results: Vec::new(),
         }
     }
 
@@ -642,6 +743,9 @@ mod property_tests {
                     flags_added,
                     flags_removed: Vec::new(),
                     config_update: None,
+                    proposals_created: Vec::new(),
+                    proposals_checked: Vec::new(),
+                    proposals_with_results: Vec::new(),
                 },
             )
     }
