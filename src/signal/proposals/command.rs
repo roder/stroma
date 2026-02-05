@@ -326,7 +326,7 @@ mod proptests {
                 ],
             );
 
-            if timeout_hours >= 1 && timeout_hours <= 168 {
+            if (1..=168).contains(&timeout_hours) {
                 // Valid range: should succeed
                 prop_assert!(
                     result.is_ok(),
