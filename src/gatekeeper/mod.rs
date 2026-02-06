@@ -10,6 +10,6 @@ pub mod audit_trail;
 pub mod ejection;
 pub mod health_monitor;
 
-pub use audit_trail::{ActionType, AuditEntry, AuditQuery, format_audit_log, query_audit_log};
+pub use audit_trail::{format_audit_log, query_audit_log, ActionType, AuditEntry, AuditQuery};
 pub use ejection::{eject_member, should_eject, EjectionError, EjectionResult};
 pub use health_monitor::HealthMonitor;

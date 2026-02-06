@@ -243,7 +243,9 @@ mod tests {
 
         let result = query_audit_log(&entries, &query);
         assert_eq!(result.len(), 2);
-        assert!(result.iter().all(|e| e.action_type == ActionType::ConfigChange));
+        assert!(result
+            .iter()
+            .all(|e| e.action_type == ActionType::ConfigChange));
     }
 
     #[test]

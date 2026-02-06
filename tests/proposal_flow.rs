@@ -55,6 +55,7 @@ impl TestFreenetClient {
             federation_contracts: vec![],
             gap11_announcement_sent: false,
             active_proposals: Default::default(),
+            audit_log: vec![],
         };
 
         Self { state }

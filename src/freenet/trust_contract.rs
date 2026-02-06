@@ -342,7 +342,8 @@ impl TrustNetworkState {
         }
 
         // Append audit entries (immutable, append-only)
-        self.audit_log.extend(delta.audit_entries_added.iter().cloned());
+        self.audit_log
+            .extend(delta.audit_entries_added.iter().cloned());
     }
 
     /// Merge two states (commutative).
