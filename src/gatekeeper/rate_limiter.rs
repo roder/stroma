@@ -62,11 +62,11 @@ impl TrustAction {
 /// - Tier 3 (4th action): 3600 seconds (1 hour)
 /// - Tier 4+ (5th+ action): 86400 seconds (24 hours)
 const COOLDOWN_TIERS: &[u64] = &[
-    0,      // 1st action: immediate
-    60,     // 2nd action: 1 minute
-    300,    // 3rd action: 5 minutes
-    3600,   // 4th action: 1 hour
-    86400,  // 5th+ action: 24 hours
+    0,     // 1st action: immediate
+    60,    // 2nd action: 1 minute
+    300,   // 3rd action: 5 minutes
+    3600,  // 4th action: 1 hour
+    86400, // 5th+ action: 24 hours
 ];
 
 /// Rate limiter state for a single member and action type.
@@ -182,10 +182,7 @@ impl RateLimiter {
         member: &MemberHash,
         action: TrustAction,
     ) -> Option<Duration> {
-        match self.check_rate_limit(member, action) {
-            Ok(()) => None,
-            Err(remaining) => Some(remaining),
-        }
+        self.check_rate_limit(member, action).err()
     }
 
     /// Reset the rate limit state for a member and action.
