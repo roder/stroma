@@ -229,7 +229,9 @@ pub async fn handle_pm_command<F: crate::freenet::FreenetClient>(
             handle_mesh(client, freenet, config, sender, subcommand.as_deref()).await
         }
 
-        Command::Audit { subcommand } => handle_audit(client, sender, &subcommand).await,
+        Command::Audit { subcommand } => {
+            handle_audit(client, freenet, config, sender, &subcommand).await
+        }
 
         Command::Unknown(text) => {
             client
@@ -998,25 +1000,106 @@ async fn handle_mesh_config<F: crate::freenet::FreenetClient>(
     client.send_message(sender, &response).await
 }
 
-async fn handle_audit(
+async fn handle_audit<F: crate::freenet::FreenetClient>(
     client: &impl SignalClient,
+    freenet: &F,
+    config: &crate::signal::bot::BotConfig,
     sender: &ServiceId,
     subcommand: &str,
 ) -> SignalResult<()> {
-    // TODO: Implement audit query (GAP-01)
-    // Subcommands: operator, bootstrap
-    // Shows operator action history (restarts, maintenance, config changes)
-    // Confirms operator has no special privileges for membership
+    use crate::freenet::traits::FreenetError;
+    use crate::gatekeeper::audit_trail::{query_audit_log, format_audit_log, ActionType, AuditQuery};
+    use crate::serialization::from_cbor;
 
+    // Get contract hash
+    let contract = match &config.contract_hash {
+        Some(hash) => *hash,
+        None => {
+            client
+                .send_message(
+                    sender,
+                    "❌ Trust contract not configured. Has the group been bootstrapped?",
+                )
+                .await?;
+            return Ok(());
+        }
+    };
+
+    // Query Freenet for current state
+    let state_bytes = match freenet.get_state(&contract).await {
+        Ok(state) => state.data,
+        Err(FreenetError::ContractNotFound) => {
+            client
+                .send_message(
+                    sender,
+                    "❌ Trust contract not found. Has the group been bootstrapped?",
+                )
+                .await?;
+            return Ok(());
+        }
+        Err(e) => {
+            client
+                .send_message(sender, &format!("❌ Failed to query Freenet: {}", e))
+                .await?;
+            return Ok(());
+        }
+    };
+
+    let state: crate::freenet::trust_contract::TrustNetworkState = match from_cbor(&state_bytes) {
+        Ok(s) => s,
+        Err(e) => {
+            client
+                .send_message(
+                    sender,
+                    &format!("❌ Failed to deserialize contract state: {}", e),
+                )
+                .await?;
+            return Ok(());
+        }
+    };
+
+    // Query audit log based on subcommand
     match subcommand {
         "operator" => {
-            let response =
-                "Operator action history:\n- Last restart: 2 hours ago\n- No manual interventions";
-            client.send_message(sender, response).await
+            // Show all non-bootstrap operator actions
+            let query = AuditQuery {
+                action_type: None,
+                actor: None,
+                limit: Some(50),
+                after_timestamp: None,
+            };
+
+            let mut entries = query_audit_log(&state.audit_log, &query);
+
+            // Filter out bootstrap actions
+            entries.retain(|e| e.action_type != ActionType::Bootstrap);
+
+            let response = if entries.is_empty() {
+                "No operator actions recorded yet.".to_string()
+            } else {
+                format_audit_log(&entries)
+            };
+
+            client.send_message(sender, &response).await
         }
         "bootstrap" => {
-            let response = "Bootstrap history:\n- Group created: 7 days ago\n- Initial members: 3";
-            client.send_message(sender, response).await
+            // Show only bootstrap actions
+            let query = AuditQuery {
+                action_type: Some(ActionType::Bootstrap),
+                actor: None,
+                limit: Some(50),
+                after_timestamp: None,
+            };
+
+            let entries = query_audit_log(&state.audit_log, &query);
+
+            let response = if entries.is_empty() {
+                "No bootstrap actions recorded yet.".to_string()
+            } else {
+                format_audit_log(&entries)
+            };
+
+            client.send_message(sender, &response).await
         }
         _ => {
             client
@@ -1232,28 +1315,92 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_audit_operator() {
+        use crate::freenet::traits::ContractState;
+        use crate::freenet::trust_contract::TrustNetworkState;
+        use crate::gatekeeper::audit_trail::AuditEntry;
+        use crate::freenet::contract::MemberHash;
+        use crate::serialization::to_cbor;
+
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let sender = ServiceId("user1".to_string());
+        let freenet = MockFreenetClient::new();
 
-        let result = handle_audit(&client, &sender, "operator").await;
+        let contract_hash = ContractHash::from_bytes(&[0u8; 32]);
+        let config = crate::signal::bot::BotConfig {
+            group_id: GroupId(vec![1, 2, 3]),
+            contract_hash: Some(contract_hash),
+            pepper: vec![0u8; 32],
+            min_vouch_threshold: 2,
+        };
+
+        // Create test state with some operator audit entries
+        let mut test_state = TrustNetworkState::new();
+        let actor = MemberHash::from_bytes(&[1u8; 32]);
+        test_state.audit_log.push(AuditEntry::config_change(
+            actor,
+            "Updated min_vouches from 2 to 3".to_string(),
+        ));
+        test_state.audit_log.push(AuditEntry::restart(
+            actor,
+            "Bot restarted for maintenance".to_string(),
+        ));
+
+        let state_bytes = to_cbor(&test_state).unwrap();
+        freenet.put_state(contract_hash, ContractState { data: state_bytes });
+
+        let result = handle_audit(&client, &freenet, &config, &sender, "operator").await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
         assert_eq!(sent.len(), 1);
-        assert!(sent[0].content.contains("Operator action history"));
+        assert!(sent[0].content.contains("Operator Audit Trail"));
+        assert!(sent[0].content.contains("Config Change"));
+        assert!(sent[0].content.contains("Restart"));
     }
 
     #[tokio::test]
     async fn test_handle_audit_bootstrap() {
+        use crate::freenet::traits::ContractState;
+        use crate::freenet::trust_contract::TrustNetworkState;
+        use crate::gatekeeper::audit_trail::AuditEntry;
+        use crate::freenet::contract::MemberHash;
+        use crate::serialization::to_cbor;
+
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let sender = ServiceId("user1".to_string());
+        let freenet = MockFreenetClient::new();
 
-        let result = handle_audit(&client, &sender, "bootstrap").await;
+        let contract_hash = ContractHash::from_bytes(&[0u8; 32]);
+        let config = crate::signal::bot::BotConfig {
+            group_id: GroupId(vec![1, 2, 3]),
+            contract_hash: Some(contract_hash),
+            pepper: vec![0u8; 32],
+            min_vouch_threshold: 2,
+        };
+
+        // Create test state with bootstrap audit entries
+        let mut test_state = TrustNetworkState::new();
+        let actor = MemberHash::from_bytes(&[1u8; 32]);
+        test_state.audit_log.push(AuditEntry::bootstrap(
+            actor,
+            "Group created: Mission Control".to_string(),
+        ));
+        test_state.audit_log.push(AuditEntry::bootstrap(
+            actor,
+            "Added seed member: alice".to_string(),
+        ));
+
+        let state_bytes = to_cbor(&test_state).unwrap();
+        freenet.put_state(contract_hash, ContractState { data: state_bytes });
+
+        let result = handle_audit(&client, &freenet, &config, &sender, "bootstrap").await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
         assert_eq!(sent.len(), 1);
-        assert!(sent[0].content.contains("Bootstrap history"));
+        assert!(sent[0].content.contains("Operator Audit Trail"));
+        assert!(sent[0].content.contains("Bootstrap"));
+        assert!(sent[0].content.contains("Group created"));
     }
 
     #[tokio::test]
