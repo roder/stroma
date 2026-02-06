@@ -10,6 +10,7 @@
 //! - Backward compatible schema evolution
 
 use crate::freenet::contract::MemberHash;
+use crate::gatekeeper::audit_trail::AuditEntry;
 use crate::serialization::{from_cbor, to_cbor, SerializationError};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -57,6 +58,11 @@ pub struct TrustNetworkState {
     /// Key: poll_id, Value: ActiveProposal
     #[serde(default)]
     pub active_proposals: HashMap<u64, ActiveProposal>,
+
+    /// Operator audit log (GAP-01, added in v2).
+    /// Immutable append-only log of operator actions.
+    #[serde(default)]
+    pub audit_log: Vec<AuditEntry>,
 }
 
 /// Group configuration.
@@ -219,6 +225,11 @@ pub struct StateDelta {
     /// Proposals with results: (poll_id, ProposalResult).
     #[serde(default)]
     pub proposals_with_results: Vec<(u64, ProposalResult)>,
+
+    /// Audit entries added (GAP-01).
+    /// Immutable append-only, no removal.
+    #[serde(default)]
+    pub audit_entries_added: Vec<AuditEntry>,
 }
 
 /// Configuration update with timestamp.
@@ -242,6 +253,7 @@ impl TrustNetworkState {
             federation_contracts: Vec::new(),
             gap11_announcement_sent: false,
             active_proposals: HashMap::new(),
+            audit_log: Vec::new(),
         }
     }
 
@@ -328,6 +340,10 @@ impl TrustNetworkState {
                 proposal.result = Some(result.clone());
             }
         }
+
+        // Append audit entries (immutable, append-only)
+        self.audit_log
+            .extend(delta.audit_entries_added.iter().cloned());
     }
 
     /// Merge two states (commutative).
@@ -392,6 +408,14 @@ impl TrustNetworkState {
                     }
                 })
                 .or_insert_with(|| proposal.clone());
+        }
+
+        // Audit log: merge as append-only list (deduplicate by content)
+        let existing: HashSet<_> = self.audit_log.iter().cloned().collect();
+        for entry in &other.audit_log {
+            if !existing.contains(entry) {
+                self.audit_log.push(entry.clone());
+            }
         }
     }
 
@@ -473,6 +497,7 @@ impl StateDelta {
             proposals_created: Vec::new(),
             proposals_checked: Vec::new(),
             proposals_with_results: Vec::new(),
+            audit_entries_added: Vec::new(),
         }
     }
 
@@ -752,6 +777,7 @@ mod property_tests {
                     proposals_created: Vec::new(),
                     proposals_checked: Vec::new(),
                     proposals_with_results: Vec::new(),
+                    audit_entries_added: Vec::new(),
                 },
             )
     }

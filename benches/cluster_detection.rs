@@ -49,6 +49,7 @@ fn create_single_cluster(size: usize) -> TrustNetworkState {
         federation_contracts: vec![],
         gap11_announcement_sent: false,
         active_proposals: HashMap::new(),
+        audit_log: vec![],
     }
 }
 
@@ -89,6 +90,7 @@ fn create_multi_cluster(clusters: usize, cluster_size: usize) -> TrustNetworkSta
         federation_contracts: vec![],
         gap11_announcement_sent: false,
         active_proposals: HashMap::new(),
+        audit_log: vec![],
     }
 }
 
@@ -131,6 +133,7 @@ fn create_sparse_clusters(clusters: usize, cluster_size: usize) -> TrustNetworkS
         federation_contracts: vec![],
         gap11_announcement_sent: false,
         active_proposals: HashMap::new(),
+        audit_log: vec![],
     }
 }
 

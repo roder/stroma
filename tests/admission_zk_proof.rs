@@ -187,6 +187,7 @@ fn test_freenet_stores_outcomes_not_proofs() {
         federation_contracts: vec![],
         gap11_announcement_sent: false,
         active_proposals: std::collections::HashMap::new(),
+        audit_log: vec![],
     };
 
     // StateDelta should have no proof-related fields
@@ -201,6 +202,7 @@ fn test_freenet_stores_outcomes_not_proofs() {
         proposals_created: vec![],
         proposals_checked: vec![],
         proposals_with_results: vec![],
+        audit_entries_added: vec![],
     };
 
     // Serialize and verify no "proof" or "proof_bytes" in serialization

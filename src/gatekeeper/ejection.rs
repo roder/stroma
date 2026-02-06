@@ -165,6 +165,7 @@ where
         proposals_created: vec![],
         proposals_checked: vec![],
         proposals_with_results: vec![],
+        audit_entries_added: vec![],
     };
 
     // Serialize delta to CBOR
