@@ -93,7 +93,7 @@ sync_repo_failures() {
             continue
         fi
 
-        # Create beads P0 issue
+        # Create beads P0 issue with GitHub auto-close enforcement
         log_info "Creating beads P0 issue for $repo#${issue_num}"
 
         bd create \
@@ -109,9 +109,36 @@ Created: ${created_at}
 This issue was auto-synced from GitHub by gastown patrol.
 See the GitHub issue for full details and resolution steps.
 
+**CRITICAL REQUIREMENT**: When committing the fix, you MUST use GitHub auto-close syntax:
+
+\`\`\`
+Closes #${issue_num}
+# or
+Fixes #${issue_num}
+# or
+Resolves #${issue_num}
+\`\`\`
+
+Example commit message:
+\`\`\`
+Fix CI failure in cargo deny check
+
+- Update denied dependency foo to bar
+- Add cargo-deny override for temporary bypass
+
+Closes #${issue_num}
+
+Co-authored-by: Claude <noreply@anthropic.com>
+\`\`\`
+
 **DO NOT MERGE MORE PRs UNTIL FIXED**
 
-**Target resolution time**: 15 minutes" || {
+**Target resolution time**: 15 minutes
+
+**Mayor**: Hook this bead and:
+1. Verify main branch CI status is broken: \`gh api repos/${repo}/commits/main/status --jq '.state'\`
+2. If confirmed broken, block refinery from processing MRs
+3. Delegate issue to appropriate agent/crew member" || {
             log_error "Failed to create beads issue for $repo#${issue_num}"
             continue
         }
@@ -128,8 +155,33 @@ See the GitHub issue for full details and resolution steps.
 
 This CI failure has been synced to the gastown beads database for tracking.
 
+**CRITICAL**: When committing the fix, use GitHub auto-close syntax:
+\`Closes #${issue_num}\` or \`Fixes #${issue_num}\` or \`Resolves #${issue_num}\`
+
 Beads issue will be automatically closed when this GitHub issue is resolved." \
                 2>/dev/null || log_warn "Failed to comment on $repo#${issue_num}"
+
+            # Notify mayor to hook the bead and verify CI status
+            log_info "Notifying mayor to hook bead ${beads_id}..."
+            gt mail send mayor/ \
+                -s "🚨 CI BROKEN - Hook Bead ${beads_id}" \
+                -b "CI failure detected in $repo (GH#${issue_num})
+
+**IMMEDIATE ACTION REQUIRED**:
+
+1. Hook bead: .beads/issues/${beads_id}.bead
+2. Verify main branch CI status is broken:
+   \`gh api repos/${repo}/commits/main/status --jq '.state'\`
+3. If confirmed broken:
+   - BLOCK refinery from processing MRs
+   - Delegate bead ${beads_id} to appropriate agent
+4. Monitor resolution (target: 15 minutes)
+
+GitHub Issue: ${url}
+Beads Issue: ${beads_id}
+
+**DO NOT allow new merges until CI is green.**" \
+                2>/dev/null || log_warn "Failed to send mayor notification"
         else
             log_warn "Could not determine beads issue ID"
         fi
@@ -138,10 +190,6 @@ Beads issue will be automatically closed when this GitHub issue is resolved." \
         gh issue edit "$issue_num" --repo "$repo" --remove-label "auto-alert" 2>/dev/null || {
             log_warn "Failed to remove auto-alert label from $repo#${issue_num}"
         }
-
-        # TODO: Fix mail notification in launchd environment
-        # For now, mayor can see P0 issues with: bd list --priority=0 --status=open
-        log_info "P0 beads issue created: ${beads_id} (mail notifications disabled)"
 
         log_success "✓ Processed $repo#${issue_num} → ${beads_id}"
     done

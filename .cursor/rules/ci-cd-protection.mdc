@@ -50,7 +50,7 @@ gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/commits/main
 
 **Authorization process:**
 1. File issue: `bd create --title="CI/CD: <change>" --type=bug --priority=1`
-2. Request approval: `gt mail send human -s "CI/CD Change Request: <id>"`
+2. Request approval: `gt mail send mayor -s "CI/CD Change Request: <id>"`
 3. **WAIT for human approval**
 4. After approval: Make changes, test, submit PR
 5. Add to PR body: `HUMAN_APPROVED: <approval-message-id>`

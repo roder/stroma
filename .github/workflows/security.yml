@@ -307,7 +307,7 @@ jobs:
               echo "" >> $GITHUB_STEP_SUMMARY
               echo "**To get approval:**" >> $GITHUB_STEP_SUMMARY
               echo "1. File issue: \`bd create --title='CI/CD: ...' --type=bug --priority=1\`" >> $GITHUB_STEP_SUMMARY
-              echo "2. Request approval: \`gt mail send crew-approvals -s 'CI/CD Change Request: <id>'\`" >> $GITHUB_STEP_SUMMARY
+              echo "2. Request approval: \`gt mail send  mayor -s 'CI/CD Change Request: <id>'\`" >> $GITHUB_STEP_SUMMARY
               echo "3. Wait for human approval" >> $GITHUB_STEP_SUMMARY
               echo "4. Add to PR body: \`HUMAN_APPROVED: <approval-message-id>\`" >> $GITHUB_STEP_SUMMARY
               echo "" >> $GITHUB_STEP_SUMMARY

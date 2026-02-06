@@ -84,7 +84,7 @@ cargo build --release --target x86_64-unknown-linux-musl  # Binary size check
 1. Identify CI/CD bug or improvement need
 2. File issue: `bd create --title="CI/CD: <description>" --type=bug --priority=1`
 3. Document proposed change in issue description
-4. Request human review: `gt mail send crew-approvals -s "CI/CD Change Request: <issue-id>"`
+4. Request human review: `gt mail send  mayor -s "CI/CD Change Request: <issue-id>"`
 5. **WAIT for human approval** before modifying workflow files
 6. After approval: Make changes, test in branch, submit PR
 7. Human must approve PR before merge

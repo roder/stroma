@@ -183,7 +183,7 @@ If PR modifies protected files (`.github/workflows/`, `deny.toml`, etc.):
 4. To approve:
    ```bash
    # Request approval
-   gt mail send crew-approvals -s "CI/CD Change Request: <pr-number>"
+   gt mail send  mayor -s "CI/CD Change Request: <pr-number>"
    
    # After human review, add to PR description:
    # HUMAN_APPROVED: <mail-message-id>
