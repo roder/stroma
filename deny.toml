@@ -27,6 +27,7 @@ allow = [
     "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
+    "0BSD",                 # Zero-Clause BSD (OSI approved, public domain equivalent, from Freenet deps)
     "BSL-1.0",              # Boost Software License 1.0 (OSI approved, from xxhash-rust)
     "ISC",
     "Unicode-3.0",          # Unicode License v3 (OSI approved, from ICU crates)
