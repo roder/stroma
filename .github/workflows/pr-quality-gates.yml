@@ -61,6 +61,7 @@ jobs:
 
       - name: Format check
         run: |
+          set -o pipefail
           echo "## Format Check" >> $GITHUB_STEP_SUMMARY
           if ! cargo fmt --check 2>&1 | tee fmt-output.txt; then
             echo "❌ Formatting check failed" >> $GITHUB_STEP_SUMMARY
@@ -76,6 +77,7 @@ jobs:
 
       - name: Clippy lint
         run: |
+          set -o pipefail
           echo "## Clippy Lint" >> $GITHUB_STEP_SUMMARY
           if ! cargo clippy --all-targets --all-features -- -D warnings 2>&1 | tee clippy-output.txt; then
             echo "❌ Clippy linting failed" >> $GITHUB_STEP_SUMMARY
@@ -89,6 +91,7 @@ jobs:
 
       - name: Run tests
         run: |
+          set -o pipefail
           echo "## Test Suite" >> $GITHUB_STEP_SUMMARY
           if ! cargo nextest run --all-features 2>&1 | tee test-output.txt; then
             echo "❌ Tests failed" >> $GITHUB_STEP_SUMMARY
@@ -122,6 +125,7 @@ jobs:
 
       - name: Supply chain security
         run: |
+          set -o pipefail
           echo "## Supply Chain Security" >> $GITHUB_STEP_SUMMARY
           if ! cargo deny check 2>&1 | tee deny-output.txt; then
             echo "❌ Supply chain security check failed" >> $GITHUB_STEP_SUMMARY
