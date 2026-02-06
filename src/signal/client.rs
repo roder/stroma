@@ -1,10 +1,11 @@
 //! Production Signal Client Implementation
 //!
 //! Implements SignalClient trait using libsignal-service-rs directly.
-//! This bypasses presage's broken API compatibility layer.
+//! This bypasses presage's abstraction layer for direct control.
 //!
-//! Note: This is a bridge implementation until presage is updated for
-//! libsignal-service-rs fork compatibility (st-rvzl).
+//! Note: The presage dependency is now available and compiles successfully
+//! (st-rvzl complete). This implementation provides an alternative direct
+//! integration path if needed.
 
 use super::store::StromaProtocolStore;
 use super::traits::*;
