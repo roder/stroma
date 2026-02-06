@@ -32,6 +32,7 @@ allow = [
     "Unicode-3.0",          # Unicode License v3 (OSI approved, from ICU crates)
     "CC0-1.0",              # Creative Commons Zero (public domain)
     "MPL-2.0",              # Mozilla Public License 2.0 (weak copyleft)
+    "Zlib",                 # zlib License (OSI approved, FSF Free/Libre, from foldhash via presage)
     "AGPL-3.0-or-later",    # Project license
 ]
 
@@ -110,7 +111,7 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 
 # Git dependencies must be explicitly listed here
 allow-git = [
-    "https://github.com/whisperfish/presage",
+    "https://github.com/roder/presage",
     "https://github.com/roder/libsignal-service-rs",
     "https://github.com/signalapp/curve25519-dalek",
     "https://github.com/signalapp/libsignal",
