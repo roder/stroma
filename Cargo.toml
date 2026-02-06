@@ -157,6 +157,10 @@ curve25519-dalek = { git = "https://github.com/signalapp/curve25519-dalek", tag 
 # Uses local wrapper crate that re-exports pastey as paste
 paste = { path = "patches/paste" }
 
+# Replace unmaintained rustls-pemfile with rustls-pki-types (RUSTSEC-2025-0134)
+# Uses local wrapper crate that provides rustls-pemfile API on top of rustls-pki-types
+rustls-pemfile = { path = "patches/rustls-pemfile" }
+
 [profile.release]
 lto = true              # Link-time optimization
 codegen-units = 1       # Better optimization

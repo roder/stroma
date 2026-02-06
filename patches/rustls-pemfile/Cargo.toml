@@ -1,0 +1,8 @@
+[package]
+name = "rustls-pemfile"
+version = "1.0.4"
+edition = "2021"
+publish = false
+
+[dependencies]
+rustls-pki-types = "1.9"
