@@ -12,6 +12,8 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 # These are acknowledged and accepted until upstream crates migrate
 ignore = [
     { id = "RUSTSEC-2025-0141", reason = "bincode unmaintained - used by libsignal, alternatives being evaluated" },
+    { id = "RUSTSEC-2024-0436", reason = "paste unmaintained - transitive dep from wasmer/freenet, alternatives being evaluated" },
+    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile unmaintained - transitive dep from hickory-proto/freenet, migrate to rustls-pki-types planned" },
 ]
 
 [licenses]
