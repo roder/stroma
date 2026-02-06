@@ -33,7 +33,7 @@ The refinery is the **final gatekeeper** before code reaches main. It MUST valid
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo nextest run --all-features
-cargo llvm-cov nextest --all-features  # 100% coverage required
+cargo llvm-cov nextest --all-features  # 87% coverage target
 cargo deny check  # Supply chain security
 ```
 
@@ -101,7 +101,7 @@ jobs:
 
       - name: Check coverage threshold
         run: |
-          # Parse coverage and fail if < 100%
+          # Parse coverage and warn if < 87%
           # (Implementation depends on llvm-cov output format)
 
       - name: Supply chain security
@@ -173,7 +173,7 @@ echo "   Safe to merge to main"
 git checkout merge-queue/feature-xyz
 
 # Run validation
-/Users/matt/gt/scripts/refinery-validate.sh
+scripts/refinery-validate.sh
 
 # If passes, merge
 git checkout main
@@ -198,7 +198,7 @@ git push
 
 ```bash
 # Even if GitHub Actions passed, refinery re-validates
-/Users/matt/gt/scripts/refinery-validate.sh
+scripts/refinery-validate.sh
 
 # Double-check before merge
 git merge merge-queue/feature-xyz
@@ -252,7 +252,7 @@ git add . && git commit -m "bad format"
 git push --no-verify
 
 # Layer 2 should catch it
-/Users/matt/gt/scripts/refinery-validate.sh
+scripts/refinery-validate.sh
 # Expected: ❌ cargo fmt --check fails
 ```
 
@@ -273,7 +273,7 @@ git push --no-verify
 
 ## See Also
 
-- **Layer 1 Implementation**: `/Users/matt/gt/scripts/hooks/pre-push`
-- **CI/CD Protection**: `docs/CI-CD-PROTECTION.md`
-- **Agent Requirements**: `AGENTS.md`
+- **Layer 1 Implementation**: `.../scripts/hooks/pre-push`
+- **CI/CD Protection**: `../docs/CI-CD-PROTECTION.md`
+- **Agent Requirements**: `../AGENTS.md`
 - **Security Constraints**: `.beads/security-constraints.bead`

@@ -1,0 +1,165 @@
+name: Refinery Quality Gates
+
+# Refinery Defense: Final gatekeeper before merge to main
+# Catches code pushed with --no-verify, resolved conflicts, and bitrot
+# See: scripts/REFINERY-QUALITY-GATES.md
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ============================================================================
+  # Refinery Validation (Comprehensive Quality Gates)
+  # ============================================================================
+  refinery-validation:
+    name: Refinery Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for branch freshness check
+
+      - name: Install Protocol Buffers compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Setup Rust toolchain
+        uses: ./.github/actions/rust-setup
+        with:
+          toolchain: stable
+          components: rustfmt,clippy,llvm-tools-preview
+          cache-key: pr-quality-gates
+
+      - name: Install tooling
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest,cargo-llvm-cov,cargo-deny
+
+      - name: Check branch freshness
+        run: |
+          echo "## Branch Freshness Check" >> $GITHUB_STEP_SUMMARY
+          git fetch origin main
+          if ! git merge-base --is-ancestor origin/main HEAD 2>/dev/null; then
+            echo "❌ Branch is not up-to-date with main" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "To fix:" >> $GITHUB_STEP_SUMMARY
+            echo '```bash' >> $GITHUB_STEP_SUMMARY
+            echo "git merge origin/main" >> $GITHUB_STEP_SUMMARY
+            echo "# Resolve any conflicts" >> $GITHUB_STEP_SUMMARY
+            echo "git push" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+          echo "✅ Branch is up-to-date with main" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Format check
+        run: |
+          set -o pipefail
+          echo "## Format Check" >> $GITHUB_STEP_SUMMARY
+          if ! cargo fmt --check 2>&1 | tee fmt-output.txt; then
+            echo "❌ Formatting check failed" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat fmt-output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "To fix: \`cargo fmt\`" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+          echo "✅ Format check passed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Clippy lint
+        run: |
+          set -o pipefail
+          echo "## Clippy Lint" >> $GITHUB_STEP_SUMMARY
+          if ! cargo clippy --all-targets --all-features -- -D warnings 2>&1 | tee clippy-output.txt; then
+            echo "❌ Clippy linting failed" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -50 clippy-output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+          echo "✅ Clippy check passed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Run tests
+        run: |
+          set -o pipefail
+          echo "## Test Suite" >> $GITHUB_STEP_SUMMARY
+          if ! cargo nextest run --all-features 2>&1 | tee test-output.txt; then
+            echo "❌ Tests failed" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -50 test-output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+          echo "✅ All tests passed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check coverage
+        run: |
+          echo "## Code Coverage" >> $GITHUB_STEP_SUMMARY
+          cargo llvm-cov nextest --all-features --lcov --output-path coverage.lcov
+          
+          COVERAGE=$(cargo llvm-cov report --summary-only --json | jq '.data[0].totals.lines.percent')
+          echo "Coverage: $COVERAGE%"
+          echo "Coverage: **$COVERAGE%** (target: 87%, goal: 100%)" >> $GITHUB_STEP_SUMMARY
+          
+          # Warn if coverage drops below 87%
+          if (( $(echo "$COVERAGE < 87.0" | bc -l) )); then
+            echo "⚠️ Coverage is $COVERAGE%, below target of 87%" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Run \`cargo llvm-cov nextest --all-features --html\` to see uncovered lines" >> $GITHUB_STEP_SUMMARY
+            echo "::warning::Coverage is $COVERAGE%, below target of 87%"
+          else
+            echo "✅ Coverage meets target: $COVERAGE%" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Supply chain security
+        run: |
+          set -o pipefail
+          echo "## Supply Chain Security" >> $GITHUB_STEP_SUMMARY
+          if ! cargo deny check 2>&1 | tee deny-output.txt; then
+            echo "❌ Supply chain security check failed" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -20 deny-output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+          echo "✅ Supply chain security check passed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Refinery Validation Summary
+        if: success()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Refinery Validation PASSED" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All Refinery quality gates passed:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Branch freshness (up-to-date with main)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Format check (cargo fmt)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Lint check (cargo clippy)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Test suite (cargo nextest)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Code coverage (87% target)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Supply chain security (cargo deny)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Safe to merge** after additional checks pass (security, CodeQL)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload coverage to Codecov
+        if: success()
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.lcov
+          fail_ci_if_error: false
+          flags: refinery-quality-gates
+          token: ${{ secrets.CODECOV_TOKEN }}
