@@ -645,10 +645,7 @@ mod tests {
             verify_and_record_attestation(&tampered_attestation, &holder_identity_key, &mut health)
                 .unwrap();
 
-        assert!(
-            !result,
-            "Tampered attestation should fail verification"
-        );
+        assert!(!result, "Tampered attestation should fail verification");
         assert_eq!(
             health.confirmed_replicas(99),
             0,
