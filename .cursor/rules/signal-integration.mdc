@@ -21,10 +21,13 @@ Complete Signal integration patterns, bot roles, ejection protocol, privacy-firs
 
 | Role | Scope | Function |
 |------|-------|----------|
-| Gatekeeper | Single group | Enforce 2-vouch admission |
-| Blind Matchmaker | Internal | Strategic introductions |
+| Gatekeeper | Single group | Enforce GroupConfig vouch threshold |
+| Blind Matchmaker (Admission) | Internal | Select cross-cluster assessor for invitees |
+| Blind Matchmaker (Mesh) | Internal | Suggest strategic introductions between existing members |
 | Diplomat | External | Federation proposals |
 | Health Monitor | Continuous | Trust standing checks |
+
+**Critical**: Bot belongs to ONE Signal group only. No secondary chats. Assessor contacts invitee independently.
 
 ## Ejection Triggers (Immediate)
 

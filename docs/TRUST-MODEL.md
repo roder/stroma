@@ -32,8 +32,7 @@ For general concepts, see [How It Works](HOW-IT-WORKS.md). For bot commands, see
 **Status**: OUTSIDE Signal group
 
 - 1 vouch from member who invited them
-- Being vetted (waiting for second vouch)
-- Receives 1-on-1 PMs from bot
+- Being vetted — an **assessor** contacts them independently
 - Cannot vouch, flag, or vote
 
 ### Bridges
@@ -43,6 +42,7 @@ For general concepts, see [How It Works](HOW-IT-WORKS.md). For bot commands, see
 - Full member privileges
 - At risk if voucher leaves OR flags
 - Should build more connections for resilience
+- Can be selected as assessor for invitees
 
 ### Validators
 **Status**: IN Signal group (high trust)
@@ -50,10 +50,21 @@ For general concepts, see [How It Works](HOW-IT-WORKS.md). For bot commands, see
 - 3+ effective vouches from 3+ different clusters (when available)
 - Same privileges as Bridges
 - More resilient to voucher changes
-- Preferred by Blind Matchmaker for strategic introductions
+- Can be selected as assessor for invitees
+- Preferred by Blind Matchmaker for mesh optimization (strategic introductions between existing members)
 - If only 2 clusters exist, must have vouches from both
 
 **Note**: Validators have NO special permissions - only higher resilience and bot optimization preferences.
+
+### Assessor (Transient Role)
+**Status**: Member currently evaluating an invitee
+
+- Selected by Blind Matchmaker (admission vetting function) from a different cluster than inviter
+- Can be a Bridge or Validator
+- Bot PMs them invitee's contact info; they independently decide how to approach
+- Inviter identity NOT revealed (Blind Matchmaker)
+- Can vouch (`/vouch @invitee`) or decline (`/reject-intro @invitee`)
+- If declined, bot selects another candidate (excluding previous decliners)
 
 ## Trust Standing Calculation
 
@@ -476,19 +487,25 @@ pub struct GroupConfig {
 
 **NOT restricted to Validators** - this is a critical design principle for non-hierarchical organization.
 
-### Blind Matchmaker Optimization (DVR-Aware)
+### Two Distinct Blind Matchmaker Functions
 
-The bot uses a **hybrid algorithm** with DVR optimization and MST fallback:
+The Blind Matchmaker has two architecturally separate roles:
+
+**1. Admission Vetting** (`signal/matchmaker.rs`): After `/invite`, the bot selects a cross-cluster **assessor** to evaluate the invitee. The assessor contacts the invitee independently.
+
+**2. Mesh Optimization** (`matchmaker/strategic_intro.rs`): Between existing members, the bot suggests strategic introductions to improve DVR.
+
+Both use the same DVR-optimized selection algorithm:
 
 **Phase 0: DVR Optimization (Priority)**
-Bot prioritizes vouchers that would create **distinct Validators** (non-overlapping voucher sets):
+Bot prioritizes members that would create **distinct Validators** (non-overlapping voucher sets):
 - Tracks which vouchers are already used by existing distinct Validators
-- Prefers vouchers NOT in any distinct Validator's voucher set
+- Prefers members NOT in any distinct Validator's voucher set
 - Goal: Maximize Distinct Validator Ratio (DVR)
 
 **Phase 1: MST Fallback**
-If no DVR-optimal voucher available, falls back to any cross-cluster Validator:
-- Still strengthens the Bridge (valid admission)
+If no DVR-optimal candidate available, falls back to any cross-cluster member:
+- Still strengthens the network (valid admission or mesh improvement)
 - Creates connectivity (MST property)
 - Just not optimal for DVR
 
@@ -499,17 +516,19 @@ If no DVR-optimal voucher available, falls back to any cross-cluster Validator:
 
 **See**: `.beads/blind-matchmaker-dvr.bead` for full algorithm
 
-**But**: ANY Member can still vouch if they choose to. The bot only *suggests* optimal vouchers.
+**But**: ANY Member can still vouch if they choose to. The bot only *selects* optimal assessors for admission and *suggests* optimal introductions for mesh building.
 
 ### First Vouch = Invitation
 Invitation itself counts as first vouch (no token exchange system).
 
-**Flow**:
+**Admission Flow**:
 1. Member: `/invite @Peer "Context"`
-2. Bot: "Invitation recorded as first vouch"
-3. Bot selects second member from a DIFFERENT CLUSTER for vetting
-4. Second member: `/vouch @Friend`
-5. Automatic admission when 2 cross-cluster vouches confirmed
+2. Bot: "Invitation recorded as first vouch" (inviter notified, no assessor identity revealed)
+3. Bot selects cross-cluster **assessor** via DVR-optimized algorithm
+4. Bot PMs assessor with invitee contact info (inviter identity NOT revealed)
+5. Assessor independently contacts invitee, decides whether to vouch
+6. Assessor: `/vouch @Peer` or `/reject-intro @Peer` (if declined, bot selects new assessor)
+7. Admission when ALL GroupConfig requirements met (vouch threshold, cross-cluster, standing)
 
 **Cross-Cluster Requirement** (CONTINUOUS): Members must maintain ≥2 vouches from different clusters at all times. Same-cluster vouches don't count toward this minimum but do count toward standing. See "Why Cross-Cluster Matters" in HOW-IT-WORKS.md.
 

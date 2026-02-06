@@ -18,6 +18,12 @@ When writing documentation, code comments, or user-facing messages:
 2. **Use** the exact phrasing specified there
 3. **Update** the bead FIRST if terminology needs to change, then update referencing documents
 
+## Key Terms Quick Reference
+
+- **Assessor**: Member (bridge or validator) selected by Blind Matchmaker to evaluate an invitee. Contacts invitee independently of the bot.
+- **Two Blind Matchmaker roles**: Admission Vetting (`signal/matchmaker.rs`) and Mesh Optimization (`matchmaker/strategic_intro.rs`) -- architecturally separate.
+- `/reject-intro @invitee`: Assessor declines assessment; bot selects another candidate.
+
 ## Consistency Checks
 
 Before committing documentation changes:
@@ -28,4 +34,6 @@ rg "2 vouches" --type md  # Should say "2 cross-cluster vouches"
 rg "waiting room" --type md  # Should say "invitee (outside group)"
 rg "grace period" --type md  # Should not exist
 rg "permanent ban" --type md  # Should not exist
+rg "3-person chat" --type md --type rs  # Should not exist (bot belongs to ONE group)
+rg "selected member" --type md  # Should say "assessor" in admission context
 ```

@@ -31,8 +31,10 @@ Stroma links to an **existing Signal account** as a secondary device. The operat
 ## Bot Behavior Principles
 
 ### Bot Roles
-- **Protocol Gatekeeper**: Enforces 2-vouch requirement for admission
-- **Blind Matchmaker (Internal)**: Strategic introduction matching within single group
+- **Protocol Gatekeeper**: Enforces vouch threshold (per GroupConfig) for admission
+- **Blind Matchmaker (Internal)**: Two distinct functions:
+  - *Admission Vetting*: Select cross-cluster assessor to evaluate invitees (`signal/matchmaker.rs`)
+  - *Mesh Optimization*: Suggest strategic introductions between existing members (`matchmaker/strategic_intro.rs`)
 - **Diplomat (External)**: Federation proposals with other Stroma groups
 - **Health Monitor**: Continuous monitoring of trust standing
 
@@ -73,10 +75,13 @@ IF Effective_Vouches < MIN_VOUCH_THRESHOLD: EJECT
 ### Command Interface
 All vetting/vouching occurs in **1-on-1 PMs** with bot (prevents metadata leakage).
 
+**Critical constraint**: The bot belongs to exactly ONE Signal group (per `bot-deployment-model.bead`). It NEVER creates 3-person chats, secondary groups, or any other Signal group. During admission vetting, the bot PMs the assessor with the invitee's contact info. The assessor contacts the invitee independently of the bot.
+
 **Member Commands:**
 - `/invite @username [context]` - Invite someone (counts as first vouch)
 - `/vouch @username` - Vouch for invitee or existing member
 - `/flag @username [reason]` - Flag member for trust violation
+- `/reject-intro @username` - Decline an assessment request (assessor only; bot selects another cross-cluster member)
 - `/propose <subcommand> [args]` - Propose group decision
 - `/status` - View personal trust standing
 - `/mesh` - View network overview

@@ -199,9 +199,24 @@ where:
 
 ---
 
+## Two Distinct Blind Matchmaker Functions
+
+The Blind Matchmaker serves two architecturally separate functions. Both use the DVR-optimized selection algorithm described in this section, but differ in purpose, trigger, and implementation module:
+
+| Function | Purpose | Module | Trigger | Participants |
+|----------|---------|--------|---------|--------------|
+| **Admission Vetting** | Select cross-cluster assessor to evaluate an invitee | `signal/matchmaker.rs` | `/invite` | 1 invitee (leaf node) + 1 assessor (existing member) |
+| **Mesh Optimization** | Suggest strategic introductions between existing members | `matchmaker/strategic_intro.rs` | `/mesh` suggestions, proactive bot behavior | 2 existing members |
+
+**Admission Vetting**: After `/invite`, the bot adds the invitee as a leaf node in the trust graph, then selects an assessor from a different cluster. The bot PMs the assessor with the invitee's contact info. The assessor independently contacts the invitee. The assessor can vouch (`/vouch`) or decline (`/reject-intro`), which triggers re-selection with an exclusion list.
+
+**Mesh Optimization**: The algorithm below describes this function — operating on existing members IN the Signal group to suggest cross-cluster introductions that improve DVR.
+
+---
+
 ## Internal Matchmaking: Minimum Spanning Tree Algorithm
 
-### Problem Statement
+### Problem Statement (Mesh Optimization)
 
 **Given:**
 - Trust graph G = (V, E) with N members (all IN the Signal group)
@@ -363,6 +378,17 @@ Output: List of strategic introduction pairs (DVR-optimal where possible)
 - Who should be paired for social compatibility
 
 **Privacy Guarantee**: Bot has **topological knowledge** but **zero semantic knowledge**.
+
+### Privacy Model for Admission Vetting
+
+When used for assessor selection (admission vetting), additional privacy constraints apply:
+
+- **Inviter identity hidden from assessor**: Bot tells assessor "someone invited @invitee" but NOT who
+- **Assessor identity hidden from inviter**: Bot tells inviter "reaching out to a cross-cluster member" but NOT who
+- **Bot never contacts invitee**: The assessor independently decides how to approach the invitee
+- **Assessor controls identity exposure**: The assessor decides what to reveal about themselves to the invitee
+- **Bot belongs to ONE Signal group**: No secondary chats or 3-person groups are created
+- **Exclusion list is ephemeral**: Members who declined via `/reject-intro` are tracked in RAM-only VettingSession
 
 ---
 

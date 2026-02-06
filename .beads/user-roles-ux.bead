@@ -34,11 +34,19 @@ and edge cases, see the terminology bead.
 - Has 1 vouch from inviter, needs 1 more from different member
 - Cannot vouch for others, cannot flag, cannot vote
 
+### Assessor (Transient Role)
+- A member (bridge or validator) selected by the Blind Matchmaker to evaluate an invitee
+- Selected from a different cluster than the inviter (DVR-optimized)
+- Bot PMs them the invitee's contact info; they independently contact the invitee
+- Can decline via `/reject-intro @invitee` (bot selects another candidate)
+- Inviter identity is NOT revealed to the assessor (Blind Matchmaker)
+
 ### Bot
 - Automated trust network facilitator
-- Roles: Gatekeeper, Blind Matchmaker, Diplomat, Health Monitor
-- All operations in 1-on-1 PMs (privacy-first)
+- Roles: Gatekeeper, Blind Matchmaker (admission vetting + mesh optimization), Diplomat, Health Monitor
+- All operations in 1-on-1 PMs (privacy-first); bot belongs to ONE Signal group only
 - Never stores Signal IDs in cleartext
+- Never creates secondary Signal chats or groups
 
 ---
 
@@ -47,6 +55,7 @@ and edge cases, see the terminology bead.
 ### Invitation & Vetting
 - `/invite @username [context]` - Invite someone (counts as first vouch)
 - `/vouch @username` - Vouch for invitee or existing member
+- `/reject-intro @username` - Decline an assessment request (assessor only)
 
 ### Trust Management
 - `/flag @username [reason]` - Flag member (required reason)

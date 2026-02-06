@@ -27,9 +27,9 @@ For detailed explanations, see [How It Works](HOW-IT-WORKS.md).
 ## Quick Start
 
 1. **Get invited** by an existing member (counts as first vouch)
-2. **Chat with a member from a different cluster** (10-15 min introduction)
-3. **Get vouched** by that member (must be from different cluster than inviter)
-4. **Join the group** automatically when you reach 2 cross-cluster vouches
+2. **An assessor reaches out** — the bot selects a member from a different cluster to contact you
+3. **Get vouched** by the assessor (must be from different cluster than inviter)
+4. **Join the group** automatically when you meet the admission threshold
 
 **Note**: For small groups (3-5 members) that only have one cluster, the cross-cluster requirement is not yet enforced. Once the group grows and develops 2+ distinct clusters (typically 6+ members), cross-cluster vouching becomes mandatory.
 
@@ -106,10 +106,11 @@ your network even stronger."
 
 - Your invitation counts as their first vouch
 - Bot starts vetting process immediately
-- Bot selects second member from a DIFFERENT CLUSTER for introduction
-- Same-cluster vouches don't count (cross-cluster required)
+- Bot selects a cross-cluster **assessor** to evaluate the invitee
+- The assessor is NOT told who invited (Blind Matchmaker)
+- You are NOT told which assessor was selected
+- Context helps the assessor understand who they're evaluating
 - **Bootstrap exception**: Small groups (3-5 members) with only 1 cluster are exempt until 2+ clusters exist
-- Context helps the second member understand who they're meeting
 
 **Example:**
 ```
@@ -119,9 +120,22 @@ your network even stronger."
 #### `/vouch @username`
 **Vouches for an invitee or existing member**
 
-- During vetting: Vouches for invitee after introduction
+- During vetting: Vouches for invitee after assessment
 - After admission: Strengthens mesh by vouching for existing members
 - Bot verifies you're a current member
+- Admission requires meeting ALL GroupConfig thresholds (vouch count, cross-cluster, standing)
+
+#### `/reject-intro @username`
+**Declines an assessment request** (assessor only)
+
+- Only usable by the member who received the assessment request from the bot
+- Bot selects another cross-cluster member to assess the invitee
+- No penalty for declining — participation is voluntary
+
+**Example:**
+```
+/reject-intro @Matt
+```
 
 **Example:**
 ```
@@ -272,12 +286,11 @@ Confirms operator has no special privileges for membership or configuration.
 
 - Have 1 vouch from the member who invited them
 - Need 1 more vouch from a member in a DIFFERENT CLUSTER
-- Same-cluster vouches don't count toward the cross-cluster minimum, unless there are is only 1 cluster (small group)
-- Receive 1-on-1 PMs from bot during vetting
-- Can chat with validators during introduction
+- Same-cluster vouches don't count toward the cross-cluster minimum, unless there is only 1 cluster (small group)
+- An **assessor** (selected by the bot) reaches out to them independently
 - Cannot vouch, flag, or vote
 
-**Transition**: When 2 cross-cluster vouches confirmed → automatically added to group as Bridge
+**Transition**: When GroupConfig admission requirements met → automatically added to group as Bridge
 
 ### Bridges
 **Status**: IN Signal group, minimum trust
@@ -295,12 +308,22 @@ Confirms operator has no special privileges for membership or configuration.
 - Have 3+ effective vouches from 3+ clusters (when available)
 - Same privileges as Bridges (no special powers)
 - More resilient to voucher changes
-- Preferred by Blind Matchmaker for strategic introductions
-- Bot prioritizes creating **distinct Validators** (non-overlapping voucher sets)
+- Both Bridges and Validators can be selected as **assessors** for invitees
+- Bot prioritizes creating **distinct Validators** via mesh optimization (non-overlapping voucher sets)
 
 **Why "distinct" matters**: The bot suggests vouchers that would create Validators whose voucher sets don't overlap with others. This maximizes network resilience — if one voucher is compromised, it only affects one Validator, not multiple.
 
 **Note**: Validators don't have extra permissions - just higher resilience and better network health contribution
+
+### Assessor (Transient Role)
+**Status**: A member currently evaluating an invitee
+
+- Selected by the Blind Matchmaker from a different cluster than the inviter
+- Can be a Bridge or Validator — both are eligible
+- Bot PMs them with the invitee's contact info and context
+- They decide how to contact the invitee and what to reveal about themselves
+- Can vouch (`/vouch @invitee`) or decline (`/reject-intro @invitee`)
+- The inviter's identity is NOT revealed to the assessor
 
 ## Understanding Trust Standing
 

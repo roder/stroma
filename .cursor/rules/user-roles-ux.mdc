@@ -17,12 +17,14 @@ Complete role definitions, bot commands, voting interface, network health metric
 | Operator | Service runner | Least privilege, no trust ops |
 | Member (Bridge) | 2 vouches | Full permissions |
 | Member (Validator) | 3+ vouches | Full permissions + optimization |
+| Assessor (transient) | Selected by Blind Matchmaker | Evaluate invitee, /vouch or /reject-intro |
 | Invitee | 1 vouch | Outside group, being vetted |
 
 ## Key Commands
 
 - `/invite @user` - Invite (counts as first vouch)
 - `/vouch @user` - Vouch for someone
+- `/reject-intro @user` - Decline assessment request (assessor only)
 - `/flag @user [reason]` - Flag member
 - `/status` - Personal standing
 - `/mesh` - Network overview

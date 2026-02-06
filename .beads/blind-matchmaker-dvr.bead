@@ -4,6 +4,21 @@
 **Created**: 2026-01-28
 **Depends On**: Q3 (Cluster Detection) validation in Spike Week
 
+## Scope: Two Distinct Roles
+
+The Blind Matchmaker serves two architecturally separate functions that share the DVR-optimized selection algorithm:
+
+| Function | Purpose | Module | Trigger |
+|----------|---------|--------|---------|
+| **Admission Vetting** | Select a cross-cluster **assessor** to evaluate an invitee | `signal/matchmaker.rs` | `/invite` command |
+| **Mesh Optimization** | Suggest strategic introductions between existing members | `matchmaker/strategic_intro.rs` | `/mesh`, proactive bot behavior |
+
+**Admission Vetting**: After `/invite`, the bot selects an assessor (bridge or validator) from a different cluster, PMs them the invitee's contact info, and lets them independently decide whether to contact and vouch for the invitee. The bot never creates secondary chats or contacts the invitee. If the assessor declines (`/reject-intro`), the bot re-runs selection with an exclusion list.
+
+**Mesh Optimization**: Between existing members already in the group. Suggests introductions to strengthen DVR. This is a separate concern from admission.
+
+This bead defines the shared DVR-optimized selection algorithm used by both roles.
+
 ## Architectural Decision
 
 **Decision**: Enhance Blind Matchmaker to prioritize **Distinct Validator Ratio (DVR)** optimization with MST fallback.
@@ -300,8 +315,44 @@ The hybrid approach guarantees:
 - **Prioritizes optimal suggestions** (DVR first)
 - **Never blocks admission** (any valid vouch accepted)
 
+## Assessor Selection for Admission Vetting
+
+When used for admission vetting (not mesh optimization), the algorithm has additional requirements:
+
+### Candidate Eligibility
+
+- Must be an active member (in Signal group)
+- Must be from a DIFFERENT cluster than the inviter
+- Can be a bridge (2 vouches) OR validator (3+ vouches) -- both are eligible assessors
+- Must NOT be in the exclusion list (members who previously declined via `/reject-intro`)
+- Must NOT be the inviter themselves
+
+### Selection Priority (same DVR-optimized algorithm)
+
+1. **Phase 0 (DVR-optimal)**: Cross-cluster member whose voucher sets don't overlap with existing distinct validators
+2. **Phase 1 (MST fallback)**: Any cross-cluster member
+3. **Bootstrap exception**: Any member when only 1 cluster exists
+
+### Exclusion List and Re-Selection
+
+When an assessor declines via `/reject-intro @invitee`:
+- Their `MemberHash` is added to the session's exclusion list
+- Selection re-runs with the exclusion list filter applied
+- If no eligible candidates remain, the session enters `Stalled` state and the inviter is notified
+
+### Privacy Constraints (Admission Vetting Only)
+
+- Bot PMs the assessor with invitee contact info and context
+- Bot does NOT reveal the inviter's identity to the assessor
+- Bot does NOT reveal the assessor's identity to the inviter
+- Bot does NOT contact the invitee directly
+- Assessor independently decides how to approach the invitee
+- All vetting session data is ephemeral (RAM only)
+
 ## Related Documents
 
+- `.beads/terminology.bead` - Assessor definition, two matchmaker roles
+- `.beads/vetting-protocols.bead` - Full admission flow
 - `.beads/mesh-health-metric.bead` - DVR metric definition
 - `.beads/cross-cluster-requirement.bead` - Cross-cluster rules
 - `docs/ALGORITHMS.md` - Full algorithm details

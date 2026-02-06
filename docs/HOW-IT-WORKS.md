@@ -119,37 +119,42 @@ Before we get to the joining process, it helps to understand where people stand 
 
 **Key distinction**: You're either IN the group (2+ vouches from 2+ clusters) or OUTSIDE (fewer than 2 vouches or lacking cluster diversity). There's no "at risk inside member with 1 vouch" — if you drop below 2 effective vouches while inside, you're removed immediately.
 
-### The Joining Process (Peer-to-Peer)
+### The Joining Process (Privacy-First)
 
 **Step 1: Someone Invites You**
 
-Alice, who is already in the group, wants you to join. She reaches out to you directly:
+Alice, who is already in the group, wants you to join. She tells the bot:
 
-> "Hey Jordan, I'd like to invite you to join our group. I'll vouch for you — that's your first vouch. But you'll need a second vouch from someone else in the group who knows you from a different context than me."
+> `/invite @Jordan "Met through the community garden project, solid organizer"`
 
-Alice's invitation counts as your **first vouch**.
+Alice's invitation counts as your **first vouch**. You're now an *invitee* — a leaf node in the trust graph, outside the Signal group.
 
-**Step 2: Finding a Cross-Cluster Voucher**
+**Step 2: The Bot Selects an Assessor**
 
-Your second vouch must come from a different cluster than Alice (see "Why Cross-Cluster Matters" above). Alice should proactively introduce you to someone from a different part of the network:
+The bot's Blind Matchmaker algorithm selects a member from a *different cluster* than Alice to evaluate you. This member is called the **assessor**. The bot PMs them:
 
-> "Jordan, I want to introduce you to Bob. He's connected to the housing rights folks — different crowd than how I know you from the garden project. Let me set up a conversation."
+> "Someone has invited @Jordan to the group. Context: Met through the community garden project, solid organizer. Please reach out to them directly to assess whether they should join."
 
-Alice makes the introduction, then steps back. You and Bob have a brief conversation — maybe 15-20 minutes, or a small shared task like working on something together.
+Key privacy protections:
+- The assessor does **not** learn that Alice invited you (the inviter's identity is hidden)
+- Alice does **not** learn which member was selected as assessor
+- The bot does **not** contact you directly — the assessor decides how to approach you
+
+**Step 3: The Assessor Reaches Out**
+
+The assessor — let's call them Bob — contacts you independently. Bob decides how to approach you: maybe through a mutual context, maybe directly, maybe pseudonymously. The point is that *Bob controls what he reveals about himself*.
+
+After getting to know you, Bob decides whether to vouch for you. This isn't a job interview — it's establishing a second point of contact. Bob is essentially saying: "I've met Jordan, and I'm willing to put my reputation on the line for them."
+
+If Bob doesn't feel comfortable, he can tell the bot `/reject-intro @Jordan` and the bot will select another assessor from a different part of the network.
 
 **What about if Jordan already knows someone?**
 
 If Jordan already has an independent relationship with another member (Carol), that can work — *but only if Carol is from a different cluster than Alice*. If they're in the same cluster, Carol's vouch won't satisfy the cross-cluster requirement for admission.
 
-**Step 3: The Second Witness Handshake**
-
-After your conversation, Bob decides whether to vouch for you. This isn't a job interview — it's establishing a second point of contact. Bob is essentially saying: "I've met Jordan, and I'm willing to put my reputation on the line for them."
-
-If Bob vouches, you now have **two cross-cluster vouches** from members in different parts of the network.
-
 **Step 4: You're In**
 
-With two cross-cluster vouches confirmed, any member can add you to the Signal group. There's no special "admin" required — the rule is simply: two vouches from members in different clusters, and you're in.
+If Bob vouches and you've met the group's admission requirements (enough cross-cluster vouches, non-negative standing), the bot verifies everything cryptographically and adds you to the Signal group. There's no special "admin" required — the protocol handles admission automatically.
 
 **Ongoing Requirement**: Cross-cluster is continuous, not just an entry gate. You must maintain at least 2 vouches from different clusters at all times. If a voucher leaves and your remaining vouches are all from one cluster, you'll need a new vouch from a different cluster to stay. Additional vouches from any cluster strengthen your standing, but the cross-cluster minimum is always enforced.
 
@@ -179,9 +184,13 @@ Instead of one person tracking vouches, the group can maintain a **shared, anony
 - Strategic introductions can be suggested based on the gaps
 - No need to explain *why* you trust someone — the protocol just looks for the **existence** of the link
 
-### Smart Introductions (Building a Resilient Network)
+### The Bot's Two Matchmaking Roles
 
-When suggesting who should vouch for whom, the system prioritizes creating **independently verified members** — people whose vouchers don't overlap with each other:
+The bot's Blind Matchmaker has two distinct jobs:
+
+**1. Admission Vetting** — When someone is invited, the bot selects a cross-cluster assessor to evaluate them. This is the joining process described above.
+
+**2. Mesh Optimization** — Among existing members, the bot suggests strategic introductions to strengthen the network:
 
 - **Why this matters**: Imagine Alice and Bob are both well-trusted, but they share the same three vouchers. If something happens to those vouchers, *both* Alice and Bob are affected. But if Alice and Bob have completely different vouchers, the network is more resilient — a problem affecting one person's vouchers doesn't cascade.
 - **How it works**: The system tracks which members have overlapping voucher sets and suggests introductions that create more independently-verified members.
@@ -192,7 +201,7 @@ This "smart matchmaking" helps the network become more resilient without requiri
 This distributed approach means:
 - No "in-crowd" forms (cross-cluster links prevent cliques)
 - Power shifts naturally (whoever is available helps the process)
-- Privacy is maintained (you don't have to justify your relationships)
+- Privacy is maintained (you don't have to justify your relationships, and assessors control their own identity exposure)
 - Network health improves naturally (DVR optimization happens automatically)
 
 ---
@@ -462,8 +471,8 @@ Your membership is continuously earned, not a permanent credential. But the netw
 ### As an Existing Member
 
 1. **Invite carefully**: Your invitation is your first vouch. Only invite people you genuinely trust.
-2. **Initiate cross-cluster introductions**: When you invite someone, proactively connect them with a member from a *different* part of the network than you. Validators (3+ vouches) are ideal because they're well-connected, but any cross-cluster member works. Don't leave it to chance — this is what creates a resilient mesh.
-3. **Vouch thoughtfully**: When asked to be someone's second vouch, take it seriously. You're adding your perspective to someone else's invitation.
+2. **The bot handles cross-cluster matching**: When you invite someone, the bot automatically selects a member from a different part of the network to assess them. You don't need to find a second voucher yourself — the Blind Matchmaker does this.
+3. **Assess when asked**: If the bot asks you to assess an invitee, reach out to them and decide if you're willing to vouch. You control how you approach them. If you can't or don't want to, use `/reject-intro` and the bot will find someone else.
 4. **Flag when necessary**: If someone violates trust, flag them. It's how the system stays healthy.
 5. **Participate in decisions**: Vote on proposals. The group's character is shaped by who participates.
 
