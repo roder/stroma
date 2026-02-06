@@ -10,6 +10,7 @@
 
 pub mod bootstrap;
 pub mod bot;
+pub mod client;
 pub mod group;
 pub mod linking;
 pub mod matchmaker;
@@ -24,6 +25,7 @@ pub mod vetting;
 
 pub use bootstrap::{BootstrapManager, BootstrapState};
 pub use bot::{BotConfig, StromaBot};
+pub use client::LibsignalClient;
 pub use mock::MockSignalClient;
 pub use store::StromaProtocolStore;
 pub use traits::{SignalClient, SignalError, SignalResult};

@@ -72,10 +72,7 @@ path = "docs/spike/q14/main.rs"
 # Signal integration (uses forked libsignal-service-rs with poll support)
 # ❌ DO NOT USE: presage-store-sqlite (stores ALL messages - server seizure risk!)
 # See: .beads/security-constraints.bead § 10, .cursor/rules/security-guardrails.mdc
-# NOTE: Presage currently doesn't compile with our libsignal-service-rs fork
-# We've implemented trait abstractions that will work once presage is updated
-# FIXME: Commented out until presage is compatible with our libsignal fork (st-rvzl)
-# presage = { git = "https://github.com/whisperfish/presage", optional = true }
+presage = { git = "https://github.com/whisperfish/presage", optional = true }
 
 # Async runtime and serialization
 tokio = { version = "1", features = ["full"] }
