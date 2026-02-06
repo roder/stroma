@@ -128,9 +128,6 @@ fi | {
     # Step 3: CI Status Check (only for pushes to main)
     # ============================================================================
 
-    remote="$1"
-    url="$2"
-
     # Read push details from stdin (piped from quality gates section)
     while read local_ref local_sha remote_ref remote_sha; do
     # Check if pushing to main branch
