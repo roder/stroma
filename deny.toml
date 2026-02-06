@@ -110,7 +110,7 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 
 # Git dependencies must be explicitly listed here
 allow-git = [
-    "https://github.com/whisperfish/presage",
+    "https://github.com/roder/presage",
     "https://github.com/roder/libsignal-service-rs",
     "https://github.com/signalapp/curve25519-dalek",
     "https://github.com/signalapp/libsignal",
