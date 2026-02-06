@@ -281,7 +281,9 @@ mod tests {
         let member = test_member();
 
         // First action should be immediate
-        assert!(limiter.check_rate_limit(&member, TrustAction::Invite).is_ok());
+        assert!(limiter
+            .check_rate_limit(&member, TrustAction::Invite)
+            .is_ok());
     }
 
     #[test]
@@ -290,7 +292,9 @@ mod tests {
         let member = test_member();
 
         // First action
-        assert!(limiter.check_rate_limit(&member, TrustAction::Invite).is_ok());
+        assert!(limiter
+            .check_rate_limit(&member, TrustAction::Invite)
+            .is_ok());
         limiter.record_action(&member, TrustAction::Invite);
 
         // Second action should be blocked
@@ -394,10 +398,14 @@ mod tests {
         limiter.record_action(&member1, TrustAction::Invite);
 
         // Member 1 should be rate limited
-        assert!(limiter.check_rate_limit(&member1, TrustAction::Invite).is_err());
+        assert!(limiter
+            .check_rate_limit(&member1, TrustAction::Invite)
+            .is_err());
 
         // Member 2 should NOT be rate limited
-        assert!(limiter.check_rate_limit(&member2, TrustAction::Invite).is_ok());
+        assert!(limiter
+            .check_rate_limit(&member2, TrustAction::Invite)
+            .is_ok());
     }
 
     #[test]
@@ -409,10 +417,14 @@ mod tests {
         limiter.record_action(&member, TrustAction::Invite);
 
         // Invite should be rate limited
-        assert!(limiter.check_rate_limit(&member, TrustAction::Invite).is_err());
+        assert!(limiter
+            .check_rate_limit(&member, TrustAction::Invite)
+            .is_err());
 
         // Vouch should NOT be rate limited
-        assert!(limiter.check_rate_limit(&member, TrustAction::Vouch).is_ok());
+        assert!(limiter
+            .check_rate_limit(&member, TrustAction::Vouch)
+            .is_ok());
     }
 
     #[test]
@@ -434,7 +446,9 @@ mod tests {
         }
 
         // Should be allowed (cooldown expired)
-        assert!(limiter.check_rate_limit(&member, TrustAction::Invite).is_ok());
+        assert!(limiter
+            .check_rate_limit(&member, TrustAction::Invite)
+            .is_ok());
 
         // Record action
         limiter.record_action(&member, TrustAction::Invite);
@@ -454,13 +468,17 @@ mod tests {
 
         // Perform action and get rate limited
         limiter.record_action(&member, TrustAction::Invite);
-        assert!(limiter.check_rate_limit(&member, TrustAction::Invite).is_err());
+        assert!(limiter
+            .check_rate_limit(&member, TrustAction::Invite)
+            .is_err());
 
         // Reset
         limiter.reset(&member, TrustAction::Invite);
 
         // Should be allowed again
-        assert!(limiter.check_rate_limit(&member, TrustAction::Invite).is_ok());
+        assert!(limiter
+            .check_rate_limit(&member, TrustAction::Invite)
+            .is_ok());
     }
 
     #[test]
@@ -474,15 +492,23 @@ mod tests {
         limiter.record_action(&member2, TrustAction::Vouch);
 
         // Both should be rate limited
-        assert!(limiter.check_rate_limit(&member1, TrustAction::Invite).is_err());
-        assert!(limiter.check_rate_limit(&member2, TrustAction::Vouch).is_err());
+        assert!(limiter
+            .check_rate_limit(&member1, TrustAction::Invite)
+            .is_err());
+        assert!(limiter
+            .check_rate_limit(&member2, TrustAction::Vouch)
+            .is_err());
 
         // Reset all
         limiter.reset_all();
 
         // Both should be allowed again
-        assert!(limiter.check_rate_limit(&member1, TrustAction::Invite).is_ok());
-        assert!(limiter.check_rate_limit(&member2, TrustAction::Vouch).is_ok());
+        assert!(limiter
+            .check_rate_limit(&member1, TrustAction::Invite)
+            .is_ok());
+        assert!(limiter
+            .check_rate_limit(&member2, TrustAction::Vouch)
+            .is_ok());
     }
 
     #[test]
@@ -491,7 +517,9 @@ mod tests {
         let member = test_member();
 
         // No cooldown initially
-        assert!(limiter.get_remaining_cooldown(&member, TrustAction::Invite).is_none());
+        assert!(limiter
+            .get_remaining_cooldown(&member, TrustAction::Invite)
+            .is_none());
 
         // Record action
         limiter.record_action(&member, TrustAction::Invite);
@@ -539,12 +567,16 @@ mod tests {
         let member = test_member();
 
         // First action succeeds
-        assert!(limiter.check_rate_limit(&member, TrustAction::Invite).is_ok());
+        assert!(limiter
+            .check_rate_limit(&member, TrustAction::Invite)
+            .is_ok());
         limiter.record_action(&member, TrustAction::Invite);
 
         // Rapid-fire attempts should all be blocked
         for _ in 0..10 {
-            assert!(limiter.check_rate_limit(&member, TrustAction::Invite).is_err());
+            assert!(limiter
+                .check_rate_limit(&member, TrustAction::Invite)
+                .is_err());
         }
     }
 
@@ -575,6 +607,8 @@ mod tests {
         }
 
         // Should still be rate limited after concurrent access
-        assert!(limiter.check_rate_limit(&member, TrustAction::Invite).is_err());
+        assert!(limiter
+            .check_rate_limit(&member, TrustAction::Invite)
+            .is_err());
     }
 }
