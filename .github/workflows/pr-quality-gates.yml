@@ -39,7 +39,7 @@ jobs:
       - name: Install tooling
         uses: taiki-e/install-action@v2
         with:
-          tool: nextest,cargo-llvm-cov
+          tool: nextest,cargo-llvm-cov,cargo-deny
 
       - name: Check branch freshness
         run: |
