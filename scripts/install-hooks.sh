@@ -66,7 +66,7 @@ count=0
 while IFS= read -r git_dir; do
     repo_dir=$(dirname "$git_dir")
     install_hook "$repo_dir"
-    ((count++))
+    count=$((count + 1))
 done < <(find "$GASTOWN_ROOT" -name ".git" -type d -maxdepth 6 2>/dev/null)
 
 echo ""
