@@ -272,7 +272,11 @@ _For detailed specifications on Trust Model, Mesh Health, Federation, Technical 
 
 **Container (Recommended - Easiest):**
 ```bash
+# Docker
 docker run -d -v stroma-data:/data ghcr.io/roder/stroma:latest
+
+# Podman (identical)
+podman run -d -v stroma-data:/data ghcr.io/roder/stroma:latest
 ```
 
 **Static Binary (Maximum Security):**
@@ -283,7 +287,8 @@ gpg --verify stroma.asc && chmod +x stroma && ./stroma run
 
 Both methods use the **same secure static binary** (container just wraps it for ease).
 
-→ **[Operator Guide](docs/OPERATOR-GUIDE.md)** - Complete installation, bootstrap, maintenance
+→ **[Operator Guide](docs/OPERATOR-GUIDE.md)** - Complete installation, bootstrap, maintenance  
+→ **[Container Build Guide](docs/CONTAINER-BUILD.md)** - Docker/Podman build instructions
 
 ### For Developers
 
