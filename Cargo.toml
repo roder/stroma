@@ -66,8 +66,8 @@ path = "docs/spike/q14/main.rs"
 # Freenet node (in-process embedding via SimNetwork for testing, or Node for production)
 # - freenet: The node itself (SimNetwork for testing, NodeConfig for production)
 # - freenet-stdlib: For writing Wasm contracts that run inside the node
-# freenet = "0.1"  # FIXME: Temporarily disabled to test identity module, re-enable later
-# freenet-stdlib = { version = "=0.1.30", features = ["contract", "net"] }  # FIXME: Temporarily disabled
+freenet = "0.1"
+freenet-stdlib = { version = "=0.1.30", features = ["contract", "net"] }
 
 # Signal integration (uses forked libsignal-service-rs with poll support)
 # ❌ DO NOT USE: presage-store-sqlite (stores ALL messages - server seizure risk!)
