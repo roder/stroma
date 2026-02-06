@@ -134,14 +134,14 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
 
       - name: Refinery Validation Summary
-        if: always()
+        if: success()
         run: |
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Refinery Validation Complete" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Refinery Validation PASSED" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "This PR has passed all Refinery quality gates:" >> $GITHUB_STEP_SUMMARY
+          echo "All Refinery quality gates passed:" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Branch freshness (up-to-date with main)" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Format check (cargo fmt)" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Lint check (cargo clippy)" >> $GITHUB_STEP_SUMMARY
