@@ -1008,7 +1008,9 @@ async fn handle_audit<F: crate::freenet::FreenetClient>(
     subcommand: &str,
 ) -> SignalResult<()> {
     use crate::freenet::traits::FreenetError;
-    use crate::gatekeeper::audit_trail::{query_audit_log, format_audit_log, ActionType, AuditQuery};
+    use crate::gatekeeper::audit_trail::{
+        format_audit_log, query_audit_log, ActionType, AuditQuery,
+    };
     use crate::serialization::from_cbor;
 
     // Get contract hash
@@ -1315,10 +1317,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_audit_operator() {
+        use crate::freenet::contract::MemberHash;
         use crate::freenet::traits::ContractState;
         use crate::freenet::trust_contract::TrustNetworkState;
         use crate::gatekeeper::audit_trail::AuditEntry;
-        use crate::freenet::contract::MemberHash;
         use crate::serialization::to_cbor;
 
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
@@ -1360,10 +1362,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_audit_bootstrap() {
+        use crate::freenet::contract::MemberHash;
         use crate::freenet::traits::ContractState;
         use crate::freenet::trust_contract::TrustNetworkState;
         use crate::gatekeeper::audit_trail::AuditEntry;
-        use crate::freenet::contract::MemberHash;
         use crate::serialization::to_cbor;
 
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
