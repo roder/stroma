@@ -6,8 +6,8 @@
 //! Note: This is a bridge implementation until presage is updated for
 //! libsignal-service-rs fork compatibility (st-rvzl).
 
-use super::traits::*;
 use super::store::StromaProtocolStore;
+use super::traits::*;
 use async_trait::async_trait;
 
 /// Production Signal client implementation
@@ -77,11 +77,7 @@ impl SignalClient for LibsignalClient {
         Err(SignalError::NotImplemented("add_group_member".to_string()))
     }
 
-    async fn remove_group_member(
-        &self,
-        _group: &GroupId,
-        _member: &ServiceId,
-    ) -> SignalResult<()> {
+    async fn remove_group_member(&self, _group: &GroupId, _member: &ServiceId) -> SignalResult<()> {
         // TODO: Implement using GroupsV2Manager
         // 1. Fetch current group state
         // 2. Remove member from group
