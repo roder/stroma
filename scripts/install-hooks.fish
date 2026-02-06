@@ -6,7 +6,7 @@
 if set -q GASTOWN_ROOT
     set gastown_root $GASTOWN_ROOT
 else
-    set gastown_root /Users/matt/gt
+    set gastown_root $HOME/gt
 end
 
 set hook_source "$gastown_root/scripts/hooks/pre-push"

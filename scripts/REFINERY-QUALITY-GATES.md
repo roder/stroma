@@ -33,7 +33,7 @@ The refinery is the **final gatekeeper** before code reaches main. It MUST valid
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo nextest run --all-features
-cargo llvm-cov nextest --all-features  # 100% coverage required
+cargo llvm-cov nextest --all-features  # 87% coverage target
 cargo deny check  # Supply chain security
 ```
 
@@ -101,7 +101,7 @@ jobs:
 
       - name: Check coverage threshold
         run: |
-          # Parse coverage and fail if < 100%
+          # Parse coverage and warn if < 87%
           # (Implementation depends on llvm-cov output format)
 
       - name: Supply chain security

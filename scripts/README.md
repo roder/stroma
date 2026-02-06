@@ -13,7 +13,7 @@ These scripts live at the **gastown workspace level** (not in individual rigs) b
 ## Directory Structure
 
 ```
-/Users/matt/gt/scripts/
+$HOME/gt/scripts/
 ├── hooks/
 │   └── pre-push              # Pre-push hook (Layer 1 quality gates + CI check)
 ├── patrol/
@@ -85,7 +85,7 @@ scripts/install-hooks.sh /path/to/repo
 git checkout merge-queue/feature-xyz
 
 # Run validation
-/Users/matt/gt/scripts/refinery-validate.sh
+$HOME/gt/scripts/refinery-validate.sh
 
 # If passes, safe to merge
 git checkout main
@@ -111,7 +111,7 @@ git push
 # Add to crontab (runs every 5 minutes)
 crontab -e
 # Add:
-*/5 * * * * /Users/matt/gt/scripts/patrol/ci-failures-sync.sh >> /Users/matt/gt/logs/patrol-ci-sync.log 2>&1
+*/5 * * * * $HOME/gt/scripts/patrol/ci-failures-sync.sh >> $HOME/gt/logs/patrol-ci-sync.log 2>&1
 ```
 
 ## Usage
@@ -120,7 +120,7 @@ crontab -e
 
 ```bash
 # Install for all repos in gastown (bash)
-cd /Users/matt/gt
+cd $HOME/gt
 ./scripts/install-hooks.sh
 
 # Or if you use fish shell:
@@ -143,7 +143,7 @@ This copies the centralized hook to each repo's `.git/hooks/pre-push`.
 
 ```bash
 # From any gastown repo with GitHub remote
-cd /Users/matt/gt/stromarig/mayor/rig
+cd $HOME/gt/stromarig/mayor/rig
 git push --dry-run  # Hook will check CI status
 ```
 
@@ -151,7 +151,7 @@ git push --dry-run  # Hook will check CI status
 
 ```bash
 # Test the patrol script
-/Users/matt/gt/scripts/patrol/ci-failures-sync.sh
+$HOME/gt/scripts/patrol/ci-failures-sync.sh
 ```
 
 ## Repository-Specific Files
@@ -205,26 +205,26 @@ Mayor Patrol (gastown/scripts/patrol/ci-failures-sync.sh)
 Hooks are copied (not symlinked), so after editing the centralized hook, re-run the installer:
 ```bash
 # 1. Edit centralized hook
-vim /Users/matt/gt/scripts/hooks/pre-push
+vim $HOME/gt/scripts/hooks/pre-push
 
 # 2. Re-install to all repos (overwrites existing)
-/Users/matt/gt/scripts/install-hooks.sh
+$HOME/gt/scripts/install-hooks.sh
 
 # Or fish:
-fish /Users/matt/gt/scripts/install-hooks.fish
+fish $HOME/gt/scripts/install-hooks.fish
 ```
 
 ### Add New Repository
 
 New repos get hooks automatically on next install run:
 ```bash
-/Users/matt/gt/scripts/install-hooks.sh
+$HOME/gt/scripts/install-hooks.sh
 ```
 
 Or install manually:
 ```bash
 # Copy hook to new repo
-cp /Users/matt/gt/scripts/hooks/pre-push <repo>/.git/hooks/pre-push
+cp $HOME/gt/scripts/hooks/pre-push <repo>/.git/hooks/pre-push
 chmod +x <repo>/.git/hooks/pre-push
 ```
 
@@ -238,17 +238,17 @@ ls -l <repo>/.git/hooks/pre-push
 # Should show: -rwxr-xr-x and file should exist
 
 # Re-install if missing or not executable
-/Users/matt/gt/scripts/install-hooks.sh <repo>
+$HOME/gt/scripts/install-hooks.sh <repo>
 ```
 
 ### Patrol Not Finding Repos
 
 ```bash
 # Check GASTOWN_ROOT
-echo $GASTOWN_ROOT  # Should be /Users/matt/gt
+echo $GASTOWN_ROOT  # Should be $HOME/gt
 
 # Manually test repo discovery
-find /Users/matt/gt -name ".git" -type d -maxdepth 6
+find $HOME/gt -name ".git" -type d -maxdepth 6
 ```
 
 ### gh CLI Issues

@@ -42,7 +42,7 @@ cargo clippy --all-targets --all-features -- -D warnings  # Lint
 cargo deny check               # Supply chain security
 
 # Full security check (5-10 minutes)
-cargo llvm-cov nextest --all-features  # 100% coverage required
+cargo llvm-cov nextest --all-features  # 87% coverage target
 cargo build --release --target x86_64-unknown-linux-musl  # Binary size check
 ```
 
@@ -369,7 +369,7 @@ deny.toml                        # Dependency policy
    - File P1 bug to re-enable
    - Must be fixed within 1 week
 
-### Scenario 3: Coverage drops below 100%
+### Scenario 3: Coverage drops below 87%
 
 **Root cause**: New code added without tests
 
@@ -390,10 +390,10 @@ deny.toml                        # Dependency policy
    - Test all branches (if/else, match arms)
    - Test all error conditions
 
-3. **Verify 100% restored:**
+3. **Verify coverage restored:**
    ```bash
    cargo llvm-cov nextest --all-features
-   # Should show 100% coverage
+   # Should show 87%+ coverage
    ```
 
 ### Scenario 4: Binary size exceeds limit

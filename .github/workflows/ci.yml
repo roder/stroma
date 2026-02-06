@@ -63,7 +63,7 @@ jobs:
     name: Code Coverage
     uses: ./.github/workflows/reusable-coverage.yml
     with:
-      enforce-100: false  # Target: 87% currently, working toward 100%
+      enforce-100: false  # TODO: Re-enable after improving coverage (currently 87%)
 
   # ============================================================================
   # Dependency Checks

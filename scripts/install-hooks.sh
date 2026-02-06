@@ -4,7 +4,7 @@
 
 set -e
 
-GASTOWN_ROOT="${GASTOWN_ROOT:-/Users/matt/gt}"
+GASTOWN_ROOT="${GASTOWN_ROOT:-$HOME/gt}"
 HOOK_SOURCE="$GASTOWN_ROOT/scripts/hooks/pre-push"
 
 if [ ! -f "$HOOK_SOURCE" ]; then

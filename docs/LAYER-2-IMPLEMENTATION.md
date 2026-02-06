@@ -19,7 +19,7 @@ This document summarizes the Layer 2 (Refinery Quality Gates) implementation.
 - Format check (`cargo fmt --check`)
 - Clippy lint (`cargo clippy --all-targets --all-features -- -D warnings`)
 - Test suite (`cargo nextest run --all-features`)
-- Code coverage (100% required via `cargo llvm-cov`)
+- Code coverage (87% target via `cargo llvm-cov`)
 - Supply chain security (`cargo deny check`)
 
 **Triggers**: 
@@ -43,7 +43,7 @@ This document summarizes the Layer 2 (Refinery Quality Gates) implementation.
 3. **format-check** - Run `cargo fmt --check`
 4. **lint-check** - Run `cargo clippy`
 5. **test-suite** - Run `cargo nextest run`
-6. **coverage-check** - Verify 100% coverage
+6. **coverage-check** - Check coverage (87% target)
 7. **security-check** - Run `cargo deny`
 8. **security-constraints** - Stroma-specific checks (no cleartext IDs, no SqliteStore, no grace periods)
 9. **ci-status** - Verify GitHub Actions CI passing
@@ -60,7 +60,7 @@ bd formula stroma-refinery-validate --branch <polecat-branch>
 
 **Changes**:
 - Explicitly target `pull_request` to `main` branch (was implicit)
-- Enabled 100% coverage enforcement (was disabled at 87%)
+- Set coverage target to 87% (working toward 100% goal)
 - Runs on both PRs and pushes to main
 
 ### 4. Refinery Patrol Formula Enhancement ✅
@@ -133,7 +133,7 @@ merge-push (only if passed)
 │ - cargo fmt --check                                 │
 │ - cargo clippy                                      │
 │ - cargo nextest run                                 │
-│ - cargo llvm-cov (100% coverage)                    │
+│ - cargo llvm-cov (87% target)                       │
 │ - cargo deny                                        │
 │ - BLOCKS: Merge button (via branch protection)     │
 └──────────────────┬──────────────────────────────────┘
@@ -164,7 +164,7 @@ merge-push (only if passed)
 │ Main Branch (Protected, Always Green) ✅            │
 │ - All commits passed both layers                    │
 │ - Linear history maintained                         │
-│ - 100% code coverage                                │
+│ - High code coverage (87%+ target)                  │
 │ - No security violations                            │
 └─────────────────────────────────────────────────────┘
 ```
@@ -193,8 +193,8 @@ Layer 2 provides defense against:
 ### Step 1: Deploy Workflows (Done ✅)
 
 Workflows are committed and will activate on next push:
-- `.github/workflows/pr-quality-gates.yml` - New Layer 2 workflow
-- `.github/workflows/ci.yml` - Updated to enforce 100% coverage
+- `.github/workflows/pr-quality-gates.yml` - New Refinery validation workflow
+- `.github/workflows/ci.yml` - Updated with 87% coverage target
 - `.github/workflows/security.yml` - Already running on PRs
 
 ### Step 2: Enable Branch Protection (Required - Human Action)
@@ -284,7 +284,7 @@ See docs/BRANCH-PROTECTION-SETUP.md for details.
 Key changes:
 - Merge button disabled until all checks pass
 - Must keep branch up-to-date with main
-- 100% code coverage now enforced
+- High code coverage enforced (87%+ target, warnings below)
 - No direct pushes to main (including force push)
 
 Emergency bypass requires admin + documentation.
@@ -414,7 +414,7 @@ Layer 2 implementation is successful when:
 - ✅ All PRs run Layer 2 quality gates automatically
 - ✅ Merge button disabled when checks fail
 - ✅ Main branch stays green at all times
-- ✅ 100% code coverage enforced on all merges
+- ✅ High code coverage enforced (87%+ with warnings)
 - ✅ Security violations caught before merge
 - ✅ Refinery uses validation formula/script
 - ✅ Team understands and follows new workflow
