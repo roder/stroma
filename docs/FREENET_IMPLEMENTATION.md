@@ -100,11 +100,11 @@ hex = "0.4"
 
 ## Known Issues
 
-The presage dependency has compilation errors (62 errors) that are unrelated to the Freenet implementation. These are Signal integration issues in the forked libsignal-service-rs dependency. The Freenet module code itself is correct and would compile if tested in isolation.
+~~The presage dependency has compilation errors (62 errors)~~ ✅ **RESOLVED** - The presage dependency now compiles successfully. See docs/PRESAGE-STATUS.md for details.
 
 ## Next Steps
 
-1. Fix presage dependency issues (separate from Freenet work)
+1. ~~Fix presage dependency issues~~ ✅ **COMPLETE**
 2. Run full test suite with `cargo nextest run`
 3. Verify coverage with `cargo llvm-cov nextest --all-features`
 4. Integrate embedded kernel with production NodeConfig::build()
