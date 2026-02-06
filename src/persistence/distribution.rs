@@ -5,8 +5,23 @@
 //! 2. Split into 64KB chunks
 //! 3. Compute holders via rendezvous hashing
 //! 4. Distribute chunks to selected holders
-//! 5. Track replication attestations
+//! 5. Track replication attestations (currently trust-based, see note below)
 //! 6. Update write-blocking state
+//!
+//! ## Attestation Integration
+//!
+//! This module integrates with the attestation module (`super::attestation`) for
+//! cryptographic verification of chunk possession. The attestation module provides:
+//! - `Attestation` struct for HMAC-signed receipts from holders
+//! - `verify_and_record_attestation()` for cryptographic verification
+//!
+//! **Current Limitation**: ChunkStorage trait returns `Result<(), StorageError>`,
+//! not signed attestations. The distribution code currently trusts storage success
+//! without cryptographic proof. See TODO comments in the code for integration points
+//! where attestation verification would occur once ChunkStorage is updated.
+//!
+//! See `test_attestation_integration_pattern` for a demonstration of the full
+//! attestation verification flow.
 //!
 //! ## Version Locking
 //!
@@ -36,6 +51,8 @@ use super::write_blocking::WriteBlockingManager;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+#[cfg(test)]
+use super::attestation::{record_attestation as verify_and_record_attestation, Attestation};
 #[cfg(test)]
 use super::chunks::Chunk;
 #[cfg(test)]
@@ -291,7 +308,13 @@ impl<S: ChunkStorage> ChunkDistributor<S> {
                     .await
                 {
                     Ok(_) => {
-                        // Record attestation
+                        // TODO(attestation): Once ChunkStorage returns signed attestations:
+                        // 1. Get holder's identity key from registry
+                        // 2. Verify attestation: verify_and_record_attestation(&attestation, &holder_key, &mut self.health)
+                        // 3. This provides cryptographic proof of chunk possession
+                        //
+                        // For now, we trust storage success without cryptographic proof.
+                        // This is a known limitation tracked in phase-2.5-review.md line 68.
                         self.health.record_attestation(chunk.index, holder, true);
                         self.write_blocking
                             .update_chunk_status(chunk.index, (successful_holders + 1) as u8 + 1); // +1 for local
@@ -578,5 +601,58 @@ mod tests {
 
         // After successful distribution, writes should be allowed
         assert!(distributor.allows_writes());
+    }
+
+    #[tokio::test]
+    async fn test_attestation_integration_pattern() {
+        // This test demonstrates how attestation verification would work once
+        // ChunkStorage is updated to return signed attestations from holders.
+        //
+        // Currently, ChunkStorage::store_remote returns Result<(), StorageError>.
+        // Future enhancement: Result<Attestation, StorageError>
+
+        let holder_identity_key = vec![42u8; 32];
+        let owner = "owner-bot";
+        let chunk_index = 0;
+        let holder = "holder-a";
+
+        // STEP 1: Holder receives chunk and creates attestation
+        // (In real implementation, this happens on the holder's side)
+        let attestation =
+            Attestation::create(owner, chunk_index, holder, &holder_identity_key).unwrap();
+
+        // STEP 2: Owner receives attestation and verifies it
+        let mut health = ReplicationHealth::new();
+        health.update_total_chunks(1);
+
+        // This is the integration point: verify_and_record_attestation
+        // combines cryptographic verification with health tracking
+        let verified =
+            verify_and_record_attestation(&attestation, &holder_identity_key, &mut health).unwrap();
+
+        assert!(verified, "Attestation should be verified successfully");
+        assert_eq!(
+            health.confirmed_replicas(chunk_index),
+            1,
+            "Health tracker should record the confirmed replica"
+        );
+
+        // STEP 3: Verify that tampered attestations are rejected
+        let mut tampered_attestation = attestation.clone();
+        tampered_attestation.chunk_index = 99; // Tamper with data
+
+        let result =
+            verify_and_record_attestation(&tampered_attestation, &holder_identity_key, &mut health)
+                .unwrap();
+
+        assert!(
+            !result,
+            "Tampered attestation should fail verification"
+        );
+        assert_eq!(
+            health.confirmed_replicas(99),
+            0,
+            "Failed attestation should not add confirmed replica"
+        );
     }
 }
