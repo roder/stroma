@@ -869,17 +869,40 @@ async fn handle_mesh_replication<F: crate::freenet::FreenetClient>(
     _config: &crate::signal::bot::BotConfig,
     sender: &ServiceId,
 ) -> SignalResult<()> {
-    // TODO: Implement persistence health monitoring:
-    // This requires access to the persistence layer (PersistenceRegistry, ReplicationHealth)
-    // which is not currently passed through the PM command context.
-    // Options:
-    // 1. Add persistence manager to BotContext/handler parameters
-    // 2. Query persistence state through Freenet (if it's stored there)
-    // 3. Expose persistence metrics through a separate module/service
+    // TODO: Complete persistence layer integration (tracked in follow-up bead)
     //
-    // For now, returning placeholder that indicates feature is not fully connected.
+    // The persistence module (src/persistence/) is fully implemented with:
+    // - ReplicationHealth: tracks chunk attestations and computes health status
+    // - WriteBlockingManager: enforces write-blocking when replication degrades
+    // - PersistenceRegistry: bot discovery for reciprocal persistence network
+    // - ChunkDistributor: distributes encrypted chunks via rendezvous hashing
+    //
+    // What's needed:
+    // 1. Add WriteBlockingManager to StromaBot struct
+    // 2. Initialize manager with state size and network info
+    // 3. Pass persistence manager through to PM command handlers
+    // 4. Query manager for health status, chunk distribution, and write permissions
+    //
+    // For now, showing expected output format with placeholder data.
 
-    let response = "🔄 Persistence Health\n\n🔵 Status: Initializing\n\nPersistence health monitoring requires access to the bot's persistence layer.\nThis feature will be fully implemented when persistence manager is integrated with PM command handlers.\n\n💡 Expected metrics:\n  • Replication status (🟢/🟡/🔴/🔵)\n  • Fragments distributed (e.g., 3/3)\n  • Recovery confidence\n  • Write permission status\n  • Last state change timestamp";
+    let response = "💾 Replication Health\n\n\
+    🔵 Status: Initializing\n\n\
+    ⚠️  Note: Persistence health monitoring not yet integrated with bot.\n\
+    The persistence layer is implemented but requires bot refactoring to connect.\n\n\
+    Expected metrics when integrated:\n\
+    • Replication status: 🟢 Replicated / 🟡 Partial / 🔴 At Risk / 🔵 Initializing\n\
+    • Last state change: timestamp (e.g., \"3 hours ago\")\n\
+    • State size: bytes (e.g., \"512KB\")\n\
+    • Chunks replicated: X/Y (e.g., \"8/8 chunks\")\n\
+    • Chunk copies: verified per chunk (e.g., \"all 3/3 copies\")\n\
+    • State version: monotonic counter\n\
+    • Recovery confidence: Yes/No with explanation\n\
+    • Write permissions: Allowed/Blocked based on replication health\n\n\
+    💡 The persistence system ensures your trust network data is backed up\n\
+    across multiple bots. If this bot crashes, state can be recovered from\n\
+    chunk holders using the reciprocal persistence network.\n\n\
+    Technical details: docs/PERSISTENCE.md";
+
     client.send_message(sender, response).await
 }
 
@@ -1335,7 +1358,7 @@ mod tests {
 
         let sent = client.sent_messages();
         assert_eq!(sent.len(), 1);
-        assert!(sent[0].content.contains("Persistence Health"));
+        assert!(sent[0].content.contains("Replication Health"));
     }
 
     #[tokio::test]
