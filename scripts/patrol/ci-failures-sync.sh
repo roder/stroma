@@ -152,7 +152,7 @@ log_info "Starting gastown CI failures sync..."
 
 # Auto-discover all GitHub repositories in gastown workspace
 # Strategy: Find all .git directories and check if they have GitHub remotes
-GASTOWN_ROOT="${GASTOWN_ROOT:-~gt}"
+GASTOWN_ROOT="${GASTOWN_ROOT:-$HOME/gt}"
 
 # Find all repos with GitHub remotes
 while IFS= read -r git_dir; do

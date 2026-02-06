@@ -328,6 +328,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: [codeql-analysis, code-quality-checks, binary-size, security-constraints, supply-chain, protected-files-check]
     if: always()
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
