@@ -1,0 +1,9 @@
+[package]
+name = "rustls-pemfile"
+version = "1.0.4"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+rustls-pki-types = "1.9"
