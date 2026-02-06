@@ -6,31 +6,36 @@
 //! The rustls-pemfile crate is no longer maintained. This wrapper provides the old API
 //! on top of rustls-pki-types 1.9+, which includes PEM parsing functionality.
 
-use std::io::{self, BufRead, Read};
+use std::io::{self, BufRead};
 
 // Re-export key types that rustls-pemfile used to provide
 pub use rustls_pki_types::{
     CertificateDer, PrivateKeyDer, PrivatePkcs1KeyDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer,
 };
 
+// Import PemObject trait to access pem_slice_iter methods
+use rustls_pki_types::pem::PemObject;
+
 /// Represents a PEM item that has been parsed
+///
+/// Note: Uses Vec<u8> for compatibility with original rustls-pemfile API
 #[derive(Debug, PartialEq)]
 pub enum Item {
-    X509Certificate(CertificateDer<'static>),
-    Pkcs1Key(PrivatePkcs1KeyDer<'static>),
-    Pkcs8Key(PrivatePkcs8KeyDer<'static>),
-    Sec1Key(PrivateSec1KeyDer<'static>),
+    X509Certificate(Vec<u8>),
+    RSAKey(Vec<u8>),      // PKCS#1 RSA keys
+    PKCS8Key(Vec<u8>),    // PKCS#8 keys
+    ECKey(Vec<u8>),       // SEC1 EC keys
 }
 
 /// Extract all certificates from a PEM source
-pub fn certs(input: &mut dyn BufRead) -> Result<Vec<CertificateDer<'static>>, io::Error> {
+pub fn certs(input: &mut dyn BufRead) -> Result<Vec<Vec<u8>>, io::Error> {
     let mut certs = Vec::new();
     let mut data = Vec::new();
     input.read_to_end(&mut data)?;
 
     for item in CertificateDer::pem_slice_iter(&data) {
         match item {
-            Ok(cert) => certs.push(cert),
+            Ok(cert) => certs.push(cert.as_ref().to_vec()),
             Err(_) => return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid PEM certificate")),
         }
     }
@@ -39,14 +44,14 @@ pub fn certs(input: &mut dyn BufRead) -> Result<Vec<CertificateDer<'static>>, io
 }
 
 /// Extract PKCS8-encoded private keys from a PEM source
-pub fn pkcs8_private_keys(input: &mut dyn BufRead) -> Result<Vec<PrivatePkcs8KeyDer<'static>>, io::Error> {
+pub fn pkcs8_private_keys(input: &mut dyn BufRead) -> Result<Vec<Vec<u8>>, io::Error> {
     let mut keys = Vec::new();
     let mut data = Vec::new();
     input.read_to_end(&mut data)?;
 
     for item in PrivatePkcs8KeyDer::pem_slice_iter(&data) {
         match item {
-            Ok(key) => keys.push(key),
+            Ok(key) => keys.push(key.secret_pkcs8_der().to_vec()),
             Err(_) => return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid PEM PKCS8 key")),
         }
     }
@@ -55,14 +60,14 @@ pub fn pkcs8_private_keys(input: &mut dyn BufRead) -> Result<Vec<PrivatePkcs8Key
 }
 
 /// Extract RSA private keys in PKCS1 format from a PEM source
-pub fn rsa_private_keys(input: &mut dyn BufRead) -> Result<Vec<PrivatePkcs1KeyDer<'static>>, io::Error> {
+pub fn rsa_private_keys(input: &mut dyn BufRead) -> Result<Vec<Vec<u8>>, io::Error> {
     let mut keys = Vec::new();
     let mut data = Vec::new();
     input.read_to_end(&mut data)?;
 
     for item in PrivatePkcs1KeyDer::pem_slice_iter(&data) {
         match item {
-            Ok(key) => keys.push(key),
+            Ok(key) => keys.push(key.secret_pkcs1_der().to_vec()),
             Err(_) => return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid PEM PKCS1 key")),
         }
     }
@@ -71,14 +76,14 @@ pub fn rsa_private_keys(input: &mut dyn BufRead) -> Result<Vec<PrivatePkcs1KeyDe
 }
 
 /// Extract EC private keys in SEC1 format from a PEM source
-pub fn ec_private_keys(input: &mut dyn BufRead) -> Result<Vec<PrivateSec1KeyDer<'static>>, io::Error> {
+pub fn ec_private_keys(input: &mut dyn BufRead) -> Result<Vec<Vec<u8>>, io::Error> {
     let mut keys = Vec::new();
     let mut data = Vec::new();
     input.read_to_end(&mut data)?;
 
     for item in PrivateSec1KeyDer::pem_slice_iter(&data) {
         match item {
-            Ok(key) => keys.push(key),
+            Ok(key) => keys.push(key.secret_sec1_der().to_vec()),
             Err(_) => return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid PEM SEC1 key")),
         }
     }
@@ -97,19 +102,19 @@ pub fn read_one(input: &mut dyn BufRead) -> Result<Option<Item>, io::Error> {
 
     // Try each type in order
     if let Some(Ok(cert)) = CertificateDer::pem_slice_iter(&data).next() {
-        return Ok(Some(Item::X509Certificate(cert)));
+        return Ok(Some(Item::X509Certificate(cert.as_ref().to_vec())));
     }
 
     if let Some(Ok(key)) = PrivatePkcs8KeyDer::pem_slice_iter(&data).next() {
-        return Ok(Some(Item::Pkcs8Key(key)));
+        return Ok(Some(Item::PKCS8Key(key.secret_pkcs8_der().to_vec())));
     }
 
     if let Some(Ok(key)) = PrivatePkcs1KeyDer::pem_slice_iter(&data).next() {
-        return Ok(Some(Item::Pkcs1Key(key)));
+        return Ok(Some(Item::RSAKey(key.secret_pkcs1_der().to_vec())));
     }
 
     if let Some(Ok(key)) = PrivateSec1KeyDer::pem_slice_iter(&data).next() {
-        return Ok(Some(Item::Sec1Key(key)));
+        return Ok(Some(Item::ECKey(key.secret_sec1_der().to_vec())));
     }
 
     Err(io::Error::new(io::ErrorKind::InvalidData, "no valid PEM item found"))
@@ -123,20 +128,20 @@ pub fn read_all(input: &mut dyn BufRead) -> Result<Vec<Item>, io::Error> {
 
     // Collect all certificates
     for cert in CertificateDer::pem_slice_iter(&data).flatten() {
-        items.push(Item::X509Certificate(cert));
+        items.push(Item::X509Certificate(cert.as_ref().to_vec()));
     }
 
     // Collect all keys
     for key in PrivatePkcs8KeyDer::pem_slice_iter(&data).flatten() {
-        items.push(Item::Pkcs8Key(key));
+        items.push(Item::PKCS8Key(key.secret_pkcs8_der().to_vec()));
     }
 
     for key in PrivatePkcs1KeyDer::pem_slice_iter(&data).flatten() {
-        items.push(Item::Pkcs1Key(key));
+        items.push(Item::RSAKey(key.secret_pkcs1_der().to_vec()));
     }
 
     for key in PrivateSec1KeyDer::pem_slice_iter(&data).flatten() {
-        items.push(Item::Sec1Key(key));
+        items.push(Item::ECKey(key.secret_sec1_der().to_vec()));
     }
 
     Ok(items)
