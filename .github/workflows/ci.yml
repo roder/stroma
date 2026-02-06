@@ -4,6 +4,7 @@ on:
   push:
     branches: [main, master]
   pull_request:
+    branches: [main, master]
   workflow_dispatch:
 
 jobs:
@@ -62,7 +63,7 @@ jobs:
     name: Code Coverage
     uses: ./.github/workflows/reusable-coverage.yml
     with:
-      enforce-100: false  # TODO: Re-enable after improving coverage (currently 87%)
+      enforce-100: true  # Stroma requires 100% coverage
 
   # ============================================================================
   # Dependency Checks

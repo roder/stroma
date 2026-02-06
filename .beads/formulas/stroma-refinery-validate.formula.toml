@@ -1,0 +1,388 @@
+description = """
+Stroma Refinery Layer 2 Validation Formula.
+
+Run comprehensive quality gates before merging to main. This is Layer 2 defense
+that catches code pushed with --no-verify, resolved conflicts, and bitrot.
+
+## Layer 2 Responsibilities
+
+The Refinery validates:
+1. **Branch freshness**: Up-to-date with main
+2. **Quality gates**: Format, lint, tests, coverage (100%), supply chain security
+3. **Security constraints**: No cleartext IDs, no grace periods, no SqliteStore
+4. **CI status**: GitHub Actions checks passing
+
+## When to Use
+
+Run this formula:
+- Before merging any polecat branch to main
+- After resolving merge conflicts (re-validate)
+- When processing merge queue
+- Before manual merge operations
+
+## Variables
+
+| Variable | Source | Description |
+|----------|--------|-------------|
+| branch | hook_bead | The feature branch to validate |
+| issue | hook_bead | The issue ID this branch addresses |
+| mr_id | hook_bead | The MR bead ID |
+"""
+formula = "stroma-refinery-validate"
+version = 1
+
+[[steps]]
+id = "setup"
+title = "Set up validation environment"
+description = """
+**1. Verify you're in the right place:**
+```bash
+git rev-parse --git-dir  # Should succeed
+git status
+```
+
+**2. Fetch latest main:**
+```bash
+git fetch origin main
+```
+
+**3. Get branch to validate:**
+
+If {{branch}} is provided via hook:
+```bash
+BRANCH={{branch}}
+```
+
+Otherwise, detect from current state:
+```bash
+BRANCH=$(git branch --show-current)
+```
+
+**4. Verify branch exists:**
+```bash
+if ! git show-ref --verify --quiet refs/heads/$BRANCH 2>/dev/null; then
+  # Try remote
+  if ! git show-ref --verify --quiet refs/remotes/origin/$BRANCH 2>/dev/null; then
+    echo "❌ Branch $BRANCH not found"
+    exit 1
+  fi
+  # Checkout from remote
+  git checkout -b $BRANCH origin/$BRANCH
+fi
+```
+
+**5. Ensure we're on the branch:**
+```bash
+git checkout $BRANCH
+```
+
+**Exit criteria:** On feature branch, latest main fetched, ready to validate.
+"""
+
+[[steps]]
+id = "branch-freshness"
+title = "Check branch freshness"
+needs = ["setup"]
+description = """
+**Verify branch is up-to-date with main.**
+
+```bash
+git fetch origin main --quiet
+
+if ! git merge-base --is-ancestor origin/main HEAD 2>/dev/null; then
+  echo "❌ Branch is not up-to-date with main"
+  echo ""
+  echo "To fix:"
+  echo "  git merge origin/main"
+  echo "  # Resolve any conflicts"
+  echo "  # Re-run this validation"
+  exit 1
+fi
+
+echo "✅ Branch is up-to-date with main"
+```
+
+**Why this matters:**
+- Prevents merging stale code
+- Ensures conflicts are resolved BEFORE validation
+- Maintains linear history on main
+
+**Exit criteria:** Branch has origin/main as an ancestor.
+"""
+
+[[steps]]
+id = "format-check"
+title = "Format check"
+needs = ["branch-freshness"]
+description = """
+**Run cargo fmt --check.**
+
+```bash
+cargo fmt --check
+```
+
+**If fails:**
+```bash
+echo "❌ Formatting check failed"
+echo ""
+echo "To fix:"
+echo "  cargo fmt"
+echo "  git add ."
+echo "  git commit -m 'Run cargo fmt'"
+echo "  git push"
+echo "  # Re-run this validation"
+exit 1
+```
+
+**Exit criteria:** All code is properly formatted.
+"""
+
+[[steps]]
+id = "lint-check"
+title = "Clippy lint"
+needs = ["format-check"]
+description = """
+**Run cargo clippy with all warnings as errors.**
+
+```bash
+cargo clippy --all-targets --all-features -- -D warnings
+```
+
+**If fails:**
+- Review warnings
+- Fix all issues
+- Commit fixes
+- Re-run validation
+
+**Exit criteria:** Zero clippy warnings.
+"""
+
+[[steps]]
+id = "test-suite"
+title = "Run test suite"
+needs = ["lint-check"]
+description = """
+**Run full test suite with nextest.**
+
+```bash
+if command -v cargo-nextest >/dev/null 2>&1; then
+  cargo nextest run --all-features
+else
+  echo "⚠️  cargo-nextest not found, using cargo test"
+  cargo test --all-features
+fi
+```
+
+**If fails:**
+- Review test failures
+- Determine if regression is from branch or pre-existing on main
+- If from branch: Notify polecat, abort merge
+- If pre-existing: File bug, optionally fix
+
+**Exit criteria:** All tests passing.
+"""
+
+[[steps]]
+id = "coverage-check"
+title = "Verify 100% code coverage"
+needs = ["test-suite"]
+description = """
+**Stroma requires 100% code coverage. No exceptions.**
+
+```bash
+if ! command -v cargo-llvm-cov >/dev/null 2>&1; then
+  echo "⚠️  cargo-llvm-cov not found, skipping coverage check"
+  echo "   Install: cargo install cargo-llvm-cov"
+  exit 0
+fi
+
+cargo llvm-cov nextest --all-features --lcov --output-path coverage.lcov
+
+COVERAGE=$(cargo llvm-cov report --summary-only --json | jq '.data[0].totals.lines.percent')
+echo "Coverage: $COVERAGE%"
+
+if (( $(echo "$COVERAGE < 100.0" | bc -l) )); then
+  echo "❌ Coverage is $COVERAGE%, but 100% is required"
+  echo ""
+  echo "To see uncovered lines:"
+  echo "  cargo llvm-cov nextest --all-features --html"
+  echo "  open target/llvm-cov/html/index.html"
+  exit 1
+fi
+
+echo "✅ Coverage requirement met: $COVERAGE%"
+```
+
+**Exit criteria:** 100% line coverage achieved.
+"""
+
+[[steps]]
+id = "security-check"
+title = "Supply chain security"
+needs = ["coverage-check"]
+description = """
+**Run cargo deny for supply chain security.**
+
+```bash
+if ! command -v cargo-deny >/dev/null 2>&1; then
+  echo "⚠️  cargo-deny not found, skipping supply chain check"
+  echo "   Install: cargo install cargo-deny"
+  exit 0
+fi
+
+cargo deny check
+```
+
+**If fails:**
+- Review advisories
+- Update dependencies if safe
+- Add exceptions to deny.toml if justified (requires human approval)
+- File issue for tracking
+
+**Exit criteria:** No supply chain security issues.
+"""
+
+[[steps]]
+id = "security-constraints"
+title = "Verify security constraints"
+needs = ["security-check"]
+description = """
+**Run Stroma-specific security checks.**
+
+**1. Check for cleartext Signal IDs:**
+```bash
+if rg '\\+1?\\d{10,15}' --type rust src/ 2>/dev/null | grep -v test_fixtures; then
+  echo "❌ Potential cleartext Signal ID detected"
+  exit 1
+fi
+echo "✅ No cleartext Signal IDs"
+```
+
+**2. Check for prohibited SqliteStore:**
+```bash
+if rg 'SqliteStore|presage-store-sqlite' --type rust src/ Cargo.toml 2>/dev/null; then
+  echo "❌ SqliteStore usage prohibited - must use StromaProtocolStore"
+  exit 1
+fi
+echo "✅ No prohibited store usage"
+```
+
+**3. Check for grace periods:**
+```bash
+if rg 'grace|pending.*eject|warn.*eject' --type rust src/ -i 2>/dev/null; then
+  echo "❌ Grace period detected - prohibited by security-constraints.bead"
+  exit 1
+fi
+echo "✅ No grace period violations"
+```
+
+**4. Check for polling patterns:**
+```bash
+if rg 'loop.*sleep|while.*sleep' --type rust src/ 2>/dev/null | grep -v test; then
+  echo "⚠️  Polling pattern detected - should use Freenet state stream"
+fi
+```
+
+**Exit criteria:** All security constraints satisfied.
+"""
+
+[[steps]]
+id = "ci-status"
+title = "Check CI status"
+needs = ["security-constraints"]
+description = """
+**Verify GitHub Actions CI is passing.**
+
+```bash
+if ! command -v gh >/dev/null 2>&1; then
+  echo "⚠️  gh CLI not found, skipping CI status check"
+  echo "   Install: https://cli.github.com/"
+  exit 0
+fi
+
+# Get the latest commit SHA
+COMMIT_SHA=$(git rev-parse HEAD)
+
+# Check commit status
+echo "Checking CI status for commit: $COMMIT_SHA"
+gh api "repos/{owner}/{repo}/commits/$COMMIT_SHA/status" --jq '.state' | tee ci-status.txt
+
+CI_STATE=$(cat ci-status.txt)
+
+if [ "$CI_STATE" != "success" ]; then
+  echo "❌ CI checks not passing (state: $CI_STATE)"
+  echo ""
+  echo "View checks: gh pr checks"
+  echo ""
+  echo "Wait for CI to pass before merging"
+  exit 1
+fi
+
+echo "✅ CI checks passing"
+```
+
+**Exit criteria:** CI status is "success".
+"""
+
+[[steps]]
+id = "validation-summary"
+title = "Generate validation summary"
+needs = ["ci-status"]
+description = """
+**All Layer 2 quality gates passed!**
+
+```bash
+echo ""
+echo "═══════════════════════════════════════════════════════"
+echo "✅ Layer 2 Validation PASSED"
+echo "═══════════════════════════════════════════════════════"
+echo ""
+echo "Branch: $(git branch --show-current)"
+echo "Commit: $(git rev-parse --short HEAD)"
+echo ""
+echo "Quality Gates:"
+echo "  ✅ Branch freshness (up-to-date with main)"
+echo "  ✅ Format check (cargo fmt)"
+echo "  ✅ Lint check (cargo clippy)"
+echo "  ✅ Test suite (all passing)"
+echo "  ✅ Code coverage (100%)"
+echo "  ✅ Supply chain security (cargo deny)"
+echo "  ✅ Security constraints (Stroma rules)"
+echo "  ✅ CI status (GitHub Actions passing)"
+echo ""
+echo "Safe to merge to main"
+echo ""
+```
+
+**Next steps:**
+
+If you're in the refinery patrol flow:
+1. Proceed to merge-push step in mol-refinery-patrol formula
+2. Merge with `git merge --ff-only`
+3. Push to main
+4. Send MERGED notification
+5. Close MR bead
+6. Archive MERGE_READY mail
+
+If you're doing a manual merge:
+```bash
+git checkout main
+git merge --ff-only {{branch}}
+git push origin main
+```
+
+**Exit criteria:** Validation complete, ready for merge.
+"""
+
+[vars]
+[vars.branch]
+description = "The feature branch to validate"
+required = false
+
+[vars.issue]
+description = "The issue ID this branch addresses"
+required = false
+
+[vars.mr_id]
+description = "The MR bead ID"
+required = false

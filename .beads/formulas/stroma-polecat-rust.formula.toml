@@ -108,33 +108,70 @@ gt mail inbox
 
 [[steps]]
 id = "branch-setup"
-title = "Set up working branch"
+title = "Set up working branch with quality gates"
 needs = ["load-context"]
 description = """
-**1. Check current state:**
+**1. Install pre-push hook (quality gates):**
+```bash
+scripts/install-hooks.sh
+```
+
+This installs the pre-push hook that enforces:
+- `cargo fmt --check` - formatting verification
+- `cargo clippy --all-targets --all-features -- -D warnings` - lint checks
+- `cargo nextest run --all-features` - test suite
+- CI status check before pushing to main
+
+**Note:** The hook blocks broken code from reaching main. If you need to push WIP:
+```bash
+git push --no-verify  # Skip all checks (use sparingly)
+export GASTOWN_SKIP_QUALITY_GATES=1  # Skip quality gates only, keep CI check
+```
+
+**2. Learn the development process:**
+
+**Read these in order to understand Stroma's development workflow:**
+```bash
+# Overview of git hook and quality gates
+cat scripts/README.md
+
+# Agent workflow and landing-the-plane protocol
+cat AGENTS.md
+
+# Security requirements and fix patterns
+cat docs/SECURITY-CI-CD.md
+```
+
+**Key takeaways:**
+- Pre-push hook is your first line of defense (catches issues locally)
+- All code must pass quality gates BEFORE push
+- Never push to main when CI is failing
+- "Landing the plane" means: quality gates pass → commit → push → verify
+
+**3. Check current state:**
 ```bash
 git status
 git branch --show-current
 ```
 
-**2. Create feature branch if needed:**
+**4. Create feature branch if needed:**
 ```bash
 git checkout -b polecat/<name>
 ```
 
-**3. Sync with main:**
+**5. Sync with main:**
 ```bash
 git fetch origin
 git rebase origin/main
 ```
 
-**4. Verify clean state:**
+**6. Verify clean state:**
 ```bash
 git status  # Should be clean
 git stash list  # Should be empty
 ```
 
-**Exit criteria:** Clean feature branch, rebased on latest main.
+**Exit criteria:** Hook installed, development process understood, clean feature branch rebased on latest main.
 """
 
 [[steps]]
@@ -596,35 +633,58 @@ git log origin/main..HEAD   # Your commits
 
 [[steps]]
 id = "submit-and-exit"
-title = "Submit work and self-clean"
+title = "Submit work and hand off"
 needs = ["cleanup-workspace"]
 description = """
-**Submit your work and cease to exist.**
+**Complete the Landing the Plane protocol.**
 
-**1. Final checks:**
+**1. Final quality gates (pre-push verification):**
 ```bash
 # Coverage still 100%?
 cargo llvm-cov nextest --all-features --fail-under-lines 100
 
 # Security checks still pass?
 cargo deny check
+
+# Format and lint still clean?
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-**2. Run gt done:**
+**2. Update issue status:**
 ```bash
-gt done
+bd update {{issue}} --status completed
+bd sync
 ```
 
-This command:
-1. Pushes your branch to origin
-2. Creates an MR bead in the merge queue
-3. Nukes your sandbox
-4. Exits your session
+**3. Push to remote (MANDATORY):**
+```bash
+git pull --rebase
+bd sync
+git push
+git status  # MUST show "up to date with origin"
+```
 
-**You are GONE after this.** The Refinery handles merge.
-If conflicts arise, Refinery spawns a FRESH polecat.
+**CRITICAL:** Work is NOT complete until `git push` succeeds.
+- If push fails, resolve conflicts and retry
+- NEVER stop before pushing - that leaves work stranded locally
 
-**Exit criteria:** Work submitted, sandbox nuked, session exited.
+**4. Verify push succeeded:**
+```bash
+git log origin/$(git branch --show-current)..HEAD  # Should be empty
+```
+
+**5. Hand off context:**
+
+Your branch is now pushed and the issue is marked completed.
+The branch will be reviewed and merged according to the project's merge process.
+
+If you need to file follow-up issues before exiting:
+```bash
+bd create --title="Follow-up: <description>" --type=task --priority=2
+```
+
+**Exit criteria:** Branch pushed to origin, issue status updated, verification complete.
 """
 
 [vars]

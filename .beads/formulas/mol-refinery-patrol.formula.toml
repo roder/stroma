@@ -150,7 +150,7 @@ ls .git/rebase-merge 2>/dev/null && echo "CONFLICT_STATE"
 **Step 3: Handle conflicts (if any)**
 
 If rebase SUCCEEDED (exit code 0):
-- Skip to run-tests step (continue normal merge flow)
+- Skip to run-quality-gates step (continue normal merge flow)
 
 If rebase FAILED with conflicts:
 
@@ -199,41 +199,113 @@ the original work and must be preserved for conflict resolution.
 Track: rebase result (success/conflict), conflict task ID if created."""
 
 [[steps]]
-id = "run-tests"
-title = "Run test suite"
+id = "run-quality-gates"
+title = "Run Layer 2 quality gates"
 needs = ["process-branch"]
 description = """
-Run the test suite.
+**Layer 2 Defense: Run comprehensive quality gates on rebased branch.**
+
+**Option A: Use validation formula (RECOMMENDED for Stroma Rust projects)**
 
 ```bash
-go test ./...
+bd formula stroma-refinery-validate --branch <polecat-branch>
 ```
 
-Track results: pass count, fail count, specific failures."""
+This runs all Layer 2 checks:
+- Branch freshness (already satisfied by rebase)
+- Format check (cargo fmt)
+- Lint check (cargo clippy)
+- Test suite (cargo nextest)
+- Code coverage (100% required)
+- Supply chain security (cargo deny)
+- Security constraints (Stroma-specific checks)
+- CI status (GitHub Actions)
+
+**Option B: Use validation script**
+
+```bash
+scripts/refinery-validate.sh <polecat-branch>
+```
+
+**Option C: Manual verification (if tools unavailable)**
+
+For non-Rust projects or when formula/script unavailable:
+```bash
+# Run project-specific test suite
+go test ./...              # Go projects
+npm test                   # Node projects
+pytest                     # Python projects
+```
+
+**Track results**: All checks passed, or list of failures.
+
+**If Layer 2 validation FAILS**:
+- DO NOT proceed to merge
+- Continue to handle-failures step
+"""
 
 [[steps]]
 id = "handle-failures"
-title = "Handle test failures"
-needs = ["run-tests"]
+title = "Handle validation failures"
+needs = ["run-quality-gates"]
 description = """
 **VERIFICATION GATE**: This step enforces the Beads Promise.
 
-If tests PASSED: This step auto-completes. Proceed to merge.
+If quality gates PASSED: This step auto-completes. Proceed to merge.
 
-If tests FAILED:
-1. Diagnose: Is this a branch regression or pre-existing on main?
-2. If branch caused it:
+If quality gates FAILED:
+1. **Diagnose**: Is this a branch regression or pre-existing on main?
+   
+   Test on main:
+   ```bash
+   git checkout main
+   cargo nextest run --all-features  # Or project-specific test command
+   ```
+   
+   If main PASSES but branch FAILS → Branch caused regression
+   If main FAILS too → Pre-existing issue on main
+
+2. **If branch caused regression**:
    - Abort merge
-   - Notify polecat: "Tests failing. Please fix and resubmit."
+   - Create issue for polecat:
+     ```bash
+     bd create --type=bug --priority=1 \
+       --title="Quality gates failing on <branch>" \
+       --description="Branch: <branch>
+     
+     Quality gates failed after rebase. Details:
+     <paste failure output>
+     
+     Please fix and notify refinery when ready for re-merge."
+     ```
+   - Notify polecat: `gt mail send <polecat> -s "Quality gates failed on <branch>"`
+   - Skip to loop-check (do NOT merge)
+
+3. **If pre-existing issue on main** (The Scotty Test):
+   
+   > "Would Scotty walk past a warp core leak because it existed before his shift?"
+   
+   **Option A**: Fix it yourself (you're the Engineer!)
+   - Fix the issue
+   - Commit fix
+   - Verify quality gates pass
+   - Proceed to merge
+   
+   **Option B**: File a bead and escalate
+   ```bash
+   bd create --type=bug --priority=0 \
+     --title="Main branch quality gates broken: <description>" \
+     --description="<detailed failure output>"
+   
+   gt mail send mayor/ -s "🚨 Main branch quality gates broken"
+   ```
+   - **DO NOT merge more branches** until main is fixed
    - Skip to loop-check
-3. If pre-existing on main:
-   - Option A: Fix it yourself (you're the Engineer!)
-   - Option B: File a bead: bd create --type=bug --priority=1 --title="..."
 
 **GATE REQUIREMENT**: You CANNOT proceed to merge-push without:
-- Tests passing, OR
-- Fix committed, OR
-- Bead filed for the failure
+- Quality gates passing, OR
+- Fix committed (if pre-existing on main), OR
+- P0 bead filed + Mayor notified (if unfixable immediately)
 
 This is non-negotiable. Never disavow. Never "note and proceed." """
 
