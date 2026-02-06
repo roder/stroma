@@ -1,51 +1,51 @@
 # Git and version control
 .git/
-.github/
 .gitignore
 .gitattributes
 
-# Build artifacts and caches
-target/
-*.log
-*.tmp
+# CI/CD and development tooling
+.github/
+.cursor/
+.beads/
 
-# Documentation and non-essential files
-README.md
-AGENTS.md
-docs/
+# Build artifacts
+target/
+*.tar
+*.tar.gz
+*.zip
+
+# Spike exploration binaries (NOT part of container runtime)
+docs/spike/
+
+# Documentation (not needed in container)
+docs/*.md
 *.md
+LICENSE
+
+# Development files
+.env
+.env.*
+*.log
 
 # IDE and editor files
 .vscode/
 .idea/
-.cursor/
 *.swp
 *.swo
 *~
 
-# Beads project management
-.beads/
+# Test data
+tests/
+benches/
 
-# Cargo lock (copied explicitly if needed)
-Cargo.lock
+# Rust development
+Cargo.lock.bak
+**/*.rs.bk
 
-# CI/CD files
-.github/
-deny.toml
-
-# Development utilities
-utils/
-
-# OS-specific files
+# macOS
 .DS_Store
-Thumbs.db
 
-# Environment and secrets
-.env
-.env.*
-*.pem
-*.key
-
-# Docker files themselves
-Dockerfile*
-.dockerignore
+# Temporary files
+tmp/
+temp/
+*.tmp

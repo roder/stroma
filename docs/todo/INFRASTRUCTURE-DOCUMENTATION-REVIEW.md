@@ -184,7 +184,7 @@ Comprehensive review of Stroma's infrastructure implementation and documentation
 
 15. **Additional Specialized Docs**: ✅ All Present
     - FREENET_IMPLEMENTATION.md
-    - PRESAGE-SQLLITE.md
+    - SIGNAL-STORAGE-SECURITY.md
     - REFINERY-QUALITY-GATES.md
     - VALIDATOR-THRESHOLD-STRATEGY.md
     - VOUCH-INVALIDATION-LOGIC.md

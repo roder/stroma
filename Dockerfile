@@ -1,4 +1,7 @@
 # syntax=docker/dockerfile:1.4
+#
+# Containerfile for Stroma - Privacy-first decentralized trust network
+# Compatible with both Docker and Podman
 
 # ============================================================================
 # Stage 1: Builder - Create static MUSL binary
@@ -25,32 +28,34 @@ USER builder
 # Copy dependency manifests first for better layer caching
 COPY --chown=builder:builder Cargo.toml Cargo.lock* ./
 
-# Create dummy source to cache dependencies
+# Create minimal dummy source to cache dependencies
+# Note: Only lib.rs and main.rs are needed for the stroma binary
+# Spike exploration binaries are NOT included in container builds
 RUN mkdir -p src && \
     echo "fn main() {}" > src/main.rs && \
-    mkdir -p docs/spike/{q1,q2,q3,q4,q5,q7,q8,q9,q11,q12,q13,q14} && \
-    for spike in q1 q2 q3 q4 q5 q7 q8 q9 q11 q12 q13 q14; do \
-        echo "fn main() {}" > docs/spike/$spike/main.rs; \
-    done
+    echo "pub fn placeholder() {}" > src/lib.rs
 
 # Build dependencies only (this layer will be cached)
+# ONLY build the main stroma binary, not spike explorations
 RUN --mount=type=cache,target=/home/builder/.cargo/registry,uid=1000,gid=1000 \
     --mount=type=cache,target=/home/builder/.cargo/git,uid=1000,gid=1000 \
     --mount=type=cache,target=/build/target,uid=1000,gid=1000 \
-    cargo build --release --target x86_64-unknown-linux-musl && \
-    rm -rf src docs
+    cargo build --release --target x86_64-unknown-linux-musl --bin stroma && \
+    rm -rf src
 
 # Copy actual source code
+# .dockerignore filters out docs/spike/ to avoid including exploration code
 COPY --chown=builder:builder . .
 
 # Build the actual binary
 # - Static linking with MUSL for portability
 # - Target matches distroless/static architecture
 # - All symbols stripped in Cargo.toml profile
+# - ONLY builds stroma binary (--bin stroma), not spike explorations
 RUN --mount=type=cache,target=/home/builder/.cargo/registry,uid=1000,gid=1000 \
     --mount=type=cache,target=/home/builder/.cargo/git,uid=1000,gid=1000 \
     --mount=type=cache,target=/build/target,uid=1000,gid=1000 \
-    cargo build --release --target x86_64-unknown-linux-musl && \
+    cargo build --release --target x86_64-unknown-linux-musl --bin stroma && \
     cp target/x86_64-unknown-linux-musl/release/stroma /tmp/stroma
 
 # Verify static linking (should show "statically linked")
@@ -64,10 +69,13 @@ RUN file /tmp/stroma && \
 FROM gcr.io/distroless/static:nonroot
 
 # Metadata labels following OCI image spec
+# Update these via CI when building releases
 LABEL org.opencontainers.image.title="stroma" \
-      org.opencontainers.image.description="Hardened static binary deployment" \
-      org.opencontainers.image.vendor="stromarig" \
-      org.opencontainers.image.licenses="UNLICENSED"
+      org.opencontainers.image.description="Privacy-first decentralized trust network for Signal groups" \
+      org.opencontainers.image.url="https://github.com/roder/stroma" \
+      org.opencontainers.image.source="https://github.com/roder/stroma" \
+      org.opencontainers.image.vendor="roder" \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later"
 
 # Copy static binary from builder
 # distroless/static:nonroot runs as uid/gid 65532 by default
