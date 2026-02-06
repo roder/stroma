@@ -143,10 +143,10 @@ name = "mesh_commands"
 harness = false
 
 # Protocol v8 poll support via our fork of libsignal-service-rs
-# Branch based directly on b48b42fbc (commit presage pins to)
+# Branch rebased on post-websocket-migration libsignal (commit 498c03d)
 # See: .beads/poll-implementation-gastown.bead
 [patch."https://github.com/whisperfish/libsignal-service-rs"]
-libsignal-service = { git = "https://github.com/roder/libsignal-service-rs", branch = "feature/protocol-v8-polls-fixed" }
+libsignal-service = { git = "https://github.com/roder/libsignal-service-rs", branch = "feature/protocol-v8-polls-rebased" }
 
 # Required per libsignal-service-rs README: patch curve25519-dalek to use Signal's fork
 # This resolves the version conflict between crates.io and Signal's forked version
