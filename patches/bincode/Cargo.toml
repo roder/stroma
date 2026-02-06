@@ -1,0 +1,10 @@
+[package]
+name = "bincode"
+version = "1.3.3"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[dependencies]
+bincode2 = "2.0"
+serde = "1.0"
