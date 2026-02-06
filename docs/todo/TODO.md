@@ -749,12 +749,12 @@ bd create --title "Basic bot commands" --convoy convoy-phase1
 - [ ] **GAP-10**: Bot warns inviter if invitee has previous flags (re-entry scenario) ⚠️ **PARTIAL** (structure exists, Freenet query TODO)
   - Example: "⚠️ @Alice has 3 previous flags. They'll need 4+ vouches to achieve positive standing."
 - [x] Bot selects second Member via Blind Matchmaker ✅ (logic complete)
-- [ ] Bot sends PMs to invitee and selected Member ⚠️ **TODO**
+- [ ] Bot sends PM to selected assessor with invitee contact info ⚠️ **TODO**
 
-#### Vetting Interview
+#### Assessment (PM-Only, No Secondary Chats)
 
-- [ ] Bot creates 3-person chat (invitee, Member, bot) ⚠️ **TODO**
-- [ ] Bot facilitates introduction ⚠️ **TODO**
+- [ ] Assessor independently contacts invitee (bot does NOT create 3-person chat) ⚠️ **TODO**
+- [ ] Handle `/reject-intro @invitee` command (re-select assessor with exclusion list) ⚠️ **TODO**
 - [x] Member vouches via `/vouch @username` ✅ (command parsing)
 - [ ] Bot records second vouch in Freenet ⚠️ **TODO**
 
@@ -963,10 +963,10 @@ Before closing `convoy-phase1`, the Mayor MUST verify ALL of the following:
 
 | Criterion | Verification | Agent |
 |-----------|--------------|-------|
-| 3-person PM chat created | Integration test: invitee, member, bot in private chat | Agent-Signal |
-| Bot facilitates introduction | Unit test: introduction message sent to vetting chat | Agent-Signal |
-| `/vouch` records second vouch | Unit test: vouch stored in Freenet contract | Agent-Signal |
-| All vetting in PMs (never group) | Code review: vetting messages only sent to PM chats | Witness |
+| Assessor PM sent with invitee contact | Integration test: assessor receives PM with contact info and context | Agent-Signal |
+| `/reject-intro` triggers re-selection | Unit test: exclusion list updated, new assessor selected | Agent-Signal |
+| `/vouch` records second vouch | Unit test: vouch stored in Freenet contract, GroupConfig thresholds checked | Agent-Signal |
+| All vetting in PMs (never group) | Code review: vetting messages only sent as 1-on-1 PMs, no secondary chats | Witness |
 
 #### Trust Operations: Admission — Agent-Signal + Agent-Crypto
 

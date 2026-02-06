@@ -47,7 +47,7 @@ This bead is the **single source of truth** for Stroma terminology. All document
 
 *****Cluster requirement scales with vouch count**: Validators need vouches from as many distinct clusters as their vouch count (up to available clusters). If only 2 clusters exist, a 3-vouch Validator needs both clusters represented.
 
-**Note**: Validators have NO special permissions — only higher resilience and bot optimization preferences.
+**Note**: Validators have NO special permissions — only higher resilience and bot optimization preferences. Both Bridges and Validators can be selected as assessors.
 
 **Terminology Note**: "Invitee" and "Leaf Node" are synonyms. Use "Invitee" in user-facing contexts (clearer meaning) and "Leaf Node" in graph-theory/algorithm contexts. Both refer to someone with 1 vouch who is OUTSIDE the group.
 
@@ -155,14 +155,42 @@ This bead is the **single source of truth** for Stroma terminology. All document
 | **Persistence Registry** | Freenet contract listing all Stroma bots for chunk holder computation |
 | **Rendezvous hashing** | Deterministic algorithm to compute chunk holders (not owner-chosen) |
 
+### Vetting Roles
+
+| Term | Definition | Usage |
+|------|------------|-------|
+| **Assessor** | A member (bridge or validator) selected by the Blind Matchmaker from a different cluster to independently contact and evaluate an invitee for admission. The assessor decides how to approach the invitee and whether to vouch. | "The bot selected Carol as assessor for the invitee" |
+
+**Key Properties of the Assessor**:
+- Can be any member (bridge or validator) -- both are eligible
+- Must be from a different cluster than the inviter (cross-cluster requirement)
+- Selected via DVR-optimized algorithm (prefer non-overlapping voucher sets)
+- Contacts the invitee **independently of the bot** (bot only provides invitee contact info via PM)
+- Chooses whether and how to reveal their own identity to the invitee
+- Can decline via `/reject-intro @invitee` (bot selects another candidate)
+- Identity is NOT revealed to the inviter (Blind Matchmaker)
+
 ### Bot Roles
 
 | Role | Description |
 |------|-------------|
-| **Protocol Gatekeeper** | Enforces 2 cross-cluster vouch requirement |
-| **Blind Matchmaker** | Suggests strategic cross-cluster introductions |
+| **Protocol Gatekeeper** | Enforces vouch threshold (per GroupConfig) for admission |
+| **Blind Matchmaker** | Two distinct functions (see below) |
 | **Health Monitor** | Continuously checks trust standing via state stream |
 | **Diplomat** | Discovers and proposes federation (Phase 4+) |
+
+### Two Distinct Blind Matchmaker Functions
+
+The Blind Matchmaker has two architecturally separate roles:
+
+| Function | Purpose | Module | Trigger |
+|----------|---------|--------|---------|
+| **Admission Vetting** | Selects a cross-cluster assessor to evaluate an invitee | `signal/matchmaker.rs` | `/invite` command |
+| **Mesh Optimization** | Suggests strategic introductions between existing members to improve DVR | `matchmaker/strategic_intro.rs` | `/mesh` health suggestions, proactive bot behavior |
+
+**Admission Vetting**: When a member invites someone, the bot selects an assessor from a different cluster and PMs them with the invitee's contact info. The assessor independently contacts the invitee to evaluate them. The bot never creates secondary chats or contacts the invitee directly.
+
+**Mesh Optimization**: Between existing members already in the group, the bot suggests introductions to strengthen the trust graph (upgrade Bridges to Validators, connect isolated clusters). This is a separate concern from admission.
 
 ### Federation Terms (Phase 4+)
 

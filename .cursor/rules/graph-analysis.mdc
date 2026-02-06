@@ -14,11 +14,21 @@ The Blind Matchmaker algorithm, DVR optimization, strategic introduction matchin
 
 This module applies ONLY to analyzing and optimizing the trust graph **within a single Stroma Signal group**. This is distinct from external federation between separate groups.
 
+## Two Distinct Matchmaker Roles (Architecturally Separate)
+
+| Function | Purpose | Module |
+|----------|---------|--------|
+| **Admission Vetting** | Select cross-cluster assessor to evaluate invitees | `signal/matchmaker.rs` |
+| **Mesh Optimization** | Strategic introductions between existing members | `matchmaker/strategic_intro.rs` |
+
+Both use the same DVR-optimized selection algorithm but serve different purposes. Do NOT mix code between these modules.
+
 ## Key Concepts
 
 - **Purpose**: Build Minimum Spanning Tree of Trust with least new interactions
 - **DVR Optimization**: Prioritize creating distinct Validators with non-overlapping voucher sets
 - **Priority Order**: DVR optimization → MST fallback → Island bridging
+- **Assessor Selection**: For admission, accept exclusion list (members who declined via `/reject-intro`)
 
 ## Algorithm Reference
 

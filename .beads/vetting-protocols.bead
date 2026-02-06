@@ -118,34 +118,52 @@ Every member in the Signal group has met the admission requirements. Invitees (b
 
 - Invitation counts as first vouch
 - ANY Member can invite (Bridges and Validators)
-- Invitee is OUTSIDE the group (waiting status)
+- Invitee becomes a leaf node in the trust graph, OUTSIDE the group
+- Bot creates ephemeral VettingSession (RAM only, never persisted)
 
 **See**: `.beads/user-roles-ux.bead` for command details
 
-### Phase 2: Strategic Matching (Blind Matchmaker)
+### Phase 2: Assessor Selection (Blind Matchmaker)
 
 **Canonical Source**: `.beads/blind-matchmaker-dvr.bead`
 
-- Bot selects a member from DIFFERENT cluster than inviter
-- Prioritizes DVR optimization (create distinct Validators)
+- Bot selects an **assessor** from a DIFFERENT cluster than inviter
+- Assessor can be a bridge (2 vouches) or validator (3+ vouches) -- both are eligible
+- Prioritizes DVR optimization (create distinct Validators with non-overlapping voucher sets)
 - Falls back to MST algorithm if no DVR-optimal match
+- Bootstrap exception: any member when only 1 cluster exists
 
-### Phase 3: Introduction Facilitation
+### Phase 3: Assessment (PM-Only, No Secondary Chats)
 
-- Bot creates 3-person Signal chat (invitee, selected member, bot)
-- Selected member chats with invitee (human vetting)
-- Selected member uses `/vouch @Invitee` to confirm
+**Critical constraint**: The bot belongs to exactly one Signal group. It NEVER creates 3-person chats, secondary groups, or any other Signal group. All bot communication is 1-on-1 PMs.
 
-**Privacy**: Vetting happens in 1-on-1 PMs, not group chat.
+- Bot sends PM to assessor with: invitee's Signal contact info, inviter-provided context, previous-flags warning if applicable
+- Bot does NOT reveal the inviter's identity to the assessor (Blind Matchmaker)
+- Bot does NOT reveal the assessor's identity to the inviter
+- Bot does NOT contact the invitee directly
+- **Assessor independently contacts the invitee** -- they decide how to approach, what to share about themselves, and whether to reveal their membership
+- Assessor evaluates the invitee through direct conversation
+
+**Assessor actions:**
+- `/vouch @invitee` -- Confirm the invitee (counts as cross-cluster vouch)
+- `/reject-intro @invitee` -- Decline the assessment (bot selects a new assessor, excluding those who declined)
 
 ### Phase 4: Admission
 
-1. **Verify**: 2 vouches from different clusters (or Single-Cluster Exception)
-2. **Record**: Push vouch records with ZK-proofs to Freenet contract
-3. **Wait**: Freenet confirms state update
-4. **Add**: Bot adds member to Signal group
-5. **Announce**: Group notification (using hashes, not names)
-6. **Delete**: Ephemeral vetting session data removed immediately
+Admission is gated on **ALL GroupConfig requirements**, not a hardcoded threshold:
+
+1. **Verify**: `effective_vouches >= config.min_vouch_threshold` (default 2, configurable via `/propose`)
+2. **Verify**: Cross-cluster requirement met (or Single-Cluster Exception)
+3. **Verify**: Standing is non-negative
+4. **Prove**: Generate and verify STARK proof of vouch verification
+5. **Record**: Push vouch records to Freenet contract
+6. **Wait**: Freenet confirms state update
+7. **Add**: Bot adds member to Signal group
+8. **Announce**: Group notification (using member hash, not names)
+9. **Delete**: Ephemeral vetting session data removed immediately
+10. **Notify**: Inviter is notified that their invitee has been admitted
+
+If vouch is recorded but admission threshold is NOT yet met, the session stays active. The assessor is notified that the invitee still needs additional vouches.
 
 **See**: `.beads/freenet-contract-design.bead` for state structure
 
@@ -217,18 +235,34 @@ Ejected members can be re-admitted through the normal admission process:
 
 ---
 
-## Internal Mesh-Building (Blind Matchmaker)
+## Two Distinct Blind Matchmaker Roles
 
-**Canonical Source**: `.beads/blind-matchmaker-dvr.bead`
+**Canonical Source**: `.beads/terminology.bead` (Bot Roles section), `.beads/blind-matchmaker-dvr.bead`
 
-**Purpose**: Suggest strategic cross-cluster introductions to improve network resilience.
+The Blind Matchmaker has two architecturally separate functions. They share the DVR-optimized selection algorithm but serve different purposes:
 
-**Priority Algorithm (DVR-Optimized):**
+### Admission Vetting (Assessor Selection)
+
+**Module**: `signal/matchmaker.rs`  
+**Trigger**: `/invite` command  
+**Purpose**: Select a cross-cluster assessor to evaluate an invitee for admission.
+
+- Invitee is a leaf node (1 vouch, outside group)
+- Bot selects assessor via DVR-optimized algorithm with exclusion list
+- Bot PMs assessor with invitee contact info
+- Assessor independently contacts invitee
+- Assessor vouches (`/vouch`) or declines (`/reject-intro`)
+
+### Mesh Optimization (Strategic Introductions)
+
+**Module**: `matchmaker/strategic_intro.rs`  
+**Trigger**: `/mesh` health suggestions, proactive bot behavior based on DVR health status  
+**Purpose**: Suggest cross-cluster introductions between existing members to improve network resilience.
 
 | Phase | Action | Goal |
 |-------|--------|------|
 | **Phase 0 (DVR)** | Suggest introductions that create Distinct Validators | Maximize independently-verified members |
-| **Phase 1 (MST)** | If no DVR-optimal match, accept any cross-cluster vouch | Maintain admission flow |
+| **Phase 1 (MST)** | If no DVR-optimal match, accept any cross-cluster vouch | Strengthen bridges |
 | **Phase 2 (Islands)** | Bridge disconnected clusters | Ensure full connectivity |
 
 **Health Metric**: Distinct Validator Ratio (DVR) = Distinct_Validators / (N / 4)
@@ -295,15 +329,17 @@ async fn membership_health_monitor(
 
 ## Gastown Agent Instructions
 
-**When implementing vetting/admission:**
-1. Read `.beads/terminology.bead` for canonical definitions
+**When implementing admission vetting:**
+1. Read `.beads/terminology.bead` for canonical definitions (especially Assessor)
 2. Read `.beads/cross-cluster-requirement.bead` for enforcement logic
 3. Read `.beads/security-constraints.bead` for ejection triggers
-4. Use trait abstractions for Signal/Freenet (see `.beads/testing-standards.bead`)
+4. Admission vetting code lives in `signal/matchmaker.rs` -- NOT in `matchmaker/strategic_intro.rs`
+5. Use trait abstractions for Signal/Freenet (see `.beads/testing-standards.bead`)
 
-**When implementing Blind Matchmaker:**
+**When implementing mesh optimization:**
 1. Read `.beads/blind-matchmaker-dvr.bead` for algorithm details
 2. Read `.beads/mesh-health-metric.bead` for DVR calculation
+3. Mesh optimization code lives in `matchmaker/strategic_intro.rs` -- NOT in `signal/matchmaker.rs`
 
 **When implementing health monitoring:**
 1. Use real-time Freenet state stream (NOT polling)
@@ -316,3 +352,8 @@ async fn membership_health_monitor(
 - ❌ Polling instead of state stream
 - ❌ Storing Signal IDs in cleartext during vetting
 - ❌ Persisting vetting session data after admission
+- ❌ Creating 3-person chats or secondary Signal groups (bot belongs to ONE group only)
+- ❌ Bot contacting invitees directly (assessor contacts them independently)
+- ❌ Revealing inviter identity to assessor or assessor identity to inviter
+- ❌ Hardcoding admission threshold (use GroupConfig.min_vouch_threshold)
+- ❌ Mixing admission vetting code with mesh optimization code

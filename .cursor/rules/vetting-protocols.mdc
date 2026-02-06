@@ -24,29 +24,29 @@ alwaysApply: false
 
 Signal Group = Fully Vetted Members Only
 
-## Member Lifecycle
+## Admission Flow (PM-Only)
 
-```
-Outside → Invitee (1 vouch) → Bridge (2 vouches) → Validator (3+)
-                                    ↓
-                              Ejected (flags persist)
-                                    ↓
-                              Re-entry possible (need 2+ new vouches)
-```
+1. Member sends `/invite @invitee "context"` via PM
+2. Bot selects cross-cluster **assessor** (bridge or validator) via DVR-optimized algorithm
+3. Bot PMs assessor with invitee contact info (inviter identity NOT revealed)
+4. Assessor independently contacts invitee; decides how to approach
+5. Assessor sends `/vouch @invitee` or `/reject-intro @invitee`
+6. If rejected: bot selects new assessor (excluding declined members)
+7. If vouched + GroupConfig thresholds met: STARK proof, add to group, delete session
+
+**Critical**: Bot belongs to ONE Signal group. No 3-person chats. Assessor contacts invitee independently.
+
+## Two Blind Matchmaker Roles
+
+- **Admission Vetting** (`signal/matchmaker.rs`): Assessor selection for invitees
+- **Mesh Optimization** (`matchmaker/strategic_intro.rs`): Introductions between existing members
 
 ## Ejection Triggers (Two Independent)
 
 1. `Standing < 0` (Effective_Vouches - Regular_Flags < 0)
-2. `Effective_Vouches < 2` (voucher left OR voucher flagged)
+2. `Effective_Vouches < config.min_vouch_threshold` (voucher left OR voucher flagged)
 
 **No Grace Periods**: Immediate ejection when threshold violated.
-
-## Re-Admission
-
-- Previous flags persist (not reset)
-- Need enough new vouches to overcome flags
-- Example: 3 flags = need 4+ vouches for positive standing
-- No cooldown
 
 ## Anti-Patterns
 
@@ -55,3 +55,8 @@ Outside → Invitee (1 vouch) → Bridge (2 vouches) → Validator (3+)
 - ❌ Polling instead of state stream
 - ❌ Storing Signal IDs in cleartext
 - ❌ Persisting vetting data after admission
+- ❌ Creating 3-person chats or secondary Signal groups
+- ❌ Bot contacting invitees directly
+- ❌ Revealing inviter identity to assessor
+- ❌ Hardcoding admission threshold (use GroupConfig)
+- ❌ Mixing admission vetting code with mesh optimization code

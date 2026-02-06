@@ -15,12 +15,21 @@ The critical distinction between internal clusters (within a single group) and e
 |---------|-------------------|-----------------|
 | Scope | Within ONE Signal group | Separate Signal groups |
 | Bot Role | Blind Matchmaker | Diplomat (Blind Rendezvous) |
-| Purpose | Mesh optimization | Federation |
-| Terms | "strategic intro", "mesh-building" | "federation", "cross-mesh" |
+| Purpose | Admission vetting + mesh optimization | Federation |
+| Terms | "assessor", "strategic intro", "mesh-building" | "federation", "cross-mesh" |
+
+## Two Internal Matchmaker Functions
+
+| Function | Purpose | Module |
+|----------|---------|--------|
+| **Admission Vetting** | Select cross-cluster assessor to evaluate invitees | `signal/matchmaker.rs` |
+| **Mesh Optimization** | Strategic introductions between existing members | `matchmaker/strategic_intro.rs` |
 
 ## Terminology Rules
 
-- ✅ "Strategic introductions" for internal cluster bridging
+- ✅ "Assessor" for the member selected to evaluate an invitee
+- ✅ "Strategic introductions" for mesh-building between existing members
 - ✅ "Federation" or "cross-mesh" for external groups
 - ❌ NEVER use "federation" for internal operations
 - ❌ NEVER use "cluster-linking" for internal MST building
+- ❌ NEVER use "selected member" when "assessor" is the correct term (admission context)
