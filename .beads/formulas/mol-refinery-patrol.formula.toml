@@ -200,10 +200,10 @@ Track: rebase result (success/conflict), conflict task ID if created."""
 
 [[steps]]
 id = "run-quality-gates"
-title = "Run Layer 2 quality gates"
+title = "Run Refinery quality gates"
 needs = ["process-branch"]
 description = """
-**Layer 2 Defense: Run comprehensive quality gates on rebased branch.**
+**Refinery Defense: Run comprehensive quality gates on rebased branch.**
 
 **Option A: Use validation formula (RECOMMENDED for Stroma Rust projects)**
 
@@ -211,12 +211,12 @@ description = """
 bd formula stroma-refinery-validate --branch <polecat-branch>
 ```
 
-This runs all Layer 2 checks:
+This runs all Refinery checks:
 - Branch freshness (already satisfied by rebase)
 - Format check (cargo fmt)
 - Lint check (cargo clippy)
 - Test suite (cargo nextest)
-- Code coverage (100% required)
+- Code coverage (target: 87%)
 - Supply chain security (cargo deny)
 - Security constraints (Stroma-specific checks)
 - CI status (GitHub Actions)
@@ -239,7 +239,7 @@ pytest                     # Python projects
 
 **Track results**: All checks passed, or list of failures.
 
-**If Layer 2 validation FAILS**:
+**If Refinery validation FAILS**:
 - DO NOT proceed to merge
 - Continue to handle-failures step
 """

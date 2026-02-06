@@ -548,7 +548,7 @@ deny.toml                        # Dependency policy
 
 ### Local: Pre-Push Hook ✅ Deployed
 
-**Location**: Centralized at `/Users/matt/gt/scripts/hooks/pre-push` (symlinked to `.git/hooks/pre-push`)
+**Location**: Centralized at `utils/hooks/pre-push` (symlinked to `.git/hooks/pre-push`)
 
 **Behavior**:
 - Auto-detects repository via `gh repo view`
@@ -560,17 +560,17 @@ deny.toml                        # Dependency policy
 **Installation**:
 ```bash
 # Install for this repo only (bash)
-/Users/matt/gt/scripts/install-hooks.sh /Users/matt/gt/stromarig/mayor/rig
+<repo>/scripts/install-hooks.sh stromarig/mayor/rig
 
 # Or install for all gastown repos (bash)
-/Users/matt/gt/scripts/install-hooks.sh
+scripts/install-hooks.sh
 
 # Fish shell users:
-fish /Users/matt/gt/scripts/install-hooks.fish /Users/matt/gt/stromarig/mayor/rig  # Single repo
-fish /Users/matt/gt/scripts/install-hooks.fish                                     # All repos
+fish scripts/install-hooks.fish stromarig/mayor/rig  # Single repo
+fish scripts/install-hooks.fish                                     # All repos
 ```
 
-See `/Users/matt/gt/scripts/README.md` for details.
+See `scripts/README.md` for details.
 
 ### Remote: CI Monitor Workflow ✅ Deployed
 
@@ -584,7 +584,7 @@ See `/Users/matt/gt/scripts/README.md` for details.
    - Create GitHub issue (label: `ci-failure`, `auto-alert`)
    - Provide clear action steps
 
-**Local Integration**: Mayor patrol (`/Users/matt/gt/scripts/patrol/ci-failures-sync.sh`) syncs GitHub issues to beads P0 issues locally.
+**Local Integration**: Mayor patrol (`scripts/patrol/ci-failures-sync.sh`) syncs GitHub issues to beads P0 issues locally.
 
 ### Remote: Protected Files Verification ✅ Deployed
 

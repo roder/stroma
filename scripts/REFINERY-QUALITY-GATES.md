@@ -173,7 +173,7 @@ echo "   Safe to merge to main"
 git checkout merge-queue/feature-xyz
 
 # Run validation
-/Users/matt/gt/scripts/refinery-validate.sh
+scripts/refinery-validate.sh
 
 # If passes, merge
 git checkout main
@@ -198,7 +198,7 @@ git push
 
 ```bash
 # Even if GitHub Actions passed, refinery re-validates
-/Users/matt/gt/scripts/refinery-validate.sh
+scripts/refinery-validate.sh
 
 # Double-check before merge
 git merge merge-queue/feature-xyz
@@ -252,7 +252,7 @@ git add . && git commit -m "bad format"
 git push --no-verify
 
 # Layer 2 should catch it
-/Users/matt/gt/scripts/refinery-validate.sh
+scripts/refinery-validate.sh
 # Expected: ❌ cargo fmt --check fails
 ```
 
@@ -273,7 +273,7 @@ git push --no-verify
 
 ## See Also
 
-- **Layer 1 Implementation**: `/Users/matt/gt/scripts/hooks/pre-push`
-- **CI/CD Protection**: `docs/CI-CD-PROTECTION.md`
-- **Agent Requirements**: `AGENTS.md`
+- **Layer 1 Implementation**: `.../scripts/hooks/pre-push`
+- **CI/CD Protection**: `../docs/CI-CD-PROTECTION.md`
+- **Agent Requirements**: `../AGENTS.md`
 - **Security Constraints**: `.beads/security-constraints.bead`

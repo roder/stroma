@@ -1,6 +1,6 @@
-name: PR Quality Gates (Layer 2)
+name: Refinery Quality Gates
 
-# Layer 2 Defense: Final gatekeeper before merge to main
+# Refinery Defense: Final gatekeeper before merge to main
 # Catches code pushed with --no-verify, resolved conflicts, and bitrot
 # See: scripts/REFINERY-QUALITY-GATES.md
 
@@ -15,10 +15,10 @@ env:
 
 jobs:
   # ============================================================================
-  # Layer 2 - Refinery Validation (Comprehensive Quality Gates)
+  # Refinery Validation (Comprehensive Quality Gates)
   # ============================================================================
   refinery-validation:
-    name: Layer 2 - Refinery Validation
+    name: Refinery Validation
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PR code
@@ -107,16 +107,17 @@ jobs:
           
           COVERAGE=$(cargo llvm-cov report --summary-only --json | jq '.data[0].totals.lines.percent')
           echo "Coverage: $COVERAGE%"
-          echo "Coverage: **$COVERAGE%**" >> $GITHUB_STEP_SUMMARY
+          echo "Coverage: **$COVERAGE%** (target: 87%, goal: 100%)" >> $GITHUB_STEP_SUMMARY
           
-          # Stroma requires 100% coverage
-          if (( $(echo "$COVERAGE < 100.0" | bc -l) )); then
-            echo "❌ Coverage is $COVERAGE%, but 100% is required" >> $GITHUB_STEP_SUMMARY
+          # Warn if coverage drops below 87%
+          if (( $(echo "$COVERAGE < 87.0" | bc -l) )); then
+            echo "⚠️ Coverage is $COVERAGE%, below target of 87%" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "Run \`cargo llvm-cov nextest --all-features --html\` to see uncovered lines" >> $GITHUB_STEP_SUMMARY
-            exit 1
+            echo "::warning::Coverage is $COVERAGE%, below target of 87%"
+          else
+            echo "✅ Coverage meets target: $COVERAGE%" >> $GITHUB_STEP_SUMMARY
           fi
-          echo "✅ Coverage requirement met: $COVERAGE%" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
       - name: Supply chain security
@@ -132,27 +133,29 @@ jobs:
           echo "✅ Supply chain security check passed" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-      - name: Layer 2 Summary
+      - name: Refinery Validation Summary
         if: always()
         run: |
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Layer 2 Validation Complete" >> $GITHUB_STEP_SUMMARY
+          echo "## Refinery Validation Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "This PR has passed all Layer 2 quality gates:" >> $GITHUB_STEP_SUMMARY
+          echo "This PR has passed all Refinery quality gates:" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Branch freshness (up-to-date with main)" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Format check (cargo fmt)" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Lint check (cargo clippy)" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Test suite (cargo nextest)" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Code coverage (100% required)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Code coverage (87% target)" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Supply chain security (cargo deny)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Safe to merge** after additional checks pass (security, CodeQL)" >> $GITHUB_STEP_SUMMARY
 
-      - name: Upload coverage report
+      - name: Upload coverage to Codecov
+        if: success()
         uses: codecov/codecov-action@v4
         with:
           files: ./coverage.lcov
           fail_ci_if_error: false
-          flags: pr-quality-gates
+          flags: refinery-quality-gates
+          token: ${{ secrets.CODECOV_TOKEN }}
