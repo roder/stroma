@@ -3,6 +3,7 @@
 //! This module implements the bot discovery registry that enables
 //! bots to find each other for chunk distribution and recovery.
 
+pub mod attestation;
 pub mod chunk_storage;
 pub mod chunks;
 pub mod distribution;
@@ -12,6 +13,7 @@ pub mod registry;
 pub mod rendezvous;
 pub mod write_blocking;
 
+pub use attestation::{record_attestation, Attestation, AttestationError};
 pub use chunk_storage::{derive_chunk_contract_address, ChunkStorage, StorageError, StorageStats};
 pub use chunks::{decrypt_and_reassemble, encrypt_and_chunk, Chunk, ChunkError, CHUNK_SIZE};
 pub use distribution::{
