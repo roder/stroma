@@ -15,7 +15,7 @@ Based on phase review reports in `docs/todo/`:
 | **Phase 0** | 🟡 SUBSTANTIALLY COMPLETE | **88%** (22/25 items) | ✅ All core features implemented<br>❌ 2 BLOCKERS: Freenet deps disabled (st-5nhs1), Presage disabled (st-rvzl)<br>✅ 321 tests passing<br>✅ GAP-07 & GAP-08 compliant | PHASE0_REVIEW_REPORT.md |
 | **Phase 1** | 🟡 PARTIAL | **70%** | ✅ Trust formula, ejection, health monitoring complete<br>❌ GAP-01 (audit trail) & GAP-03 (rate limiting) missing<br>⚠️ Some trust ops incomplete (integration) | phase1-review-report.md |
 | **Phase 2** | 🟡 PARTIAL | **40%** | ✅ DVR & strategic introductions complete<br>❌ /mesh commands stubbed<br>❌ Bridge Removal partial<br>❌ Integration tests missing<br>✅ Benchmarks: ALL targets MET with margin | PHASE2_REVIEW.md<br>PHASE2-BENCHMARKS.md |
-| **Phase 2.5** | 🟡 PARTIAL | **70%** | ✅ Core persistence modules complete (69 tests)<br>❌ CRITICAL: 0/13 property tests (st-btcya)<br>❌ Attestation module missing (st-h6ocd)<br>❌ User commands missing (st-p12rt) | phase-2.5-review.md |
+| **Phase 2.5** | 🟡 PARTIAL | **85%** | ✅ Core persistence modules complete (69 tests)<br>✅ Property tests complete (16/16 proptests)<br>❌ Attestation module missing (st-h6ocd)<br>❌ User commands missing (st-p12rt) | phase-2.5-review.md |
 | **Infrastructure** | ✅ COMPLETE | **100%** | ✅ All infrastructure requirements met<br>✅ Documentation EXCELLENT (18+ docs, 56 files)<br>⚠️ 5 minor doc gaps (1 P2: CHANGELOG, 4 P3) | INFRASTRUCTURE-DOCUMENTATION-REVIEW.md |
 
 **Security Audit Status**: ✅ **PASS** - Phase 2 security audit (phase2-security-audit.md) verified:
@@ -2172,14 +2172,14 @@ gt convoy close convoy-phase2 --verified
 ## 💾 PHASE 2.5: Persistence Convoy
 
 **Convoy ID**: `convoy-persistence`  
-**Duration**: Week 6-7  
-**Review Report**: `docs/todo/phase-2.5-review.md`  
-**Status**: 🟡 **70% Complete** - Core modules done, property tests MISSING (CRITICAL)  
-**Critical Gaps**: 
-  - st-btcya: 0/13 property tests (encryption, chunking, rendezvous)
+**Duration**: Week 6-7
+**Review Report**: `docs/todo/phase-2.5-review.md`
+**Status**: 🟡 **85% Complete** - Core modules done, property tests COMPLETE ✅
+**Critical Gaps**:
+  - ✅ st-btcya: 16/16 property tests (encryption, chunking, rendezvous) - COMPLETE
   - st-h6ocd: Attestation module missing
-  - st-p12rt: User-facing commands missing  
-**Dependencies**: `convoy-phase2` complete  
+  - st-p12rt: User-facing commands missing
+**Dependencies**: `convoy-phase2` complete
 **Reference**: `.beads/persistence-model.bead`, `docs/PERSISTENCE.md`
 
 ### Mayor Delegation Commands
@@ -2516,8 +2516,8 @@ Check status: /mesh replication
 **Agent**: Agent-Freenet + Agent-Crypto  
 **Reference**: `.beads/persistence-model.bead` (§ Chunking + Replication Model, § Deterministic Chunk Assignment)  
 **Dependencies**: Registry (bot discovery), Rendezvous Hashing (Q11), Challenge-Response (Q9/Q13)  
-**Review**: See `phase-2.5-review.md` lines 117-184 (⚠️ PARTIAL - 69 unit tests, 0/13 proptests)  
-**CRITICAL**: Property tests MISSING (st-btcya lines 253-277) - encryption, chunking, rendezvous  
+**Review**: See `phase-2.5-review.md` lines 117-184 (✅ 69 unit tests, ✅ 16/16 proptests)
+**Status**: Property tests COMPLETE ✅ (st-btcya) - encryption (8), chunking (3), rendezvous (5)
 **Gaps**: Encryption module not separated (st-mkiez), attestation missing (st-h6ocd), retry logic TODO
 
 #### Overview
@@ -2711,34 +2711,36 @@ async fn distribute_chunk(
 - [x] Random nonce per encryption (12 bytes, prepended to ciphertext) ✅
 - [x] Decryption succeeds with correct ACI key ✅
 - [x] Decryption fails with wrong key (authentication tag mismatch) ✅
-- [ ] Property-based tests (proptest) covering: ❌ **MISSING** (st-btcya - 0/8 proptests)
-  - [ ] Encryption roundtrip preserves data (completeness) ❌
-  - [ ] Different keys produce different ciphertexts (key isolation) ❌
-  - [ ] Wrong key fails authentication (soundness) ❌
-  - [ ] Each encryption uses unique nonce ❌
-  - [ ] HKDF key derivation is deterministic ❌
-  - [ ] HKDF produces isolated keys for different inputs ❌
+- [x] Property-based tests (proptest) covering: ✅ **COMPLETE** (st-btcya - 8/8 proptests)
+  - [x] Encryption roundtrip preserves data (completeness) ✅
+  - [x] Different keys produce different ciphertexts (key isolation) ✅
+  - [x] Wrong key fails authentication (soundness) ✅
+  - [x] Each encryption uses unique nonce ✅
+  - [x] HKDF key derivation is deterministic ✅
+  - [x] HKDF produces isolated keys for different inputs ✅
+  - [x] Large data roundtrip (multi-chunk) ✅
+  - [x] Tamper detection ✅
 
 **Chunking:**
 - [x] CHUNK_SIZE = 64KB constant used consistently ✅
 - [x] ceil(state_size / CHUNK_SIZE) chunks produced ✅
 - [x] Reassembled chunks match original encrypted state ✅
-- [ ] Property-based tests (proptest) covering: ❌ **MISSING** (st-btcya - 0/3 proptests)
-  - [ ] Split → reassemble = original ❌
-  - [ ] Correct chunk count calculation ❌
-  - [ ] No chunk exceeds CHUNK_SIZE ❌
+- [x] Property-based tests (proptest) covering: ✅ **COMPLETE** (st-btcya - 3/3 proptests)
+  - [x] Split → reassemble = original ✅
+  - [x] Correct chunk count calculation ✅
+  - [x] No chunk exceeds CHUNK_SIZE ✅
 
 **Holder Selection (Agent-Crypto):**
 - [x] Rendezvous hashing produces deterministic results ✅
 - [x] Same inputs → same holders (anyone can verify) ✅
 - [x] Owner cannot hold their own chunks ✅
 - [x] Churn-stable: only affected chunks reassigned when bot leaves ✅
-- [ ] Property-based tests (proptest) covering: ❌ **MISSING** (st-btcya - 0/5 proptests)
-  - [ ] Determinism: same inputs → same holders ❌
-  - [ ] Owner exclusion: owner never selected for own chunks ❌
-  - [ ] Two distinct holders per chunk ❌
-  - [ ] Churn stability: non-holder departure doesn't change holders ❌
-  - [ ] Uniform distribution: χ² test passes at 95% confidence ❌
+- [x] Property-based tests (proptest) covering: ✅ **COMPLETE** (st-btcya - 5/5 proptests)
+  - [x] Determinism: same inputs → same holders ✅
+  - [x] Owner exclusion: owner never selected for own chunks ✅
+  - [x] Two distinct holders per chunk ✅
+  - [x] Churn stability: non-holder departure doesn't change holders ✅
+  - [x] Uniform distribution: χ² test passes at 95% confidence ✅
 
 **Distribution:**
 - [x] 2 remote holders per chunk (REPLICATION_FACTOR = 3 including local) ✅
@@ -3846,7 +3848,7 @@ git push
 | **PHASE2_REVIEW.md** | Phase 2: Mesh Optimization | 40% Complete | ✅ DVR & strategic introductions complete<br>❌ /mesh commands stubbed<br>❌ Integration tests missing |
 | **PHASE2-BENCHMARKS.md** | Phase 2: Performance | ✅ ALL TARGETS MET | DVR: 5.2x faster, Cluster: 2.2x faster, Matchmaker: 1,667x faster |
 | **phase2-security-audit.md** | Phase 2: Security | ✅ PASS | ✅ 0 cleartext Signal IDs<br>✅ Transient mapping verified<br>✅ GAP-02 vote privacy compliant |
-| **phase-2.5-review.md** | Phase 2.5: Persistence | 70% Complete | ✅ Core modules complete (69 tests)<br>❌ CRITICAL: 0/13 property tests<br>❌ Attestation module missing |
+| **phase-2.5-review.md** | Phase 2.5: Persistence | 85% Complete | ✅ Core modules complete (69 tests)<br>✅ Property tests complete (16/16)<br>❌ Attestation module missing |
 | **INFRASTRUCTURE-DOCUMENTATION-REVIEW.md** | Infrastructure & Docs | ✅ COMPLETE | ✅ All 4 infrastructure requirements met<br>✅ 18+ docs (56 files total)<br>⚠️ 5 minor gaps (st-vkbr7, st-bd1ge, st-5op71, st-vz3ff, st-zun44) |
 
 ### How Agents Should Use These Reports

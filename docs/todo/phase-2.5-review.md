@@ -240,41 +240,47 @@ gt test:integration --scenario persistence-degraded
 | health.rs | ✅ 14/14 | ❌ 0/0 | N/A | ✅ |
 | write_blocking.rs | ✅ 13/13 | ❌ 0/0 | N/A | ✅ |
 | registry.rs | ✅ 10/10 | ❌ 0/0 | N/A | ✅ |
-| chunks.rs | ✅ 10/10 | ❌ 0/8 | N/A | 🟡 |
-| rendezvous.rs | ✅ 14/14 | ❌ 0/5 | N/A | 🟡 |
+| chunks.rs | ✅ 10/10 | ✅ 11/11 | N/A | ✅ |
+| rendezvous.rs | ✅ 14/14 | ✅ 5/5 | N/A | ✅ |
+| encryption.rs | ✅ 17/17 | ✅ 8/8 | N/A | ✅ |
 | distribution.rs | ✅ 4/4 | ❌ 0/0 | ❌ 0/2 | 🟡 |
 | recovery.rs | ✅ 3/3 | ❌ 0/0 | ❌ 0/2 | 🟡 |
 | chunk_storage.rs | ✅ 5/5 | ❌ 0/0 | N/A | ✅ |
 
-**Total**: 69/69 unit tests ✅, **0/13 required proptests ❌**, 0/4 integration tests ❌
+**Total**: 69/69 unit tests ✅, **16/16 required proptests ✅**, 0/4 integration tests ❌
+
+**NOTE**: Property tests added in src/persistence/proptests.rs (commit 47488e85)
 
 ---
 
-## Property-Based Test Gaps (CRITICAL)
+## Property-Based Tests (COMPLETE ✅)
 
-The spec explicitly requires these proptests. **None are implemented**:
+The spec explicitly requires these proptests. **All 16 tests are now implemented** in `src/persistence/proptests.rs`:
 
-### Encryption (8 proptests required):
-1. `encryption_roundtrip_preserves_data`
-2. `encryption_key_isolation`
-3. `decryption_fails_with_wrong_key`
-4. `encryption_nonce_uniqueness`
-5. `hkdf_key_derivation_deterministic`
-6. `hkdf_key_derivation_isolated`
+### Encryption (8 proptests) ✅:
+1. ✅ `encryption_roundtrip_preserves_data`
+2. ✅ `encryption_key_isolation`
+3. ✅ `decryption_fails_with_wrong_key`
+4. ✅ `encryption_nonce_uniqueness`
+5. ✅ `hkdf_key_derivation_deterministic`
+6. ✅ `hkdf_key_derivation_isolated`
+7. ✅ `encryption_large_data_roundtrip`
+8. ✅ `encryption_tamper_detection`
 
-### Chunking (3 proptests required):
-7. `chunking_reassembly_matches`
-8. `chunking_count_correct`
-9. `chunking_max_size_enforced`
+### Chunking (3 proptests) ✅:
+9. ✅ `chunking_reassembly_matches`
+10. ✅ `chunking_count_correct`
+11. ✅ `chunking_max_size_enforced`
 
-### Rendezvous Hashing (5 proptests required):
-10. `rendezvous_deterministic`
-11. `rendezvous_owner_excluded`
-12. `rendezvous_two_distinct_holders`
-13. `rendezvous_churn_stability`
-14. `rendezvous_uniform_distribution` (with χ² test)
+### Rendezvous Hashing (5 proptests) ✅:
+12. ✅ `rendezvous_deterministic`
+13. ✅ `rendezvous_owner_excluded`
+14. ✅ `rendezvous_two_distinct_holders`
+15. ✅ `rendezvous_churn_stability`
+16. ✅ `rendezvous_uniform_distribution` (with χ² test)
 
-**Created Bead**: st-btcya
+**Status**: COMPLETE (commit 47488e85)
+**Resolved Bead**: st-btcya
 
 ---
 
