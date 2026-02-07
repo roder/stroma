@@ -342,7 +342,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             Some(c) => c,
             None => {
                 let response = "❌ Cannot process vouch: Freenet contract not configured.";
-                return self.client.send_message(sender, &response).await;
+                return self.client.send_message(sender, response).await;
             }
         };
 
@@ -359,7 +359,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         // 3. Verify sender is an active member
         if !state.members.contains(&voucher_hash) {
             let response = "❌ Only active members can vouch for others.";
-            return self.client.send_message(sender, &response).await;
+            return self.client.send_message(sender, response).await;
         }
 
         // 4. Check if vetting session exists for username and clone needed data
@@ -541,11 +541,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             Ok(())
         } else {
             // 17. Requirements not met - notify voucher
-            let vouches_needed = if effective_vouches < min_threshold {
-                min_threshold - effective_vouches
-            } else {
-                0
-            };
+            let vouches_needed = min_threshold.saturating_sub(effective_vouches);
 
             let response = if standing < 0 {
                 format!(
