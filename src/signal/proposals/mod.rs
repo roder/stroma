@@ -13,4 +13,4 @@ pub mod lifecycle;
 
 pub use command::{parse_propose_args, ProposalSubcommand, ProposeArgs};
 pub use executor::execute_proposal;
-pub use lifecycle::create_proposal;
+pub use lifecycle::{create_proposal, monitor_proposals};
