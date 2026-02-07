@@ -193,6 +193,145 @@ pub enum VettingError {
     SessionNotFound(String),
 }
 
+// ============================================================================
+// Privacy-Safe Message Templates
+// ============================================================================
+//
+// CRITICAL PRIVACY CONSTRAINTS:
+// 1. NEVER reveal inviter identity to assessor
+// 2. NEVER reveal assessor identity to inviter
+// 3. NO Signal IDs in cleartext messages
+//
+// These functions generate notification messages that respect privacy boundaries
+// during the vetting process.
+
+/// Message to assessor: Assessment request
+///
+/// PRIVACY: Contains context and invitee contact, but NO inviter identity.
+/// The assessor should not know who made the original invitation.
+///
+/// # Arguments
+/// * `invitee_username` - Username of the invitee (e.g., "@alice")
+/// * `context` - Optional context about the invitee
+/// * `has_previous_flags` - Whether invitee has previous flags (GAP-10)
+/// * `previous_flag_count` - Count of previous flags if any
+pub fn msg_assessment_request(
+    invitee_username: &str,
+    context: Option<&str>,
+    has_previous_flags: bool,
+    previous_flag_count: u32,
+) -> String {
+    let mut msg = format!(
+        "🔍 Assessment Request\n\n\
+         You've been selected to assess a candidate: {}\n\n",
+        invitee_username
+    );
+
+    if let Some(ctx) = context {
+        msg.push_str(&format!("Context: {}\n\n", ctx));
+    }
+
+    if has_previous_flags {
+        msg.push_str(&format!(
+            "⚠️ Note: This candidate has {} previous flag(s).\n\n",
+            previous_flag_count
+        ));
+    }
+
+    msg.push_str(&format!(
+        "If you wish to vouch for them, use:\n\
+         /vouch {}\n\n\
+         If you prefer not to vouch, no action is needed.",
+        invitee_username
+    ));
+
+    msg
+}
+
+/// Message to inviter: Confirmation that assessment process started
+///
+/// PRIVACY: NO assessor identity revealed to the inviter.
+/// The inviter should not know who is assessing their invite.
+///
+/// # Arguments
+/// * `invitee_username` - Username of the invitee
+pub fn msg_inviter_confirmation(invitee_username: &str) -> String {
+    format!(
+        "✓ Vetting Process Started\n\n\
+         Your invitation for {} has been received.\n\n\
+         A validator has been selected and will assess the candidate.\n\
+         You'll be notified when the process completes.",
+        invitee_username
+    )
+}
+
+/// Message to assessor: Rejection acknowledgment
+///
+/// PRIVACY: Brief acknowledgment only, no identity disclosure.
+///
+/// # Arguments
+/// * `invitee_username` - Username of the invitee
+pub fn msg_rejection_ack(invitee_username: &str) -> String {
+    format!(
+        "📋 Assessment Complete\n\n\
+         The vetting process for {} has concluded.\n\
+         Thank you for your participation.",
+        invitee_username
+    )
+}
+
+/// Message to assessor: Vouch recorded, showing threshold progress
+///
+/// PRIVACY: Shows progress toward admission threshold, no identity disclosure.
+///
+/// # Arguments
+/// * `invitee_username` - Username of the invitee
+/// * `current_vouches` - Current number of vouches
+/// * `required_threshold` - Required threshold for admission
+pub fn msg_vouch_recorded(
+    invitee_username: &str,
+    current_vouches: u32,
+    required_threshold: u32,
+) -> String {
+    format!(
+        "✓ Vouch Recorded\n\n\
+         Your vouch for {} has been recorded.\n\n\
+         Progress: {}/{} vouches toward admission threshold.",
+        invitee_username, current_vouches, required_threshold
+    )
+}
+
+/// Message to inviter: No candidates found (stalled state)
+///
+/// PRIVACY: Generic stall notification, no specific validator information.
+///
+/// # Arguments
+/// * `invitee_username` - Username of the invitee
+pub fn msg_no_candidates(invitee_username: &str) -> String {
+    format!(
+        "⏸️ Vetting Paused\n\n\
+         The vetting process for {} is temporarily paused.\n\n\
+         No suitable validators are currently available.\n\
+         The process will resume automatically when validators become available.",
+        invitee_username
+    )
+}
+
+/// Message to inviter: Admission successful
+///
+/// PRIVACY: Success notification only, no assessor identity revealed.
+///
+/// # Arguments
+/// * `invitee_username` - Username of the invitee
+pub fn msg_admission_success(invitee_username: &str) -> String {
+    format!(
+        "🎉 Admission Complete\n\n\
+         {} has been admitted to the group!\n\n\
+         The vetting process completed successfully and they now have full membership.",
+        invitee_username
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
