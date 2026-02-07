@@ -36,8 +36,12 @@ Phase 2 has **partial implementation** with core algorithms complete but user-fa
 - ✅ 30 unit tests
 
 **Missing**:
-- ⚠️ Property tests (proptest for DVR ≤ 1.0)
 - ⚠️ Performance benchmarks (<1ms target)
+
+**Property Tests**: ✅ COMPLETE (commit 5653b792)
+- ✅ `prop_dvr_bounded` - Verifies DVR ≤ 1.0 for all network configurations
+- ✅ `prop_distinct_validators_disjoint_vouchers` - Verifies distinct validators have non-overlapping voucher sets
+- ✅ `prop_dvr_calculation_consistency` - Verifies DVR calculations are deterministic
 
 ---
 
@@ -77,8 +81,14 @@ Phase 2 has **partial implementation** with core algorithms complete but user-fa
 
 **Missing**:
 - ⚠️ Integration with bot behavior (when to trigger suggestions based on health)
-- ⚠️ Property tests for disjoint voucher sets
 - ⚠️ Performance benchmarks for large networks
+
+**Property Tests**: ✅ COMPLETE (commit 5653b792)
+- ✅ `prop_introduction_priorities_valid` - Verifies priority values (0, 1, or 2)
+- ✅ `prop_introductions_sorted_by_priority` - Verifies correct priority ordering
+- ✅ `prop_distinct_validators_are_validators` - Verifies validators have 3+ vouches
+- ✅ `prop_introductions_self_consistent` - Verifies introduction recommendations are valid
+- ✅ `prop_dvr_optimal_targets_bridges` - Verifies DVR-optimal introductions target cluster bridges
 
 ---
 
