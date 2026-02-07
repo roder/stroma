@@ -190,18 +190,15 @@ impl EncryptedTrustNetworkState {
 
         // Compute version and previous_hash from chain
         let version = previous.map(|p| p.version + 1).unwrap_or(1);
-        let previous_hash = previous
-            .map(|p| p.compute_hash())
-            .unwrap_or([0u8; 32]); // Zero hash for genesis
+        let previous_hash = previous.map(|p| p.compute_hash()).unwrap_or([0u8; 32]); // Zero hash for genesis
 
         // Derive encryption key from ACI
         let encryption_key = derive_encryption_key(aci_key)?;
 
         // Generate random nonce
         let nonce = generate_nonce();
-        let nonce_obj = Nonce::try_assume_unique_for_key(&nonce).map_err(|_| {
-            EncryptionError::EncryptionFailed("Failed to create nonce".to_string())
-        })?;
+        let nonce_obj = Nonce::try_assume_unique_for_key(&nonce)
+            .map_err(|_| EncryptionError::EncryptionFailed("Failed to create nonce".to_string()))?;
 
         // Encrypt plaintext with AES-256-GCM
         let unbound_key = UnboundKey::new(&AES_256_GCM, &encryption_key.0).map_err(|e| {
@@ -274,9 +271,8 @@ impl EncryptedTrustNetworkState {
         let encryption_key = derive_encryption_key(aci_key)?;
 
         // Decrypt with AES-256-GCM
-        let nonce = Nonce::try_assume_unique_for_key(&self.nonce).map_err(|_| {
-            EncryptionError::DecryptionFailed("Invalid nonce".to_string())
-        })?;
+        let nonce = Nonce::try_assume_unique_for_key(&self.nonce)
+            .map_err(|_| EncryptionError::DecryptionFailed("Invalid nonce".to_string()))?;
 
         let unbound_key = UnboundKey::new(&AES_256_GCM, &encryption_key.0).map_err(|e| {
             EncryptionError::DecryptionFailed(format!("Key creation failed: {}", e))
@@ -522,13 +518,12 @@ mod tests {
         let merkle_root = test_merkle_root();
 
         // Create first version
-        let v1 = EncryptedTrustNetworkState::new(b"state v1", None, &aci_key, merkle_root)
-            .unwrap();
+        let v1 = EncryptedTrustNetworkState::new(b"state v1", None, &aci_key, merkle_root).unwrap();
         assert_eq!(v1.version, 1);
 
         // Create second version
-        let v2 = EncryptedTrustNetworkState::new(b"state v2", Some(&v1), &aci_key, merkle_root)
-            .unwrap();
+        let v2 =
+            EncryptedTrustNetworkState::new(b"state v2", Some(&v1), &aci_key, merkle_root).unwrap();
         assert_eq!(v2.version, 2);
         assert_eq!(v2.previous_hash, v1.compute_hash());
 
@@ -536,8 +531,8 @@ mod tests {
         v2.verify_chain(&v1).unwrap();
 
         // Create third version
-        let v3 = EncryptedTrustNetworkState::new(b"state v3", Some(&v2), &aci_key, merkle_root)
-            .unwrap();
+        let v3 =
+            EncryptedTrustNetworkState::new(b"state v3", Some(&v2), &aci_key, merkle_root).unwrap();
         assert_eq!(v3.version, 3);
         assert_eq!(v3.previous_hash, v2.compute_hash());
 
@@ -566,13 +561,11 @@ mod tests {
         let aci_key = test_aci_key();
         let merkle_root = test_merkle_root();
 
-        let v1 = EncryptedTrustNetworkState::new(b"state v1", None, &aci_key, merkle_root)
-            .unwrap();
+        let v1 = EncryptedTrustNetworkState::new(b"state v1", None, &aci_key, merkle_root).unwrap();
 
         // Manually create state with wrong version
         let mut v2_bad =
-            EncryptedTrustNetworkState::new(b"state v2", Some(&v1), &aci_key, merkle_root)
-                .unwrap();
+            EncryptedTrustNetworkState::new(b"state v2", Some(&v1), &aci_key, merkle_root).unwrap();
         v2_bad.version = 1; // Same version as v1 (should be 2)
 
         let result = v2_bad.verify_chain(&v1);
@@ -587,13 +580,11 @@ mod tests {
         let aci_key = test_aci_key();
         let merkle_root = test_merkle_root();
 
-        let v1 = EncryptedTrustNetworkState::new(b"state v1", None, &aci_key, merkle_root)
-            .unwrap();
+        let v1 = EncryptedTrustNetworkState::new(b"state v1", None, &aci_key, merkle_root).unwrap();
 
         // Create v2 with correct chain
         let mut v2 =
-            EncryptedTrustNetworkState::new(b"state v2", Some(&v1), &aci_key, merkle_root)
-                .unwrap();
+            EncryptedTrustNetworkState::new(b"state v2", Some(&v1), &aci_key, merkle_root).unwrap();
 
         // Tamper with previous_hash
         v2.previous_hash = [0xFFu8; 32];
@@ -608,8 +599,7 @@ mod tests {
         let merkle_root = test_merkle_root();
 
         let mut encrypted =
-            EncryptedTrustNetworkState::new(b"original data", None, &aci_key, merkle_root)
-                .unwrap();
+            EncryptedTrustNetworkState::new(b"original data", None, &aci_key, merkle_root).unwrap();
 
         // Tamper with ciphertext
         encrypted.ciphertext[0] ^= 0xFF;
@@ -627,8 +617,7 @@ mod tests {
         let bad_key = vec![1u8; 16]; // Wrong size
         let merkle_root = test_merkle_root();
 
-        let result =
-            EncryptedTrustNetworkState::new(b"data", None, &bad_key, merkle_root);
+        let result = EncryptedTrustNetworkState::new(b"data", None, &bad_key, merkle_root);
         assert!(matches!(result, Err(EncryptionError::InvalidKey(_))));
     }
 
@@ -639,10 +628,8 @@ mod tests {
         let plaintext = b"same plaintext";
 
         // Create two encryptions of same plaintext
-        let enc1 = EncryptedTrustNetworkState::new(plaintext, None, &aci_key, merkle_root)
-            .unwrap();
-        let enc2 = EncryptedTrustNetworkState::new(plaintext, None, &aci_key, merkle_root)
-            .unwrap();
+        let enc1 = EncryptedTrustNetworkState::new(plaintext, None, &aci_key, merkle_root).unwrap();
+        let enc2 = EncryptedTrustNetworkState::new(plaintext, None, &aci_key, merkle_root).unwrap();
 
         // Nonces should be different (random)
         assert_ne!(enc1.nonce, enc2.nonce);
@@ -656,8 +643,8 @@ mod tests {
         let aci_key = test_aci_key();
         let merkle_root = [0x42u8; 32];
 
-        let encrypted = EncryptedTrustNetworkState::new(b"data", None, &aci_key, merkle_root)
-            .unwrap();
+        let encrypted =
+            EncryptedTrustNetworkState::new(b"data", None, &aci_key, merkle_root).unwrap();
 
         // Merkle root should be preserved (not encrypted)
         assert_eq!(encrypted.member_merkle_root, merkle_root);
@@ -669,8 +656,8 @@ mod tests {
         let merkle_root = test_merkle_root();
 
         let before = current_timestamp();
-        let encrypted = EncryptedTrustNetworkState::new(b"data", None, &aci_key, merkle_root)
-            .unwrap();
+        let encrypted =
+            EncryptedTrustNetworkState::new(b"data", None, &aci_key, merkle_root).unwrap();
         let after = current_timestamp();
 
         // Timestamp should be within reasonable range
