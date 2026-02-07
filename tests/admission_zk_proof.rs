@@ -203,6 +203,7 @@ fn test_freenet_stores_outcomes_not_proofs() {
         proposals_checked: vec![],
         proposals_with_results: vec![],
         audit_entries_added: vec![],
+        gap11_announcement_sent: false,
     };
 
     // Serialize and verify no "proof" or "proof_bytes" in serialization

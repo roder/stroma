@@ -252,7 +252,33 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
                 // Check for GAP-11 cluster formation announcement
                 if self.check_and_announce_cluster_formation(state).await? {
-                    state_updated = true;
+                    // Create delta to mark announcement as sent
+                    let mut delta = crate::freenet::trust_contract::StateDelta::new();
+                    delta = delta.mark_gap11_announced();
+
+                    // Apply delta to Freenet
+                    if let Some(ref contract) = self.config.contract_hash {
+                        let delta_bytes = crate::serialization::to_cbor(&delta).map_err(|e| {
+                            SignalError::Protocol(format!(
+                                "Failed to serialize GAP-11 delta: {}",
+                                e
+                            ))
+                        })?;
+
+                        let contract_delta =
+                            crate::freenet::traits::ContractDelta { data: delta_bytes };
+                        self.freenet
+                            .apply_delta(contract, &contract_delta)
+                            .await
+                            .map_err(|e| {
+                                SignalError::Protocol(format!(
+                                    "Failed to apply GAP-11 delta to Freenet: {}",
+                                    e
+                                ))
+                            })?;
+
+                        state_updated = true;
+                    }
                 }
             }
 

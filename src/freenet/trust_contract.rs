@@ -230,6 +230,11 @@ pub struct StateDelta {
     /// Immutable append-only, no removal.
     #[serde(default)]
     pub audit_entries_added: Vec<AuditEntry>,
+
+    /// GAP-11: Mark cluster formation announcement as sent.
+    /// This is a one-time flag that gets set to true when announcement is sent.
+    #[serde(default)]
+    pub gap11_announcement_sent: bool,
 }
 
 /// Configuration update with timestamp.
@@ -344,6 +349,10 @@ impl TrustNetworkState {
         // Append audit entries (immutable, append-only)
         self.audit_log
             .extend(delta.audit_entries_added.iter().cloned());
+
+        // GAP-11 announcement: logical OR (once sent, always sent)
+        self.gap11_announcement_sent =
+            self.gap11_announcement_sent || delta.gap11_announcement_sent;
     }
 
     /// Merge two states (commutative).
@@ -498,6 +507,7 @@ impl StateDelta {
             proposals_checked: Vec::new(),
             proposals_with_results: Vec::new(),
             audit_entries_added: Vec::new(),
+            gap11_announcement_sent: false,
         }
     }
 
@@ -544,6 +554,12 @@ impl StateDelta {
     /// Remove a flag.
     pub fn remove_flag(mut self, flagger: MemberHash, flagged: MemberHash) -> Self {
         self.flags_removed.push((flagger, flagged));
+        self
+    }
+
+    /// Mark GAP-11 cluster formation announcement as sent.
+    pub fn mark_gap11_announced(mut self) -> Self {
+        self.gap11_announcement_sent = true;
         self
     }
 }
@@ -778,6 +794,7 @@ mod property_tests {
                     proposals_checked: Vec::new(),
                     proposals_with_results: Vec::new(),
                     audit_entries_added: Vec::new(),
+                    gap11_announcement_sent: false,
                 },
             )
     }

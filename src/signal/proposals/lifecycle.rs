@@ -122,6 +122,7 @@ pub async fn create_proposal<C: SignalClient, F: FreenetClient>(
         proposals_checked: vec![],
         proposals_with_results: vec![],
         audit_entries_added: vec![],
+        gap11_announcement_sent: false,
     };
 
     // Serialize and apply delta
