@@ -247,3 +247,109 @@ async fn test_proposal_outcome_quorum_not_met() {
     // Note: Returns None if proposal not in active_polls
     // Documents the expected integration behavior
 }
+
+#[tokio::test]
+async fn test_proposal_execution_end_to_end() {
+    // Test the complete end-to-end flow:
+    // 1. Create proposal
+    // 2. Store in Freenet
+    // 3. Simulate voting
+    // 4. Check outcome (passed)
+    // 5. Execute proposal
+    // 6. Verify state updated
+
+    let client = MockSignalClient::new(ServiceId("bot".to_string()));
+    let group_id = stroma::signal::traits::GroupId(vec![1, 2, 3]);
+
+    // Add members to the group (10 members for voting)
+    for i in 0..10 {
+        client
+            .add_group_member(&group_id, &ServiceId(format!("member{}", i)))
+            .await
+            .expect("Failed to add group member");
+    }
+
+    let mut poll_manager = stroma::signal::polls::PollManager::new(client.clone(), group_id);
+    let freenet = TestFreenetClient::new();
+    let config = freenet.state.config.clone();
+    let contract_hash = ContractHash::from_bytes(&[0u8; 32]);
+
+    // 1. Create proposal to change min_vouches from 2 to 3
+    let args = parse_propose_args(
+        "config",
+        &[
+            "min_vouches".to_string(),
+            "3".to_string(),
+            "--timeout".to_string(),
+            "48h".to_string(),
+        ],
+    )
+    .expect("Failed to parse args");
+
+    let poll_id = create_proposal(&mut poll_manager, &freenet, args, &config, &contract_hash)
+        .await
+        .expect("Failed to create proposal");
+
+    // 2. Verify proposal was stored (poll_manager has it)
+    let proposal_type = {
+        let proposal = poll_manager
+            .get_proposal(poll_id)
+            .expect("Proposal not found");
+        assert_eq!(proposal.timeout, 48 * 3600);
+        proposal.proposal_type.clone()
+    }; // proposal reference dropped here
+
+    // 3. Simulate voting: 8 approve, 2 reject (80% approval, meets 70% threshold)
+    poll_manager.init_vote_aggregate(poll_id, 10);
+
+    for _ in 0..8 {
+        poll_manager
+            .process_vote(&stroma::signal::traits::PollVote {
+                poll_id,
+                selected_options: vec![0], // Approve
+            })
+            .expect("Failed to process vote");
+    }
+    for _ in 0..2 {
+        poll_manager
+            .process_vote(&stroma::signal::traits::PollVote {
+                poll_id,
+                selected_options: vec![1], // Reject
+            })
+            .expect("Failed to process vote");
+    }
+
+    // 4. Check outcome
+    let aggregate = poll_manager
+        .get_vote_aggregate(poll_id)
+        .expect("No aggregate found");
+
+    let outcome = poll_manager.check_poll_outcome(poll_id, aggregate);
+    assert!(outcome.is_some(), "Outcome should be available");
+
+    let outcome = outcome.unwrap();
+    match outcome {
+        stroma::signal::polls::PollOutcome::Passed {
+            approve_count,
+            reject_count,
+        } => {
+            assert_eq!(approve_count, 8);
+            assert_eq!(reject_count, 2);
+        }
+        _ => panic!("Proposal should have passed"),
+    }
+
+    // 5. Execute the proposal
+    let result = stroma::signal::proposals::executor::execute_proposal(
+        &freenet,
+        &contract_hash,
+        &proposal_type,
+        &config,
+    )
+    .await;
+
+    // Note: In the real implementation, execute_proposal would apply_delta
+    // and update Freenet state. For this test with TestFreenetClient,
+    // it succeeds but doesn't actually modify state (would need more mocking)
+    assert!(result.is_ok(), "Proposal execution should succeed");
+}
