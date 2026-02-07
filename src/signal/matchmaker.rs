@@ -9,6 +9,7 @@
 
 use crate::freenet::contract::MemberHash;
 use crate::freenet::trust_contract::TrustNetworkState;
+use crate::matchmaker::graph_analysis::{detect_clusters, TrustGraph};
 use std::collections::HashSet;
 
 /// Blind Matchmaker for validator selection
@@ -20,44 +21,88 @@ impl BlindMatchmaker {
     /// Requirements:
     /// 1. Must be an active member
     /// 2. Must NOT be the inviter
-    /// 3. Should be from a different cluster than inviter (cross-cluster)
-    /// 4. Optimize for DVR (distinct validators with non-overlapping voucher sets)
+    /// 3. Must NOT be in the exclusion list
+    /// 4. Should be from a different cluster than inviter (cross-cluster)
+    /// 5. Optimize for DVR (distinct validators with non-overlapping voucher sets)
     ///
-    /// For Phase 0 MVP:
-    /// - Simple selection: any member not in inviter's voucher set
-    /// - TODO Phase 1: Full cluster detection and MST-based matching
-    pub fn select_validator(state: &TrustNetworkState, inviter: &MemberHash) -> Option<MemberHash> {
-        // Get inviter's vouchers (their cluster/peer circle)
-        let inviter_vouchers = state
-            .vouches
-            .get(inviter)
-            .cloned()
-            .unwrap_or_else(HashSet::new);
+    /// Selection priority:
+    /// 1. Cross-cluster member (DVR-optimal) - not in exclusion list
+    /// 2. Any cross-cluster member (MST fallback)
+    /// 3. Bridge-level (different cluster)
+    /// 4. Bootstrap exception (single cluster scenario)
+    ///
+    /// Candidates are either:
+    /// - Validators: 3+ vouches
+    /// - Bridges: 2 vouches
+    ///
+    /// Sorted by centrality for optimal trust network health.
+    pub fn select_validator(
+        state: &TrustNetworkState,
+        inviter: &MemberHash,
+        excluded: &HashSet<MemberHash>,
+    ) -> Option<MemberHash> {
+        // Build trust graph and detect clusters
+        let mut graph = TrustGraph::from_state(state);
+        detect_clusters(&mut graph);
 
-        // Find candidates: active members who are NOT in inviter's voucher set
-        // This approximates "different cluster" for Phase 0
+        // Get inviter's cluster
+        let inviter_cluster = graph.cluster_id(inviter);
+
+        // Filter candidates: validators (3+ vouches) OR bridges (2 vouches)
         let candidates: Vec<_> = state
             .members
             .iter()
             .filter(|member| {
-                *member != inviter && // Not the inviter
-                !inviter_vouchers.contains(member) // Different cluster (approximation)
+                *member != inviter // Not the inviter
+                    && graph.effective_vouches(member) >= 2 // At least 2 vouches (bridge or validator)
             })
+            .copied()
             .collect();
 
-        // If no cross-cluster candidates, fall back to any member except inviter
-        // (Bootstrap exception: single cluster scenario)
-        if candidates.is_empty() {
-            return state
-                .members
-                .iter()
-                .find(|member| *member != inviter)
-                .copied();
+        // Categorize candidates by priority
+        let (dvr_optimal, cross_cluster, same_cluster): (Vec<_>, Vec<_>, Vec<_>) =
+            candidates.iter().fold(
+                (Vec::new(), Vec::new(), Vec::new()),
+                |(mut dvr, mut cross, mut same), &member| {
+                    let member_cluster = graph.cluster_id(&member);
+
+                    // Check if cross-cluster
+                    let is_cross_cluster = match (inviter_cluster, member_cluster) {
+                        (Some(ic), Some(mc)) => ic != mc,
+                        _ => false,
+                    };
+
+                    if is_cross_cluster && !excluded.contains(&member) {
+                        // DVR-optimal: cross-cluster AND not excluded
+                        dvr.push(member);
+                    } else if is_cross_cluster {
+                        // Cross-cluster but in exclusion list (MST fallback)
+                        cross.push(member);
+                    } else {
+                        // Same cluster (bridge-level or bootstrap)
+                        same.push(member);
+                    }
+
+                    (dvr, cross, same)
+                },
+            );
+
+        // Select from each priority tier, sorted by centrality
+        for tier in [dvr_optimal, cross_cluster, same_cluster] {
+            if !tier.is_empty() {
+                let mut sorted_tier = tier;
+                sorted_tier.sort_by_key(|member| std::cmp::Reverse(graph.centrality(member)));
+                return Some(sorted_tier[0]);
+            }
         }
 
-        // Select first candidate (Phase 0 simple selection)
-        // TODO Phase 1: Use DVR optimization (MST, non-overlapping voucher sets)
-        candidates.first().copied().copied()
+        // Bootstrap exception: if no candidates found, fall back to any member except inviter
+        // This handles very small networks
+        state
+            .members
+            .iter()
+            .find(|member| *member != inviter)
+            .copied()
     }
 
     /// Check if two members are in different clusters
@@ -145,8 +190,9 @@ mod tests {
     fn test_select_validator_simple() {
         let state = create_test_state();
         let alice = test_member_hash(1);
+        let excluded = HashSet::new();
 
-        let validator = BlindMatchmaker::select_validator(&state, &alice);
+        let validator = BlindMatchmaker::select_validator(&state, &alice, &excluded);
 
         assert!(validator.is_some());
         let validator = validator.unwrap();
@@ -154,8 +200,9 @@ mod tests {
         // Should not be Alice
         assert_ne!(validator, alice);
 
-        // Should be Carol (not in Alice's voucher set)
-        assert_eq!(validator, test_member_hash(3));
+        // Should be Bob (2 vouches = bridge level, Carol only has 1 vouch)
+        // New behavior: Candidates must have >= 2 vouches (bridge or validator level)
+        assert_eq!(validator, test_member_hash(2));
     }
 
     #[test]
@@ -177,8 +224,10 @@ mod tests {
         bob_vouchers.insert(alice);
         state.vouches.insert(bob, bob_vouchers);
 
+        let excluded = HashSet::new();
+
         // Should still select Bob (bootstrap exception)
-        let validator = BlindMatchmaker::select_validator(&state, &alice);
+        let validator = BlindMatchmaker::select_validator(&state, &alice, &excluded);
         assert_eq!(validator, Some(bob));
     }
 
@@ -188,8 +237,10 @@ mod tests {
         let alice = test_member_hash(1);
         state.members.insert(alice);
 
+        let excluded = HashSet::new();
+
         // No other members to select
-        let validator = BlindMatchmaker::select_validator(&state, &alice);
+        let validator = BlindMatchmaker::select_validator(&state, &alice, &excluded);
         assert!(validator.is_none());
     }
 
