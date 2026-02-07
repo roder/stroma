@@ -12,14 +12,11 @@ pub mod state_stream;
 pub mod traits;
 pub mod trust_contract;
 
-#[cfg(test)]
 pub mod mock;
 
 pub use contract::TrustContract;
 pub use embedded_kernel::EmbeddedKernel;
+pub use mock::MockFreenetClient;
 pub use state_stream::StateStream;
 pub use traits::FreenetClient;
 pub use trust_contract::{ConfigUpdate, ContractHash, GroupConfig, StateDelta, TrustNetworkState};
-
-#[cfg(test)]
-pub use mock::MockFreenetClient;
