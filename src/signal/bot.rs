@@ -158,14 +158,18 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         use crate::freenet::contract::MemberHash;
         use crate::freenet::traits::FreenetError;
         use crate::serialization::from_cbor;
-        use crate::signal::vetting::{msg_assessment_request, msg_inviter_confirmation, msg_no_candidates};
+        use crate::signal::vetting::{
+            msg_assessment_request, msg_inviter_confirmation, msg_no_candidates,
+        };
 
         // Phase 1: Query Freenet to verify sender is a member
         let contract = match &self.config.contract_hash {
             Some(hash) => *hash,
             None => {
                 // Bootstrap phase: allow invitations before contract setup
-                return self.handle_invite_bootstrap(sender, username, context).await;
+                return self
+                    .handle_invite_bootstrap(sender, username, context)
+                    .await;
             }
         };
 
@@ -173,7 +177,9 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             Ok(state) => state.data,
             Err(FreenetError::ContractNotFound) => {
                 // Bootstrap phase
-                return self.handle_invite_bootstrap(sender, username, context).await;
+                return self
+                    .handle_invite_bootstrap(sender, username, context)
+                    .await;
             }
             Err(e) => {
                 let response = format!("❌ Failed to query Freenet: {}", e);
@@ -181,7 +187,8 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             }
         };
 
-        let state: crate::freenet::trust_contract::TrustNetworkState = match from_cbor(&state_bytes) {
+        let state: crate::freenet::trust_contract::TrustNetworkState = match from_cbor(&state_bytes)
+        {
             Ok(s) => s,
             Err(e) => {
                 let response = format!("❌ Failed to deserialize contract state: {}", e);
@@ -203,7 +210,11 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         let invitee_hash = MemberHash::from_identity(username, &self.config.pepper);
         let has_previous_flags = state.flags.contains_key(&invitee_hash);
         let previous_flag_count = if has_previous_flags {
-            state.flags.get(&invitee_hash).map(|f| f.len() as u32).unwrap_or(0)
+            state
+                .flags
+                .get(&invitee_hash)
+                .map(|f| f.len() as u32)
+                .unwrap_or(0)
         } else {
             0
         };
@@ -248,7 +259,9 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                         has_previous_flags,
                         previous_flag_count,
                     );
-                    self.client.send_message(validator_id, &assessment_msg).await?;
+                    self.client
+                        .send_message(validator_id, &assessment_msg)
+                        .await?;
 
                     // Send confirmation PM to inviter (no assessor identity revealed)
                     let inviter_msg = msg_inviter_confirmation(username);
