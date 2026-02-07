@@ -533,17 +533,63 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                 .announce_admission(&member_hash_str)
                 .await?;
 
-            // 14. Delete ephemeral vetting session
+            // 14. Check for GAP-11 cluster formation announcement
+            // Copy contract hash to avoid borrow issues
+            let contract_copy = *contract;
+
+            // Get the latest state (with newly admitted member) for cluster detection
+            let latest_state_bytes = self.freenet.get_state(&contract_copy).await.map_err(|e| {
+                SignalError::Protocol(format!("Failed to get latest Freenet state: {}", e))
+            })?;
+
+            let latest_state: crate::freenet::trust_contract::TrustNetworkState =
+                crate::serialization::from_cbor(&latest_state_bytes.data).map_err(|e| {
+                    SignalError::Protocol(format!(
+                        "Failed to deserialize latest trust state: {}",
+                        e
+                    ))
+                })?;
+
+            // Check if cluster formation announcement should be sent
+            if self
+                .check_and_announce_cluster_formation(&latest_state)
+                .await?
+            {
+                // Create delta to mark announcement as sent
+                let mut gap11_delta = crate::freenet::trust_contract::StateDelta::new();
+                gap11_delta = gap11_delta.mark_gap11_announced();
+
+                // Apply delta to Freenet
+                let gap11_delta_bytes =
+                    crate::serialization::to_cbor(&gap11_delta).map_err(|e| {
+                        SignalError::Protocol(format!("Failed to serialize GAP-11 delta: {}", e))
+                    })?;
+
+                let gap11_contract_delta = crate::freenet::traits::ContractDelta {
+                    data: gap11_delta_bytes,
+                };
+                self.freenet
+                    .apply_delta(&contract_copy, &gap11_contract_delta)
+                    .await
+                    .map_err(|e| {
+                        SignalError::Protocol(format!(
+                            "Failed to apply GAP-11 delta to Freenet: {}",
+                            e
+                        ))
+                    })?;
+            }
+
+            // 15. Delete ephemeral vetting session
             let _session = self.vetting_sessions.admit(username).ok();
 
-            // 15. Notify voucher (sender)
+            // 16. Notify voucher (sender)
             let response = format!(
                 "✅ Your vouch for {} has been recorded. They now have {} effective vouch(es) and met all requirements.\n\n🎉 {} has been admitted to the group!",
                 username, effective_vouches, username
             );
             self.client.send_message(sender, &response).await?;
 
-            // 16. Notify inviter
+            // 17. Notify inviter
             let inviter_response = format!(
                 "🎉 Great news! {} has been admitted to the group after receiving the required vouches.",
                 username
@@ -554,7 +600,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
             Ok(())
         } else {
-            // 17. Requirements not met - notify voucher
+            // 18. Requirements not met - notify voucher
             let vouches_needed = min_threshold.saturating_sub(effective_vouches);
 
             let response = if standing < 0 {
@@ -1212,6 +1258,106 @@ mod tests {
             .await
             .unwrap();
         assert!(!announced, "No announcement should be sent for 0 clusters");
+    }
+
+    #[tokio::test]
+    async fn test_gap11_integration_in_member_admission() {
+        // Test that GAP-11 announcement logic works correctly when
+        // admitting a member creates ≥2 clusters
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
+        let group = GroupId(vec![1, 2, 3]);
+
+        // Initialize the group in the mock client
+        let dummy_member = ServiceId("dummy".to_string());
+        client
+            .add_group_member(&group, &dummy_member)
+            .await
+            .unwrap();
+
+        let config = BotConfig::default();
+        let mut bot = StromaBot::new(client.clone(), freenet.clone(), config);
+        bot.group_manager = GroupManager::new(client.clone(), group.clone());
+
+        // Set up state with 2 disconnected clusters
+        // Cluster 1: {m1, m2}
+        // Cluster 2: {m3, m4}
+        let mut state = crate::freenet::trust_contract::TrustNetworkState::new();
+        let m1 = crate::freenet::contract::MemberHash::from_bytes(&[1; 32]);
+        let m2 = crate::freenet::contract::MemberHash::from_bytes(&[2; 32]);
+        let m3 = crate::freenet::contract::MemberHash::from_bytes(&[3; 32]);
+        let m4 = crate::freenet::contract::MemberHash::from_bytes(&[4; 32]);
+
+        state.members.insert(m1);
+        state.members.insert(m2);
+        state.members.insert(m3);
+        state.members.insert(m4);
+
+        // Cluster 1: m1 <-> m2
+        let mut vouchers1 = std::collections::HashSet::new();
+        vouchers1.insert(m2);
+        state.vouches.insert(m1, vouchers1);
+
+        // Cluster 2: m3 <-> m4
+        let mut vouchers3 = std::collections::HashSet::new();
+        vouchers3.insert(m4);
+        state.vouches.insert(m3, vouchers3);
+
+        // Verify no announcement has been sent yet
+        let sent = client.sent_group_messages(&group);
+        assert_eq!(sent.len(), 0, "No messages should be sent initially");
+
+        // Verify gap11_announcement_sent is false initially
+        assert!(!state.gap11_announcement_sent);
+
+        // Test that check_and_announce detects the 2 clusters and sends announcement
+        let announced = bot
+            .check_and_announce_cluster_formation(&state)
+            .await
+            .unwrap();
+
+        // Verify announcement was sent
+        assert!(
+            announced,
+            "Announcement should be sent when 2 clusters detected"
+        );
+
+        let sent = client.sent_group_messages(&group);
+        assert_eq!(sent.len(), 1, "One announcement should be sent");
+        assert!(
+            sent[0].contains("sub-communities"),
+            "Message should mention sub-communities"
+        );
+        assert!(
+            sent[0].contains("grandfathered"),
+            "Message should mention grandfathering"
+        );
+
+        // Test that the delta properly marks announcement as sent
+        let mut gap11_delta = crate::freenet::trust_contract::StateDelta::new();
+        gap11_delta = gap11_delta.mark_gap11_announced();
+
+        // Apply delta to state
+        state.apply_delta(&gap11_delta);
+
+        // Verify the flag is now set
+        assert!(
+            state.gap11_announcement_sent,
+            "GAP-11 flag should be set after applying delta"
+        );
+
+        // Verify subsequent check doesn't send another announcement
+        let announced_again = bot
+            .check_and_announce_cluster_formation(&state)
+            .await
+            .unwrap();
+        assert!(
+            !announced_again,
+            "Announcement should not be sent again when flag is set"
+        );
+
+        let sent = client.sent_group_messages(&group);
+        assert_eq!(sent.len(), 1, "Still only one announcement should exist");
     }
 
     #[tokio::test]
