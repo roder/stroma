@@ -41,7 +41,17 @@ if [ -n "$GASTOWN_SKIP_QUALITY_GATES" ]; then
 else
     # Run quality gates for all pushes
     while read local_ref local_sha remote_ref remote_sha; do
-        echo "🔍 [Gastown] Running quality gates for push to $(basename $remote_ref)..." >&2
+        branch_name=$(basename "$remote_ref")
+        
+        # Skip quality gates for beads-sync branch (automated sync, already validated)
+        if [ "$remote_ref" = "refs/heads/beads-sync" ]; then
+            echo "ℹ️  [Gastown] Skipping quality gates for beads-sync branch" >&2
+            # Re-emit the push details for the next section
+            echo "$local_ref $local_sha $remote_ref $remote_sha"
+            continue
+        fi
+        
+        echo "🔍 [Gastown] Running quality gates for push to $branch_name..." >&2
 
         # Detect if this is a Rust project
         if [ -f "Cargo.toml" ]; then
