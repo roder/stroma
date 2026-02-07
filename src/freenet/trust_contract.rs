@@ -351,7 +351,8 @@ impl TrustNetworkState {
             .extend(delta.audit_entries_added.iter().cloned());
 
         // GAP-11 announcement: logical OR (once sent, always sent)
-        self.gap11_announcement_sent = self.gap11_announcement_sent || delta.gap11_announcement_sent;
+        self.gap11_announcement_sent =
+            self.gap11_announcement_sent || delta.gap11_announcement_sent;
     }
 
     /// Merge two states (commutative).
