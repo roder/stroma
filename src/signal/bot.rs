@@ -11,6 +11,7 @@
 use super::{
     bootstrap::BootstrapManager,
     group::{EjectionTrigger, GroupManager},
+    member_resolver::MemberResolver,
     pm::{handle_pm_command, parse_command, Command},
     polls::PollManager,
     traits::*,
@@ -45,6 +46,7 @@ pub struct StromaBot<C: SignalClient, F: crate::freenet::FreenetClient> {
     poll_manager: PollManager<C>,
     bootstrap_manager: BootstrapManager<C>,
     vetting_sessions: VettingSessionManager,
+    member_resolver: MemberResolver,
 }
 
 impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
@@ -53,6 +55,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         let poll_manager = PollManager::new(client.clone(), config.group_id.clone());
         let bootstrap_manager = BootstrapManager::new(client.clone(), config.pepper.clone());
         let vetting_sessions = VettingSessionManager::new();
+        let member_resolver = MemberResolver::new(config.pepper.clone());
 
         Self {
             client,
@@ -62,6 +65,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             poll_manager,
             bootstrap_manager,
             vetting_sessions,
+            member_resolver,
         }
     }
 
@@ -152,16 +156,68 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     ) -> SignalResult<()> {
         use super::matchmaker::BlindMatchmaker;
         use crate::freenet::contract::MemberHash;
+        use crate::freenet::traits::FreenetError;
+        use crate::serialization::from_cbor;
+        use crate::signal::vetting::{
+            msg_assessment_request, msg_inviter_confirmation, msg_no_candidates,
+        };
 
-        // TODO Phase 1: Query Freenet to verify sender is a member
-        // For now, assume sender is valid member
+        // Phase 1: Query Freenet to verify sender is a member
+        let contract = match &self.config.contract_hash {
+            Some(hash) => *hash,
+            None => {
+                // Bootstrap phase: allow invitations before contract setup
+                return self
+                    .handle_invite_bootstrap(sender, username, context)
+                    .await;
+            }
+        };
+
+        let state_bytes = match self.freenet.get_state(&contract).await {
+            Ok(state) => state.data,
+            Err(FreenetError::ContractNotFound) => {
+                // Bootstrap phase
+                return self
+                    .handle_invite_bootstrap(sender, username, context)
+                    .await;
+            }
+            Err(e) => {
+                let response = format!("❌ Failed to query Freenet: {}", e);
+                return self.client.send_message(sender, &response).await;
+            }
+        };
+
+        let state: crate::freenet::trust_contract::TrustNetworkState = match from_cbor(&state_bytes)
+        {
+            Ok(s) => s,
+            Err(e) => {
+                let response = format!("❌ Failed to deserialize contract state: {}", e);
+                return self.client.send_message(sender, &response).await;
+            }
+        };
 
         // Hash inviter's ServiceId to MemberHash
         let inviter_hash = MemberHash::from_identity(&sender.0, &self.config.pepper);
 
-        // TODO Phase 1: Query Freenet state for previous flags (GAP-10)
-        let has_previous_flags = false;
-        let previous_flag_count = 0;
+        // Verify sender is a member
+        if !state.members.contains(&inviter_hash) {
+            let response = "❌ You must be a member to invite others.";
+            return self.client.send_message(sender, response).await;
+        }
+
+        // Phase 1: Query Freenet state for previous flags (GAP-10)
+        // Check if invitee already has history in the system
+        let invitee_hash = MemberHash::from_identity(username, &self.config.pepper);
+        let has_previous_flags = state.flags.contains_key(&invitee_hash);
+        let previous_flag_count = if has_previous_flags {
+            state
+                .flags
+                .get(&invitee_hash)
+                .map(|f| f.len() as u32)
+                .unwrap_or(0)
+        } else {
+            0
+        };
 
         // Create ephemeral vetting session
         let result = self.vetting_sessions.create_session(
@@ -179,38 +235,93 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             return self.client.send_message(sender, &response).await;
         }
 
-        // TODO Phase 1: Query Freenet state for cross-cluster matching
-        // For now, use a simple placeholder state
-        let state = crate::freenet::trust_contract::TrustNetworkState::new();
-
         // Select validator via Blind Matchmaker
         // TODO Phase 1: Track previously assigned validators for DVR optimization
         let excluded = std::collections::HashSet::new();
         let validator_hash = BlindMatchmaker::select_validator(&state, &inviter_hash, &excluded);
 
-        let response = if let Some(_validator) = validator_hash {
-            // TODO Phase 1: Resolve validator hash to ServiceId
-            // TODO Phase 1: Assign validator to session
-            // TODO Phase 1: Send PMs to invitee and validator
+        if let Some(validator) = validator_hash {
+            // Resolve validator MemberHash to ServiceId via MemberResolver
+            match self.member_resolver.get_service_id(&validator) {
+                Some(validator_id) => {
+                    // Assign validator to session
+                    if let Err(e) = self.vetting_sessions.assign_validator(
+                        username,
+                        validator,
+                        validator_id.clone(),
+                    ) {
+                        let response = format!("❌ Failed to assign validator: {}", e);
+                        return self.client.send_message(sender, &response).await;
+                    }
 
-            let context_str = context.unwrap_or("(no context provided)");
-            let gap10_warning = if has_previous_flags {
-                format!("\n\n⚠️ Note: {} has {} previous flags from a past membership. They'll need additional vouches to achieve positive standing.", username, previous_flag_count)
-            } else {
-                String::new()
-            };
+                    // Send PM to validator (assessor) with assessment request
+                    let assessment_msg = msg_assessment_request(
+                        username,
+                        context,
+                        has_previous_flags,
+                        previous_flag_count,
+                    );
+                    self.client
+                        .send_message(validator_id, &assessment_msg)
+                        .await?;
 
-            format!(
-                "✅ Invitation for {} recorded as first vouch.\n\nContext: {}{}\n\nI'm now reaching out to a member from a different cluster for the cross-cluster vouch. You'll be notified when the vetting process progresses.",
-                username, context_str, gap10_warning
-            )
+                    // Send confirmation PM to inviter (no assessor identity revealed)
+                    let inviter_msg = msg_inviter_confirmation(username);
+                    self.client.send_message(sender, &inviter_msg).await
+                }
+                None => {
+                    // Validator not in resolver - this shouldn't happen
+                    // Send stalled notification to inviter
+                    let stall_msg = msg_no_candidates(username);
+                    self.client.send_message(sender, &stall_msg).await
+                }
+            }
         } else {
-            format!(
+            // No validator found (bootstrap phase or no cross-cluster members)
+            // Bootstrap exception: Network is small
+            let response = format!(
                 "✅ Invitation for {} recorded as first vouch.\n\nContext: {}\n\nNote: Network is small (bootstrap phase). They'll join once they receive one more vouch from any member.",
-                username, context.unwrap_or("(no context provided)")
-            )
-        };
+                username,
+                context.unwrap_or("(no context provided)")
+            );
+            self.client.send_message(sender, &response).await
+        }
+    }
 
+    /// Handle /invite in bootstrap phase (before contract setup)
+    async fn handle_invite_bootstrap(
+        &mut self,
+        sender: &ServiceId,
+        username: &str,
+        context: Option<&str>,
+    ) -> SignalResult<()> {
+        use crate::freenet::contract::MemberHash;
+
+        // Hash inviter's ServiceId to MemberHash
+        let inviter_hash = MemberHash::from_identity(&sender.0, &self.config.pepper);
+
+        // Create ephemeral vetting session (bootstrap: no previous flags)
+        let result = self.vetting_sessions.create_session(
+            ServiceId(username.to_string()),
+            username.to_string(),
+            inviter_hash,
+            sender.clone(),
+            context.map(|s| s.to_string()),
+            false,
+            0,
+        );
+
+        if let Err(e) = result {
+            let response = format!("❌ Cannot invite {}: {}", username, e);
+            return self.client.send_message(sender, &response).await;
+        }
+
+        // Bootstrap phase: simple confirmation, no cross-cluster matching yet
+        let response = format!(
+            "✅ Invitation for {} recorded as first vouch.\n\nContext: {}\n\nNote: Network is small (bootstrap phase). They'll join once they receive one more vouch from any member.",
+            username,
+            context.unwrap_or("(no context provided)")
+        );
         self.client.send_message(sender, &response).await
     }
 
