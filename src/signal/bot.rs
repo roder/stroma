@@ -333,20 +333,234 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     ///
     /// Records second vouch and admits member if threshold met.
     async fn handle_vouch(&mut self, sender: &ServiceId, username: &str) -> SignalResult<()> {
-        // TODO Phase 1: Verify sender is a member
-        // TODO Phase 1: Hash sender's ServiceId to MemberHash
-        // TODO Phase 1: Check if vetting session exists for username
-        // TODO Phase 1: Record vouch in Freenet (AddVouch delta)
-        // TODO Phase 1: Check if threshold met (effective_vouches >= 2)
-        // TODO Phase 1: If threshold met, add to Signal group
-        // TODO Phase 1: Delete ephemeral vetting session
+        use crate::freenet::contract::MemberHash;
+        use crate::matchmaker::cluster_detection::detect_clusters;
+        use crate::signal::matchmaker::BlindMatchmaker;
+        use std::collections::BTreeSet;
 
-        let response = format!(
-            "✅ Vouch for {} recorded.\n\nTheir standing has been updated. If they've reached the 2-vouch threshold, they'll be automatically added to the Signal group.",
-            username
-        );
+        // 1. Hash sender's ServiceId to MemberHash
+        let voucher_hash = MemberHash::from_identity(&sender.0, &self.config.pepper);
 
-        self.client.send_message(sender, &response).await
+        // 2. Get current Freenet state
+        let contract = match &self.config.contract_hash {
+            Some(c) => c,
+            None => {
+                let response = "❌ Cannot process vouch: Freenet contract not configured.";
+                return self.client.send_message(sender, response).await;
+            }
+        };
+
+        let state_bytes =
+            self.freenet.get_state(contract).await.map_err(|e| {
+                SignalError::Protocol(format!("Failed to get Freenet state: {}", e))
+            })?;
+
+        let state: crate::freenet::trust_contract::TrustNetworkState =
+            crate::serialization::from_cbor(&state_bytes.data).map_err(|e| {
+                SignalError::Protocol(format!("Failed to deserialize trust state: {}", e))
+            })?;
+
+        // 3. Verify sender is an active member
+        if !state.members.contains(&voucher_hash) {
+            let response = "❌ Only active members can vouch for others.";
+            return self.client.send_message(sender, response).await;
+        }
+
+        // 4. Check if vetting session exists for username and clone needed data
+        let (invitee_id, inviter_hash, inviter_id) =
+            match self.vetting_sessions.get_session(username) {
+                Some(s) => (s.invitee_id.clone(), s.inviter, s.inviter_id.clone()),
+                None => {
+                    let response = format!(
+                    "❌ No active vetting session for {}. They must be invited first with /invite.",
+                    username
+                );
+                    return self.client.send_message(sender, &response).await;
+                }
+            };
+
+        let invitee_hash = MemberHash::from_identity(&invitee_id.0, &self.config.pepper);
+
+        // 5. Verify sender isn't the inviter (can't vouch twice)
+        if voucher_hash == inviter_hash {
+            let response = format!(
+                "❌ You already vouched for {} when you invited them. A second vouch from a different member is required.",
+                username
+            );
+            return self.client.send_message(sender, &response).await;
+        }
+
+        // 6. Verify cross-cluster requirement (if network has ≥2 clusters)
+        let cluster_result = detect_clusters(&state);
+        let cross_cluster_required = cluster_result.cluster_count >= 2;
+
+        if cross_cluster_required {
+            // Check if voucher is from different cluster than inviter
+            let is_cross_cluster =
+                BlindMatchmaker::are_cross_cluster(&state, &inviter_hash, &voucher_hash);
+
+            if !is_cross_cluster {
+                let response = format!(
+                    "❌ Cross-cluster vouching required: {} was invited by someone in your cluster. A vouch from a member in a different cluster is needed.",
+                    username
+                );
+                return self.client.send_message(sender, &response).await;
+            }
+        }
+
+        // 7. Record vouch in Freenet (AddVouch delta)
+        let mut delta = crate::freenet::trust_contract::StateDelta::new();
+        delta = delta.add_vouch(voucher_hash, invitee_hash);
+
+        let delta_bytes = crate::serialization::to_cbor(&delta).map_err(|e| {
+            SignalError::Protocol(format!("Failed to serialize vouch delta: {}", e))
+        })?;
+
+        let contract_delta = crate::freenet::traits::ContractDelta { data: delta_bytes };
+        self.freenet
+            .apply_delta(contract, &contract_delta)
+            .await
+            .map_err(|e| {
+                SignalError::Protocol(format!("Failed to apply vouch delta to Freenet: {}", e))
+            })?;
+
+        // 8. Get updated state to check admission requirements
+        let updated_state_bytes = self.freenet.get_state(contract).await.map_err(|e| {
+            SignalError::Protocol(format!("Failed to get updated Freenet state: {}", e))
+        })?;
+
+        let updated_state: crate::freenet::trust_contract::TrustNetworkState =
+            crate::serialization::from_cbor(&updated_state_bytes.data).map_err(|e| {
+                SignalError::Protocol(format!("Failed to deserialize updated trust state: {}", e))
+            })?;
+
+        // 9. Check ALL admission requirements
+        let vouchers = updated_state.vouchers_for(&invitee_hash);
+        let flaggers = updated_state.flaggers_for(&invitee_hash);
+
+        // Calculate effective vouches
+        let voucher_set: std::collections::HashSet<_> = vouchers.iter().copied().collect();
+        let flagger_set: std::collections::HashSet<_> = flaggers.iter().copied().collect();
+        let voucher_flaggers: std::collections::HashSet<_> =
+            voucher_set.intersection(&flagger_set).copied().collect();
+
+        let all_vouchers = vouchers.len() as u32;
+        let voucher_flagger_count = voucher_flaggers.len() as u32;
+        let effective_vouches = all_vouchers - voucher_flagger_count;
+
+        // Calculate standing
+        let standing = updated_state
+            .calculate_standing(&invitee_hash)
+            .unwrap_or(-1000); // Default to very negative if not found
+
+        let min_threshold = self.config.min_vouch_threshold;
+
+        // Check if ALL requirements met
+        let requirements_met = effective_vouches >= min_threshold && standing >= 0;
+
+        if requirements_met {
+            // 10. Generate STARK proof for admission
+            let voucher_btree: BTreeSet<_> = vouchers
+                .into_iter()
+                .map(|h| {
+                    let bytes: [u8; 32] = h
+                        .as_bytes()
+                        .try_into()
+                        .expect("MemberHash should be 32 bytes");
+                    crate::stark::types::MemberHash(bytes)
+                })
+                .collect();
+            let flagger_btree: BTreeSet<_> = flaggers
+                .into_iter()
+                .map(|h| {
+                    let bytes: [u8; 32] = h
+                        .as_bytes()
+                        .try_into()
+                        .expect("MemberHash should be 32 bytes");
+                    crate::stark::types::MemberHash(bytes)
+                })
+                .collect();
+
+            let invitee_bytes: [u8; 32] = invitee_hash
+                .as_bytes()
+                .try_into()
+                .expect("MemberHash should be 32 bytes");
+            let proof_result = self.verify_admission_proof(
+                crate::stark::types::MemberHash(invitee_bytes),
+                voucher_btree,
+                flagger_btree,
+            );
+
+            if let Err(e) = proof_result {
+                let response = format!("❌ Admission proof verification failed: {}", e);
+                return self.client.send_message(sender, &response).await;
+            }
+
+            // 11. Add to Signal group
+            self.group_manager.add_member(&invitee_id).await?;
+
+            // 12. Add to Freenet as active member
+            let mut member_delta = crate::freenet::trust_contract::StateDelta::new();
+            member_delta = member_delta.add_member(invitee_hash);
+
+            let member_delta_bytes = crate::serialization::to_cbor(&member_delta).map_err(|e| {
+                SignalError::Protocol(format!("Failed to serialize member delta: {}", e))
+            })?;
+
+            let member_contract_delta = crate::freenet::traits::ContractDelta {
+                data: member_delta_bytes,
+            };
+            self.freenet
+                .apply_delta(contract, &member_contract_delta)
+                .await
+                .map_err(|e| {
+                    SignalError::Protocol(format!("Failed to add member to Freenet: {}", e))
+                })?;
+
+            // 13. Announce admission
+            let member_hash_str = format!("{:x}", invitee_hash.as_bytes()[0]);
+            self.group_manager
+                .announce_admission(&member_hash_str)
+                .await?;
+
+            // 14. Delete ephemeral vetting session
+            let _session = self.vetting_sessions.admit(username).ok();
+
+            // 15. Notify voucher (sender)
+            let response = format!(
+                "✅ Your vouch for {} has been recorded. They now have {} effective vouch(es) and met all requirements.\n\n🎉 {} has been admitted to the group!",
+                username, effective_vouches, username
+            );
+            self.client.send_message(sender, &response).await?;
+
+            // 16. Notify inviter
+            let inviter_response = format!(
+                "🎉 Great news! {} has been admitted to the group after receiving the required vouches.",
+                username
+            );
+            self.client
+                .send_message(&inviter_id, &inviter_response)
+                .await?;
+
+            Ok(())
+        } else {
+            // 17. Requirements not met - notify voucher
+            let vouches_needed = min_threshold.saturating_sub(effective_vouches);
+
+            let response = if standing < 0 {
+                format!(
+                    "✅ Your vouch for {} has been recorded.\n\nHowever, they currently have negative standing ({}). They need more vouches to overcome flags before admission.",
+                    username, standing
+                )
+            } else {
+                format!(
+                    "✅ Your vouch for {} has been recorded.\n\nThey now have {} effective vouch(es). {} more vouch(es) needed to reach the {}-vouch threshold.",
+                    username, effective_vouches, vouches_needed, min_threshold
+                )
+            };
+
+            self.client.send_message(sender, &response).await
+        }
     }
 
     /// Handle /reject-intro command
