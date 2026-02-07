@@ -501,3 +501,181 @@ async fn test_deterministic_holder_selection() {
     assert_eq!(recovered1.state, recovered2.state);
     assert_eq!(recovered1.num_chunks, recovered2.num_chunks);
 }
+
+// ============================================================================
+// Phase 2.5 Integration Test Scenarios
+// ============================================================================
+
+/// Integration test: persistence-basic (happy path)
+///
+/// Tests the complete persistence lifecycle with all holders responsive:
+/// 1. Bot distributes state chunks to holders
+/// 2. Bot crashes (loses local state)
+/// 3. Bot recovers state from distributed holders
+///
+/// This validates the core persistence workflow when the network is healthy.
+#[tokio::test]
+async fn test_persistence_basic() {
+    let owner = "test-bot-persistence-basic";
+    let aci_key = test_aci_key();
+    // Use a substantial state to ensure multiple chunks
+    let original_state = b"Critical bot state that must survive crashes and be recoverable from distributed network.";
+
+    // Use the same lifecycle helper as existing tests for consistency
+    let recovered = bot_lifecycle_with_crash(owner, original_state, &aci_key)
+        .await
+        .expect("Recovery should succeed with all holders responsive");
+
+    // === Verify successful recovery ===
+
+    // State matches original
+    assert_eq!(
+        recovered.state, original_state,
+        "Recovered state must match original exactly"
+    );
+
+    assert_eq!(recovered.owner, owner, "Owner should match");
+
+    // All chunks recovered
+    assert_eq!(
+        recovered.stats.chunks_recovered, recovered.stats.total_chunks,
+        "All chunks should be recovered in happy path"
+    );
+
+    // No fallback needed (all primary holders responsive)
+    assert_eq!(
+        recovered.stats.chunks_with_fallback, 0,
+        "No fallback should be needed when all holders responsive"
+    );
+
+    // No failed attempts
+    assert_eq!(
+        recovered.stats.failed_fetch_attempts, 0,
+        "No fetch failures in happy path"
+    );
+
+    // Verify recovery metrics
+    assert!(
+        recovered.stats.total_fetch_attempts >= recovered.stats.chunks_recovered as u32,
+        "Fetch attempts should be at least equal to chunks recovered"
+    );
+}
+
+/// Integration test: persistence-degraded (holder failures)
+///
+/// Tests persistence recovery when primary holders fail:
+/// 1. Bot distributes state with redundancy (2 replicas per chunk)
+/// 2. Primary holders become unavailable
+/// 3. Bot recovers using fallback to secondary holders
+/// 4. Verifies health state transitions during degraded recovery
+///
+/// This validates the network's resilience to holder failures.
+#[tokio::test]
+async fn test_persistence_degraded() {
+    let owner = "test-bot-persistence-degraded";
+    let aci_key = test_aci_key();
+    // Use moderate-sized state to test holder failure handling
+    let original_state: &[u8] = b"State that requires fallback recovery when primary holders fail";
+
+    // === PHASE 1: Distribute state with redundancy ===
+
+    let chunks = encrypt_and_chunk(owner, original_state, &aci_key).unwrap();
+
+    let registry = create_test_registry(owner, chunks.len() as u32);
+    let storage = MockChunkStorage::new();
+    let all_bots: Vec<String> = registry
+        .discover_bots()
+        .into_iter()
+        .map(|e| e.contract_hash)
+        .collect();
+
+    assert!(
+        all_bots.len() >= 5,
+        "Need sufficient holders for redundancy"
+    );
+
+    // Distribute chunks with 2 replicas and mark primary holders unavailable
+    let mut failed_primaries = 0;
+    for chunk in &chunks {
+        let holders = compute_chunk_holders(owner, chunk.index, &all_bots, registry.epoch(), 2);
+        assert!(
+            holders.len() >= 2,
+            "Each chunk needs at least 2 replicas for fallback"
+        );
+
+        // Store chunk with all holders (primary and secondary)
+        for holder in &holders {
+            storage.store_chunk(holder, chunk.clone()).await;
+        }
+
+        // === PHASE 2: Simulate primary holder failure for each chunk ===
+        // Mark first holder (primary) as unavailable to force fallback
+        if !holders.is_empty() {
+            storage.mark_holder_unavailable(&holders[0]).await;
+            failed_primaries += 1;
+        }
+    }
+
+    assert!(
+        failed_primaries > 0,
+        "Should have simulated holder failures"
+    );
+
+    // === PHASE 3: Recover with fallback to secondaries ===
+
+    let registry_fetcher = MockRegistryFetcher::new(registry);
+    let config = RecoveryConfig::default();
+
+    let recovered = recover_state(owner, &aci_key, &registry_fetcher, &storage, &config)
+        .await
+        .expect("Recovery should succeed via fallback despite holder failures");
+
+    // === Verify degraded recovery behavior ===
+
+    // State recovered correctly despite failures
+    assert_eq!(
+        recovered.state, original_state,
+        "State must be recovered correctly even with holder failures"
+    );
+
+    assert_eq!(recovered.owner, owner, "Owner should match");
+
+    // All chunks recovered via fallback
+    assert_eq!(
+        recovered.stats.chunks_recovered, recovered.stats.total_chunks,
+        "All chunks should be recovered via fallback"
+    );
+
+    // Fallback was used (health degradation detected)
+    assert!(
+        recovered.stats.chunks_with_fallback > 0,
+        "Fallback should be used when primary holders unavailable"
+    );
+
+    // Failed fetch attempts recorded (health state transition)
+    assert!(
+        recovered.stats.failed_fetch_attempts > 0,
+        "Failed attempts should be tracked for health monitoring"
+    );
+
+    // Verify degraded but functional state
+    assert!(
+        recovered.stats.failed_fetch_attempts >= failed_primaries as u32,
+        "Should have at least one failed attempt per unavailable primary"
+    );
+
+    // Health state: degraded but functional
+    // Recovery succeeded despite needing fallback for every chunk
+    let successful_rate =
+        recovered.stats.chunks_recovered as f64 / recovered.stats.total_chunks as f64;
+    assert_eq!(
+        successful_rate, 1.0,
+        "100% of chunks recovered despite degraded conditions"
+    );
+
+    // Verify resilience: system tolerates holder failures gracefully
+    assert!(
+        recovered.stats.total_fetch_attempts > recovered.stats.chunks_recovered as u32,
+        "Multiple fetch attempts needed due to failures"
+    );
+}
