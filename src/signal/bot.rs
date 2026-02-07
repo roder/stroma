@@ -243,9 +243,25 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             return self.client.send_message(sender, &response).await;
         }
 
-        // TODO Phase 1: Query Freenet state for cross-cluster matching
-        // For now, use a simple placeholder state
-        let state = crate::freenet::trust_contract::TrustNetworkState::new();
+        // Record first vouch in Freenet (inviter vouching for invitee)
+        let mut delta = crate::freenet::trust_contract::StateDelta::new();
+        delta = delta.add_vouch(inviter_hash, invitee_hash);
+
+        let delta_bytes = match crate::serialization::to_cbor(&delta) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                let response = format!("❌ Failed to serialize vouch delta: {}", e);
+                return self.client.send_message(sender, &response).await;
+            }
+        };
+
+        let contract_delta = crate::freenet::traits::ContractDelta { data: delta_bytes };
+        if let Err(e) = self.freenet.apply_delta(&contract, &contract_delta).await {
+            let response = format!("❌ Failed to apply vouch delta to Freenet: {}", e);
+            return self.client.send_message(sender, &response).await;
+        }
+
+        // Use actual Freenet state for cross-cluster matching (already queried above)
 
         // Select assessor via Blind Matchmaker
         // TODO Phase 1: Track previously assigned assessors for DVR optimization
