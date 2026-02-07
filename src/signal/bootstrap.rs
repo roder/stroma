@@ -12,9 +12,11 @@
 
 use super::traits::{GroupId, ServiceId, SignalClient, SignalError, SignalResult};
 use crate::freenet::{
-    contract::{MemberHash, TrustContract, TrustDelta},
+    contract::MemberHash,
     traits::{ContractHash, FreenetClient},
+    trust_contract::{StateDelta, TrustNetworkState},
 };
+use crate::gatekeeper::audit_trail::AuditEntry;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
@@ -222,33 +224,53 @@ impl<C: SignalClient> BootstrapManager<C> {
         // when integrating with actual Signal client
 
         // 2. Create Freenet contract with triangle vouching
-        let mut contract = TrustContract::new();
+        let mut state = TrustNetworkState::new();
+
+        // Build delta with all changes
+        let mut delta = StateDelta::new();
 
         // Add all 3 members
         for member in &seed_hashes {
-            contract.apply_delta(&TrustDelta::AddMember { member: *member });
+            delta.members_added.push(*member);
         }
 
         // Create full triangle (each vouches for the other two)
         for i in 0..3 {
             for j in 0..3 {
                 if i != j {
-                    contract.apply_delta(&TrustDelta::AddVouch {
-                        voucher: seed_hashes[i],
-                        vouchee: seed_hashes[j],
-                    });
+                    delta.vouches_added.push((seed_hashes[i], seed_hashes[j]));
                 }
             }
         }
 
+        // Add bootstrap audit entry (GAP-09)
+        // Use first seed member as the actor (bootstrap initiator)
+        let bootstrap_actor = seed_hashes[0];
+        let seed_hashes_display = seed_hashes
+            .iter()
+            .map(|h| hex::encode(&h.as_bytes()[..4]))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let audit_entry = AuditEntry::bootstrap(
+            bootstrap_actor,
+            format!(
+                "Group '{}' bootstrapped with 3 seed members: {}…",
+                group_name, seed_hashes_display
+            ),
+        );
+        delta.audit_entries_added.push(audit_entry);
+
+        // Apply delta to state
+        state.apply_delta(&delta);
+
         // 3. Serialize and deploy contract to Freenet (using CBOR for binary-safe serialization)
-        let mut contract_bytes = Vec::new();
-        ciborium::into_writer(&contract, &mut contract_bytes)
-            .map_err(|e| SignalError::Protocol(format!("Failed to serialize contract: {}", e)))?;
+        let state_bytes = state
+            .to_bytes()
+            .map_err(|e| SignalError::Protocol(format!("Failed to serialize state: {}", e)))?;
 
         // Deploy contract (this will return the contract hash)
         let contract_hash = freenet
-            .deploy_contract(&[], &contract_bytes)
+            .deploy_contract(&[], &state_bytes)
             .await
             .map_err(|e| SignalError::Protocol(format!("Failed to deploy contract: {}", e)))?;
 
@@ -521,5 +543,59 @@ mod tests {
             .filter(|m| m.content.contains("is now live"))
             .collect();
         assert_eq!(group_messages.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_bootstrap_creates_audit_entry() {
+        use crate::gatekeeper::audit_trail::ActionType;
+        use crate::serialization::from_cbor;
+
+        let signal = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
+        let mut manager = BootstrapManager::new(signal.clone(), test_pepper());
+
+        let initiator = ServiceId("alice".to_string());
+        manager
+            .handle_create_group(&initiator, "Test Group".to_string())
+            .await
+            .unwrap();
+
+        manager
+            .handle_add_seed(&freenet, &initiator, "@bob")
+            .await
+            .unwrap();
+        manager
+            .handle_add_seed(&freenet, &initiator, "@charlie")
+            .await
+            .unwrap();
+
+        // Get the deployed contract from Freenet
+        let contract_hash = match manager.state() {
+            BootstrapState::Complete { contract_hash, .. } => *contract_hash,
+            _ => panic!("Expected Complete state"),
+        };
+
+        // Query Freenet for the contract state
+        let state_result = freenet.get_state(&contract_hash).await;
+        assert!(state_result.is_ok());
+
+        let state_bytes = state_result.unwrap().data;
+        let state: crate::freenet::trust_contract::TrustNetworkState =
+            from_cbor(&state_bytes).unwrap();
+
+        // Verify audit log contains bootstrap entry
+        assert!(!state.audit_log.is_empty());
+        let bootstrap_entries: Vec<_> = state
+            .audit_log
+            .iter()
+            .filter(|e| e.action_type == ActionType::Bootstrap)
+            .collect();
+        assert_eq!(bootstrap_entries.len(), 1);
+
+        // Verify bootstrap entry contains group name
+        let entry = bootstrap_entries[0];
+        assert!(entry.details.contains("Test Group"));
+        assert!(entry.details.contains("bootstrapped"));
+        assert!(entry.details.contains("3 seed members"));
     }
 }
