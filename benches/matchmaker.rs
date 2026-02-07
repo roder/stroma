@@ -98,36 +98,64 @@ fn create_single_cluster_network(size: usize) -> TrustNetworkState {
 fn benchmark_matchmaker_small_network(c: &mut Criterion) {
     let state = create_clustered_network(3, 5);
     let inviter = test_member(0);
+    let excluded = HashSet::new();
 
     c.bench_function("matchmaker_select_3x5", |b| {
-        b.iter(|| BlindMatchmaker::select_validator(black_box(&state), black_box(&inviter)));
+        b.iter(|| {
+            BlindMatchmaker::select_validator(
+                black_box(&state),
+                black_box(&inviter),
+                black_box(&excluded),
+            )
+        });
     });
 }
 
 fn benchmark_matchmaker_medium_network(c: &mut Criterion) {
     let state = create_clustered_network(5, 10);
     let inviter = test_member(0);
+    let excluded = HashSet::new();
 
     c.bench_function("matchmaker_select_5x10", |b| {
-        b.iter(|| BlindMatchmaker::select_validator(black_box(&state), black_box(&inviter)));
+        b.iter(|| {
+            BlindMatchmaker::select_validator(
+                black_box(&state),
+                black_box(&inviter),
+                black_box(&excluded),
+            )
+        });
     });
 }
 
 fn benchmark_matchmaker_large_network(c: &mut Criterion) {
     let state = create_clustered_network(10, 10);
     let inviter = test_member(0);
+    let excluded = HashSet::new();
 
     c.bench_function("matchmaker_select_10x10", |b| {
-        b.iter(|| BlindMatchmaker::select_validator(black_box(&state), black_box(&inviter)));
+        b.iter(|| {
+            BlindMatchmaker::select_validator(
+                black_box(&state),
+                black_box(&inviter),
+                black_box(&excluded),
+            )
+        });
     });
 }
 
 fn benchmark_matchmaker_single_cluster(c: &mut Criterion) {
     let state = create_single_cluster_network(50);
     let inviter = test_member(0);
+    let excluded = HashSet::new();
 
     c.bench_function("matchmaker_select_single_cluster_50", |b| {
-        b.iter(|| BlindMatchmaker::select_validator(black_box(&state), black_box(&inviter)));
+        b.iter(|| {
+            BlindMatchmaker::select_validator(
+                black_box(&state),
+                black_box(&inviter),
+                black_box(&excluded),
+            )
+        });
     });
 }
 
@@ -153,8 +181,15 @@ fn benchmark_matchmaker_scaling(c: &mut Criterion) {
     for size in [10, 25, 50, 75, 100].iter() {
         let state = create_single_cluster_network(*size);
         let inviter = test_member(0);
+        let excluded = HashSet::new();
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, _| {
-            b.iter(|| BlindMatchmaker::select_validator(black_box(&state), black_box(&inviter)));
+            b.iter(|| {
+                BlindMatchmaker::select_validator(
+                    black_box(&state),
+                    black_box(&inviter),
+                    black_box(&excluded),
+                )
+            });
         });
     }
 
