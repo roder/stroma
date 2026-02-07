@@ -346,9 +346,10 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             }
         };
 
-        let state_bytes = self.freenet.get_state(contract).await.map_err(|e| {
-            SignalError::Protocol(format!("Failed to get Freenet state: {}", e))
-        })?;
+        let state_bytes =
+            self.freenet.get_state(contract).await.map_err(|e| {
+                SignalError::Protocol(format!("Failed to get Freenet state: {}", e))
+            })?;
 
         let state: crate::freenet::trust_contract::TrustNetworkState =
             crate::serialization::from_cbor(&state_bytes.data).map_err(|e| {
@@ -362,16 +363,17 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         }
 
         // 4. Check if vetting session exists for username and clone needed data
-        let (invitee_id, inviter_hash, inviter_id) = match self.vetting_sessions.get_session(username) {
-            Some(s) => (s.invitee_id.clone(), s.inviter, s.inviter_id.clone()),
-            None => {
-                let response = format!(
+        let (invitee_id, inviter_hash, inviter_id) =
+            match self.vetting_sessions.get_session(username) {
+                Some(s) => (s.invitee_id.clone(), s.inviter, s.inviter_id.clone()),
+                None => {
+                    let response = format!(
                     "❌ No active vetting session for {}. They must be invited first with /invite.",
                     username
                 );
-                return self.client.send_message(sender, &response).await;
-            }
-        };
+                    return self.client.send_message(sender, &response).await;
+                }
+            };
 
         let invitee_hash = MemberHash::from_identity(&invitee_id.0, &self.config.pepper);
 
@@ -454,16 +456,31 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
         if requirements_met {
             // 10. Generate STARK proof for admission
-            let voucher_btree: BTreeSet<_> = vouchers.into_iter().map(|h| {
-                let bytes: [u8; 32] = h.as_bytes().try_into().expect("MemberHash should be 32 bytes");
-                crate::stark::types::MemberHash(bytes)
-            }).collect();
-            let flagger_btree: BTreeSet<_> = flaggers.into_iter().map(|h| {
-                let bytes: [u8; 32] = h.as_bytes().try_into().expect("MemberHash should be 32 bytes");
-                crate::stark::types::MemberHash(bytes)
-            }).collect();
+            let voucher_btree: BTreeSet<_> = vouchers
+                .into_iter()
+                .map(|h| {
+                    let bytes: [u8; 32] = h
+                        .as_bytes()
+                        .try_into()
+                        .expect("MemberHash should be 32 bytes");
+                    crate::stark::types::MemberHash(bytes)
+                })
+                .collect();
+            let flagger_btree: BTreeSet<_> = flaggers
+                .into_iter()
+                .map(|h| {
+                    let bytes: [u8; 32] = h
+                        .as_bytes()
+                        .try_into()
+                        .expect("MemberHash should be 32 bytes");
+                    crate::stark::types::MemberHash(bytes)
+                })
+                .collect();
 
-            let invitee_bytes: [u8; 32] = invitee_hash.as_bytes().try_into().expect("MemberHash should be 32 bytes");
+            let invitee_bytes: [u8; 32] = invitee_hash
+                .as_bytes()
+                .try_into()
+                .expect("MemberHash should be 32 bytes");
             let proof_result = self.verify_admission_proof(
                 crate::stark::types::MemberHash(invitee_bytes),
                 voucher_btree,
@@ -471,10 +488,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             );
 
             if let Err(e) = proof_result {
-                let response = format!(
-                    "❌ Admission proof verification failed: {}",
-                    e
-                );
+                let response = format!("❌ Admission proof verification failed: {}", e);
                 return self.client.send_message(sender, &response).await;
             }
 
@@ -496,10 +510,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                 .apply_delta(contract, &member_contract_delta)
                 .await
                 .map_err(|e| {
-                    SignalError::Protocol(format!(
-                        "Failed to add member to Freenet: {}",
-                        e
-                    ))
+                    SignalError::Protocol(format!("Failed to add member to Freenet: {}", e))
                 })?;
 
             // 13. Announce admission
