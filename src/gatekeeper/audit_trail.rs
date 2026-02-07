@@ -54,6 +54,17 @@ impl AuditEntry {
             .expect("System clock is before UNIX epoch")
             .as_secs();
 
+        Self::with_timestamp(timestamp, actor, action_type, details)
+    }
+
+    /// Create a new audit entry with explicit timestamp.
+    /// Used internally and for testing.
+    pub fn with_timestamp(
+        timestamp: u64,
+        actor: MemberHash,
+        action_type: ActionType,
+        details: String,
+    ) -> Self {
         Self {
             timestamp,
             actor,
@@ -307,5 +318,173 @@ mod tests {
         let entries: Vec<AuditEntry> = vec![];
         let formatted = format_audit_log(&entries);
         assert_eq!(formatted, "No audit entries found.");
+    }
+
+    #[test]
+    fn test_timestamp_iso_future() {
+        let actor = mock_member_hash(1);
+        // Create entry with future timestamp (simulating clock skew)
+        let entry = AuditEntry::with_timestamp(
+            u64::MAX,
+            actor,
+            ActionType::ConfigChange,
+            "Test".to_string(),
+        );
+
+        let formatted = entry.timestamp_iso();
+        assert!(formatted.starts_with("Unix: "));
+        assert!(formatted.contains(&format!("{}", u64::MAX)));
+    }
+
+    #[test]
+    fn test_timestamp_iso_ranges() {
+        let actor = mock_member_hash(1);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // Test "Just now" (0 seconds)
+        let entry =
+            AuditEntry::with_timestamp(now, actor, ActionType::ConfigChange, "Test".to_string());
+        assert_eq!(entry.timestamp_iso(), "Just now");
+
+        // Test minutes range (61-3600 seconds)
+        let entry = AuditEntry::with_timestamp(
+            now - 120,
+            actor,
+            ActionType::ConfigChange,
+            "Test".to_string(),
+        );
+        let formatted = entry.timestamp_iso();
+        assert!(formatted.contains("min ago"));
+
+        // Test hours range (3601-86400 seconds)
+        let entry = AuditEntry::with_timestamp(
+            now - 7200,
+            actor,
+            ActionType::ConfigChange,
+            "Test".to_string(),
+        );
+        let formatted = entry.timestamp_iso();
+        assert!(formatted.contains("hours ago"));
+
+        // Test days range (86401-604800 seconds)
+        let entry = AuditEntry::with_timestamp(
+            now - 172800,
+            actor,
+            ActionType::ConfigChange,
+            "Test".to_string(),
+        );
+        let formatted = entry.timestamp_iso();
+        assert!(formatted.contains("days ago"));
+
+        // Test old entries (> 604800 seconds)
+        let entry = AuditEntry::with_timestamp(
+            now - 700000,
+            actor,
+            ActionType::ConfigChange,
+            "Test".to_string(),
+        );
+        let formatted = entry.timestamp_iso();
+        assert!(formatted.starts_with("Unix: "));
+    }
+
+    #[test]
+    fn test_action_type_other() {
+        let actor = mock_member_hash(1);
+        let entry = AuditEntry::new(
+            actor,
+            ActionType::Other("Custom Action".to_string()),
+            "Details".to_string(),
+        );
+
+        assert_eq!(entry.action_type_display(), "Custom Action");
+    }
+
+    #[test]
+    fn test_audit_query_timestamp_filter() {
+        let actor = mock_member_hash(1);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let entry1 = AuditEntry::with_timestamp(
+            now - 1000,
+            actor,
+            ActionType::ConfigChange,
+            "Old change".to_string(),
+        );
+
+        let entry2 = AuditEntry::with_timestamp(
+            now - 100,
+            actor,
+            ActionType::Restart,
+            "Recent restart".to_string(),
+        );
+
+        let entries = vec![entry1.clone(), entry2.clone()];
+
+        // Filter to only show entries after (now - 500)
+        let query = AuditQuery {
+            after_timestamp: Some(now - 500),
+            ..Default::default()
+        };
+
+        let result = query_audit_log(&entries, &query);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].details, "Recent restart");
+    }
+
+    #[test]
+    fn test_audit_query_combined_filters() {
+        let actor1 = mock_member_hash(1);
+        let actor2 = mock_member_hash(2);
+
+        let entries = vec![
+            AuditEntry::config_change(actor1, "Change by actor1".to_string()),
+            AuditEntry::config_change(actor2, "Change by actor2".to_string()),
+            AuditEntry::restart(actor1, "Restart by actor1".to_string()),
+            AuditEntry::restart(actor2, "Restart by actor2".to_string()),
+        ];
+
+        // Filter by both actor and action type
+        let query = AuditQuery {
+            action_type: Some(ActionType::ConfigChange),
+            actor: Some(actor1),
+            ..Default::default()
+        };
+
+        let result = query_audit_log(&entries, &query);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].details, "Change by actor1");
+        assert_eq!(result[0].actor, actor1);
+        assert_eq!(result[0].action_type, ActionType::ConfigChange);
+    }
+
+    #[test]
+    fn test_audit_entry_helper_methods() {
+        let actor = mock_member_hash(1);
+
+        // Test config_change helper
+        let entry = AuditEntry::config_change(actor, "Config test".to_string());
+        assert_eq!(entry.action_type, ActionType::ConfigChange);
+        assert_eq!(entry.details, "Config test");
+
+        // Test restart helper
+        let entry = AuditEntry::restart(actor, "Restart test".to_string());
+        assert_eq!(entry.action_type, ActionType::Restart);
+        assert_eq!(entry.details, "Restart test");
+
+        // Test manual_intervention helper
+        let entry = AuditEntry::manual_intervention(actor, "Intervention test".to_string());
+        assert_eq!(entry.action_type, ActionType::ManualIntervention);
+        assert_eq!(entry.details, "Intervention test");
+
+        // Test bootstrap helper
+        let entry = AuditEntry::bootstrap(actor, "Bootstrap test".to_string());
+        assert_eq!(entry.action_type, ActionType::Bootstrap);
+        assert_eq!(entry.details, "Bootstrap test");
     }
 }
