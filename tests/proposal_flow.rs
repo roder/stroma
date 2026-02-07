@@ -324,7 +324,7 @@ async fn test_proposal_execution_end_to_end() {
         .get_vote_aggregate(poll_id)
         .expect("No aggregate found");
 
-    let outcome = poll_manager.check_poll_outcome(poll_id, &aggregate);
+    let outcome = poll_manager.check_poll_outcome(poll_id, aggregate);
     assert!(outcome.is_some(), "Outcome should be available");
 
     let outcome = outcome.unwrap();
