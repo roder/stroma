@@ -238,9 +238,7 @@ impl<C: SignalClient> BootstrapManager<C> {
         for i in 0..3 {
             for j in 0..3 {
                 if i != j {
-                    delta
-                        .vouches_added
-                        .push((seed_hashes[i], seed_hashes[j]));
+                    delta.vouches_added.push((seed_hashes[i], seed_hashes[j]));
                 }
             }
         }
