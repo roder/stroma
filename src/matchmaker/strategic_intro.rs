@@ -388,9 +388,10 @@ mod tests {
 
         // Create a bridge that needs a third vouch
         let bridge = member_hash(1);
-        state
-            .vouches
-            .insert(bridge, [member_hash(2), member_hash(3)].into_iter().collect());
+        state.vouches.insert(
+            bridge,
+            [member_hash(2), member_hash(3)].into_iter().collect(),
+        );
 
         // Create some Validators in the same cluster
         let v1 = member_hash(4);
@@ -520,9 +521,10 @@ mod tests {
         );
 
         // Non-Validator (only 2 vouches)
-        state
-            .vouches
-            .insert(member_hash(9), [member_hash(2), member_hash(3)].into_iter().collect());
+        state.vouches.insert(
+            member_hash(9),
+            [member_hash(2), member_hash(3)].into_iter().collect(),
+        );
 
         let graph = TrustGraph::from_state(&state);
         let validators = get_distinct_validators(&graph);
@@ -565,9 +567,10 @@ mod tests {
 
         // Target bridge in cluster 1
         let target = member_hash(10);
-        state
-            .vouches
-            .insert(target, [member_hash(2), member_hash(3)].into_iter().collect());
+        state.vouches.insert(
+            target,
+            [member_hash(2), member_hash(3)].into_iter().collect(),
+        );
 
         let mut graph = TrustGraph::from_state(&state);
         detect_clusters(&mut graph);
@@ -575,7 +578,8 @@ mod tests {
         let target_cluster = graph.cluster_id(&target);
         let used_vouchers = HashSet::new();
 
-        let voucher = find_unused_cross_cluster_voucher(&target, target_cluster, &used_vouchers, &graph);
+        let voucher =
+            find_unused_cross_cluster_voucher(&target, target_cluster, &used_vouchers, &graph);
 
         // Should find a Validator from cluster 2
         if let Some(v) = voucher {

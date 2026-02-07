@@ -365,7 +365,9 @@ mod tests {
         state.members.insert(carol);
 
         // Bob and Carol vouch for Alice
-        state.vouches.insert(alice, [bob, carol].into_iter().collect());
+        state
+            .vouches
+            .insert(alice, [bob, carol].into_iter().collect());
 
         let graph = TrustGraph::from_state(&state);
 
@@ -385,7 +387,9 @@ mod tests {
         state.members.insert(bob);
         state.members.insert(carol);
 
-        state.vouches.insert(alice, [bob, carol].into_iter().collect());
+        state
+            .vouches
+            .insert(alice, [bob, carol].into_iter().collect());
 
         let graph = TrustGraph::from_state(&state);
 
@@ -418,9 +422,18 @@ mod tests {
         }
 
         // Create a tight triangle for members 1-3 (no bridges)
-        state.vouches.insert(member_hash(1), [member_hash(2), member_hash(3)].into_iter().collect());
-        state.vouches.insert(member_hash(2), [member_hash(1), member_hash(3)].into_iter().collect());
-        state.vouches.insert(member_hash(3), [member_hash(1), member_hash(2)].into_iter().collect());
+        state.vouches.insert(
+            member_hash(1),
+            [member_hash(2), member_hash(3)].into_iter().collect(),
+        );
+        state.vouches.insert(
+            member_hash(2),
+            [member_hash(1), member_hash(3)].into_iter().collect(),
+        );
+        state.vouches.insert(
+            member_hash(3),
+            [member_hash(1), member_hash(2)].into_iter().collect(),
+        );
 
         let mut graph = TrustGraph::from_state(&state);
         detect_clusters(&mut graph);
@@ -443,9 +456,18 @@ mod tests {
         }
 
         // Create a tight triangle (no bridges) for members 1, 2, 3
-        state.vouches.insert(member_hash(1), [member_hash(2), member_hash(3)].into_iter().collect());
-        state.vouches.insert(member_hash(2), [member_hash(1), member_hash(3)].into_iter().collect());
-        state.vouches.insert(member_hash(3), [member_hash(1), member_hash(2)].into_iter().collect());
+        state.vouches.insert(
+            member_hash(1),
+            [member_hash(2), member_hash(3)].into_iter().collect(),
+        );
+        state.vouches.insert(
+            member_hash(2),
+            [member_hash(1), member_hash(3)].into_iter().collect(),
+        );
+        state.vouches.insert(
+            member_hash(3),
+            [member_hash(1), member_hash(2)].into_iter().collect(),
+        );
 
         let mut graph = TrustGraph::from_state(&state);
         detect_clusters(&mut graph);
@@ -477,8 +499,14 @@ mod tests {
         }
 
         // Create a tight cluster with members 1, 2, 3 (triangle - no bridges)
-        state.vouches.insert(member_hash(1), [member_hash(2), member_hash(3)].into_iter().collect());
-        state.vouches.insert(member_hash(2), [member_hash(1), member_hash(3)].into_iter().collect());
+        state.vouches.insert(
+            member_hash(1),
+            [member_hash(2), member_hash(3)].into_iter().collect(),
+        );
+        state.vouches.insert(
+            member_hash(2),
+            [member_hash(1), member_hash(3)].into_iter().collect(),
+        );
 
         let mut graph = TrustGraph::from_state(&state);
         detect_clusters(&mut graph);
@@ -503,12 +531,20 @@ mod tests {
 
         // Create two separate clusters
         // Cluster 1: {1, 2, 3}
-        state.vouches.insert(member_hash(1), [member_hash(2)].into_iter().collect());
-        state.vouches.insert(member_hash(2), [member_hash(3)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(1), [member_hash(2)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(2), [member_hash(3)].into_iter().collect());
 
         // Cluster 2: {4, 5, 6}
-        state.vouches.insert(member_hash(4), [member_hash(5)].into_iter().collect());
-        state.vouches.insert(member_hash(5), [member_hash(6)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(4), [member_hash(5)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(5), [member_hash(6)].into_iter().collect());
 
         let mut graph = TrustGraph::from_state(&state);
         detect_clusters(&mut graph);
@@ -526,10 +562,17 @@ mod tests {
         }
 
         // Member 1 vouched by 2, 3, 4 (in-degree = 3)
-        state.vouches.insert(member_hash(1), [member_hash(2), member_hash(3), member_hash(4)].into_iter().collect());
+        state.vouches.insert(
+            member_hash(1),
+            [member_hash(2), member_hash(3), member_hash(4)]
+                .into_iter()
+                .collect(),
+        );
 
         // Member 1 also vouches for 5 (out-degree = 1 via reverse_vouches)
-        state.vouches.insert(member_hash(5), [member_hash(1)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(5), [member_hash(1)].into_iter().collect());
 
         let graph = TrustGraph::from_state(&state);
 
@@ -551,7 +594,9 @@ mod tests {
         }
 
         // Alice (1) is vouched by Bob (2)
-        state.vouches.insert(member_hash(1), [member_hash(2)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(1), [member_hash(2)].into_iter().collect());
 
         let graph = TrustGraph::from_state(&state);
         let edges = build_undirected_edges(&graph);
@@ -578,8 +623,12 @@ mod tests {
             state.members.insert(member_hash(i));
         }
 
-        state.vouches.insert(member_hash(1), [member_hash(2)].into_iter().collect());
-        state.vouches.insert(member_hash(2), [member_hash(3)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(1), [member_hash(2)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(2), [member_hash(3)].into_iter().collect());
 
         let mut graph = TrustGraph::from_state(&state);
 
@@ -610,9 +659,15 @@ mod tests {
             state.members.insert(member_hash(i));
         }
 
-        state.vouches.insert(member_hash(1), [member_hash(2)].into_iter().collect());
-        state.vouches.insert(member_hash(2), [member_hash(3)].into_iter().collect());
-        state.vouches.insert(member_hash(3), [member_hash(1)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(1), [member_hash(2)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(2), [member_hash(3)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(3), [member_hash(1)].into_iter().collect());
 
         let graph = TrustGraph::from_state(&state);
 
@@ -642,10 +697,18 @@ mod tests {
         }
 
         // All connected in a chain
-        state.vouches.insert(member_hash(1), [member_hash(2)].into_iter().collect());
-        state.vouches.insert(member_hash(2), [member_hash(3)].into_iter().collect());
-        state.vouches.insert(member_hash(3), [member_hash(4)].into_iter().collect());
-        state.vouches.insert(member_hash(4), [member_hash(5)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(1), [member_hash(2)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(2), [member_hash(3)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(3), [member_hash(4)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(4), [member_hash(5)].into_iter().collect());
 
         let graph = TrustGraph::from_state(&state);
         let edges = build_undirected_edges(&graph);
@@ -667,12 +730,20 @@ mod tests {
 
         // Create two components
         // Component 1: {1, 2, 3}
-        state.vouches.insert(member_hash(1), [member_hash(2)].into_iter().collect());
-        state.vouches.insert(member_hash(2), [member_hash(3)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(1), [member_hash(2)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(2), [member_hash(3)].into_iter().collect());
 
         // Component 2: {4, 5, 6}
-        state.vouches.insert(member_hash(4), [member_hash(5)].into_iter().collect());
-        state.vouches.insert(member_hash(5), [member_hash(6)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(4), [member_hash(5)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(5), [member_hash(6)].into_iter().collect());
 
         let graph = TrustGraph::from_state(&state);
         let edges = build_undirected_edges(&graph);
@@ -704,9 +775,18 @@ mod tests {
         }
 
         // Create fully connected cluster
-        state.vouches.insert(member_hash(1), [member_hash(2), member_hash(3)].into_iter().collect());
-        state.vouches.insert(member_hash(2), [member_hash(3), member_hash(4)].into_iter().collect());
-        state.vouches.insert(member_hash(3), [member_hash(4), member_hash(5)].into_iter().collect());
+        state.vouches.insert(
+            member_hash(1),
+            [member_hash(2), member_hash(3)].into_iter().collect(),
+        );
+        state.vouches.insert(
+            member_hash(2),
+            [member_hash(3), member_hash(4)].into_iter().collect(),
+        );
+        state.vouches.insert(
+            member_hash(3),
+            [member_hash(4), member_hash(5)].into_iter().collect(),
+        );
 
         let mut graph = TrustGraph::from_state(&state);
         detect_clusters(&mut graph);
@@ -726,15 +806,29 @@ mod tests {
 
         // Create two tight clusters connected by a bridge
         // Cluster 1: {1, 2, 3} (triangle)
-        state.vouches.insert(member_hash(1), [member_hash(2), member_hash(3)].into_iter().collect());
-        state.vouches.insert(member_hash(2), [member_hash(1), member_hash(3)].into_iter().collect());
+        state.vouches.insert(
+            member_hash(1),
+            [member_hash(2), member_hash(3)].into_iter().collect(),
+        );
+        state.vouches.insert(
+            member_hash(2),
+            [member_hash(1), member_hash(3)].into_iter().collect(),
+        );
 
         // Bridge: 3 -- 4
-        state.vouches.insert(member_hash(4), [member_hash(3)].into_iter().collect());
+        state
+            .vouches
+            .insert(member_hash(4), [member_hash(3)].into_iter().collect());
 
         // Cluster 2: {4, 5, 6} (triangle)
-        state.vouches.insert(member_hash(4), [member_hash(5), member_hash(6)].into_iter().collect());
-        state.vouches.insert(member_hash(5), [member_hash(4), member_hash(6)].into_iter().collect());
+        state.vouches.insert(
+            member_hash(4),
+            [member_hash(5), member_hash(6)].into_iter().collect(),
+        );
+        state.vouches.insert(
+            member_hash(5),
+            [member_hash(4), member_hash(6)].into_iter().collect(),
+        );
 
         let mut graph = TrustGraph::from_state(&state);
         detect_clusters(&mut graph);
