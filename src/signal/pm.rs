@@ -47,6 +47,9 @@ pub enum Command {
     /// Audit operator actions
     Audit { subcommand: String },
 
+    /// Decline assessment invitation (assessor rejects intro)
+    RejectIntro { username: String },
+
     /// Unknown command
     Unknown(String),
 }
@@ -166,6 +169,15 @@ pub fn parse_command(text: &str) -> Command {
             }
         }
 
+        "/reject-intro" => {
+            if parts.len() < 2 {
+                return Command::Unknown(text.to_string());
+            }
+            Command::RejectIntro {
+                username: parts[1].to_string(),
+            }
+        }
+
         _ => Command::Unknown(text.to_string()),
     }
 }
@@ -231,6 +243,17 @@ pub async fn handle_pm_command<F: crate::freenet::FreenetClient>(
 
         Command::Audit { subcommand } => {
             handle_audit(client, freenet, config, sender, &subcommand).await
+        }
+
+        Command::RejectIntro { username: _ } => {
+            // RejectIntro requires access to VettingSessionManager
+            // This is handled in StromaBot::handle_message instead
+            client
+                .send_message(
+                    sender,
+                    "This command must be handled by the bot's vetting session manager.",
+                )
+                .await
         }
 
         Command::Unknown(text) => {
@@ -1270,6 +1293,23 @@ mod tests {
                 subcommand: "bootstrap".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn test_parse_reject_intro() {
+        let cmd = parse_command("/reject-intro @alice");
+        assert_eq!(
+            cmd,
+            Command::RejectIntro {
+                username: "@alice".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_reject_intro_missing_username() {
+        let cmd = parse_command("/reject-intro");
+        assert!(matches!(cmd, Command::Unknown(_)));
     }
 
     #[test]

@@ -37,9 +37,6 @@ pub struct VettingSession {
     /// Selected validator's ServiceId (for PM)
     pub validator_id: Option<ServiceId>,
 
-    /// Excluded candidates (validators who declined /reject-intro)
-    pub excluded_candidates: HashSet<MemberHash>,
-
     /// Current status of vetting
     pub status: VettingStatus,
 
@@ -48,6 +45,10 @@ pub struct VettingSession {
 
     /// Count of previous flags if any (GAP-10)
     pub previous_flag_count: u32,
+
+    /// Excluded candidates who have declined assessment (st-fonga)
+    /// Used for re-running BlindMatchmaker after rejection
+    pub excluded_candidates: HashSet<MemberHash>,
 }
 
 /// Vetting session status
@@ -112,10 +113,10 @@ impl VettingSessionManager {
             context,
             validator: None,
             validator_id: None,
-            excluded_candidates: HashSet::new(),
             status: VettingStatus::PendingMatch,
             has_previous_flags,
             previous_flag_count,
+            excluded_candidates: HashSet::new(),
         };
 
         self.sessions.insert(invitee_username, session);
