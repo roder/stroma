@@ -695,3 +695,351 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn test_member(id: u8) -> MemberHash {
+        MemberHash::from_bytes(&[id; 32])
+    }
+
+    proptest! {
+        /// Property test: Cluster detection is semantically deterministic
+        /// Running detect_clusters multiple times on the same state should produce
+        /// the same partition (though cluster IDs may differ)
+        #[test]
+        fn prop_cluster_detection_deterministic(
+            num_members in 4usize..30,
+        ) {
+            let mut state = TrustNetworkState::new();
+
+            // Add members
+            for i in 0..num_members as u8 {
+                state.members.insert(test_member(i));
+            }
+
+            // Add some edges
+            for i in 0..(num_members / 2) {
+                let member = test_member((i * 2) as u8);
+                let voucher = test_member((i * 2 + 1) as u8);
+                let mut vouchers = HashSet::new();
+                vouchers.insert(voucher);
+                state.vouches.insert(member, vouchers);
+            }
+
+            // Run cluster detection twice
+            let result1 = detect_clusters(&state);
+            let result2 = detect_clusters(&state);
+
+            // Cluster count should be identical
+            prop_assert_eq!(
+                result1.cluster_count,
+                result2.cluster_count,
+                "Cluster count differs between runs"
+            );
+
+            // The partition should be semantically the same:
+            // Two members are in the same cluster in result1 if and only if
+            // they are in the same cluster in result2
+            for member_a in &state.members {
+                for member_b in &state.members {
+                    let same_cluster_1 = result1.member_clusters.get(member_a) == result1.member_clusters.get(member_b);
+                    let same_cluster_2 = result2.member_clusters.get(member_a) == result2.member_clusters.get(member_b);
+
+                    prop_assert_eq!(
+                        same_cluster_1,
+                        same_cluster_2,
+                        "Members {:?} and {:?} have inconsistent cluster relationship between runs",
+                        member_a,
+                        member_b
+                    );
+                }
+            }
+        }
+
+        /// Property test: All members are assigned to exactly one cluster
+        #[test]
+        fn prop_all_members_assigned_to_cluster(
+            num_members in 1usize..30,
+        ) {
+            let mut state = TrustNetworkState::new();
+
+            // Add members
+            for i in 0..num_members as u8 {
+                state.members.insert(test_member(i));
+            }
+
+            // Add edges
+            for i in 0..(num_members / 2) {
+                let member = test_member((i * 2) as u8);
+                let voucher = test_member((i * 2 + 1) as u8);
+                let mut vouchers = HashSet::new();
+                vouchers.insert(voucher);
+                state.vouches.insert(member, vouchers);
+            }
+
+            let result = detect_clusters(&state);
+
+            // Every member should be assigned to exactly one cluster
+            for member in &state.members {
+                prop_assert!(
+                    result.member_clusters.contains_key(member),
+                    "Member {:?} has no cluster assignment",
+                    member
+                );
+            }
+
+            prop_assert_eq!(
+                result.member_clusters.len(),
+                state.members.len(),
+                "Not all members have cluster assignments"
+            );
+        }
+
+        /// Property test: Cluster count is bounded
+        /// Number of clusters should be between 1 and N (number of members)
+        #[test]
+        fn prop_cluster_count_bounded(
+            num_members in 1usize..30,
+        ) {
+            let mut state = TrustNetworkState::new();
+
+            // Add members
+            for i in 0..num_members as u8 {
+                state.members.insert(test_member(i));
+            }
+
+            // Add edges
+            for i in 0..(num_members / 2) {
+                let member = test_member((i * 2) as u8);
+                let voucher = test_member((i * 2 + 1) as u8);
+                let mut vouchers = HashSet::new();
+                vouchers.insert(voucher);
+                state.vouches.insert(member, vouchers);
+            }
+
+            let result = detect_clusters(&state);
+
+            if num_members == 0 {
+                prop_assert_eq!(result.cluster_count, 0, "Empty network should have 0 clusters");
+            } else {
+                prop_assert!(
+                    result.cluster_count >= 1 && result.cluster_count <= num_members,
+                    "Cluster count {} is out of bounds [1, {}]",
+                    result.cluster_count,
+                    num_members
+                );
+            }
+        }
+
+        /// Property test: Clusters partition is complete and disjoint
+        /// Every member should be in exactly one cluster, and clusters should not overlap
+        #[test]
+        fn prop_clusters_partition_complete_and_disjoint(
+            num_members in 4usize..30,
+        ) {
+            let mut state = TrustNetworkState::new();
+
+            // Add members
+            for i in 0..num_members as u8 {
+                state.members.insert(test_member(i));
+            }
+
+            // Add edges
+            for i in 0..(num_members / 2) {
+                let member = test_member((i * 2) as u8);
+                let voucher = test_member((i * 2 + 1) as u8);
+                let mut vouchers = HashSet::new();
+                vouchers.insert(voucher);
+                state.vouches.insert(member, vouchers);
+            }
+
+            let result = detect_clusters(&state);
+
+            // Check that clusters cover all members (complete)
+            let mut all_cluster_members: HashSet<MemberHash> = HashSet::new();
+            for (_, cluster_members) in &result.clusters {
+                all_cluster_members.extend(cluster_members);
+            }
+
+            prop_assert_eq!(
+                all_cluster_members.len(),
+                state.members.len(),
+                "Clusters don't cover all members"
+            );
+
+            for member in &state.members {
+                prop_assert!(
+                    all_cluster_members.contains(member),
+                    "Member {:?} is not in any cluster",
+                    member
+                );
+            }
+
+            // Check that clusters are disjoint (no overlap)
+            for (cluster_id1, members1) in &result.clusters {
+                for (cluster_id2, members2) in &result.clusters {
+                    if cluster_id1 != cluster_id2 {
+                        let intersection: HashSet<_> = members1.intersection(members2).collect();
+                        prop_assert!(
+                            intersection.is_empty(),
+                            "Clusters {} and {} overlap: {:?}",
+                            cluster_id1,
+                            cluster_id2,
+                            intersection
+                        );
+                    }
+                }
+            }
+        }
+
+        /// Property test: member_clusters and clusters are consistent
+        /// If member_clusters says member M is in cluster C,
+        /// then clusters[C] should contain M
+        #[test]
+        fn prop_member_clusters_and_clusters_consistent(
+            num_members in 4usize..30,
+        ) {
+            let mut state = TrustNetworkState::new();
+
+            // Add members
+            for i in 0..num_members as u8 {
+                state.members.insert(test_member(i));
+            }
+
+            // Add edges
+            for i in 0..(num_members / 2) {
+                let member = test_member((i * 2) as u8);
+                let voucher = test_member((i * 2 + 1) as u8);
+                let mut vouchers = HashSet::new();
+                vouchers.insert(voucher);
+                state.vouches.insert(member, vouchers);
+            }
+
+            let result = detect_clusters(&state);
+
+            // Check consistency between member_clusters and clusters
+            for (member, cluster_id) in &result.member_clusters {
+                prop_assert!(
+                    result.clusters.contains_key(cluster_id),
+                    "member_clusters references non-existent cluster {}",
+                    cluster_id
+                );
+
+                prop_assert!(
+                    result.clusters[cluster_id].contains(member),
+                    "Member {:?} says it's in cluster {}, but that cluster doesn't contain it",
+                    member,
+                    cluster_id
+                );
+            }
+
+            // Reverse check
+            for (cluster_id, members) in &result.clusters {
+                for member in members {
+                    prop_assert_eq!(
+                        result.member_clusters.get(member),
+                        Some(cluster_id),
+                        "Cluster {} contains member {:?}, but member_clusters disagrees",
+                        cluster_id,
+                        member
+                    );
+                }
+            }
+        }
+
+        /// Property test: needs_announcement is correct
+        /// Should return true if cluster_count >= 2, false otherwise
+        #[test]
+        fn prop_needs_announcement_correct(
+            num_members in 1usize..30,
+        ) {
+            let mut state = TrustNetworkState::new();
+
+            // Add members
+            for i in 0..num_members as u8 {
+                state.members.insert(test_member(i));
+            }
+
+            // Add edges to potentially create multiple clusters
+            for i in 0..(num_members / 2) {
+                let member = test_member((i * 2) as u8);
+                let voucher = test_member((i * 2 + 1) as u8);
+                let mut vouchers = HashSet::new();
+                vouchers.insert(voucher);
+                state.vouches.insert(member, vouchers);
+            }
+
+            let result = detect_clusters(&state);
+
+            prop_assert_eq!(
+                result.needs_announcement(),
+                result.cluster_count >= 2,
+                "needs_announcement() returned {}, but cluster_count is {}",
+                result.needs_announcement(),
+                result.cluster_count
+            );
+        }
+
+        /// Property test: announcement_message is not empty
+        #[test]
+        fn prop_announcement_message_not_empty(
+            num_members in 4usize..20,
+        ) {
+            let mut state = TrustNetworkState::new();
+
+            // Add members
+            for i in 0..num_members as u8 {
+                state.members.insert(test_member(i));
+            }
+
+            // Create disconnected clusters to trigger announcement
+            // Cluster 1: {0, 1}
+            state.vouches.insert(test_member(0), [test_member(1)].into_iter().collect());
+
+            // Cluster 2: {2, 3}
+            state.vouches.insert(test_member(2), [test_member(3)].into_iter().collect());
+
+            let result = detect_clusters(&state);
+
+            if result.needs_announcement() {
+                let msg = result.announcement_message();
+                prop_assert!(!msg.is_empty(), "Announcement message is empty");
+                prop_assert!(
+                    msg.contains("sub-communities") || msg.contains("cluster"),
+                    "Announcement message doesn't mention clusters/communities"
+                );
+            }
+        }
+
+        /// Property test: Bootstrap case (< 4 members) returns single cluster
+        #[test]
+        fn prop_bootstrap_single_cluster(
+            num_members in 1usize..4,
+        ) {
+            let mut state = TrustNetworkState::new();
+
+            // Add members
+            for i in 0..num_members as u8 {
+                state.members.insert(test_member(i));
+            }
+
+            // Add random edges
+            if num_members >= 2 {
+                state.vouches.insert(test_member(0), [test_member(1)].into_iter().collect());
+            }
+
+            let result = detect_clusters(&state);
+
+            // Bootstrap networks should have exactly 1 cluster
+            prop_assert_eq!(
+                result.cluster_count,
+                1,
+                "Bootstrap network (< 4 members) should have 1 cluster, got {}",
+                result.cluster_count
+            );
+        }
+    }
+}
