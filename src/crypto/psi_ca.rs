@@ -522,4 +522,307 @@ mod tests {
         // Should accept federation (100% >= 90%)
         assert!(psi_a.evaluate_federation(overlap, 3));
     }
+
+    #[test]
+    fn test_group_size() {
+        // Test that group_size() returns correct value
+        let members = vec!["alice.01".to_string(), "bob.02".to_string()];
+        let threshold = FederationThreshold::new(0.10, 5).unwrap();
+        let psi = PsiProtocol::new(members, threshold).unwrap();
+
+        assert_eq!(psi.group_size(), 5);
+    }
+
+    #[test]
+    fn test_reencrypt_invalid_ciphertext_length() {
+        // Test error handling for invalid ciphertext lengths
+        let members = vec!["alice.01".to_string()];
+        let threshold = FederationThreshold::new(0.10, 1).unwrap();
+        let psi = PsiProtocol::new(members, threshold).unwrap();
+
+        let key = EphemeralKey::generate().unwrap();
+
+        // Test with too short ciphertext (< 32 bytes)
+        let short_ciphertext = vec![0u8; 16];
+        let result = psi.reencrypt(&key, &short_ciphertext);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), PsiError::Encryption(_)));
+
+        // Test with too long ciphertext (> 32 bytes)
+        let long_ciphertext = vec![0u8; 48];
+        let result = psi.reencrypt(&key, &long_ciphertext);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), PsiError::Encryption(_)));
+    }
+
+    #[test]
+    fn test_derive_element_key_determinism() {
+        // Test that derive_element_key produces same output for same input
+        let key = EphemeralKey::generate().unwrap();
+        let element = b"test_element";
+
+        let derived1 = key.derive_element_key(element);
+        let derived2 = key.derive_element_key(element);
+
+        assert_eq!(derived1, derived2, "Derived keys should be deterministic");
+        assert_eq!(derived1.len(), 32, "Derived key should be 32 bytes");
+    }
+
+    #[test]
+    fn test_derive_element_key_isolation() {
+        // Test that different elements produce different keys
+        let key = EphemeralKey::generate().unwrap();
+
+        let key1 = key.derive_element_key(b"element1");
+        let key2 = key.derive_element_key(b"element2");
+
+        assert_ne!(
+            key1, key2,
+            "Different elements should produce different keys"
+        );
+    }
+
+    #[test]
+    fn test_derive_element_key_different_keys() {
+        // Test that different ephemeral keys produce different element keys
+        let key_a = EphemeralKey::generate().unwrap();
+        let key_b = EphemeralKey::generate().unwrap();
+
+        let element = b"same_element";
+        let derived_a = key_a.derive_element_key(element);
+        let derived_b = key_b.derive_element_key(element);
+
+        assert_ne!(
+            derived_a, derived_b,
+            "Different ephemeral keys should produce different element keys"
+        );
+    }
+
+    // ============================================================================
+    // PROPERTY TESTS - Cryptographic Invariants
+    // ============================================================================
+    //
+    // These tests verify fundamental cryptographic properties using proptest.
+    // All tests use fixed seeds for determinism (required by testing-standards.bead).
+
+    mod proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        // Fixed seed for deterministic property tests (required for CI/reproducibility)
+        // 32 bytes for ChaCha RNG
+        const PROPTEST_SEED: &str = "0123456789abcdef0123456789abcdef";
+
+        /// Property test: Encryption is deterministic
+        ///
+        /// For any key and plaintext, encrypting the same data twice produces
+        /// identical output: E(k, m) == E(k, m)
+        #[test]
+        fn prop_encryption_determinism() {
+            let config = ProptestConfig {
+                rng_algorithm: proptest::test_runner::RngAlgorithm::ChaCha,
+                ..Default::default()
+            };
+            let mut runner = proptest::test_runner::TestRunner::new_with_rng(
+                config,
+                proptest::test_runner::TestRng::from_seed(
+                    proptest::test_runner::RngAlgorithm::ChaCha,
+                    PROPTEST_SEED.as_bytes(),
+                ),
+            );
+
+            let strategy = prop::collection::vec(prop::num::u8::ANY, 1..100);
+
+            runner
+                .run(&strategy, |plaintext_bytes| {
+                    let plaintext = String::from_utf8_lossy(&plaintext_bytes).to_string();
+                    let key = EphemeralKey::generate().unwrap();
+                    let threshold = FederationThreshold::new(0.10, 10).unwrap();
+                    let psi = PsiProtocol::new(vec![], threshold).unwrap();
+
+                    let ct1 = psi.encrypt(&key, plaintext.as_bytes()).unwrap();
+                    let ct2 = psi.encrypt(&key, plaintext.as_bytes()).unwrap();
+
+                    prop_assert_eq!(ct1, ct2, "Encryption must be deterministic");
+                    Ok(())
+                })
+                .unwrap();
+        }
+
+        /// Property test: Key isolation
+        ///
+        /// Different keys produce different ciphertexts for the same plaintext:
+        /// For k1 != k2: E(k1, m) != E(k2, m) (with overwhelming probability)
+        #[test]
+        fn prop_key_isolation() {
+            let config = ProptestConfig {
+                rng_algorithm: proptest::test_runner::RngAlgorithm::ChaCha,
+                ..Default::default()
+            };
+            let mut runner = proptest::test_runner::TestRunner::new_with_rng(
+                config,
+                proptest::test_runner::TestRng::from_seed(
+                    proptest::test_runner::RngAlgorithm::ChaCha,
+                    PROPTEST_SEED.as_bytes(),
+                ),
+            );
+
+            let strategy = prop::collection::vec(prop::num::u8::ANY, 1..100);
+
+            runner
+                .run(&strategy, |plaintext_bytes| {
+                    let plaintext = String::from_utf8_lossy(&plaintext_bytes).to_string();
+                    let key1 = EphemeralKey::generate().unwrap();
+                    let key2 = EphemeralKey::generate().unwrap();
+                    let threshold = FederationThreshold::new(0.10, 10).unwrap();
+                    let psi = PsiProtocol::new(vec![], threshold).unwrap();
+
+                    let ct1 = psi.encrypt(&key1, plaintext.as_bytes()).unwrap();
+                    let ct2 = psi.encrypt(&key2, plaintext.as_bytes()).unwrap();
+
+                    prop_assert_ne!(
+                        ct1,
+                        ct2,
+                        "Different keys must produce different ciphertexts"
+                    );
+                    Ok(())
+                })
+                .unwrap();
+        }
+
+        /// Property test: Commutativity of double encryption
+        ///
+        /// The order of encryption doesn't matter:
+        /// E(k_a, E(k_b, m)) == E(k_b, E(k_a, m))
+        ///
+        /// This is the CRITICAL property for PSI-CA protocol correctness.
+        #[test]
+        fn prop_encryption_commutativity() {
+            let config = ProptestConfig {
+                rng_algorithm: proptest::test_runner::RngAlgorithm::ChaCha,
+                ..Default::default()
+            };
+            let mut runner = proptest::test_runner::TestRunner::new_with_rng(
+                config,
+                proptest::test_runner::TestRng::from_seed(
+                    proptest::test_runner::RngAlgorithm::ChaCha,
+                    PROPTEST_SEED.as_bytes(),
+                ),
+            );
+
+            let strategy = prop::collection::vec(prop::num::u8::ANY, 1..100);
+
+            runner
+                .run(&strategy, |plaintext_bytes| {
+                    let plaintext = String::from_utf8_lossy(&plaintext_bytes).to_string();
+                    let key_a = EphemeralKey::generate().unwrap();
+                    let key_b = EphemeralKey::generate().unwrap();
+                    let threshold = FederationThreshold::new(0.10, 10).unwrap();
+                    let psi = PsiProtocol::new(vec![], threshold).unwrap();
+
+                    // Encrypt with A, then B
+                    let ct_a = psi.encrypt(&key_a, plaintext.as_bytes()).unwrap();
+                    let ct_ab = psi.reencrypt(&key_b, &ct_a).unwrap();
+
+                    // Encrypt with B, then A
+                    let ct_b = psi.encrypt(&key_b, plaintext.as_bytes()).unwrap();
+                    let ct_ba = psi.reencrypt(&key_a, &ct_b).unwrap();
+
+                    prop_assert_eq!(
+                        ct_ab,
+                        ct_ba,
+                        "Encryption must be commutative: E(ka, E(kb, m)) == E(kb, E(ka, m))"
+                    );
+                    Ok(())
+                })
+                .unwrap();
+        }
+
+        /// Property test: Collision resistance (different inputs)
+        ///
+        /// Different plaintexts produce different ciphertexts:
+        /// For m1 != m2: E(k, m1) != E(k, m2) (with overwhelming probability)
+        #[test]
+        fn prop_collision_resistance() {
+            let config = ProptestConfig {
+                rng_algorithm: proptest::test_runner::RngAlgorithm::ChaCha,
+                ..Default::default()
+            };
+            let mut runner = proptest::test_runner::TestRunner::new_with_rng(
+                config,
+                proptest::test_runner::TestRng::from_seed(
+                    proptest::test_runner::RngAlgorithm::ChaCha,
+                    PROPTEST_SEED.as_bytes(),
+                ),
+            );
+
+            let strategy = (
+                prop::collection::vec(prop::num::u8::ANY, 1..100),
+                prop::collection::vec(prop::num::u8::ANY, 1..100),
+            );
+
+            runner
+                .run(&strategy, |(plaintext1_bytes, plaintext2_bytes)| {
+                    // Only test if plaintexts are actually different
+                    if plaintext1_bytes == plaintext2_bytes {
+                        return Ok(());
+                    }
+
+                    let plaintext1 = String::from_utf8_lossy(&plaintext1_bytes).to_string();
+                    let plaintext2 = String::from_utf8_lossy(&plaintext2_bytes).to_string();
+                    let key = EphemeralKey::generate().unwrap();
+                    let threshold = FederationThreshold::new(0.10, 10).unwrap();
+                    let psi = PsiProtocol::new(vec![], threshold).unwrap();
+
+                    let ct1 = psi.encrypt(&key, plaintext1.as_bytes()).unwrap();
+                    let ct2 = psi.encrypt(&key, plaintext2.as_bytes()).unwrap();
+
+                    prop_assert_ne!(
+                        ct1,
+                        ct2,
+                        "Different plaintexts must produce different ciphertexts"
+                    );
+                    Ok(())
+                })
+                .unwrap();
+        }
+
+        /// Property test: derive_element_key determinism
+        ///
+        /// Deriving an element key multiple times produces same result
+        #[test]
+        fn prop_derive_element_key_determinism() {
+            let config = ProptestConfig {
+                rng_algorithm: proptest::test_runner::RngAlgorithm::ChaCha,
+                ..Default::default()
+            };
+            let mut runner = proptest::test_runner::TestRunner::new_with_rng(
+                config,
+                proptest::test_runner::TestRng::from_seed(
+                    proptest::test_runner::RngAlgorithm::ChaCha,
+                    PROPTEST_SEED.as_bytes(),
+                ),
+            );
+
+            let strategy = prop::collection::vec(prop::num::u8::ANY, 1..100);
+
+            runner
+                .run(&strategy, |element_bytes| {
+                    let key = EphemeralKey::generate().unwrap();
+
+                    let derived1 = key.derive_element_key(&element_bytes);
+                    let derived2 = key.derive_element_key(&element_bytes);
+
+                    prop_assert_eq!(derived1.len(), 32, "Derived key must be 32 bytes");
+                    prop_assert_eq!(derived2.len(), 32, "Derived key must be 32 bytes");
+                    prop_assert_eq!(
+                        derived1,
+                        derived2,
+                        "derive_element_key must be deterministic"
+                    );
+                    Ok(())
+                })
+                .unwrap();
+        }
+    }
 }
