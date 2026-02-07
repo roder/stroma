@@ -1303,20 +1303,143 @@ See `.beads/federation-roadmap.bead` for protocol specification.
 
 ## Operator Audit Trail
 
-Members can query your actions with `/audit operator`. They'll see:
+### Overview
+
+Stroma implements an **immutable, append-only operator audit trail** that logs all operator-related actions. This transparency mechanism allows group members to verify that operators are not abusing their service maintenance role.
+
+**Key Principle**: Operators are service runners, not privileged admins. The audit trail proves this by showing you have no special powers over membership or trust decisions.
+
+### What Gets Logged
+
+The bot automatically logs all operator-related actions to the Freenet contract:
+
+| Action Type | Description | Examples |
+|-------------|-------------|----------|
+| **Config Change** | Changes to group configuration via Signal Poll execution | `Updated min_vouches from 2 to 3`<br>`Changed max_flags from 3 to 5` |
+| **Restart** | Bot service restarts | `Bot restarted for maintenance`<br>`Service restart after update` |
+| **Manual Intervention** | Emergency operator actions | `Emergency ejection override` (rare) |
+| **Bootstrap** | Initial group setup actions | `Created group "Mission Control"`<br>`Added seed member #1` |
+
+**What's NOT Logged** (because operators can't do these):
+- Member vouches or flags (member-driven, not operator actions)
+- Vetting decisions (handled by trust protocol)
+- Message content (ephemeral, never stored)
+
+### How Members Query the Audit Trail
+
+Any group member can query the operator audit trail using Signal commands:
 
 ```
-Operator: @OperatorHash_42
+Member → Bot (PM): /audit operator
+```
 
-Recent Actions:
-- 2026-01-25 08:15 UTC: ServiceRestart (reason: server maintenance)
-- 2026-01-20 14:30 UTC: ServiceStart (reason: initial deployment)
+**Example Output:**
+```
+📋 Operator Audit Trail
+
+• 2 hours ago — Config Change (01010101…)
+  Updated min_vouches from 2 to 3
+  (via Signal Poll #42 approved by group)
+
+• 3 days ago — Restart (01010101…)
+  Bot restarted for security update
+
+• 1 week ago — Bootstrap (01010101…)
+  Created group "Mission Control"
 
 Note: Operator has NO special privileges for membership changes.
 All bot actions are automatic based on Freenet contract state.
 ```
 
-This builds trust by demonstrating you're not manipulating the system.
+### Privacy Protection
+
+The audit trail uses **hashed identifiers**, not cleartext Signal IDs:
+
+- **Actor hash**: First 4 bytes of MemberHash (e.g., `01010101…`)
+- **No real identities**: Even operators can't correlate hashes to real Signal accounts
+- **Immutable log**: Entries cannot be deleted or modified after creation
+
+### Query Filters
+
+Members can filter audit entries using command parameters:
+
+```bash
+# Show last 10 entries
+/audit operator --limit=10
+
+# Show only config changes
+/audit operator --type=config
+
+# Show entries from last 7 days
+/audit operator --since=7d
+```
+
+### Operator Perspective
+
+**As an operator, you cannot view the audit log directly** through server access, because:
+1. Audit entries are stored in the Freenet contract (distributed state)
+2. The bot only stores MemberHash values, not cleartext identities
+3. You must query via `/audit operator` like any other member
+
+**This is by design**: Operators have the same visibility as members, reinforcing that you're a service runner, not a privileged admin.
+
+### Config Change Proposals
+
+When the group approves a configuration change via Signal Poll, the bot:
+
+1. **Executes the change** on the Freenet contract
+2. **Creates an audit entry** with:
+   - Actor: System actor (all-zeros MemberHash for governance-driven changes)
+   - Details: Old and new values (e.g., `Updated min_vouches from 2 to 3`)
+3. **Announces to group**: Change confirmation message
+
+**You (the operator) DO NOT execute config changes manually.** The bot does this automatically when polls complete.
+
+### Audit Trail Storage
+
+| Aspect | Implementation |
+|--------|----------------|
+| **Storage location** | Freenet contract state (distributed) |
+| **Persistence** | Replicated via Reciprocal Persistence Network |
+| **Ordering** | Chronological by Unix timestamp |
+| **Maximum size** | No limit (append-only, never pruned) |
+| **Access control** | All group members can query |
+
+### Trust Building
+
+The audit trail builds trust in three ways:
+
+1. **Transparency**: Members see all operator actions in real-time
+2. **Immutability**: Historical record cannot be altered
+3. **Accountability**: Operators cannot hide actions or claim "the bot did it"
+
+**Expected operator actions:**
+- Service restarts (maintenance, updates)
+- Bootstrap actions (one-time, during group creation)
+
+**Unexpected operator actions** (should be rare or never):
+- Manual interventions
+- Frequent config changes (these should come from group polls, not operators)
+
+### Troubleshooting
+
+**Q: Can I view the audit log via server files?**
+A: No. The log is in the Freenet contract, not local files. Query via `/audit operator` in Signal.
+
+**Q: Can I delete audit entries?**
+A: No. The log is immutable by design. This protects member trust.
+
+**Q: Members are questioning a config change I didn't make.**
+A: Config changes come from Signal Polls, not operators. Show them the audit entry—it will show the system actor (00000000…) and reference the poll ID.
+
+**Q: An audit entry shows "Manual Intervention" but I didn't do anything.**
+A: Check bot logs. If the entry is legitimate, it means the bot performed an automatic action (e.g., emergency ejection due to flag threshold). If suspicious, investigate for compromise.
+
+---
+
+**Related Documentation:**
+- [Trust Model](TRUST-MODEL.md) - How trust decisions are made (no operator control)
+- [User Guide](USER-GUIDE.md) - Member commands including `/audit operator`
 
 ## Costs & Resources
 
