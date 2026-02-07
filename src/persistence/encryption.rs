@@ -313,10 +313,10 @@ impl EncryptedTrustNetworkState {
     pub fn compute_hash(&self) -> Hash {
         let mut hasher = Sha256::new();
         hasher.update(&self.ciphertext);
-        hasher.update(&self.nonce);
-        hasher.update(&self.version.to_le_bytes());
-        hasher.update(&self.previous_hash);
-        hasher.update(&self.timestamp.to_le_bytes());
+        hasher.update(self.nonce);
+        hasher.update(self.version.to_le_bytes());
+        hasher.update(self.previous_hash);
+        hasher.update(self.timestamp.to_le_bytes());
         hasher.finalize().into()
     }
 
