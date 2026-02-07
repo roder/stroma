@@ -405,7 +405,72 @@ async fn setup_contract(client: &MockFreenetClient, initial_state: Vec<u8>) -> C
 // ============================================================================
 
 #[tokio::test]
-#[ignore] // TODO: Remove when DVR and cluster detection are implemented
+async fn test_cluster_detection_with_real_implementation() {
+    use stroma::matchmaker::detect_clusters;
+
+    // Create a 12-member network with 2 obvious clusters
+    // Cluster 1: members 1-6, fully connected
+    // Cluster 2: members 7-12, fully connected
+    // Bridge: single vouch between member 6 and member 7
+    let mut state = TrustNetworkState::new();
+
+    // Add all members
+    for member in 1..=12 {
+        state.members.insert(test_member_hash(member));
+    }
+
+    // Cluster 1 vouches (members 1-6, fully connected)
+    for member in 1..=6 {
+        let mut voucher_set = HashSet::new();
+        for voucher in 1..=6 {
+            if member != voucher {
+                voucher_set.insert(test_member_hash(voucher));
+            }
+        }
+        state.vouches.insert(test_member_hash(member), voucher_set);
+    }
+
+    // Cluster 2 vouches (members 7-12, fully connected)
+    for member in 7..=12 {
+        let mut voucher_set = HashSet::new();
+        for voucher in 7..=12 {
+            if member != voucher {
+                voucher_set.insert(test_member_hash(voucher));
+            }
+        }
+        state.vouches.insert(test_member_hash(member), voucher_set);
+    }
+
+    // Bridge: single vouch connecting clusters (6 vouches for 7)
+    state
+        .vouches
+        .get_mut(&test_member_hash(7))
+        .unwrap()
+        .insert(test_member_hash(6));
+
+    // Test: Bridge Removal detects 2 clusters
+    let result = detect_clusters(&state);
+    assert_eq!(
+        result.cluster_count, 2,
+        "Expected 2 clusters from bridge removal algorithm"
+    );
+
+    // Test: GAP-11 announcement is needed
+    assert!(
+        result.needs_announcement(),
+        "Should need GAP-11 announcement when ≥2 clusters detected"
+    );
+
+    // Test: DVR calculation works with the detected clusters
+    let dvr_result = calculate_dvr(&state);
+    assert!(
+        dvr_result.ratio <= 1.0,
+        "DVR should not exceed 1.0 even with clusters"
+    );
+}
+
+#[tokio::test]
+#[ignore] // TODO: Remove when full scenario integration is complete
 async fn test_scenario_1_dvr_and_cluster_detection() {
     // a) Create 12-member network with 2 obvious clusters
     // Cluster 1: members 1-6, fully connected
