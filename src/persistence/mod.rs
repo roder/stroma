@@ -7,6 +7,7 @@ pub mod attestation;
 pub mod chunk_storage;
 pub mod chunks;
 pub mod distribution;
+pub mod encryption;
 pub mod health;
 pub mod recovery;
 pub mod registry;
@@ -23,6 +24,7 @@ pub use distribution::{
     ChunkDistributor, DistributionConfig, DistributionError, DistributionResult, VersionedState,
     REPLICATION_FACTOR,
 };
+pub use encryption::{EncryptedTrustNetworkState, EncryptionError, Hash, Timestamp};
 pub use health::{HealthStatus, ReplicationHealth};
 pub use recovery::{
     recover_state, ChunkFetcher, RecoveredState, RecoveryConfig, RecoveryError, RecoveryStats,
