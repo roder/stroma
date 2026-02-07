@@ -522,4 +522,171 @@ mod tests {
         // Should accept federation (100% >= 90%)
         assert!(psi_a.evaluate_federation(overlap, 3));
     }
+
+    #[test]
+    fn test_group_size_accessor() {
+        // Test that group_size() returns the correct value
+        let members = vec!["alice.01".to_string(), "bob.02".to_string()];
+        let threshold = FederationThreshold::new(0.10, 2).unwrap();
+        let psi = PsiProtocol::new(members, threshold).unwrap();
+
+        assert_eq!(psi.group_size(), 2);
+    }
+
+    #[test]
+    fn test_reencrypt_invalid_ciphertext_length() {
+        // Test error handling for invalid ciphertext length
+        let threshold = FederationThreshold::new(0.10, 10).unwrap();
+        let psi = PsiProtocol::new(vec![], threshold).unwrap();
+
+        // Create invalid ciphertext (wrong length)
+        let invalid_ciphertext = vec![0u8; 16]; // Wrong length (should be 32)
+
+        let key = EphemeralKey::generate().unwrap();
+        let result = psi.reencrypt(&key, &invalid_ciphertext);
+
+        // Should return error
+        assert!(result.is_err());
+        if let Err(PsiError::Encryption(msg)) = result {
+            assert_eq!(msg, "Invalid ciphertext length");
+        } else {
+            panic!("Expected PsiError::Encryption");
+        }
+    }
+
+    #[test]
+    fn test_derive_element_key() {
+        // Test the derive_element_key method (currently unused but should work)
+        let key = EphemeralKey::generate().unwrap();
+        let element_hash = b"test_element_hash_123456789012";
+
+        let derived_key = key.derive_element_key(element_hash);
+
+        // Should return 32 bytes
+        assert_eq!(derived_key.len(), 32);
+
+        // Should be deterministic (same input = same output)
+        let derived_key2 = key.derive_element_key(element_hash);
+        assert_eq!(derived_key, derived_key2);
+
+        // Different element should produce different key
+        let different_element = b"different_element_hash_1234567";
+        let different_key = key.derive_element_key(different_element);
+        assert_ne!(derived_key, different_key);
+    }
+}
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Property test: Encryption is deterministic
+    /// Same input with same key must always produce same output
+    #[test]
+    fn prop_encryption_determinism() {
+        proptest!(|(
+            plaintext in prop::collection::vec(any::<u8>(), 1..100)
+        )| {
+            let key = EphemeralKey::generate().unwrap();
+            let threshold = FederationThreshold::new(0.10, 10).unwrap();
+            let psi = PsiProtocol::new(vec![], threshold).unwrap();
+
+            let ciphertext1 = psi.encrypt(&key, &plaintext).unwrap();
+            let ciphertext2 = psi.encrypt(&key, &plaintext).unwrap();
+
+            prop_assert_eq!(ciphertext1, ciphertext2, "Encryption must be deterministic");
+        });
+    }
+
+    /// Property test: Different keys produce different outputs
+    /// Key isolation - different keys must not produce colliding outputs
+    #[test]
+    fn prop_key_isolation() {
+        proptest!(|(
+            plaintext in prop::collection::vec(any::<u8>(), 1..100)
+        )| {
+            let key_a = EphemeralKey::generate().unwrap();
+            let key_b = EphemeralKey::generate().unwrap();
+
+            let threshold = FederationThreshold::new(0.10, 10).unwrap();
+            let psi = PsiProtocol::new(vec![], threshold).unwrap();
+
+            let ct_a = psi.encrypt(&key_a, &plaintext).unwrap();
+            let ct_b = psi.encrypt(&key_b, &plaintext).unwrap();
+
+            // Different keys should produce different outputs (with overwhelming probability)
+            // Note: There's a theoretical collision possibility, but probability is negligible
+            prop_assert_ne!(ct_a, ct_b, "Different keys must produce different outputs");
+        });
+    }
+
+    /// Property test: Commutativity of encryption
+    /// E(k_a, E(k_b, m)) must equal E(k_b, E(k_a, m)) for all inputs
+    #[test]
+    fn prop_commutativity() {
+        proptest!(|(
+            plaintext in prop::collection::vec(any::<u8>(), 1..100)
+        )| {
+            let key_a = EphemeralKey::generate().unwrap();
+            let key_b = EphemeralKey::generate().unwrap();
+
+            let threshold = FederationThreshold::new(0.10, 10).unwrap();
+            let psi = PsiProtocol::new(vec![], threshold).unwrap();
+
+            // Encrypt with A, then B
+            let ct_a = psi.encrypt(&key_a, &plaintext).unwrap();
+            let ct_ab = psi.reencrypt(&key_b, &ct_a).unwrap();
+
+            // Encrypt with B, then A
+            let ct_b = psi.encrypt(&key_b, &plaintext).unwrap();
+            let ct_ba = psi.reencrypt(&key_a, &ct_b).unwrap();
+
+            prop_assert_eq!(ct_ab, ct_ba, "Encryption must be commutative");
+        });
+    }
+
+    /// Property test: Threshold calculation is consistent
+    /// For any valid threshold and group size, accepts() should be consistent
+    #[test]
+    fn prop_threshold_consistency() {
+        proptest!(|(
+            threshold in 0.0f32..=1.0f32,
+            group_size in 1usize..1000,
+            overlap in 0usize..1000
+        )| {
+            let threshold_config = FederationThreshold::new(threshold, group_size).unwrap();
+
+            let density = overlap as f32 / group_size as f32;
+            let expected = density >= threshold;
+            let actual = threshold_config.accepts(overlap);
+
+            prop_assert_eq!(expected, actual,
+                "Threshold calculation inconsistent: density={}, threshold={}",
+                density, threshold);
+        });
+    }
+
+    /// Property test: Re-encryption maintains ciphertext length
+    /// All ciphertexts must be exactly 32 bytes
+    #[test]
+    fn prop_ciphertext_length() {
+        proptest!(|(
+            plaintext in prop::collection::vec(any::<u8>(), 1..100)
+        )| {
+            let key = EphemeralKey::generate().unwrap();
+            let threshold = FederationThreshold::new(0.10, 10).unwrap();
+            let psi = PsiProtocol::new(vec![], threshold).unwrap();
+
+            let ciphertext = psi.encrypt(&key, &plaintext).unwrap();
+
+            prop_assert_eq!(ciphertext.len(), 32, "Ciphertext must be 32 bytes");
+
+            // Re-encryption should maintain length
+            let key2 = EphemeralKey::generate().unwrap();
+            let re_encrypted = psi.reencrypt(&key2, &ciphertext).unwrap();
+
+            prop_assert_eq!(re_encrypted.len(), 32, "Re-encrypted ciphertext must be 32 bytes");
+        });
+    }
 }
