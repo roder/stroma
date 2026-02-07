@@ -640,6 +640,127 @@ mod tests {
     }
 
     #[test]
+    fn test_bridge_problem_two_tight_clusters() {
+        // Per Q3 spike: Two tight clusters connected by a bridge member.
+        // Cluster A: Alice, Bob, Carol (all vouch each other - tight cluster)
+        // Bridge: Charlie (vouched by Carol + Dave, vouches back)
+        // Cluster B: Dave, Eve, Frank (all vouch each other - tight cluster)
+        //
+        // Expected: Bridge removal should detect 2 or more clusters
+        let mut state = TrustNetworkState::new();
+
+        // Cluster A members (tight cluster)
+        let alice = test_member(1);
+        let bob = test_member(2);
+        let carol = test_member(3);
+
+        // Bridge member
+        let charlie = test_member(4);
+
+        // Cluster B members (tight cluster)
+        let dave = test_member(5);
+        let eve = test_member(6);
+        let frank = test_member(7);
+
+        // Add all members
+        state.members.insert(alice);
+        state.members.insert(bob);
+        state.members.insert(carol);
+        state.members.insert(charlie);
+        state.members.insert(dave);
+        state.members.insert(eve);
+        state.members.insert(frank);
+
+        // Cluster A: Fully connected (all vouch each other)
+        let mut alice_vouchers = HashSet::new();
+        alice_vouchers.insert(bob);
+        alice_vouchers.insert(carol);
+        state.vouches.insert(alice, alice_vouchers);
+
+        let mut bob_vouchers = HashSet::new();
+        bob_vouchers.insert(alice);
+        bob_vouchers.insert(carol);
+        state.vouches.insert(bob, bob_vouchers);
+
+        let mut carol_vouchers = HashSet::new();
+        carol_vouchers.insert(alice);
+        carol_vouchers.insert(bob);
+        carol_vouchers.insert(charlie); // Bridge connection
+        state.vouches.insert(carol, carol_vouchers);
+
+        // Cluster B: Fully connected (all vouch each other)
+        let mut dave_vouchers = HashSet::new();
+        dave_vouchers.insert(eve);
+        dave_vouchers.insert(frank);
+        dave_vouchers.insert(charlie); // Bridge connection
+        state.vouches.insert(dave, dave_vouchers);
+
+        let mut eve_vouchers = HashSet::new();
+        eve_vouchers.insert(dave);
+        eve_vouchers.insert(frank);
+        state.vouches.insert(eve, eve_vouchers);
+
+        let mut frank_vouchers = HashSet::new();
+        frank_vouchers.insert(dave);
+        frank_vouchers.insert(eve);
+        state.vouches.insert(frank, frank_vouchers);
+
+        // Charlie (bridge): Vouches back to both clusters
+        let mut charlie_vouchers = HashSet::new();
+        charlie_vouchers.insert(carol);
+        charlie_vouchers.insert(dave);
+        state.vouches.insert(charlie, charlie_vouchers);
+
+        // Run cluster detection
+        let result = detect_clusters(&state);
+
+        // Bridge removal algorithm should detect 2+ clusters
+        // The two tight clusters should be separated
+        assert!(
+            result.cluster_count >= 2,
+            "Bridge removal should detect at least 2 clusters (tight cluster separation), found {}",
+            result.cluster_count
+        );
+
+        // Verify that tight cluster members are together
+        // Alice, Bob, Carol should form one cluster (or Charlie might be with them)
+        let alice_cluster = result.member_clusters.get(&alice);
+        let bob_cluster = result.member_clusters.get(&bob);
+
+        // Alice and Bob should definitely be together (fully connected in tight cluster)
+        assert_eq!(
+            alice_cluster, bob_cluster,
+            "Alice and Bob should be in same cluster (tight cluster)"
+        );
+
+        // Dave, Eve, Frank should form another cluster
+        let dave_cluster = result.member_clusters.get(&dave);
+        let eve_cluster = result.member_clusters.get(&eve);
+        let frank_cluster = result.member_clusters.get(&frank);
+
+        // Dave and Eve should definitely be together (fully connected in tight cluster)
+        assert_eq!(
+            dave_cluster, eve_cluster,
+            "Dave and Eve should be in same cluster (tight cluster)"
+        );
+        assert_eq!(
+            eve_cluster, frank_cluster,
+            "Eve and Frank should be in same cluster (tight cluster)"
+        );
+
+        // The two tight clusters should be different
+        assert_ne!(
+            alice_cluster, dave_cluster,
+            "Tight clusters A and B should be separated"
+        );
+
+        println!(
+            "Bridge problem test: {} clusters detected (Alice: {:?}, Dave: {:?})",
+            result.cluster_count, alice_cluster, dave_cluster
+        );
+    }
+
+    #[test]
     fn test_performance_1000_members() {
         // Performance test: <1ms for 1000 members
         // Create a realistic network with 1000 members and moderate connectivity
