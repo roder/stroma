@@ -31,11 +31,11 @@ pub struct VettingSession {
     /// Context about the invitee (EPHEMERAL - never persisted)
     pub context: Option<String>,
 
-    /// Selected validator's member hash (Blind Matchmaker selection)
-    pub validator: Option<MemberHash>,
+    /// Selected assessor's member hash (Blind Matchmaker selection)
+    pub assessor: Option<MemberHash>,
 
-    /// Selected validator's ServiceId (for PM)
-    pub validator_id: Option<ServiceId>,
+    /// Selected assessor's ServiceId (for PM)
+    pub assessor_id: Option<ServiceId>,
 
     /// Current status of vetting
     pub status: VettingStatus,
@@ -54,10 +54,10 @@ pub struct VettingSession {
 /// Vetting session status
 #[derive(Debug, Clone, PartialEq)]
 pub enum VettingStatus {
-    /// Pending validator selection
+    /// Pending assessor selection
     PendingMatch,
 
-    /// PMs sent, waiting for validator vouch
+    /// PMs sent, waiting for assessor vouch
     AwaitingVouch,
 
     /// No eligible candidates left (all declined)
@@ -111,8 +111,8 @@ impl VettingSessionManager {
             inviter,
             inviter_id,
             context,
-            validator: None,
-            validator_id: None,
+            assessor: None,
+            assessor_id: None,
             status: VettingStatus::PendingMatch,
             has_previous_flags,
             previous_flag_count,
@@ -133,20 +133,20 @@ impl VettingSessionManager {
         self.sessions.get_mut(invitee_username)
     }
 
-    /// Assign validator to session (Blind Matchmaker result)
-    pub fn assign_validator(
+    /// Assign assessor to session (Blind Matchmaker result)
+    pub fn assign_assessor(
         &mut self,
         invitee_username: &str,
-        validator: MemberHash,
-        validator_id: ServiceId,
+        assessor: MemberHash,
+        assessor_id: ServiceId,
     ) -> Result<(), VettingError> {
         let session = self
             .sessions
             .get_mut(invitee_username)
             .ok_or_else(|| VettingError::SessionNotFound(invitee_username.to_string()))?;
 
-        session.validator = Some(validator);
-        session.validator_id = Some(validator_id);
+        session.assessor = Some(assessor);
+        session.assessor_id = Some(assessor_id);
         session.status = VettingStatus::AwaitingVouch;
 
         Ok(())
@@ -174,23 +174,23 @@ impl VettingSessionManager {
         Ok(session)
     }
 
-    /// Handle validator decline - add to exclusions and reset to PendingMatch
-    pub fn validator_declined(
+    /// Handle assessor decline - add to exclusions and reset to PendingMatch
+    pub fn assessor_declined(
         &mut self,
         invitee_username: &str,
-        declined_validator: MemberHash,
+        declined_assessor: MemberHash,
     ) -> Result<(), VettingError> {
         let session = self
             .sessions
             .get_mut(invitee_username)
             .ok_or_else(|| VettingError::SessionNotFound(invitee_username.to_string()))?;
 
-        // Add validator to exclusions
-        session.excluded_candidates.insert(declined_validator);
+        // Add assessor to exclusions
+        session.excluded_candidates.insert(declined_assessor);
 
         // Reset to PendingMatch for re-selection
-        session.validator = None;
-        session.validator_id = None;
+        session.assessor = None;
+        session.assessor_id = None;
         session.status = VettingStatus::PendingMatch;
 
         Ok(())
@@ -289,7 +289,7 @@ pub fn msg_inviter_confirmation(invitee_username: &str) -> String {
     format!(
         "✓ Vetting Process Started\n\n\
          Your invitation for {} has been received.\n\n\
-         A validator has been selected and will assess the candidate.\n\
+         An assessor has been selected and will evaluate the candidate.\n\
          You'll be notified when the process completes.",
         invitee_username
     )
@@ -333,7 +333,7 @@ pub fn msg_vouch_recorded(
 
 /// Message to inviter: No candidates found (stalled state)
 ///
-/// PRIVACY: Generic stall notification, no specific validator information.
+/// PRIVACY: Generic stall notification, no specific assessor information.
 ///
 /// # Arguments
 /// * `invitee_username` - Username of the invitee
@@ -341,8 +341,8 @@ pub fn msg_no_candidates(invitee_username: &str) -> String {
     format!(
         "⏸️ Vetting Paused\n\n\
          The vetting process for {} is temporarily paused.\n\n\
-         No suitable validators are currently available.\n\
-         The process will resume automatically when validators become available.",
+         No suitable assessors are currently available.\n\
+         The process will resume automatically when assessors become available.",
         invitee_username
     )
 }
@@ -428,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn test_assign_validator() {
+    fn test_assign_assessor() {
         let mut manager = VettingSessionManager::new();
 
         manager
@@ -444,12 +444,12 @@ mod tests {
             .unwrap();
 
         let result =
-            manager.assign_validator("@alice", test_member_hash(3), test_service_id("carol_id"));
+            manager.assign_assessor("@alice", test_member_hash(3), test_service_id("carol_id"));
 
         assert!(result.is_ok());
 
         let session = manager.get_session("@alice").unwrap();
-        assert_eq!(session.validator, Some(test_member_hash(3)));
+        assert_eq!(session.assessor, Some(test_member_hash(3)));
         assert_eq!(session.status, VettingStatus::AwaitingVouch);
     }
 

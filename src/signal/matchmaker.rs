@@ -1,6 +1,6 @@
-//! Blind Matchmaker: Cross-Cluster Validator Selection
+//! Blind Matchmaker: Cross-Cluster Assessor Selection
 //!
-//! Selects validators for vetting interviews optimizing for:
+//! Selects assessors for vetting interviews optimizing for:
 //! 1. Cross-cluster diversity (security requirement)
 //! 2. DVR optimization (distinct validators, non-overlapping voucher sets)
 //! 3. Network health (spread trust connections)
@@ -12,11 +12,11 @@ use crate::freenet::trust_contract::TrustNetworkState;
 use crate::matchmaker::graph_analysis::{detect_clusters, TrustGraph};
 use std::collections::HashSet;
 
-/// Blind Matchmaker for validator selection
+/// Blind Matchmaker for assessor selection
 pub struct BlindMatchmaker;
 
 impl BlindMatchmaker {
-    /// Select a validator for vetting interview
+    /// Select an assessor for vetting interview
     ///
     /// Requirements:
     /// 1. Must be an active member
@@ -242,17 +242,17 @@ mod tests {
         let alice = test_member_hash(1);
         let excluded = HashSet::new();
 
-        let validator = BlindMatchmaker::select_validator(&state, &alice, &excluded);
+        let assessor = BlindMatchmaker::select_validator(&state, &alice, &excluded);
 
-        assert!(validator.is_some());
-        let validator = validator.unwrap();
+        assert!(assessor.is_some());
+        let assessor = assessor.unwrap();
 
         // Should not be Alice
-        assert_ne!(validator, alice);
+        assert_ne!(assessor, alice);
 
         // Should be Bob (2 vouches = bridge level, Carol only has 1 vouch)
         // New behavior: Candidates must have >= 2 vouches (bridge or validator level)
-        assert_eq!(validator, test_member_hash(2));
+        assert_eq!(assessor, test_member_hash(2));
     }
 
     #[test]
@@ -277,8 +277,8 @@ mod tests {
         let excluded = HashSet::new();
 
         // Should still select Bob (bootstrap exception)
-        let validator = BlindMatchmaker::select_validator(&state, &alice, &excluded);
-        assert_eq!(validator, Some(bob));
+        let assessor = BlindMatchmaker::select_validator(&state, &alice, &excluded);
+        assert_eq!(assessor, Some(bob));
     }
 
     #[test]
@@ -290,8 +290,8 @@ mod tests {
         let excluded = HashSet::new();
 
         // No other members to select
-        let validator = BlindMatchmaker::select_validator(&state, &alice, &excluded);
-        assert!(validator.is_none());
+        let assessor = BlindMatchmaker::select_validator(&state, &alice, &excluded);
+        assert!(assessor.is_none());
     }
 
     #[test]

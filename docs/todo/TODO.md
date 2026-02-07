@@ -960,7 +960,7 @@ Before closing `convoy-phase1`, the Mayor MUST verify ALL of the following:
 | Context is EPHEMERAL | Code review: context never stored in Freenet contract | Witness |
 | **GAP-10**: Re-entry warning shown | Unit test: invitee with previous flags gets warning message | Agent-Signal |
 | Second member selected via Blind Matchmaker | Unit test: matchmaker suggests cross-cluster member | Agent-Freenet |
-| PMs sent to invitee and vetter | Integration test: both receive PM from bot | Agent-Signal |
+| PMs sent to invitee and assessor | Integration test: both receive PM from bot | Agent-Signal |
 
 #### Trust Operations: Vetting Interview — Agent-Signal
 
@@ -1096,9 +1096,9 @@ gt test:integration --scenario admission-flow
 # Scenario steps:
 # a) Member sends /invite @Carol "Met at conference"
 # b) Verify: First vouch recorded, context NOT in Freenet
-# c) Verify: Blind Matchmaker selects second vetter
-# d) Verify: 3-person vetting chat created (Carol, vetter, bot)
-# e) Vetter sends /vouch @Carol
+# c) Verify: Blind Matchmaker selects second assessor
+# d) Verify: Assessor receives PM with Carol's contact info (NO secondary chat)
+# e) Assessor sends /vouch @Carol
 # f) Verify: Cross-cluster check (bootstrap: same-cluster allowed)
 # g) Verify: ZK-proof generated
 # h) Verify: Carol added to Signal group
