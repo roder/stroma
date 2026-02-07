@@ -48,6 +48,7 @@ pub struct StromaBot<C: SignalClient, F: crate::freenet::FreenetClient> {
     bootstrap_manager: BootstrapManager<C>,
     vetting_sessions: VettingSessionManager,
     member_resolver: MemberResolver,
+    persistence_manager: crate::persistence::WriteBlockingManager,
 }
 
 impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
@@ -57,6 +58,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         let bootstrap_manager = BootstrapManager::new(client.clone(), config.pepper.clone());
         let vetting_sessions = VettingSessionManager::new();
         let member_resolver = MemberResolver::new(config.pepper.clone());
+        let persistence_manager = crate::persistence::WriteBlockingManager::new();
 
         Self {
             client,
@@ -67,6 +69,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             bootstrap_manager,
             vetting_sessions,
             member_resolver,
+            persistence_manager,
         }
     }
 
@@ -129,6 +132,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                             &self.freenet,
                             &self.group_manager,
                             &self.config,
+                            &self.persistence_manager,
                             &message.sender,
                             command,
                         )
