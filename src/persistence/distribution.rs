@@ -42,7 +42,7 @@
 //! - Design: docs/PERSISTENCE.md § Distribution
 //! - Agent: Agent-Freenet
 
-use super::attestation::{record_attestation as verify_and_record_attestation, Attestation};
+use super::attestation::record_attestation as verify_and_record_attestation;
 use super::chunk_storage::{ChunkStorage, StorageError};
 use super::chunks::{encrypt_and_chunk, ChunkError};
 use super::health::ReplicationHealth;
@@ -52,6 +52,8 @@ use super::write_blocking::WriteBlockingManager;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+#[cfg(test)]
+use super::attestation::Attestation;
 #[cfg(test)]
 use super::chunks::Chunk;
 #[cfg(test)]
