@@ -578,7 +578,10 @@ async fn test_persistence_degraded() {
         .map(|e| e.contract_hash)
         .collect();
 
-    assert!(all_bots.len() >= 5, "Need sufficient holders for redundancy");
+    assert!(
+        all_bots.len() >= 5,
+        "Need sufficient holders for redundancy"
+    );
 
     // Distribute chunks with 2 replicas and mark primary holders unavailable
     let mut failed_primaries = 0;
@@ -652,8 +655,8 @@ async fn test_persistence_degraded() {
 
     // Health state: degraded but functional
     // Recovery succeeded despite needing fallback for every chunk
-    let successful_rate = recovered.stats.chunks_recovered as f64
-        / recovered.stats.total_chunks as f64;
+    let successful_rate =
+        recovered.stats.chunks_recovered as f64 / recovered.stats.total_chunks as f64;
     assert_eq!(
         successful_rate, 1.0,
         "100% of chunks recovered despite degraded conditions"
