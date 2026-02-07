@@ -108,7 +108,10 @@ async fn execute_config_change<F: FreenetClient>(
 
     let audit_entry = AuditEntry::config_change(
         system_actor,
-        format!("Proposal approved: {} changed from {} to {}", key, old_value, value),
+        format!(
+            "Proposal approved: {} changed from {} to {}",
+            key, old_value, value
+        ),
     );
 
     let delta = StateDelta {
