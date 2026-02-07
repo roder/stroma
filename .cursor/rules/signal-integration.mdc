@@ -29,6 +29,16 @@ Complete Signal integration patterns, bot roles, ejection protocol, privacy-firs
 
 **Critical**: Bot belongs to ONE Signal group only. No secondary chats. Assessor contacts invitee independently.
 
+## Key Commands
+
+- `/invite @user [context]` - Invite someone (counts as first vouch)
+- `/vouch @user` - Vouch for invitee or existing member
+- `/reject-intro @user` - Decline assessment request (assessor only)
+- `/flag @user [reason]` - Flag member
+- `/status` - Personal trust standing
+- `/mesh` - Network overview
+- `/propose ...` - Group decisions
+
 ## Ejection Triggers (Immediate)
 
 1. `Standing < 0` (too many flags)
