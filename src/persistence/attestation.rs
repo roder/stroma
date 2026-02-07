@@ -674,4 +674,133 @@ mod tests {
         // Should have 3 confirmed replicas for chunk 5
         assert_eq!(health.confirmed_replicas(5), 3);
     }
+
+    #[test]
+    fn test_record_attestation_invalid_key() {
+        let identity_key = test_identity_key();
+        let attestation = Attestation::create(
+            "owner-contract-hash",
+            5,
+            "holder-contract-hash",
+            &identity_key,
+        )
+        .unwrap();
+
+        let mut health = ReplicationHealth::new();
+        health.update_total_chunks(10);
+
+        // Try to record with invalid key (wrong length)
+        let invalid_key = vec![99u8; 16]; // Only 16 bytes, not 32
+        let result = record_attestation(&attestation, &invalid_key, &mut health);
+
+        // Should return error (not Ok(false))
+        assert!(matches!(result, Err(AttestationError::InvalidIdentityKey)));
+    }
+
+    // Property-based tests for cryptographic properties
+    #[cfg(test)]
+    mod proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// Property: Same inputs always produce same signature (HMAC determinism)
+            #[test]
+            fn prop_deterministic_signature(
+                owner in "[a-z]{10,20}",
+                chunk_index in 0u32..1000,
+                holder in "[a-z]{10,20}",
+                key_byte in 0u8..=255,
+            ) {
+                let identity_key = vec![key_byte; 32];
+
+                // Create two attestations with same inputs
+                let att1 = Attestation::create(&owner, chunk_index, &holder, &identity_key).unwrap();
+                // Wait a tiny bit to ensure different timestamps
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                let att2 = Attestation::create(&owner, chunk_index, &holder, &identity_key).unwrap();
+
+                // Signatures should be different due to different timestamps
+                // But verification should work for both
+                prop_assert!(att1.verify(&identity_key).is_ok());
+                prop_assert!(att2.verify(&identity_key).is_ok());
+
+                // With same timestamp, signatures should match
+                let mut att3 = att1.clone();
+                att3.signature = sign_attestation(&att3.owner, att3.chunk_index, &att3.holder, att3.timestamp, &identity_key);
+                prop_assert_eq!(att1.signature, att3.signature);
+            }
+
+            /// Property: Different keys produce different signatures (key isolation)
+            #[test]
+            fn prop_key_isolation(
+                owner in "[a-z]{10,20}",
+                chunk_index in 0u32..1000,
+                holder in "[a-z]{10,20}",
+                key1_byte in 0u8..=255,
+                key2_byte in 0u8..=255,
+            ) {
+                prop_assume!(key1_byte != key2_byte);
+
+                let key1 = vec![key1_byte; 32];
+                let key2 = vec![key2_byte; 32];
+
+                // Same timestamp for fair comparison
+                let timestamp = 1234567890;
+                let sig1 = sign_attestation(&owner, chunk_index, &holder, timestamp, &key1);
+                let sig2 = sign_attestation(&owner, chunk_index, &holder, timestamp, &key2);
+
+                // Different keys must produce different signatures
+                prop_assert_ne!(sig1, sig2);
+            }
+
+            /// Property: Tampering detection - any change invalidates signature
+            #[test]
+            fn prop_tamper_detection(
+                owner in "[a-z]{10,20}",
+                chunk_index in 0u32..1000,
+                holder in "[a-z]{10,20}",
+                key_byte in 0u8..=255,
+            ) {
+                let identity_key = vec![key_byte; 32];
+                let mut att = Attestation::create(&owner, chunk_index, &holder, &identity_key).unwrap();
+
+                // Original should verify
+                prop_assert!(att.verify(&identity_key).is_ok());
+
+                // Tamper with chunk index
+                let original_chunk = att.chunk_index;
+                att.chunk_index = original_chunk.wrapping_add(1);
+                prop_assert!(att.verify(&identity_key).is_err());
+
+                // Restore and tamper with holder
+                att.chunk_index = original_chunk;
+                att.holder = format!("tampered-{}", att.holder);
+                prop_assert!(att.verify(&identity_key).is_err());
+            }
+
+            /// Property: Verification succeeds with correct key, fails with wrong key
+            #[test]
+            fn prop_correct_key_required(
+                owner in "[a-z]{10,20}",
+                chunk_index in 0u32..1000,
+                holder in "[a-z]{10,20}",
+                correct_key_byte in 0u8..=255,
+                wrong_key_byte in 0u8..=255,
+            ) {
+                prop_assume!(correct_key_byte != wrong_key_byte);
+
+                let correct_key = vec![correct_key_byte; 32];
+                let wrong_key = vec![wrong_key_byte; 32];
+
+                let att = Attestation::create(&owner, chunk_index, &holder, &correct_key).unwrap();
+
+                // Correct key should verify
+                prop_assert!(att.verify(&correct_key).is_ok());
+
+                // Wrong key should fail
+                prop_assert!(att.verify(&wrong_key).is_err());
+            }
+        }
+    }
 }
