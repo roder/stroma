@@ -7,7 +7,7 @@
 
 use crate::freenet::contract::MemberHash;
 use crate::signal::traits::ServiceId;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Ephemeral vetting session data
 ///
@@ -37,6 +37,9 @@ pub struct VettingSession {
     /// Selected validator's ServiceId (for PM)
     pub validator_id: Option<ServiceId>,
 
+    /// Excluded candidates (validators who declined /reject-intro)
+    pub excluded_candidates: HashSet<MemberHash>,
+
     /// Current status of vetting
     pub status: VettingStatus,
 
@@ -55,6 +58,9 @@ pub enum VettingStatus {
 
     /// PMs sent, waiting for validator vouch
     AwaitingVouch,
+
+    /// No eligible candidates left (all declined)
+    Stalled,
 
     /// Completed - admitted to group
     Admitted,
@@ -106,6 +112,7 @@ impl VettingSessionManager {
             context,
             validator: None,
             validator_id: None,
+            excluded_candidates: HashSet::new(),
             status: VettingStatus::PendingMatch,
             has_previous_flags,
             previous_flag_count,
@@ -164,6 +171,28 @@ impl VettingSessionManager {
 
         session.status = VettingStatus::Rejected;
         Ok(session)
+    }
+
+    /// Handle validator decline - add to exclusions and reset to PendingMatch
+    pub fn validator_declined(
+        &mut self,
+        invitee_username: &str,
+        declined_validator: MemberHash,
+    ) -> Result<(), VettingError> {
+        let session = self
+            .sessions
+            .get_mut(invitee_username)
+            .ok_or_else(|| VettingError::SessionNotFound(invitee_username.to_string()))?;
+
+        // Add validator to exclusions
+        session.excluded_candidates.insert(declined_validator);
+
+        // Reset to PendingMatch for re-selection
+        session.validator = None;
+        session.validator_id = None;
+        session.status = VettingStatus::PendingMatch;
+
+        Ok(())
     }
 
     /// Clear all sessions (e.g., on bot restart - sessions are ephemeral)
