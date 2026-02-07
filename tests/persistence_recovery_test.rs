@@ -39,6 +39,14 @@ fn different_aci_key() -> Vec<u8> {
     vec![99u8; 32]
 }
 
+fn test_identity_key(name: &str) -> Vec<u8> {
+    // Generate unique but deterministic key based on name
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(name.as_bytes());
+    hasher.finalize().to_vec()
+}
+
 /// Create a test registry with multiple bots
 fn create_test_registry(owner: &str, num_chunks: u32) -> PersistenceRegistry {
     let mut registry = PersistenceRegistry::new();
@@ -48,15 +56,18 @@ fn create_test_registry(owner: &str, num_chunks: u32) -> PersistenceRegistry {
         SizeBucket::Small,
         num_chunks,
         1000,
+        test_identity_key(owner),
     ));
 
     // Add 5 holder bots (more than needed for 2 replicas)
     for i in 0..5 {
+        let name = format!("holder-{}", i);
         registry.register(RegistryEntry::new(
-            format!("holder-{}", i),
+            name.clone(),
             SizeBucket::Small,
             0,
             1000 + i,
+            test_identity_key(&name),
         ));
     }
 

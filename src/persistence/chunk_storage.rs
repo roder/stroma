@@ -108,6 +108,7 @@ pub trait ChunkStorage: Send + Sync {
     /// Store a chunk remotely (holding for another bot).
     ///
     /// Remote chunks are stored via Freenet contracts at deterministic addresses.
+    /// Returns a cryptographic attestation proving the holder possesses the chunk.
     ///
     /// # Arguments
     ///
@@ -118,14 +119,14 @@ pub trait ChunkStorage: Send + Sync {
     ///
     /// # Returns
     ///
-    /// `Ok(())` if successful
+    /// `Ok(Attestation)` with signed proof of chunk possession if successful
     async fn store_remote(
         &self,
         holder: &str,
         owner: &str,
         chunk_index: u32,
         chunk: &Chunk,
-    ) -> Result<(), StorageError>;
+    ) -> Result<super::attestation::Attestation, StorageError>;
 
     /// Retrieve a chunk from a remote holder.
     ///

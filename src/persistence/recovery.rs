@@ -431,6 +431,14 @@ mod tests {
         vec![42u8; 32]
     }
 
+    fn test_identity_key(name: &str) -> Vec<u8> {
+        // Generate unique but deterministic key based on name
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(name.as_bytes());
+        hasher.finalize().to_vec()
+    }
+
     #[tokio::test]
     async fn test_successful_recovery() {
         let owner = "owner-bot";
@@ -444,18 +452,21 @@ mod tests {
             crate::persistence::SizeBucket::Small,
             1, // Will be updated after chunking
             1000,
+            test_identity_key(owner),
         ));
         registry.register(RegistryEntry::new(
             "holder-a".to_string(),
             crate::persistence::SizeBucket::Small,
             0,
             1001,
+            test_identity_key("holder-a"),
         ));
         registry.register(RegistryEntry::new(
             "holder-b".to_string(),
             crate::persistence::SizeBucket::Small,
             0,
             1002,
+            test_identity_key("holder-b"),
         ));
 
         // Encrypt and chunk
@@ -468,18 +479,21 @@ mod tests {
             crate::persistence::SizeBucket::Small,
             chunks.len() as u32,
             1000,
+            test_identity_key(owner),
         ));
         registry.register(RegistryEntry::new(
             "holder-a".to_string(),
             crate::persistence::SizeBucket::Small,
             0,
             1001,
+            test_identity_key("holder-a"),
         ));
         registry.register(RegistryEntry::new(
             "holder-b".to_string(),
             crate::persistence::SizeBucket::Small,
             0,
             1002,
+            test_identity_key("holder-b"),
         ));
 
         // Store chunks with holders
@@ -523,24 +537,28 @@ mod tests {
             crate::persistence::SizeBucket::Small,
             1,
             1000,
+            test_identity_key(owner),
         ));
         registry.register(RegistryEntry::new(
             "holder-a".to_string(),
             crate::persistence::SizeBucket::Small,
             0,
             1001,
+            test_identity_key("holder-a"),
         ));
         registry.register(RegistryEntry::new(
             "holder-b".to_string(),
             crate::persistence::SizeBucket::Small,
             0,
             1002,
+            test_identity_key("holder-b"),
         ));
         registry.register(RegistryEntry::new(
             "holder-c".to_string(),
             crate::persistence::SizeBucket::Small,
             0,
             1003,
+            test_identity_key("holder-c"),
         ));
 
         // Encrypt and chunk
@@ -553,24 +571,28 @@ mod tests {
             crate::persistence::SizeBucket::Small,
             chunks.len() as u32,
             1000,
+            test_identity_key(owner),
         ));
         registry.register(RegistryEntry::new(
             "holder-a".to_string(),
             crate::persistence::SizeBucket::Small,
             0,
             1001,
+            test_identity_key("holder-a"),
         ));
         registry.register(RegistryEntry::new(
             "holder-b".to_string(),
             crate::persistence::SizeBucket::Small,
             0,
             1002,
+            test_identity_key("holder-b"),
         ));
         registry.register(RegistryEntry::new(
             "holder-c".to_string(),
             crate::persistence::SizeBucket::Small,
             0,
             1003,
+            test_identity_key("holder-c"),
         ));
 
         // Store chunks with holders
@@ -626,18 +648,21 @@ mod tests {
             crate::persistence::SizeBucket::Small,
             1,
             1000,
+            test_identity_key(owner),
         ));
         registry.register(RegistryEntry::new(
             "holder-a".to_string(),
             crate::persistence::SizeBucket::Small,
             0,
             1001,
+            test_identity_key("holder-a"),
         ));
         registry.register(RegistryEntry::new(
             "holder-b".to_string(),
             crate::persistence::SizeBucket::Small,
             0,
             1002,
+            test_identity_key("holder-b"),
         ));
 
         // Encrypt and chunk
@@ -650,18 +675,21 @@ mod tests {
             crate::persistence::SizeBucket::Small,
             chunks.len() as u32,
             1000,
+            test_identity_key(owner),
         ));
         registry.register(RegistryEntry::new(
             "holder-a".to_string(),
             crate::persistence::SizeBucket::Small,
             0,
             1001,
+            test_identity_key("holder-a"),
         ));
         registry.register(RegistryEntry::new(
             "holder-b".to_string(),
             crate::persistence::SizeBucket::Small,
             0,
             1002,
+            test_identity_key("holder-b"),
         ));
 
         // Don't store chunks - all holders will be unavailable
