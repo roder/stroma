@@ -549,15 +549,19 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                 })?;
 
             // Check if cluster formation announcement should be sent
-            if self.check_and_announce_cluster_formation(&latest_state).await? {
+            if self
+                .check_and_announce_cluster_formation(&latest_state)
+                .await?
+            {
                 // Create delta to mark announcement as sent
                 let mut gap11_delta = crate::freenet::trust_contract::StateDelta::new();
                 gap11_delta = gap11_delta.mark_gap11_announced();
 
                 // Apply delta to Freenet
-                let gap11_delta_bytes = crate::serialization::to_cbor(&gap11_delta).map_err(|e| {
-                    SignalError::Protocol(format!("Failed to serialize GAP-11 delta: {}", e))
-                })?;
+                let gap11_delta_bytes =
+                    crate::serialization::to_cbor(&gap11_delta).map_err(|e| {
+                        SignalError::Protocol(format!("Failed to serialize GAP-11 delta: {}", e))
+                    })?;
 
                 let gap11_contract_delta = crate::freenet::traits::ContractDelta {
                     data: gap11_delta_bytes,
@@ -1311,7 +1315,10 @@ mod tests {
             .unwrap();
 
         // Verify announcement was sent
-        assert!(announced, "Announcement should be sent when 2 clusters detected");
+        assert!(
+            announced,
+            "Announcement should be sent when 2 clusters detected"
+        );
 
         let sent = client.sent_group_messages(&group);
         assert_eq!(sent.len(), 1, "One announcement should be sent");
@@ -1348,11 +1355,7 @@ mod tests {
         );
 
         let sent = client.sent_group_messages(&group);
-        assert_eq!(
-            sent.len(),
-            1,
-            "Still only one announcement should exist"
-        );
+        assert_eq!(sent.len(), 1, "Still only one announcement should exist");
     }
 
     #[tokio::test]
