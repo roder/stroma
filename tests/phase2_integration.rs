@@ -15,9 +15,11 @@
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, SystemTime};
+use stroma::freenet::contract::MemberHash;
 use stroma::freenet::traits::{ContractHash, ContractState, FreenetClient};
+use stroma::freenet::trust_contract::TrustNetworkState;
+use stroma::matchmaker::calculate_dvr;
 use stroma::signal::traits::{GroupId, Poll, ServiceId, SignalClient};
-use stroma::stark::types::MemberHash;
 
 // Mock implementations for testing (until real implementations are available)
 #[cfg(test)]
@@ -339,7 +341,7 @@ use test_mocks::*;
 fn test_member_hash(id: u8) -> MemberHash {
     let mut bytes = [0u8; 32];
     bytes[0] = id;
-    MemberHash(bytes)
+    MemberHash::from_bytes(&bytes)
 }
 
 /// Helper to create a service ID for testing
@@ -347,7 +349,27 @@ fn service_id(name: &str) -> ServiceId {
     ServiceId(format!("test_{}", name))
 }
 
-/// Helper to set up a network with vouches
+/// Helper to set up a network with vouches (using real TrustNetworkState)
+fn setup_trust_network_with_vouches(vouches: Vec<(u8, Vec<u8>)>) -> TrustNetworkState {
+    let mut state = TrustNetworkState::new();
+
+    for (member, vouchers) in vouches {
+        let member_h = test_member_hash(member);
+        state.members.insert(member_h);
+
+        let mut voucher_set = HashSet::new();
+        for voucher in &vouchers {
+            let voucher_h = test_member_hash(*voucher);
+            state.members.insert(voucher_h);
+            voucher_set.insert(voucher_h);
+        }
+        state.vouches.insert(member_h, voucher_set);
+    }
+
+    state
+}
+
+/// Helper to set up a network with vouches (using mock MeshGraph for ignored tests)
 fn setup_network_with_vouches(vouches: Vec<(u8, Vec<u8>)>) -> MeshGraph {
     let mut graph = MeshGraph::new();
 
@@ -862,69 +884,68 @@ async fn test_scenario_4_proposal_quorum_fail() {
 // ============================================================================
 
 #[tokio::test]
-#[ignore] // TODO: Remove when DVR calculation is implemented
 async fn test_dvr_never_exceeds_one() {
     // Property test: DVR ≤ 1.0 for all graph configurations
     for size in [4, 8, 12, 20, 50, 100] {
-        let mut graph = MeshGraph::new();
+        let mut state = TrustNetworkState::new();
 
         // Create a random graph
         for member in 1..=size {
+            let member_hash = test_member_hash(member);
+            state.members.insert(member_hash);
+
             // Each member gets 3-4 random vouchers
             let num_vouchers = 3 + (member % 2) as usize;
+            let mut voucher_set = HashSet::new();
             for v in 0..num_vouchers {
-                let voucher = ((member + v as u8) % size) + 1;
-                if member != voucher {
-                    let vouch = Vouch {
-                        voucher: test_member_hash(voucher),
-                        subject: test_member_hash(member),
-                        standing: 100,
-                        created_at: SystemTime::now(),
-                    };
-                    graph.add_vouch(vouch);
+                let voucher_id = ((member + v as u8) % size) + 1;
+                if member != voucher_id {
+                    voucher_set.insert(test_member_hash(voucher_id));
                 }
             }
+            state.vouches.insert(member_hash, voucher_set);
         }
 
-        let metrics = graph.calculate_metrics();
+        let result = calculate_dvr(&state);
         assert!(
-            metrics.dvr <= 1.0,
+            result.ratio <= 1.0,
             "DVR exceeded 1.0 for network size {}: {}",
             size,
-            metrics.dvr
+            result.ratio
         );
     }
 }
 
 #[tokio::test]
-#[ignore] // TODO: Remove when distinct validator calculation is implemented
 async fn test_distinct_validators_disjoint() {
     // Property test: Distinct validators must have non-overlapping voucher sets
-    let graph = setup_network_with_vouches(vec![
+    let state = setup_trust_network_with_vouches(vec![
         (1, vec![2, 3, 4]),    // Validator 1: vouchers {2, 3, 4}
         (5, vec![6, 7, 8]),    // Validator 2: vouchers {6, 7, 8} - disjoint
         (9, vec![10, 11, 12]), // Validator 3: vouchers {10, 11, 12} - disjoint
         (13, vec![2, 14, 15]), // Not distinct: shares voucher 2 with validator 1
     ]);
 
-    let metrics = graph.calculate_metrics();
+    let result = calculate_dvr(&state);
 
-    // With 13 members, max distinct validators = floor(13/4) = 3
+    // With 15 members (1-13 + vouchers 14, 15), max distinct validators = floor(15/4) = 3
+    let member_count = state.members.len();
+    let max_possible = member_count / 4;
+
     assert!(
-        metrics.distinct_validators <= 3,
+        result.distinct_validators <= max_possible,
         "Distinct validators should not exceed floor(N/4)"
     );
 
     // Verify that distinct validators have disjoint voucher sets
     // This would be validated by the actual graph analysis
     assert!(
-        metrics.distinct_validators >= 2,
+        result.distinct_validators >= 2,
         "Should find at least 2 distinct validators with disjoint sets"
     );
 }
 
 #[tokio::test]
-#[ignore] // TODO: Remove when proposal timeout validation is implemented
 async fn test_proposal_timeout_bounds() {
     // Property test: All proposal timeouts must be within bounds
     let min_timeout = Duration::from_secs(60 * 60); // 1 hour
