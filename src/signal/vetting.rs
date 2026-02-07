@@ -37,9 +37,6 @@ pub struct VettingSession {
     /// Selected validator's ServiceId (for PM)
     pub validator_id: Option<ServiceId>,
 
-    /// Excluded candidates (validators who declined /reject-intro)
-    pub excluded_candidates: HashSet<MemberHash>,
-
     /// Current status of vetting
     pub status: VettingStatus,
 
@@ -116,7 +113,6 @@ impl VettingSessionManager {
             context,
             validator: None,
             validator_id: None,
-            excluded_candidates: HashSet::new(),
             status: VettingStatus::PendingMatch,
             has_previous_flags,
             previous_flag_count,
