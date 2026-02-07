@@ -243,6 +243,7 @@ mod tests {
     use crate::freenet::mock::MockFreenetClient;
     use crate::signal::traits::SignalError;
     use async_trait::async_trait;
+    use proptest::prelude::*;
     use std::sync::Arc;
     use tokio::sync::Mutex;
 
@@ -508,5 +509,264 @@ mod tests {
 
         // Member not in members set -> should not eject
         assert!(!should_eject(&state, &member));
+    }
+
+    #[tokio::test]
+    async fn test_eject_member_freenet_error() {
+        let freenet = Arc::new(MockFreenetClient::new());
+        let signal = MockSignalClient::new();
+        let contract = ContractHash::from_bytes(&[0u8; 32]);
+        let group_id = GroupId(vec![1, 2, 3]);
+
+        // Don't set up state in Freenet - this will cause apply_delta to fail
+        let member = test_member(1);
+        let service_id = test_service_id(1);
+
+        // Attempt ejection - should fail with FreenetError
+        let result = eject_member(
+            &member,
+            &service_id,
+            &signal,
+            freenet.clone(),
+            &contract,
+            &group_id,
+        )
+        .await;
+
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(matches!(e, EjectionError::FreenetError(_)));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_format_member_hash_full_length() {
+        // Test that format_member_hash handles standard 32-byte hashes
+        let member = MemberHash::from_bytes(&[0x42u8; 32]);
+        let formatted = format_member_hash(&member);
+
+        // Should be truncated with ellipsis
+        assert!(formatted.contains("..."));
+        assert!(formatted.len() < 64); // Less than full 64-char hex
+
+        // Should show first 8 and last 8 chars
+        let full_hex = hex::encode([0x42u8; 32]);
+        assert!(formatted.starts_with(&full_hex[..8]));
+        assert!(formatted.ends_with(&full_hex[full_hex.len() - 8..]));
+    }
+
+    #[tokio::test]
+    async fn test_should_eject_exact_threshold() {
+        let mut state = TrustNetworkState::new();
+        state.config.min_vouches = 2;
+
+        let member = test_member(1);
+        let voucher1 = test_member(2);
+        let voucher2 = test_member(3);
+
+        state.members.insert(member);
+        state
+            .vouches
+            .insert(member, [voucher1, voucher2].into_iter().collect());
+
+        // Exactly at threshold (2 vouches, min is 2) -> should NOT eject
+        assert!(!should_eject(&state, &member));
+    }
+
+    #[tokio::test]
+    async fn test_should_eject_standing_exactly_zero() {
+        let mut state = TrustNetworkState::new();
+        state.config.min_vouches = 2;
+
+        let member = test_member(1);
+        let voucher1 = test_member(2);
+        let voucher2 = test_member(3);
+        let flagger1 = test_member(4);
+        let flagger2 = test_member(5);
+
+        state.members.insert(member);
+        state
+            .vouches
+            .insert(member, [voucher1, voucher2].into_iter().collect());
+        state
+            .flags
+            .insert(member, [flagger1, flagger2].into_iter().collect());
+
+        // Standing = 2 - 2 = 0 (exactly zero, not negative) -> should NOT eject
+        assert!(!should_eject(&state, &member));
+    }
+
+    #[tokio::test]
+    async fn test_should_eject_all_vouchers_are_flaggers() {
+        let mut state = TrustNetworkState::new();
+        state.config.min_vouches = 2;
+
+        let member = test_member(1);
+        let voucher1 = test_member(2);
+        let voucher2 = test_member(3);
+
+        state.members.insert(member);
+        // Both vouch and flag (contradictory)
+        state
+            .vouches
+            .insert(member, [voucher1, voucher2].into_iter().collect());
+        state
+            .flags
+            .insert(member, [voucher1, voucher2].into_iter().collect());
+
+        // Effective vouches = 2 - 2 = 0 (below threshold of 2) -> should eject
+        assert!(should_eject(&state, &member));
+    }
+
+    // Property tests for ejection logic
+    proptest! {
+        #[test]
+        fn prop_ejection_deterministic(
+            vouches in 0u32..10,
+            flags in 0u32..10,
+            min_vouches in 1u32..5,
+        ) {
+            let mut state = TrustNetworkState::new();
+            state.config.min_vouches = min_vouches;
+
+            let member = test_member(1);
+            state.members.insert(member);
+
+            // Add vouchers
+            let vouchers: std::collections::HashSet<_> = (0..vouches)
+                .map(|i| test_member((i + 10) as u8))
+                .collect();
+            state.vouches.insert(member, vouchers);
+
+            // Add flaggers
+            let flaggers: std::collections::HashSet<_> = (0..flags)
+                .map(|i| test_member((i + 50) as u8))
+                .collect();
+            state.flags.insert(member, flaggers);
+
+            // Call should_eject multiple times - must return same result (determinism)
+            let result1 = should_eject(&state, &member);
+            let result2 = should_eject(&state, &member);
+            let result3 = should_eject(&state, &member);
+
+            assert_eq!(result1, result2);
+            assert_eq!(result2, result3);
+        }
+
+        #[test]
+        fn prop_ejection_trigger_1_effective_vouches(
+            vouches in 0u32..10,
+            min_vouches in 2u32..5,
+        ) {
+            let mut state = TrustNetworkState::new();
+            state.config.min_vouches = min_vouches;
+
+            let member = test_member(1);
+            state.members.insert(member);
+
+            // Add vouchers (no flaggers, so effective_vouches = vouches)
+            let vouchers: std::collections::HashSet<_> = (0..vouches)
+                .map(|i| test_member((i + 10) as u8))
+                .collect();
+            state.vouches.insert(member, vouchers);
+
+            let should_be_ejected = vouches < min_vouches;
+            assert_eq!(should_eject(&state, &member), should_be_ejected);
+        }
+
+        #[test]
+        fn prop_ejection_trigger_2_standing(
+            vouches in 2u32..10,
+            flags in 3u32..15,
+        ) {
+            let mut state = TrustNetworkState::new();
+            state.config.min_vouches = 2;
+
+            let member = test_member(1);
+            state.members.insert(member);
+
+            // Add vouchers
+            let vouchers: std::collections::HashSet<_> = (0..vouches)
+                .map(|i| test_member((i + 10) as u8))
+                .collect();
+            state.vouches.insert(member, vouchers.clone());
+
+            // Add flaggers (different from vouchers, so no contradiction)
+            let flaggers: std::collections::HashSet<_> = (0..flags)
+                .map(|i| test_member((i + 50) as u8))
+                .collect();
+            state.flags.insert(member, flaggers);
+
+            // Calculate expected standing
+            let standing = vouches as i32 - flags as i32;
+
+            // If standing < 0, should eject (even if vouches >= min_vouches)
+            if standing < 0 {
+                assert!(should_eject(&state, &member));
+            } else if vouches >= state.config.min_vouches {
+                assert!(!should_eject(&state, &member));
+            }
+        }
+
+        #[test]
+        fn prop_non_member_never_ejected(
+            vouches in 0u32..10,
+            flags in 0u32..10,
+        ) {
+            let mut state = TrustNetworkState::new();
+            state.config.min_vouches = 2;
+
+            let member = test_member(1);
+            // DON'T add member to members set
+
+            // Add vouchers and flaggers anyway
+            let vouchers: std::collections::HashSet<_> = (0..vouches)
+                .map(|i| test_member((i + 10) as u8))
+                .collect();
+            state.vouches.insert(member, vouchers);
+
+            let flaggers: std::collections::HashSet<_> = (0..flags)
+                .map(|i| test_member((i + 50) as u8))
+                .collect();
+            state.flags.insert(member, flaggers);
+
+            // Non-members should never be ejected
+            assert!(!should_eject(&state, &member));
+        }
+
+        #[test]
+        fn prop_voucher_flagger_contradiction(
+            total_vouchers in 2u32..10,
+            num_contradictory in 0u32..5,
+        ) {
+            let num_contradictory = num_contradictory.min(total_vouchers);
+
+            let mut state = TrustNetworkState::new();
+            state.config.min_vouches = 2;
+
+            let member = test_member(1);
+            state.members.insert(member);
+
+            // Add vouchers
+            let all_vouchers: Vec<_> = (0..total_vouchers)
+                .map(|i| test_member((i + 10) as u8))
+                .collect();
+            state.vouches.insert(
+                member,
+                all_vouchers.iter().copied().collect(),
+            );
+
+            // Make first N vouchers also flaggers (contradictory)
+            let contradictory_members: std::collections::HashSet<_> =
+                all_vouchers.iter().take(num_contradictory as usize).copied().collect();
+            state.flags.insert(member, contradictory_members);
+
+            // Effective vouches = total - contradictory
+            let effective_vouches = total_vouchers - num_contradictory;
+
+            // Check if ejection matches expected behavior
+            let expected_ejection = effective_vouches < state.config.min_vouches;
+            assert_eq!(should_eject(&state, &member), expected_ejection);
+        }
     }
 }

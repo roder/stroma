@@ -308,4 +308,181 @@ mod tests {
         let formatted = format_audit_log(&entries);
         assert_eq!(formatted, "No audit entries found.");
     }
+
+    #[test]
+    fn test_manual_intervention_entry() {
+        let actor = mock_member_hash(1);
+        let entry =
+            AuditEntry::manual_intervention(actor, "Emergency ejection override".to_string());
+
+        assert_eq!(entry.actor, actor);
+        assert_eq!(entry.action_type, ActionType::ManualIntervention);
+        assert_eq!(entry.details, "Emergency ejection override");
+        assert!(entry.timestamp > 0);
+    }
+
+    #[test]
+    fn test_bootstrap_entry() {
+        let actor = mock_member_hash(1);
+        let entry = AuditEntry::bootstrap(actor, "Created trust network group".to_string());
+
+        assert_eq!(entry.actor, actor);
+        assert_eq!(entry.action_type, ActionType::Bootstrap);
+        assert_eq!(entry.details, "Created trust network group");
+        assert!(entry.timestamp > 0);
+    }
+
+    #[test]
+    fn test_action_type_other_variant() {
+        let actor = mock_member_hash(1);
+        let entry = AuditEntry::new(
+            actor,
+            ActionType::Other("CustomAction".to_string()),
+            "Custom operation performed".to_string(),
+        );
+
+        assert_eq!(
+            entry.action_type,
+            ActionType::Other("CustomAction".to_string())
+        );
+        assert_eq!(entry.action_type_display(), "CustomAction");
+    }
+
+    #[test]
+    fn test_timestamp_iso_future_timestamp() {
+        let actor = mock_member_hash(1);
+        let mut entry = AuditEntry::config_change(actor, "Test".to_string());
+
+        // Set timestamp to future (current time + 3600 seconds)
+        let future_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 3600;
+        entry.timestamp = future_time;
+
+        let formatted = entry.timestamp_iso();
+        // Future timestamps should return Unix format
+        assert!(formatted.starts_with("Unix:"));
+        assert!(formatted.contains(&future_time.to_string()));
+    }
+
+    #[test]
+    fn test_timestamp_iso_relative_times() {
+        let actor = mock_member_hash(1);
+
+        // Test "Just now" (0-60 seconds)
+        let mut entry = AuditEntry::config_change(actor, "Test".to_string());
+        let formatted = entry.timestamp_iso();
+        assert_eq!(formatted, "Just now");
+
+        // Test minutes ago (61-3600 seconds)
+        entry.timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - 120; // 2 minutes ago
+        let formatted = entry.timestamp_iso();
+        assert!(formatted.contains("min ago"));
+
+        // Test hours ago (3601-86400 seconds)
+        entry.timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - 7200; // 2 hours ago
+        let formatted = entry.timestamp_iso();
+        assert!(formatted.contains("hours ago"));
+
+        // Test days ago (86401-604800 seconds)
+        entry.timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - 172800; // 2 days ago
+        let formatted = entry.timestamp_iso();
+        assert!(formatted.contains("days ago"));
+
+        // Test very old (>604800 seconds / 1 week)
+        entry.timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - 1000000; // Much older
+        let formatted = entry.timestamp_iso();
+        assert!(formatted.starts_with("Unix:"));
+    }
+
+    #[test]
+    fn test_audit_query_after_timestamp() {
+        let actor = mock_member_hash(1);
+
+        // Create entries with different timestamps
+        let mut entry1 = AuditEntry::config_change(actor, "Old change".to_string());
+        let mut entry2 = AuditEntry::restart(actor, "Recent restart".to_string());
+        let mut entry3 = AuditEntry::config_change(actor, "New change".to_string());
+
+        let base_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        entry1.timestamp = base_time - 100;
+        entry2.timestamp = base_time - 50;
+        entry3.timestamp = base_time - 10;
+
+        let entries = vec![entry1, entry2, entry3];
+
+        // Query for entries after base_time - 60
+        let query = AuditQuery {
+            after_timestamp: Some(base_time - 60),
+            ..Default::default()
+        };
+
+        let result = query_audit_log(&entries, &query);
+        // Should only get entry2 and entry3 (timestamps > base_time - 60)
+        assert_eq!(result.len(), 2);
+        assert!(result.iter().all(|e| e.timestamp > base_time - 60));
+    }
+
+    #[test]
+    fn test_audit_query_combined_filters() {
+        let actor1 = mock_member_hash(1);
+        let actor2 = mock_member_hash(2);
+
+        let entries = vec![
+            AuditEntry::config_change(actor1, "Change 1".to_string()),
+            AuditEntry::config_change(actor2, "Change 2".to_string()),
+            AuditEntry::restart(actor1, "Restart 1".to_string()),
+            AuditEntry::restart(actor2, "Restart 2".to_string()),
+        ];
+
+        // Filter by actor AND action type
+        let query = AuditQuery {
+            actor: Some(actor1),
+            action_type: Some(ActionType::ConfigChange),
+            ..Default::default()
+        };
+
+        let result = query_audit_log(&entries, &query);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].actor, actor1);
+        assert_eq!(result[0].action_type, ActionType::ConfigChange);
+    }
+
+    #[test]
+    fn test_audit_query_no_limit() {
+        let actor = mock_member_hash(1);
+        let entries: Vec<AuditEntry> = (0..100)
+            .map(|i| AuditEntry::config_change(actor, format!("Change {}", i)))
+            .collect();
+
+        let query = AuditQuery {
+            limit: None, // No limit
+            ..Default::default()
+        };
+
+        let result = query_audit_log(&entries, &query);
+        assert_eq!(result.len(), 100); // All entries returned
+    }
 }

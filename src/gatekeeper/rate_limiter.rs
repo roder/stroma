@@ -265,6 +265,7 @@ pub fn format_duration(duration: Duration) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use std::thread::sleep;
 
     fn test_member() -> MemberHash {
@@ -610,5 +611,201 @@ mod tests {
         assert!(limiter
             .check_rate_limit(&member, TrustAction::Invite)
             .is_err());
+    }
+
+    #[test]
+    fn test_default_rate_limiter() {
+        let limiter1 = RateLimiter::new();
+        let limiter2 = RateLimiter::default();
+
+        let member = test_member();
+
+        // Both should behave the same
+        assert!(limiter1
+            .check_rate_limit(&member, TrustAction::Invite)
+            .is_ok());
+        assert!(limiter2
+            .check_rate_limit(&member, TrustAction::Invite)
+            .is_ok());
+    }
+
+    #[test]
+    fn test_get_remaining_cooldown_after_limit_expires() {
+        let limiter = RateLimiter::new();
+        let member = test_member();
+
+        // Set state to expired cooldown
+        {
+            let mut state = limiter.state.write().unwrap();
+            let old_time = SystemTime::now() - Duration::from_secs(61);
+            state.insert(
+                (member, TrustAction::Invite),
+                RateLimitState {
+                    action_count: 1,
+                    last_action: old_time,
+                },
+            );
+        }
+
+        // Should have no remaining cooldown (expired)
+        assert!(limiter
+            .get_remaining_cooldown(&member, TrustAction::Invite)
+            .is_none());
+    }
+
+    #[test]
+    fn test_cooldown_tier_boundary_values() {
+        let limiter = RateLimiter::new();
+        let member = test_member();
+
+        // Test exact boundary between tiers
+        // After 1st action (count=1), should wait 60 seconds
+        limiter.record_action(&member, TrustAction::Invite);
+        let remaining = limiter
+            .check_rate_limit(&member, TrustAction::Invite)
+            .unwrap_err();
+        assert!(remaining.as_secs() >= 59 && remaining.as_secs() <= 60);
+    }
+
+    #[test]
+    fn test_multiple_actions_different_types() {
+        let limiter = RateLimiter::new();
+        let member = test_member();
+
+        // Record different action types
+        limiter.record_action(&member, TrustAction::Invite);
+        limiter.record_action(&member, TrustAction::Vouch);
+        limiter.record_action(&member, TrustAction::Flag);
+        limiter.record_action(&member, TrustAction::Propose);
+
+        // All should be independently rate limited
+        assert!(limiter
+            .check_rate_limit(&member, TrustAction::Invite)
+            .is_err());
+        assert!(limiter
+            .check_rate_limit(&member, TrustAction::Vouch)
+            .is_err());
+        assert!(limiter
+            .check_rate_limit(&member, TrustAction::Flag)
+            .is_err());
+        assert!(limiter
+            .check_rate_limit(&member, TrustAction::Propose)
+            .is_err());
+    }
+
+    #[test]
+    fn test_format_duration_edge_cases() {
+        // Test edge cases for duration formatting
+        assert_eq!(format_duration(Duration::from_secs(0)), "0 seconds");
+        assert_eq!(format_duration(Duration::from_secs(59)), "59 seconds");
+        assert_eq!(format_duration(Duration::from_secs(61)), "1 minute");
+        assert_eq!(format_duration(Duration::from_secs(3599)), "59 minutes");
+        assert_eq!(format_duration(Duration::from_secs(3601)), "1 hour");
+        assert_eq!(format_duration(Duration::from_secs(86399)), "23 hours");
+        assert_eq!(format_duration(Duration::from_secs(86401)), "1 day");
+    }
+
+    // Property tests for rate limiting
+    proptest! {
+        #[test]
+        fn prop_cooldown_increases_monotonically(action_count in 0u32..10) {
+            let cooldown1 = get_cooldown_duration(action_count);
+            let cooldown2 = get_cooldown_duration(action_count + 1);
+
+            // Cooldown should never decrease (monotonically increasing or stable)
+            prop_assert!(cooldown2 >= cooldown1);
+        }
+
+        #[test]
+        fn prop_rate_limiter_deterministic(
+            byte1 in 0u8..255,
+            byte2 in 0u8..255,
+        ) {
+            let limiter = RateLimiter::new();
+            let member1 = MemberHash::from_bytes(&[byte1; 32]);
+            let member2 = MemberHash::from_bytes(&[byte2; 32]);
+
+            // Record action for member1
+            limiter.record_action(&member1, TrustAction::Invite);
+
+            // Check rate limit multiple times - must be deterministic
+            let result1 = limiter.check_rate_limit(&member1, TrustAction::Invite);
+            let result2 = limiter.check_rate_limit(&member1, TrustAction::Invite);
+            let result3 = limiter.check_rate_limit(&member1, TrustAction::Invite);
+
+            prop_assert_eq!(result1.is_ok(), result2.is_ok());
+            prop_assert_eq!(result2.is_ok(), result3.is_ok());
+
+            // member2 should not be affected (isolation) - unless member1 == member2
+            if byte1 != byte2 {
+                prop_assert!(limiter.check_rate_limit(&member2, TrustAction::Invite).is_ok());
+            }
+        }
+
+        #[test]
+        fn prop_progressive_cooldown_enforced(
+            num_actions in 1u32..7,
+        ) {
+            let limiter = RateLimiter::new();
+            let member = test_member();
+
+            // Manually set action count
+            {
+                let mut state = limiter.state.write().unwrap();
+                state.insert(
+                    (member, TrustAction::Invite),
+                    RateLimitState {
+                        action_count: num_actions,
+                        last_action: SystemTime::now(),
+                    },
+                );
+            }
+
+            // Check rate limit
+            let result = limiter.check_rate_limit(&member, TrustAction::Invite);
+
+            // Should be rate limited after any action
+            if num_actions > 0 {
+                prop_assert!(result.is_err());
+
+                // Cooldown should match expected tier
+                let expected_cooldown = get_cooldown_duration(num_actions);
+                let actual_remaining = result.unwrap_err().as_secs();
+                prop_assert!(actual_remaining >= expected_cooldown - 1); // Allow 1s tolerance
+            }
+        }
+
+        #[test]
+        fn prop_action_isolation(
+            action1_count in 0u32..5,
+            action2_count in 0u32..5,
+        ) {
+            let limiter = RateLimiter::new();
+            let member = test_member();
+
+            // Record different numbers of different actions
+            for _ in 0..action1_count {
+                limiter.record_action(&member, TrustAction::Invite);
+                std::thread::sleep(std::time::Duration::from_millis(61));
+            }
+
+            for _ in 0..action2_count {
+                limiter.record_action(&member, TrustAction::Vouch);
+                std::thread::sleep(std::time::Duration::from_millis(61));
+            }
+
+            // State for each action should be independent
+            let state = limiter.state.read().unwrap();
+
+            if action1_count > 0 {
+                let invite_state = state.get(&(member, TrustAction::Invite));
+                prop_assert!(invite_state.is_some());
+            }
+
+            if action2_count > 0 {
+                let vouch_state = state.get(&(member, TrustAction::Vouch));
+                prop_assert!(vouch_state.is_some());
+            }
+        }
     }
 }

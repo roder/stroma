@@ -279,6 +279,7 @@ mod tests {
     use crate::freenet::mock::MockFreenetClient;
     use crate::signal::traits::SignalError;
     use async_trait::async_trait;
+    use proptest::prelude::*;
     use std::sync::Arc;
     use tokio::sync::Mutex;
 
@@ -780,5 +781,218 @@ mod tests {
         // Verify no announcement was sent
         let messages = signal.sent_messages().await;
         assert_eq!(messages.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_register_and_unregister_member() {
+        let freenet = Arc::new(MockFreenetClient::new());
+        let signal = MockSignalClient::new();
+        let contract = ContractHash::from_bytes(&[0u8; 32]);
+        let group_id = GroupId(vec![1, 2, 3]);
+
+        let monitor = HealthMonitor::new(freenet, signal, contract, group_id);
+
+        let member = test_member(1);
+        let service_id = test_service_id(1);
+
+        // Register member
+        monitor.register_member(member, service_id.clone()).await;
+
+        // Verify member is registered
+        {
+            let mapping = monitor.member_mapping.read().await;
+            assert_eq!(mapping.get(&member), Some(&service_id));
+        }
+
+        // Unregister member
+        monitor.unregister_member(&member).await;
+
+        // Verify member is no longer registered
+        {
+            let mapping = monitor.member_mapping.read().await;
+            assert_eq!(mapping.get(&member), None);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_standing_calculation_complex_scenario() {
+        let freenet = Arc::new(MockFreenetClient::new());
+        let signal = MockSignalClient::new();
+        let contract = ContractHash::from_bytes(&[0u8; 32]);
+        let group_id = GroupId(vec![1, 2, 3]);
+
+        let monitor = HealthMonitor::new(freenet, signal, contract, group_id);
+
+        // Complex scenario:
+        // Bob has:
+        // - 5 vouchers: Alice, Carol, Dave, Eve, Frank
+        // - 3 flaggers: Alice, Grace, Henry
+        // - Voucher-Flaggers: {Alice}
+        let mut state = TrustNetworkState::new();
+        let bob = test_member(1);
+        let alice = test_member(2);
+        let carol = test_member(3);
+        let dave = test_member(4);
+        let eve = test_member(5);
+        let frank = test_member(6);
+        let grace = test_member(7);
+        let henry = test_member(8);
+
+        state.members.insert(bob);
+        state
+            .vouches
+            .insert(bob, [alice, carol, dave, eve, frank].into_iter().collect());
+        state
+            .flags
+            .insert(bob, [alice, grace, henry].into_iter().collect());
+
+        let metrics = monitor.calculate_standing(&bob, &state);
+
+        // Effective_Vouches = 5 - 1 (Alice is contradictory) = 4
+        // Regular_Flags = 3 - 1 (Alice is contradictory) = 2
+        // Standing = 4 - 2 = 2
+        assert_eq!(metrics.effective_vouches, 4);
+        assert_eq!(metrics.regular_flags, 2);
+        assert_eq!(metrics.standing, 2);
+    }
+
+    #[tokio::test]
+    async fn test_should_eject_zero_vouches() {
+        let freenet = Arc::new(MockFreenetClient::new());
+        let signal = MockSignalClient::new();
+        let contract = ContractHash::from_bytes(&[0u8; 32]);
+        let group_id = GroupId(vec![1, 2, 3]);
+
+        let monitor = HealthMonitor::new(freenet, signal, contract, group_id);
+
+        // Member with zero vouches (below any positive threshold)
+        let mut state = TrustNetworkState::new();
+        state.config.min_vouches = 2;
+        let member = test_member(1);
+
+        state.members.insert(member);
+        // No vouches added
+
+        let should_eject = monitor
+            .should_eject(&member, &state, state.config.min_vouches)
+            .await
+            .unwrap();
+        assert!(should_eject); // Zero vouches < 2 -> should eject
+    }
+
+    // Property tests for health monitoring
+    proptest! {
+        #[test]
+        fn prop_standing_calculation_deterministic(
+            num_vouchers in 0u32..15,
+            num_flaggers in 0u32..15,
+            num_contradictory in 0u32..5,
+        ) {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let freenet = Arc::new(MockFreenetClient::new());
+                let signal = MockSignalClient::new();
+                let contract = ContractHash::from_bytes(&[0u8; 32]);
+                let group_id = GroupId(vec![1, 2, 3]);
+
+                let monitor = HealthMonitor::new(freenet, signal, contract, group_id);
+
+                let mut state = TrustNetworkState::new();
+                let member = test_member(1);
+                state.members.insert(member);
+
+                // Add vouchers
+                let vouchers: Vec<_> = (0..num_vouchers)
+                    .map(|i| test_member((i + 10) as u8))
+                    .collect();
+                state.vouches.insert(
+                    member,
+                    vouchers.iter().copied().collect(),
+                );
+
+                // Add flaggers (with some overlap for contradiction)
+                let num_contradictory = num_contradictory.min(num_vouchers).min(num_flaggers);
+                let mut flaggers = std::collections::HashSet::new();
+
+                // Add contradictory members (vouchers who also flag)
+                for i in 0..num_contradictory {
+                    if (i as usize) < vouchers.len() {
+                        flaggers.insert(vouchers[i as usize]);
+                    }
+                }
+
+                // Add unique flaggers (only if we have room)
+                if num_flaggers > num_contradictory {
+                    for i in 0..(num_flaggers - num_contradictory) {
+                        flaggers.insert(test_member((i + 50) as u8));
+                    }
+                }
+
+                state.flags.insert(member, flaggers);
+
+                // Calculate standing multiple times - must be deterministic
+                let metrics1 = monitor.calculate_standing(&member, &state);
+                let metrics2 = monitor.calculate_standing(&member, &state);
+                let metrics3 = monitor.calculate_standing(&member, &state);
+
+                assert_eq!(metrics1, metrics2);
+                assert_eq!(metrics2, metrics3);
+            });
+        }
+
+        #[test]
+        fn prop_standing_invariants(
+            num_vouchers in 0u32..15,
+            num_flaggers in 0u32..15,
+        ) {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let freenet = Arc::new(MockFreenetClient::new());
+                let signal = MockSignalClient::new();
+                let contract = ContractHash::from_bytes(&[0u8; 32]);
+                let group_id = GroupId(vec![1, 2, 3]);
+
+                let monitor = HealthMonitor::new(freenet, signal, contract, group_id);
+
+                let mut state = TrustNetworkState::new();
+                let member = test_member(1);
+                state.members.insert(member);
+
+                // Add vouchers (unique, no overlap with flaggers)
+                let vouchers: std::collections::HashSet<_> = (0..num_vouchers)
+                    .map(|i| test_member((i + 10) as u8))
+                    .collect();
+                state.vouches.insert(member, vouchers);
+
+                // Add flaggers (unique, no overlap with vouchers)
+                let flaggers: std::collections::HashSet<_> = (0..num_flaggers)
+                    .map(|i| test_member((i + 50) as u8))
+                    .collect();
+                state.flags.insert(member, flaggers);
+
+                let metrics = monitor.calculate_standing(&member, &state);
+
+                // Invariants:
+                // 1. Effective vouches <= total vouchers
+                prop_assert!(metrics.effective_vouches <= num_vouchers);
+
+                // 2. Regular flags <= total flaggers
+                prop_assert!(metrics.regular_flags <= num_flaggers);
+
+                // 3. When no contradiction, effective_vouches = num_vouchers
+                prop_assert_eq!(metrics.effective_vouches, num_vouchers);
+
+                // 4. When no contradiction, regular_flags = num_flaggers
+                prop_assert_eq!(metrics.regular_flags, num_flaggers);
+
+                // 5. Standing = effective_vouches - regular_flags
+                prop_assert_eq!(
+                    metrics.standing,
+                    metrics.effective_vouches as i32 - metrics.regular_flags as i32
+                );
+
+                Ok(())
+            }).unwrap();
+        }
     }
 }
