@@ -332,7 +332,8 @@ mod tests {
         let mut excluded = HashSet::new();
         excluded.insert(carol);
 
-        let validator = BlindMatchmaker::select_validator_with_exclusions(&state, &alice, &excluded);
+        let validator =
+            BlindMatchmaker::select_validator_with_exclusions(&state, &alice, &excluded);
 
         assert!(validator.is_some());
         let validator = validator.unwrap();
@@ -359,7 +360,8 @@ mod tests {
         excluded.insert(bob);
         excluded.insert(carol);
 
-        let validator = BlindMatchmaker::select_validator_with_exclusions(&state, &alice, &excluded);
+        let validator =
+            BlindMatchmaker::select_validator_with_exclusions(&state, &alice, &excluded);
 
         // No validator available (all excluded)
         assert!(validator.is_none());
@@ -371,7 +373,8 @@ mod tests {
         let alice = test_member_hash(1);
         let excluded = HashSet::new();
 
-        let validator = BlindMatchmaker::select_validator_with_exclusions(&state, &alice, &excluded);
+        let validator =
+            BlindMatchmaker::select_validator_with_exclusions(&state, &alice, &excluded);
 
         // Should behave same as regular select_validator
         assert!(validator.is_some());

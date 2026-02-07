@@ -390,7 +390,10 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         if validator_id != sender {
             return self
                 .client
-                .send_message(sender, "❌ You are not the assigned assessor for this invitee.")
+                .send_message(
+                    sender,
+                    "❌ You are not the assigned assessor for this invitee.",
+                )
                 .await;
         }
 
@@ -427,11 +430,8 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         let state = crate::freenet::trust_contract::TrustNetworkState::new();
 
         // Re-run BlindMatchmaker with exclusion list
-        let new_validator = BlindMatchmaker::select_validator_with_exclusions(
-            &state,
-            &inviter_hash,
-            &excluded_set,
-        );
+        let new_validator =
+            BlindMatchmaker::select_validator_with_exclusions(&state, &inviter_hash, &excluded_set);
 
         if let Some(_validator_hash) = new_validator {
             // TODO Phase 1: Resolve validator hash to ServiceId
