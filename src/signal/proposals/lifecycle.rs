@@ -156,17 +156,15 @@ pub async fn monitor_proposals<C: SignalClient, F: FreenetClient>(
     group_id: &GroupId,
 ) -> SignalResult<()> {
     // Subscribe to Freenet state stream
-    let mut stream = freenet
-        .subscribe(contract)
-        .await
-        .map_err(|e| SignalError::Protocol(format!("Failed to subscribe to state stream: {}", e)))?;
+    let mut stream = freenet.subscribe(contract).await.map_err(|e| {
+        SignalError::Protocol(format!("Failed to subscribe to state stream: {}", e))
+    })?;
 
     // Monitor for state changes
     while let Some(change) = stream.next().await {
         // Parse the new state
-        let state: TrustNetworkState = from_cbor(&change.new_state.data).map_err(|e| {
-            SignalError::Protocol(format!("Failed to deserialize state: {}", e))
-        })?;
+        let state: TrustNetworkState = from_cbor(&change.new_state.data)
+            .map_err(|e| SignalError::Protocol(format!("Failed to deserialize state: {}", e)))?;
 
         // Get current time
         let now = std::time::SystemTime::now()
@@ -288,10 +286,7 @@ async fn process_expired_proposal<C: SignalClient, F: FreenetClient>(
                 participation_rate = participation_rate,
                 "Proposal FAILED: Quorum not met"
             );
-            (
-                ProposalResult::QuorumNotMet { participation_rate },
-                false,
-            )
+            (ProposalResult::QuorumNotMet { participation_rate }, false)
         }
         None => {
             return Err(SignalError::Protocol(format!(
@@ -306,7 +301,8 @@ async fn process_expired_proposal<C: SignalClient, F: FreenetClient>(
         tracing::info!(poll_id = poll_id, "Executing approved proposal");
 
         // Parse proposal type from stored strings
-        let proposal_type = parse_proposal_type(&proposal.proposal_type, &proposal.proposal_details)?;
+        let proposal_type =
+            parse_proposal_type(&proposal.proposal_type, &proposal.proposal_details)?;
 
         execute_proposal(freenet, contract, &proposal_type, config).await?;
     }

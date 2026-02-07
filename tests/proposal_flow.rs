@@ -11,6 +11,7 @@
 //! 8. Execute if passed
 //! 9. Mark as checked
 
+use std::sync::{Arc, Mutex};
 use stroma::freenet::{
     traits::{
         ContractDelta, ContractHash, ContractState, FreenetClient, FreenetError, FreenetResult,
@@ -27,7 +28,6 @@ use stroma::signal::{
     },
     traits::{ServiceId, SignalClient},
 };
-use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
 /// Mock Freenet client for testing
@@ -524,9 +524,15 @@ async fn test_complete_proposal_workflow_with_monitoring() {
     )
     .unwrap();
 
-    let poll_id = create_proposal(&mut poll_manager, freenet.as_ref(), args, &config, &contract_hash)
-        .await
-        .unwrap();
+    let poll_id = create_proposal(
+        &mut poll_manager,
+        freenet.as_ref(),
+        args,
+        &config,
+        &contract_hash,
+    )
+    .await
+    .unwrap();
 
     // 2. Simulate voting before expiration (8 approve, 2 reject = 80% approval)
     poll_manager.init_vote_aggregate(poll_id, 10);
