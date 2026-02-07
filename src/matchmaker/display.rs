@@ -275,4 +275,114 @@ mod tests {
         assert!(msg.contains("Healthy"));
         assert!(msg.contains("75"));
     }
+
+    #[test]
+    fn test_format_cluster_bridging() {
+        let intro = Introduction {
+            person_a: member_hash(1),
+            person_b: member_hash(2),
+            reason: "Bridge clusters".to_string(),
+            priority: 2,
+            dvr_optimal: false,
+        };
+
+        let mut names = HashMap::new();
+        names.insert(member_hash(2), "Dave".to_string());
+
+        let msg = format_introduction(&intro, &names);
+        assert!(msg.message.contains("Bridge Suggestion"));
+        assert!(msg.message.contains("Dave"));
+        assert_eq!(msg.priority, 2);
+        assert!(!msg.dvr_optimal);
+    }
+
+    #[test]
+    fn test_format_introduction_list() {
+        let intro1 = Introduction {
+            person_a: member_hash(1),
+            person_b: member_hash(2),
+            reason: "DVR".to_string(),
+            priority: 0,
+            dvr_optimal: true,
+        };
+
+        let intro2 = Introduction {
+            person_a: member_hash(1),
+            person_b: member_hash(3),
+            reason: "MST".to_string(),
+            priority: 1,
+            dvr_optimal: false,
+        };
+
+        let intro3 = Introduction {
+            person_a: member_hash(1),
+            person_b: member_hash(4),
+            reason: "Bridge".to_string(),
+            priority: 2,
+            dvr_optimal: false,
+        };
+
+        let mut names = HashMap::new();
+        names.insert(member_hash(2), "Alice".to_string());
+        names.insert(member_hash(3), "Bob".to_string());
+        names.insert(member_hash(4), "Carol".to_string());
+
+        let intros = vec![intro2.clone(), intro1.clone(), intro3.clone()];
+
+        // Test max_suggestions limit
+        let msgs = format_introduction_list(&intros, &names, 2);
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].priority, 0); // Sorted by priority
+        assert_eq!(msgs[1].priority, 1);
+
+        // Test all suggestions
+        let all_msgs = format_introduction_list(&intros, &names, 10);
+        assert_eq!(all_msgs.len(), 3);
+        assert!(all_msgs[0].dvr_optimal); // First should be DVR-optimal
+    }
+
+    #[test]
+    fn test_format_introduction_list_empty() {
+        let names = HashMap::new();
+        let msgs = format_introduction_list(&[], &names, 5);
+        assert_eq!(msgs.len(), 0);
+    }
+
+    #[test]
+    fn test_calculate_dvr_various_sizes() {
+        // Test various network sizes
+        assert_eq!(calculate_dvr(5, 20), 1.0); // 5/5 = 100%
+        assert_eq!(calculate_dvr(3, 20), 0.6); // 3/5 = 60%
+        assert_eq!(calculate_dvr(0, 20), 0.0); // 0/5 = 0%
+
+        // Test large network
+        assert_eq!(calculate_dvr(25, 100), 1.0); // 25/25 = 100%
+    }
+
+    #[test]
+    fn test_health_status_boundaries() {
+        // Test boundary conditions for each status
+        assert_eq!(HealthStatus::from_dvr(0.0), HealthStatus::Unhealthy);
+        assert_eq!(HealthStatus::from_dvr(0.32), HealthStatus::Unhealthy);
+        assert_eq!(HealthStatus::from_dvr(0.33), HealthStatus::Developing);
+        assert_eq!(HealthStatus::from_dvr(0.5), HealthStatus::Developing);
+        assert_eq!(HealthStatus::from_dvr(0.65), HealthStatus::Developing);
+        assert_eq!(HealthStatus::from_dvr(0.66), HealthStatus::Healthy);
+        assert_eq!(HealthStatus::from_dvr(1.0), HealthStatus::Healthy);
+    }
+
+    #[test]
+    fn test_health_status_emoji_and_description() {
+        let unhealthy = HealthStatus::Unhealthy;
+        assert_eq!(unhealthy.emoji(), "🔴");
+        assert_eq!(unhealthy.description(), "Unhealthy");
+
+        let developing = HealthStatus::Developing;
+        assert_eq!(developing.emoji(), "🟡");
+        assert_eq!(developing.description(), "Developing");
+
+        let healthy = HealthStatus::Healthy;
+        assert_eq!(healthy.emoji(), "🟢");
+        assert_eq!(healthy.description(), "Healthy");
+    }
 }
