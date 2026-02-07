@@ -42,6 +42,7 @@
 //! - Design: docs/PERSISTENCE.md § Distribution
 //! - Agent: Agent-Freenet
 
+use super::attestation::{record_attestation as verify_and_record_attestation, Attestation};
 use super::chunk_storage::{ChunkStorage, StorageError};
 use super::chunks::{encrypt_and_chunk, ChunkError};
 use super::health::ReplicationHealth;
@@ -51,8 +52,6 @@ use super::write_blocking::WriteBlockingManager;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[cfg(test)]
-use super::attestation::{record_attestation as verify_and_record_attestation, Attestation};
 #[cfg(test)]
 use super::chunks::Chunk;
 #[cfg(test)]
@@ -307,21 +306,52 @@ impl<S: ChunkStorage> ChunkDistributor<S> {
                     .store_remote(holder, &state.owner, chunk.index, chunk)
                     .await
                 {
-                    Ok(_) => {
-                        // TODO(attestation): Once ChunkStorage returns signed attestations:
-                        // 1. Get holder's identity key from registry
-                        // 2. Verify attestation: verify_and_record_attestation(&attestation, &holder_key, &mut self.health)
-                        // 3. This provides cryptographic proof of chunk possession
-                        //
-                        // For now, we trust storage success without cryptographic proof.
-                        // This is a known limitation tracked in phase-2.5-review.md line 68.
-                        self.health.record_attestation(chunk.index, holder, true);
-                        self.write_blocking
-                            .update_chunk_status(chunk.index, (successful_holders + 1) as u8 + 1); // +1 for local
-                        successful_holders += 1;
+                    Ok(attestation) => {
+                        // Get holder's identity key from registry
+                        match registry.get_identity_key(holder) {
+                            Some(holder_identity_key) => {
+                                // Verify attestation cryptographically
+                                match verify_and_record_attestation(
+                                    &attestation,
+                                    holder_identity_key,
+                                    &mut self.health,
+                                ) {
+                                    Ok(true) => {
+                                        // Attestation verified successfully
+                                        self.write_blocking.update_chunk_status(
+                                            chunk.index,
+                                            (successful_holders + 1) as u8 + 1,
+                                        ); // +1 for local
+                                        successful_holders += 1;
+                                    }
+                                    Ok(false) => {
+                                        // Attestation failed verification
+                                        eprintln!(
+                                            "Failed to verify attestation for chunk {} from {}: signature verification failed",
+                                            chunk.index, holder
+                                        );
+                                    }
+                                    Err(e) => {
+                                        // Error during verification (e.g., invalid key)
+                                        eprintln!(
+                                            "Error verifying attestation for chunk {} from {}: {}",
+                                            chunk.index, holder, e
+                                        );
+                                    }
+                                }
+                            }
+                            None => {
+                                // Holder not found in registry or no identity key
+                                eprintln!(
+                                    "Cannot verify attestation for chunk {} from {}: holder identity key not found in registry",
+                                    chunk.index, holder
+                                );
+                                self.health.record_attestation(chunk.index, holder, false);
+                            }
+                        }
                     }
                     Err(e) => {
-                        // Record failure
+                        // Storage failed
                         self.health.record_attestation(chunk.index, holder, false);
                         eprintln!("Failed to store chunk {} on {}: {}", chunk.index, holder, e);
                     }
@@ -382,6 +412,8 @@ mod tests {
         local: Arc<Mutex<HashMap<(String, u32), Chunk>>>,
         remote: Arc<Mutex<HashMap<(String, String, u32), Chunk>>>,
         failures: Arc<Mutex<HashMap<String, bool>>>,
+        // Map holder -> identity key for creating attestations
+        identity_keys: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     }
 
     impl MockStorage {
@@ -390,12 +422,18 @@ mod tests {
                 local: Arc::new(Mutex::new(HashMap::new())),
                 remote: Arc::new(Mutex::new(HashMap::new())),
                 failures: Arc::new(Mutex::new(HashMap::new())),
+                identity_keys: Arc::new(Mutex::new(HashMap::new())),
             }
         }
 
         async fn set_holder_failure(&self, holder: &str, should_fail: bool) {
             let mut failures = self.failures.lock().await;
             failures.insert(holder.to_string(), should_fail);
+        }
+
+        async fn set_holder_identity_key(&self, holder: &str, key: Vec<u8>) {
+            let mut keys = self.identity_keys.lock().await;
+            keys.insert(holder.to_string(), key);
         }
     }
 
@@ -433,7 +471,7 @@ mod tests {
             owner: &str,
             chunk_index: u32,
             chunk: &Chunk,
-        ) -> Result<(), StorageError> {
+        ) -> Result<Attestation, StorageError> {
             // Check if this holder should fail
             let failures = self.failures.lock().await;
             if failures.get(holder).copied().unwrap_or(false) {
@@ -441,13 +479,33 @@ mod tests {
                     "Simulated network error".to_string(),
                 ));
             }
+            drop(failures);
 
+            // Get holder's identity key
+            let keys = self.identity_keys.lock().await;
+            let identity_key = keys
+                .get(holder)
+                .ok_or_else(|| {
+                    StorageError::PermissionDenied(format!(
+                        "Holder {} has no identity key configured",
+                        holder
+                    ))
+                })?
+                .clone();
+            drop(keys);
+
+            // Store the chunk
             let mut remote = self.remote.lock().await;
             remote.insert(
                 (holder.to_string(), owner.to_string(), chunk_index),
                 chunk.clone(),
             );
-            Ok(())
+            drop(remote);
+
+            // Create and return attestation
+            Attestation::create(owner, chunk_index, holder, &identity_key).map_err(|e| {
+                StorageError::ContractError(format!("Failed to create attestation: {}", e))
+            })
         }
 
         async fn retrieve_remote(
@@ -471,6 +529,14 @@ mod tests {
         vec![42u8; 32]
     }
 
+    fn test_identity_key(holder: &str) -> Vec<u8> {
+        // Generate unique but deterministic key based on holder name
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(holder.as_bytes());
+        hasher.finalize().to_vec()
+    }
+
     fn create_test_registry() -> PersistenceRegistry {
         let mut registry = PersistenceRegistry::new();
         registry.register(RegistryEntry::new(
@@ -478,24 +544,28 @@ mod tests {
             crate::persistence::SizeBucket::Small,
             0,
             1000,
+            test_identity_key("owner-bot"),
         ));
         registry.register(RegistryEntry::new(
             "holder-a".to_string(),
             crate::persistence::SizeBucket::Small,
             0,
             1001,
+            test_identity_key("holder-a"),
         ));
         registry.register(RegistryEntry::new(
             "holder-b".to_string(),
             crate::persistence::SizeBucket::Small,
             0,
             1002,
+            test_identity_key("holder-b"),
         ));
         registry.register(RegistryEntry::new(
             "holder-c".to_string(),
             crate::persistence::SizeBucket::Small,
             0,
             1003,
+            test_identity_key("holder-c"),
         ));
         registry
     }
@@ -503,6 +573,12 @@ mod tests {
     #[tokio::test]
     async fn test_successful_distribution() {
         let storage = MockStorage::new();
+
+        // Set up identity keys for all holders
+        storage.set_holder_identity_key("holder-a", test_identity_key("holder-a")).await;
+        storage.set_holder_identity_key("holder-b", test_identity_key("holder-b")).await;
+        storage.set_holder_identity_key("holder-c", test_identity_key("holder-c")).await;
+
         let config = DistributionConfig::default();
         let mut distributor = ChunkDistributor::new(storage, config);
         let registry = create_test_registry();
@@ -532,10 +608,13 @@ mod tests {
             crate::persistence::SizeBucket::Small,
             0,
             1000,
+            test_identity_key("owner-bot"),
         ));
         // Only 1 bot - not enough for replication
 
         let storage = MockStorage::new();
+        storage.set_holder_identity_key("owner-bot", test_identity_key("owner-bot")).await;
+
         let config = DistributionConfig::default();
         let mut distributor = ChunkDistributor::new(storage, config);
 
@@ -557,6 +636,12 @@ mod tests {
     #[tokio::test]
     async fn test_partial_distribution_with_failures() {
         let storage = MockStorage::new();
+
+        // Set up identity keys
+        storage.set_holder_identity_key("holder-a", test_identity_key("holder-a")).await;
+        storage.set_holder_identity_key("holder-b", test_identity_key("holder-b")).await;
+        storage.set_holder_identity_key("holder-c", test_identity_key("holder-c")).await;
+
         storage.set_holder_failure("holder-a", true).await; // Make one holder fail
 
         let config = DistributionConfig::default();
@@ -583,6 +668,12 @@ mod tests {
     #[tokio::test]
     async fn test_write_blocking_after_distribution() {
         let storage = MockStorage::new();
+
+        // Set up identity keys
+        storage.set_holder_identity_key("holder-a", test_identity_key("holder-a")).await;
+        storage.set_holder_identity_key("holder-b", test_identity_key("holder-b")).await;
+        storage.set_holder_identity_key("holder-c", test_identity_key("holder-c")).await;
+
         let config = DistributionConfig::default();
         let mut distributor = ChunkDistributor::new(storage, config);
         let registry = create_test_registry();

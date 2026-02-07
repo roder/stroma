@@ -72,6 +72,12 @@ pub struct RegistryEntry {
 
     /// Timestamp of registration (for debugging/monitoring)
     pub registered_at: u64,
+
+    /// Bot's identity key for signing attestations (32 bytes)
+    ///
+    /// Used to sign chunk possession attestations. This key proves that
+    /// a holder actually possesses a chunk via HMAC-SHA256 signatures.
+    pub identity_key: Vec<u8>,
 }
 
 impl RegistryEntry {
@@ -81,12 +87,14 @@ impl RegistryEntry {
         size_bucket: SizeBucket,
         num_chunks: u32,
         registered_at: u64,
+        identity_key: Vec<u8>,
     ) -> Self {
         Self {
             contract_hash,
             size_bucket,
             num_chunks,
             registered_at,
+            identity_key,
         }
     }
 }
@@ -325,6 +333,25 @@ impl PersistenceRegistry {
         self.tombstones.remove(contract_hash);
     }
 
+    /// Get a bot's identity key by contract hash.
+    ///
+    /// Used to verify attestations from holders. Returns the holder's
+    /// identity key needed for HMAC-SHA256 signature verification.
+    ///
+    /// # Arguments
+    ///
+    /// * `contract_hash` - Bot's contract hash
+    ///
+    /// # Returns
+    ///
+    /// Identity key if bot is registered, None otherwise
+    pub fn get_identity_key(&self, contract_hash: &str) -> Option<&[u8]> {
+        self.bots
+            .iter()
+            .find(|b| b.contract_hash == contract_hash)
+            .map(|b| b.identity_key.as_slice())
+    }
+
     /// Check if epoch should increment (>10% change in bot count).
     ///
     /// # Arguments
@@ -384,6 +411,14 @@ impl Default for PersistenceRegistry {
 mod tests {
     use super::*;
 
+    fn test_identity_key(name: &str) -> Vec<u8> {
+        // Generate unique but deterministic key based on name
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(name.as_bytes());
+        hasher.finalize().to_vec()
+    }
+
     #[test]
     fn test_deterministic_address() {
         let addr1 = PersistenceRegistry::registry_contract_address();
@@ -414,7 +449,7 @@ mod tests {
     #[test]
     fn test_registration_deduplication() {
         let mut registry = PersistenceRegistry::new();
-        let bot = RegistryEntry::new("test-bot".to_string(), SizeBucket::Small, 8, 1000);
+        let bot = RegistryEntry::new("test-bot".to_string(), SizeBucket::Small, 8, 1000, test_identity_key("test-bot"));
 
         assert!(registry.register(bot.clone()));
         assert!(registry.register(bot.clone()));
@@ -430,7 +465,7 @@ mod tests {
     #[test]
     fn test_tombstone_prevents_reregistration() {
         let mut registry = PersistenceRegistry::new();
-        let bot = RegistryEntry::new("tombstone-bot".to_string(), SizeBucket::Small, 8, 1000);
+        let bot = RegistryEntry::new("tombstone-bot".to_string(), SizeBucket::Small, 8, 1000, test_identity_key("tombstone-bot"));
 
         // Register, unregister, try to re-register
         assert!(registry.register(bot.clone()));
@@ -453,11 +488,13 @@ mod tests {
 
         // Add 10 bots
         for i in 0..10 {
+            let name = format!("bot-{}", i);
             registry.register(RegistryEntry::new(
-                format!("bot-{}", i),
+                name.clone(),
                 SizeBucket::Small,
                 8,
                 1000 + i,
+                test_identity_key(&name),
             ));
         }
 
@@ -467,12 +504,14 @@ mod tests {
             SizeBucket::Small,
             8,
             1010,
+            test_identity_key("bot-10"),
         ));
         registry.register(RegistryEntry::new(
             "bot-11".to_string(),
             SizeBucket::Small,
             8,
             1011,
+            test_identity_key("bot-11"),
         ));
 
         assert!(
@@ -484,7 +523,7 @@ mod tests {
     #[test]
     fn test_is_registered() {
         let mut registry = PersistenceRegistry::new();
-        let bot = RegistryEntry::new("test-bot".to_string(), SizeBucket::Small, 8, 1000);
+        let bot = RegistryEntry::new("test-bot".to_string(), SizeBucket::Small, 8, 1000, test_identity_key("test-bot"));
 
         assert!(!registry.is_registered(&bot.contract_hash));
 
@@ -498,7 +537,7 @@ mod tests {
     #[test]
     fn test_clear_tombstone() {
         let mut registry = PersistenceRegistry::new();
-        let bot = RegistryEntry::new("test-bot".to_string(), SizeBucket::Small, 8, 1000);
+        let bot = RegistryEntry::new("test-bot".to_string(), SizeBucket::Small, 8, 1000, test_identity_key("test-bot"));
 
         // Register and unregister
         registry.register(bot.clone());
@@ -535,18 +574,21 @@ mod tests {
             SizeBucket::Small,
             8,
             1000,
+            test_identity_key("zebra"),
         ));
         registry.register(RegistryEntry::new(
             "alpha".to_string(),
             SizeBucket::Small,
             8,
             1001,
+            test_identity_key("alpha"),
         ));
         registry.register(RegistryEntry::new(
             "mike".to_string(),
             SizeBucket::Small,
             8,
             1002,
+            test_identity_key("mike"),
         ));
 
         let bots = registry.discover_bots();
