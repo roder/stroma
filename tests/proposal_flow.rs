@@ -292,7 +292,9 @@ async fn test_proposal_execution_end_to_end() {
 
     // 2. Verify proposal was stored (poll_manager has it)
     let proposal_type = {
-        let proposal = poll_manager.get_proposal(poll_id).expect("Proposal not found");
+        let proposal = poll_manager
+            .get_proposal(poll_id)
+            .expect("Proposal not found");
         assert_eq!(proposal.timeout, 48 * 3600);
         proposal.proposal_type.clone()
     }; // proposal reference dropped here
