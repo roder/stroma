@@ -216,7 +216,8 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         // Phase 1: Query Freenet state for previous flags (GAP-10)
         // Check if invitee already has history in the system
         let invitee_hash = MemberHash::from_identity(username, &self.config.pepper);
-        let has_previous_flags = state.flags.contains_key(&invitee_hash);
+        let is_ejected = state.ejected.contains(&invitee_hash);
+        let has_previous_flags = is_ejected || state.flags.contains_key(&invitee_hash);
         let previous_flag_count = if has_previous_flags {
             state
                 .flags
@@ -278,7 +279,8 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                         .await?;
 
                     // Send confirmation PM to inviter (no assessor identity revealed)
-                    let inviter_msg = msg_inviter_confirmation(username);
+                    let inviter_msg =
+                        msg_inviter_confirmation(username, has_previous_flags, previous_flag_count);
                     self.client.send_message(sender, &inviter_msg).await
                 }
                 None => {

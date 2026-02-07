@@ -285,13 +285,32 @@ pub fn msg_assessment_request(
 ///
 /// # Arguments
 /// * `invitee_username` - Username of the invitee
-pub fn msg_inviter_confirmation(invitee_username: &str) -> String {
+/// * `has_previous_flags` - Whether the invitee has previous flags
+/// * `previous_flag_count` - Number of previous flags (if any)
+pub fn msg_inviter_confirmation(
+    invitee_username: &str,
+    has_previous_flags: bool,
+    previous_flag_count: u32,
+) -> String {
+    let warning = if has_previous_flags {
+        let required_vouches = previous_flag_count + 1;
+        format!(
+            "\n\n⚠️ Warning: {} has {} previous flag{}. They will need {}+ vouches to achieve positive standing.",
+            invitee_username,
+            previous_flag_count,
+            if previous_flag_count == 1 { "" } else { "s" },
+            required_vouches
+        )
+    } else {
+        String::new()
+    };
+
     format!(
         "✓ Vetting Process Started\n\n\
          Your invitation for {} has been received.\n\n\
          An assessor has been selected and will evaluate the candidate.\n\
-         You'll be notified when the process completes.",
-        invitee_username
+         You'll be notified when the process completes.{}",
+        invitee_username, warning
     )
 }
 
@@ -499,5 +518,32 @@ mod tests {
         let session = manager.get_session("@alice").unwrap();
         assert!(session.has_previous_flags);
         assert_eq!(session.previous_flag_count, 3);
+    }
+
+    #[test]
+    fn test_inviter_confirmation_without_flags() {
+        let msg = msg_inviter_confirmation("@alice", false, 0);
+        assert!(msg.contains("✓ Vetting Process Started"));
+        assert!(msg.contains("Your invitation for @alice has been received"));
+        assert!(!msg.contains("Warning"));
+        assert!(!msg.contains("previous flag"));
+    }
+
+    #[test]
+    fn test_inviter_confirmation_with_single_flag() {
+        let msg = msg_inviter_confirmation("@alice", true, 1);
+        assert!(msg.contains("✓ Vetting Process Started"));
+        assert!(msg.contains("Your invitation for @alice has been received"));
+        assert!(msg.contains("⚠️ Warning: @alice has 1 previous flag"));
+        assert!(msg.contains("They will need 2+ vouches"));
+    }
+
+    #[test]
+    fn test_inviter_confirmation_with_multiple_flags() {
+        let msg = msg_inviter_confirmation("@alice", true, 3);
+        assert!(msg.contains("✓ Vetting Process Started"));
+        assert!(msg.contains("Your invitation for @alice has been received"));
+        assert!(msg.contains("⚠️ Warning: @alice has 3 previous flags"));
+        assert!(msg.contains("They will need 4+ vouches"));
     }
 }
