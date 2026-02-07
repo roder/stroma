@@ -577,9 +577,15 @@ mod tests {
         let storage = MockStorage::new();
 
         // Set up identity keys for all holders
-        storage.set_holder_identity_key("holder-a", test_identity_key("holder-a")).await;
-        storage.set_holder_identity_key("holder-b", test_identity_key("holder-b")).await;
-        storage.set_holder_identity_key("holder-c", test_identity_key("holder-c")).await;
+        storage
+            .set_holder_identity_key("holder-a", test_identity_key("holder-a"))
+            .await;
+        storage
+            .set_holder_identity_key("holder-b", test_identity_key("holder-b"))
+            .await;
+        storage
+            .set_holder_identity_key("holder-c", test_identity_key("holder-c"))
+            .await;
 
         let config = DistributionConfig::default();
         let mut distributor = ChunkDistributor::new(storage, config);
@@ -615,7 +621,9 @@ mod tests {
         // Only 1 bot - not enough for replication
 
         let storage = MockStorage::new();
-        storage.set_holder_identity_key("owner-bot", test_identity_key("owner-bot")).await;
+        storage
+            .set_holder_identity_key("owner-bot", test_identity_key("owner-bot"))
+            .await;
 
         let config = DistributionConfig::default();
         let mut distributor = ChunkDistributor::new(storage, config);
@@ -640,9 +648,15 @@ mod tests {
         let storage = MockStorage::new();
 
         // Set up identity keys
-        storage.set_holder_identity_key("holder-a", test_identity_key("holder-a")).await;
-        storage.set_holder_identity_key("holder-b", test_identity_key("holder-b")).await;
-        storage.set_holder_identity_key("holder-c", test_identity_key("holder-c")).await;
+        storage
+            .set_holder_identity_key("holder-a", test_identity_key("holder-a"))
+            .await;
+        storage
+            .set_holder_identity_key("holder-b", test_identity_key("holder-b"))
+            .await;
+        storage
+            .set_holder_identity_key("holder-c", test_identity_key("holder-c"))
+            .await;
 
         storage.set_holder_failure("holder-a", true).await; // Make one holder fail
 
@@ -672,9 +686,15 @@ mod tests {
         let storage = MockStorage::new();
 
         // Set up identity keys
-        storage.set_holder_identity_key("holder-a", test_identity_key("holder-a")).await;
-        storage.set_holder_identity_key("holder-b", test_identity_key("holder-b")).await;
-        storage.set_holder_identity_key("holder-c", test_identity_key("holder-c")).await;
+        storage
+            .set_holder_identity_key("holder-a", test_identity_key("holder-a"))
+            .await;
+        storage
+            .set_holder_identity_key("holder-b", test_identity_key("holder-b"))
+            .await;
+        storage
+            .set_holder_identity_key("holder-c", test_identity_key("holder-c"))
+            .await;
 
         let config = DistributionConfig::default();
         let mut distributor = ChunkDistributor::new(storage, config);

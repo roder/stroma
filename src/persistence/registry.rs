@@ -449,7 +449,13 @@ mod tests {
     #[test]
     fn test_registration_deduplication() {
         let mut registry = PersistenceRegistry::new();
-        let bot = RegistryEntry::new("test-bot".to_string(), SizeBucket::Small, 8, 1000, test_identity_key("test-bot"));
+        let bot = RegistryEntry::new(
+            "test-bot".to_string(),
+            SizeBucket::Small,
+            8,
+            1000,
+            test_identity_key("test-bot"),
+        );
 
         assert!(registry.register(bot.clone()));
         assert!(registry.register(bot.clone()));
@@ -465,7 +471,13 @@ mod tests {
     #[test]
     fn test_tombstone_prevents_reregistration() {
         let mut registry = PersistenceRegistry::new();
-        let bot = RegistryEntry::new("tombstone-bot".to_string(), SizeBucket::Small, 8, 1000, test_identity_key("tombstone-bot"));
+        let bot = RegistryEntry::new(
+            "tombstone-bot".to_string(),
+            SizeBucket::Small,
+            8,
+            1000,
+            test_identity_key("tombstone-bot"),
+        );
 
         // Register, unregister, try to re-register
         assert!(registry.register(bot.clone()));
@@ -523,7 +535,13 @@ mod tests {
     #[test]
     fn test_is_registered() {
         let mut registry = PersistenceRegistry::new();
-        let bot = RegistryEntry::new("test-bot".to_string(), SizeBucket::Small, 8, 1000, test_identity_key("test-bot"));
+        let bot = RegistryEntry::new(
+            "test-bot".to_string(),
+            SizeBucket::Small,
+            8,
+            1000,
+            test_identity_key("test-bot"),
+        );
 
         assert!(!registry.is_registered(&bot.contract_hash));
 
@@ -537,7 +555,13 @@ mod tests {
     #[test]
     fn test_clear_tombstone() {
         let mut registry = PersistenceRegistry::new();
-        let bot = RegistryEntry::new("test-bot".to_string(), SizeBucket::Small, 8, 1000, test_identity_key("test-bot"));
+        let bot = RegistryEntry::new(
+            "test-bot".to_string(),
+            SizeBucket::Small,
+            8,
+            1000,
+            test_identity_key("test-bot"),
+        );
 
         // Register and unregister
         registry.register(bot.clone());
