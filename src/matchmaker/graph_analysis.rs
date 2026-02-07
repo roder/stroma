@@ -604,7 +604,7 @@ mod tests {
         // Should have one undirected edge between 1 and 2
         assert_eq!(edges.len(), 1);
 
-        let mut edge = edges[0];
+        let edge = edges[0];
         let mut expected = [member_hash(1), member_hash(2)];
         expected.sort();
         let edge_sorted = [edge.0.min(edge.1), edge.0.max(edge.1)];
@@ -630,7 +630,7 @@ mod tests {
             .vouches
             .insert(member_hash(2), [member_hash(3)].into_iter().collect());
 
-        let mut graph = TrustGraph::from_state(&state);
+        let graph = TrustGraph::from_state(&state);
 
         // Build adjacency list
         let edges = build_undirected_edges(&graph);
@@ -646,7 +646,7 @@ mod tests {
         let bridges = find_bridges(&graph.members, &adj);
 
         // There should be bridges in this graph (1-2 and 2-3 are bridges)
-        assert!(bridges.len() > 0);
+        assert!(!bridges.is_empty());
     }
 
     #[test]

@@ -860,7 +860,7 @@ mod proptests {
 
             // Check that clusters cover all members (complete)
             let mut all_cluster_members: HashSet<MemberHash> = HashSet::new();
-            for (_, cluster_members) in &result.clusters {
+            for cluster_members in result.clusters.values() {
                 all_cluster_members.extend(cluster_members);
             }
 

@@ -998,7 +998,7 @@ mod proptests {
                 // person_a should be a bridge (2 vouches) or close to becoming Validator
                 let vouches = graph.effective_vouches(&intro.person_a);
                 prop_assert!(
-                    vouches >= 2 && vouches < 3,
+                    (2..3).contains(&vouches),
                     "DVR-optimal intro targets member with {} vouches, expected 2 (bridge)",
                     vouches
                 );
