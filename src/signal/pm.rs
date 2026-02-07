@@ -188,6 +188,7 @@ pub async fn handle_pm_command<F: crate::freenet::FreenetClient>(
     freenet: &F,
     group_manager: &GroupManager<impl SignalClient>,
     config: &crate::signal::bot::BotConfig,
+    persistence_manager: &crate::persistence::WriteBlockingManager,
     sender: &ServiceId,
     command: Command,
 ) -> SignalResult<()> {
@@ -238,7 +239,15 @@ pub async fn handle_pm_command<F: crate::freenet::FreenetClient>(
         Command::Status { username } => handle_status(client, sender, username.as_deref()).await,
 
         Command::Mesh { subcommand } => {
-            handle_mesh(client, freenet, config, sender, subcommand.as_deref()).await
+            handle_mesh(
+                client,
+                freenet,
+                config,
+                persistence_manager,
+                sender,
+                subcommand.as_deref(),
+            )
+            .await
         }
 
         Command::Audit { subcommand } => {
@@ -589,13 +598,16 @@ async fn handle_mesh<F: crate::freenet::FreenetClient>(
     client: &impl SignalClient,
     freenet: &F,
     config: &crate::signal::bot::BotConfig,
+    persistence_manager: &crate::persistence::WriteBlockingManager,
     sender: &ServiceId,
     subcommand: Option<&str>,
 ) -> SignalResult<()> {
     match subcommand {
         None => handle_mesh_overview(client, freenet, config, sender).await,
         Some("strength") => handle_mesh_strength(client, freenet, config, sender).await,
-        Some("replication") => handle_mesh_replication(client, freenet, config, sender).await,
+        Some("replication") => {
+            handle_mesh_replication(client, persistence_manager, sender).await
+        }
         Some("config") => handle_mesh_config(client, freenet, config, sender).await,
         Some(unknown) => {
             client
@@ -890,47 +902,88 @@ async fn handle_mesh_strength<F: crate::freenet::FreenetClient>(
     client.send_message(sender, &response).await
 }
 
-async fn handle_mesh_replication<F: crate::freenet::FreenetClient>(
+async fn handle_mesh_replication(
     client: &impl SignalClient,
-    _freenet: &F,
-    _config: &crate::signal::bot::BotConfig,
+    persistence_manager: &crate::persistence::WriteBlockingManager,
     sender: &ServiceId,
 ) -> SignalResult<()> {
-    // TODO: Complete persistence layer integration (tracked in follow-up bead)
-    //
-    // The persistence module (src/persistence/) is fully implemented with:
-    // - ReplicationHealth: tracks chunk attestations and computes health status
-    // - WriteBlockingManager: enforces write-blocking when replication degrades
-    // - PersistenceRegistry: bot discovery for reciprocal persistence network
-    // - ChunkDistributor: distributes encrypted chunks via rendezvous hashing
-    //
-    // What's needed:
-    // 1. Add WriteBlockingManager to StromaBot struct
-    // 2. Initialize manager with state size and network info
-    // 3. Pass persistence manager through to PM command handlers
-    // 4. Query manager for health status, chunk distribution, and write permissions
-    //
-    // For now, showing expected output format with placeholder data.
+    use crate::persistence::WriteBlockingState;
 
-    let response = "💾 Replication Health\n\n\
-    🔵 Status: Initializing\n\n\
-    ⚠️  Note: Persistence health monitoring not yet integrated with bot.\n\
-    The persistence layer is implemented but requires bot refactoring to connect.\n\n\
-    Expected metrics when integrated:\n\
-    • Replication status: 🟢 Replicated / 🟡 Partial / 🔴 At Risk / 🔵 Initializing\n\
-    • Last state change: timestamp (e.g., \"3 hours ago\")\n\
-    • State size: bytes (e.g., \"512KB\")\n\
-    • Chunks replicated: X/Y (e.g., \"8/8 chunks\")\n\
-    • Chunk copies: verified per chunk (e.g., \"all 3/3 copies\")\n\
-    • State version: monotonic counter\n\
-    • Recovery confidence: Yes/No with explanation\n\
-    • Write permissions: Allowed/Blocked based on replication health\n\n\
-    💡 The persistence system ensures your trust network data is backed up\n\
-    across multiple bots. If this bot crashes, state can be recovered from\n\
-    chunk holders using the reciprocal persistence network.\n\n\
-    Technical details: docs/PERSISTENCE.md";
+    // Query persistence manager for current state
+    let health = persistence_manager.replication_health();
+    let state = persistence_manager.current_state();
+    let (total_chunks, fully_replicated, recoverable, at_risk) =
+        persistence_manager.replication_stats();
+    let writes_allowed = persistence_manager.allows_writes();
 
-    client.send_message(sender, response).await
+    // Build response based on health status
+    let mut response = format!(
+        "💾 Replication Health\n\n{} Status: {}\n\n",
+        health.emoji(),
+        health.description()
+    );
+
+    // Show chunk statistics if there are chunks
+    if total_chunks > 0 {
+        response.push_str(&format!("Chunks: {}\n", total_chunks));
+        response.push_str(&format!("  • Fully replicated: {}\n", fully_replicated));
+        response.push_str(&format!("  • Recoverable: {}\n", recoverable));
+        if at_risk > 0 {
+            response.push_str(&format!("  • At risk: {} ⚠️\n", at_risk));
+            let at_risk_indices = persistence_manager.at_risk_chunks();
+            if !at_risk_indices.is_empty() {
+                response.push_str(&format!("  • At-risk chunks: {:?}\n", at_risk_indices));
+            }
+        }
+        response.push('\n');
+    }
+
+    // Write permissions status
+    response.push_str(&format!(
+        "Write Permissions: {}\n\n",
+        if writes_allowed {
+            "✅ Allowed"
+        } else {
+            "❌ Blocked"
+        }
+    ));
+
+    // Add context based on current state
+    match state {
+        WriteBlockingState::Provisional => {
+            response.push_str("ℹ️  Note: No peers available for replication yet.\n");
+            response.push_str(
+                "Writes are allowed, but state is not backed up until peers are discovered.\n\n",
+            );
+        }
+        WriteBlockingState::Isolated => {
+            response.push_str("ℹ️  Note: Network size is 1 (single bot).\n");
+            response.push_str("Writes are allowed, but no replication is possible. This is expected during testing.\n\n");
+        }
+        WriteBlockingState::Degraded => {
+            response.push_str("⚠️  Warning: Replication is degraded.\n");
+            response.push_str("Writes are blocked until chunks are replicated to peers.\n");
+            response.push_str("The bot will automatically retry distribution.\n\n");
+        }
+        WriteBlockingState::Active => {
+            if total_chunks == 0 {
+                response.push_str("ℹ️  Note: No state has been persisted yet.\n");
+                response.push_str("Replication will begin after the first state change.\n\n");
+            } else {
+                response.push_str("✅ Your trust network data is safely replicated.\n");
+                response.push_str(
+                    "If this bot crashes, state can be recovered from chunk holders.\n\n",
+                );
+            }
+        }
+    }
+
+    response.push_str("💡 The persistence system ensures your trust network data is backed up\n");
+    response
+        .push_str("across multiple bots. Recovery uses the reciprocal persistence network.\n\n");
+    response.push_str("Technical details: docs/PERSISTENCE.md");
+
+    client.send_message(sender, &response).await
 }
 
 async fn handle_mesh_config<F: crate::freenet::FreenetClient>(
@@ -1485,7 +1538,16 @@ mod tests {
         let state_bytes = to_cbor(&test_state).unwrap();
         freenet.put_state(contract_hash, ContractState { data: state_bytes });
 
-        let result = handle_mesh(&client, &freenet, &config, &sender, None).await;
+        let persistence_manager = crate::persistence::WriteBlockingManager::new();
+        let result = handle_mesh(
+            &client,
+            &freenet,
+            &config,
+            &persistence_manager,
+            &sender,
+            None,
+        )
+        .await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
@@ -1523,7 +1585,16 @@ mod tests {
         let state_bytes = to_cbor(&test_state).unwrap();
         freenet.put_state(contract_hash, ContractState { data: state_bytes });
 
-        let result = handle_mesh(&client, &freenet, &config, &sender, Some("strength")).await;
+        let persistence_manager = crate::persistence::WriteBlockingManager::new();
+        let result = handle_mesh(
+            &client,
+            &freenet,
+            &config,
+            &persistence_manager,
+            &sender,
+            Some("strength"),
+        )
+        .await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
@@ -1544,12 +1615,80 @@ mod tests {
             min_vouch_threshold: 2,
         };
 
-        let result = handle_mesh(&client, &freenet, &config, &sender, Some("replication")).await;
+        // Test 1: Empty persistence manager (PROVISIONAL state)
+        let persistence_manager = crate::persistence::WriteBlockingManager::new();
+        let result = handle_mesh(
+            &client,
+            &freenet,
+            &config,
+            &persistence_manager,
+            &sender,
+            Some("replication"),
+        )
+        .await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
         assert_eq!(sent.len(), 1);
         assert!(sent[0].content.contains("Replication Health"));
+        assert!(sent[0].content.contains("Setting up persistence"));
+        assert!(sent[0].content.contains("Write Permissions: ✅ Allowed"));
+
+        // Test 2: Manager with chunks (ACTIVE state)
+        let mut persistence_manager2 = crate::persistence::WriteBlockingManager::new();
+        persistence_manager2.initialize_chunks(8);
+        persistence_manager2.set_network_size(5);
+        // Set all chunks as fully replicated
+        for i in 0..8 {
+            persistence_manager2.update_chunk_status(i, 3);
+        }
+
+        let client2 = MockSignalClient::new(ServiceId("bot".to_string()));
+        let result = handle_mesh(
+            &client2,
+            &freenet,
+            &config,
+            &persistence_manager2,
+            &sender,
+            Some("replication"),
+        )
+        .await;
+        assert!(result.is_ok());
+
+        let sent2 = client2.sent_messages();
+        assert_eq!(sent2.len(), 1);
+        assert!(sent2[0].content.contains("Fully replicated"));
+        assert!(sent2[0].content.contains("Chunks: 8"));
+        assert!(sent2[0].content.contains("Write Permissions: ✅ Allowed"));
+
+        // Test 3: Manager with at-risk chunks (DEGRADED state)
+        let mut persistence_manager3 = crate::persistence::WriteBlockingManager::new();
+        persistence_manager3.initialize_chunks(8);
+        persistence_manager3.set_network_size(5);
+        // Set some chunks as at-risk
+        for i in 0..6 {
+            persistence_manager3.update_chunk_status(i, 3); // Good
+        }
+        persistence_manager3.update_chunk_status(6, 1); // At risk
+        persistence_manager3.update_chunk_status(7, 1); // At risk
+
+        let client3 = MockSignalClient::new(ServiceId("bot".to_string()));
+        let result = handle_mesh(
+            &client3,
+            &freenet,
+            &config,
+            &persistence_manager3,
+            &sender,
+            Some("replication"),
+        )
+        .await;
+        assert!(result.is_ok());
+
+        let sent3 = client3.sent_messages();
+        assert_eq!(sent3.len(), 1);
+        assert!(sent3[0].content.contains("Cannot recover if crash"));
+        assert!(sent3[0].content.contains("At risk: 2"));
+        assert!(sent3[0].content.contains("Write Permissions: ❌ Blocked"));
     }
 
     #[tokio::test]
@@ -1576,7 +1715,16 @@ mod tests {
         let state_bytes = to_cbor(&test_state).unwrap();
         freenet.put_state(contract_hash, ContractState { data: state_bytes });
 
-        let result = handle_mesh(&client, &freenet, &config, &sender, Some("config")).await;
+        let persistence_manager = crate::persistence::WriteBlockingManager::new();
+        let result = handle_mesh(
+            &client,
+            &freenet,
+            &config,
+            &persistence_manager,
+            &sender,
+            Some("config"),
+        )
+        .await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
@@ -1596,7 +1744,16 @@ mod tests {
             min_vouch_threshold: 2,
         };
 
-        let result = handle_mesh(&client, &freenet, &config, &sender, Some("unknown")).await;
+        let persistence_manager = crate::persistence::WriteBlockingManager::new();
+        let result = handle_mesh(
+            &client,
+            &freenet,
+            &config,
+            &persistence_manager,
+            &sender,
+            Some("unknown"),
+        )
+        .await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
