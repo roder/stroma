@@ -1,9 +1,9 @@
-//! Benchmarks for Blind Matchmaker validator selection
+//! Benchmarks for Blind Matchmaker assessor selection
 //!
 //! Performance requirement: < 200ms
 //!
 //! Per blind-matchmaker-dvr.bead:
-//! - Cross-cluster validator selection
+//! - Cross-cluster assessor selection
 //! - DVR optimization (distinct validators, non-overlapping voucher sets)
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};

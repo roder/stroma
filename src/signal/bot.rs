@@ -239,26 +239,30 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             return self.client.send_message(sender, &response).await;
         }
 
-        // Select validator via Blind Matchmaker
-        // TODO Phase 1: Track previously assigned validators for DVR optimization
-        let excluded = std::collections::HashSet::new();
-        let validator_hash = BlindMatchmaker::select_validator(&state, &inviter_hash, &excluded);
+        // TODO Phase 1: Query Freenet state for cross-cluster matching
+        // For now, use a simple placeholder state
+        let state = crate::freenet::trust_contract::TrustNetworkState::new();
 
-        if let Some(validator) = validator_hash {
-            // Resolve validator MemberHash to ServiceId via MemberResolver
-            match self.member_resolver.get_service_id(&validator) {
-                Some(validator_id) => {
-                    // Assign validator to session
-                    if let Err(e) = self.vetting_sessions.assign_validator(
+        // Select assessor via Blind Matchmaker
+        // TODO Phase 1: Track previously assigned assessors for DVR optimization
+        let excluded = std::collections::HashSet::new();
+        let assessor_hash = BlindMatchmaker::select_validator(&state, &inviter_hash, &excluded);
+
+        if let Some(assessor) = assessor_hash {
+            // Resolve assessor MemberHash to ServiceId via MemberResolver
+            match self.member_resolver.get_service_id(&assessor) {
+                Some(assessor_id) => {
+                    // Assign assessor to session
+                    if let Err(e) = self.vetting_sessions.assign_assessor(
                         username,
-                        validator,
-                        validator_id.clone(),
+                        assessor,
+                        assessor_id.clone(),
                     ) {
-                        let response = format!("❌ Failed to assign validator: {}", e);
+                        let response = format!("❌ Failed to assign assessor: {}", e);
                         return self.client.send_message(sender, &response).await;
                     }
 
-                    // Send PM to validator (assessor) with assessment request
+                    // Send PM to assessor with assessment request
                     let assessment_msg = msg_assessment_request(
                         username,
                         context,
@@ -266,7 +270,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                         previous_flag_count,
                     );
                     self.client
-                        .send_message(validator_id, &assessment_msg)
+                        .send_message(assessor_id, &assessment_msg)
                         .await?;
 
                     // Send confirmation PM to inviter (no assessor identity revealed)
@@ -274,14 +278,14 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                     self.client.send_message(sender, &inviter_msg).await
                 }
                 None => {
-                    // Validator not in resolver - this shouldn't happen
+                    // Assessor not in resolver - this shouldn't happen
                     // Send stalled notification to inviter
                     let stall_msg = msg_no_candidates(username);
                     self.client.send_message(sender, &stall_msg).await
                 }
             }
         } else {
-            // No validator found (bootstrap phase or no cross-cluster members)
+            // No assessor found (bootstrap phase or no cross-cluster members)
             // Bootstrap exception: Network is small
             let response = format!(
                 "✅ Invitation for {} recorded as first vouch.\n\nContext: {}\n\nNote: Network is small (bootstrap phase). They'll join once they receive one more vouch from any member.",
@@ -587,8 +591,8 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             }
         };
 
-        // Verify sender is the assigned assessor/validator
-        let validator_id = match &session.validator_id {
+        // Verify sender is the assigned assessor
+        let assessor_id = match &session.assessor_id {
             Some(id) => id,
             None => {
                 return self
@@ -601,7 +605,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             }
         };
 
-        if validator_id != sender {
+        if assessor_id != sender {
             return self
                 .client
                 .send_message(
@@ -619,8 +623,8 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
         // Reset status to PendingMatch for re-selection
         session.status = VettingStatus::PendingMatch;
-        session.validator = None;
-        session.validator_id = None;
+        session.assessor = None;
+        session.assessor_id = None;
 
         // Get inviter for context
         let inviter_hash = session.inviter;
@@ -1382,9 +1386,9 @@ mod tests {
         let config = BotConfig::default();
         let mut bot = StromaBot::new(client.clone(), freenet, config);
 
-        // Create a vetting session with an assigned validator
+        // Create a vetting session with an assigned assessor
         let inviter_hash = MemberHash::from_bytes(&[1; 32]);
-        let validator_id = ServiceId("validator".to_string());
+        let assessor_id = ServiceId("assessor".to_string());
         let invitee_username = "@bob";
 
         bot.vetting_sessions
@@ -1399,21 +1403,21 @@ mod tests {
             )
             .unwrap();
 
-        // Assign validator
+        // Assign assessor
         bot.vetting_sessions
-            .assign_validator(
+            .assign_assessor(
                 invitee_username,
                 MemberHash::from_bytes(&[2; 32]),
-                validator_id.clone(),
+                assessor_id.clone(),
             )
             .unwrap();
 
-        // Handle reject-intro from the validator
-        bot.handle_reject_intro(&validator_id, invitee_username)
+        // Handle reject-intro from the assessor
+        bot.handle_reject_intro(&assessor_id, invitee_username)
             .await
             .unwrap();
 
-        // Verify acknowledgment was sent to validator
+        // Verify acknowledgment was sent to assessor
         let sent = client.sent_messages();
         assert!(!sent.is_empty());
         assert!(sent[0].content.contains("declined"));
@@ -1421,9 +1425,9 @@ mod tests {
         // Verify session was updated
         let session = bot.vetting_sessions.get_session(invitee_username).unwrap();
         assert_eq!(session.excluded_candidates.len(), 1);
-        // Status is Rejected because no validators are available (empty state)
+        // Status is Rejected because no assessors are available (empty state)
         assert_eq!(session.status, VettingStatus::Rejected);
-        assert!(session.validator.is_none());
+        assert!(session.assessor.is_none());
     }
 
     #[tokio::test]
@@ -1433,9 +1437,9 @@ mod tests {
         let config = BotConfig::default();
         let mut bot = StromaBot::new(client.clone(), freenet, config);
 
-        // Create a vetting session with an assigned validator
+        // Create a vetting session with an assigned assessor
         let inviter_hash = MemberHash::from_bytes(&[1; 32]);
-        let validator_id = ServiceId("validator".to_string());
+        let assessor_id = ServiceId("assessor".to_string());
         let wrong_sender = ServiceId("wrong_person".to_string());
         let invitee_username = "@bob";
 
@@ -1452,10 +1456,10 @@ mod tests {
             .unwrap();
 
         bot.vetting_sessions
-            .assign_validator(
+            .assign_assessor(
                 invitee_username,
                 MemberHash::from_bytes(&[2; 32]),
-                validator_id,
+                assessor_id,
             )
             .unwrap();
 
