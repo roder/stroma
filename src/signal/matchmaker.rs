@@ -105,6 +105,56 @@ impl BlindMatchmaker {
             .copied()
     }
 
+    /// Select a validator for vetting interview with exclusions
+    ///
+    /// Same as select_validator, but excludes specific candidates who have
+    /// declined the assessment (st-fonga: /reject-intro support).
+    ///
+    /// Requirements:
+    /// 1. Must be an active member
+    /// 2. Must NOT be the inviter
+    /// 3. Must NOT be in the excluded_candidates set
+    /// 4. Should be from a different cluster than inviter (cross-cluster)
+    /// 5. Optimize for DVR (distinct validators with non-overlapping voucher sets)
+    pub fn select_validator_with_exclusions(
+        state: &TrustNetworkState,
+        inviter: &MemberHash,
+        excluded_candidates: &HashSet<MemberHash>,
+    ) -> Option<MemberHash> {
+        // Get inviter's vouchers (their cluster/peer circle)
+        let inviter_vouchers = state
+            .vouches
+            .get(inviter)
+            .cloned()
+            .unwrap_or_else(HashSet::new);
+
+        // Find candidates: active members who are NOT in inviter's voucher set
+        // and NOT in the excluded set
+        let candidates: Vec<_> = state
+            .members
+            .iter()
+            .filter(|member| {
+                *member != inviter && // Not the inviter
+                !inviter_vouchers.contains(member) && // Different cluster (approximation)
+                !excluded_candidates.contains(member) // Not excluded
+            })
+            .collect();
+
+        // If no cross-cluster candidates, fall back to any member except inviter and excluded
+        // (Bootstrap exception: single cluster scenario)
+        if candidates.is_empty() {
+            return state
+                .members
+                .iter()
+                .find(|member| *member != inviter && !excluded_candidates.contains(member))
+                .copied();
+        }
+
+        // Select first candidate (Phase 0 simple selection)
+        // TODO Phase 1: Use DVR optimization (MST, non-overlapping voucher sets)
+        candidates.first().copied().copied()
+    }
+
     /// Check if two members are in different clusters
     ///
     /// Phase 0 approximation: members are in different clusters if they
@@ -270,5 +320,62 @@ mod tests {
 
         // They vouch for each other - same cluster
         assert!(!BlindMatchmaker::are_cross_cluster(&state, &alice, &bob));
+    }
+
+    #[test]
+    fn test_select_validator_with_exclusions() {
+        let state = create_test_state();
+        let alice = test_member_hash(1);
+        let carol = test_member_hash(3);
+
+        // Exclude Carol
+        let mut excluded = HashSet::new();
+        excluded.insert(carol);
+
+        let validator = BlindMatchmaker::select_validator_with_exclusions(&state, &alice, &excluded);
+
+        assert!(validator.is_some());
+        let validator = validator.unwrap();
+
+        // Should not be Alice or Carol
+        assert_ne!(validator, alice);
+        assert_ne!(validator, carol);
+    }
+
+    #[test]
+    fn test_select_validator_with_exclusions_all_excluded() {
+        let mut state = TrustNetworkState::new();
+
+        let alice = test_member_hash(1);
+        let bob = test_member_hash(2);
+        let carol = test_member_hash(3);
+
+        state.members.insert(alice);
+        state.members.insert(bob);
+        state.members.insert(carol);
+
+        // Exclude all except alice
+        let mut excluded = HashSet::new();
+        excluded.insert(bob);
+        excluded.insert(carol);
+
+        let validator = BlindMatchmaker::select_validator_with_exclusions(&state, &alice, &excluded);
+
+        // No validator available (all excluded)
+        assert!(validator.is_none());
+    }
+
+    #[test]
+    fn test_select_validator_with_exclusions_empty() {
+        let state = create_test_state();
+        let alice = test_member_hash(1);
+        let excluded = HashSet::new();
+
+        let validator = BlindMatchmaker::select_validator_with_exclusions(&state, &alice, &excluded);
+
+        // Should behave same as regular select_validator
+        assert!(validator.is_some());
+        let validator = validator.unwrap();
+        assert_ne!(validator, alice);
     }
 }

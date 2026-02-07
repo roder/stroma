@@ -15,8 +15,9 @@ use super::{
     pm::{handle_pm_command, parse_command, Command},
     polls::PollManager,
     traits::*,
-    vetting::VettingSessionManager,
+    vetting::{VettingSessionManager, VettingStatus},
 };
+use crate::freenet::contract::MemberHash;
 
 /// Stroma bot configuration
 pub struct BotConfig {
@@ -117,6 +118,9 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                     }
                     Command::Vouch { ref username } => {
                         self.handle_vouch(&message.sender, username).await?;
+                    }
+                    Command::RejectIntro { ref username } => {
+                        self.handle_reject_intro(&message.sender, username).await?;
                     }
                     _ => {
                         // Other commands go through normal handler
@@ -343,6 +347,125 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         );
 
         self.client.send_message(sender, &response).await
+    }
+
+    /// Handle /reject-intro command
+    ///
+    /// Assessor declines vetting invitation and triggers re-selection.
+    async fn handle_reject_intro(
+        &mut self,
+        sender: &ServiceId,
+        username: &str,
+    ) -> SignalResult<()> {
+        use super::matchmaker::BlindMatchmaker;
+
+        // Get the vetting session for the invitee
+        let session = match self.vetting_sessions.get_session_mut(username) {
+            Some(s) => s,
+            None => {
+                return self
+                    .client
+                    .send_message(
+                        sender,
+                        &format!("❌ No active vetting session found for {}", username),
+                    )
+                    .await;
+            }
+        };
+
+        // Verify sender is the assigned assessor/validator
+        let validator_id = match &session.validator_id {
+            Some(id) => id,
+            None => {
+                return self
+                    .client
+                    .send_message(
+                        sender,
+                        "❌ No assessor has been assigned for this vetting session yet.",
+                    )
+                    .await;
+            }
+        };
+
+        if validator_id != sender {
+            return self
+                .client
+                .send_message(sender, "❌ You are not the assigned assessor for this invitee.")
+                .await;
+        }
+
+        // Hash sender's ServiceId to MemberHash
+        let sender_hash = MemberHash::from_identity(&sender.0, &self.config.pepper);
+
+        // Add sender to excluded candidates
+        session.excluded_candidates.insert(sender_hash);
+
+        // Reset status to PendingMatch for re-selection
+        session.status = VettingStatus::PendingMatch;
+        session.validator = None;
+        session.validator_id = None;
+
+        // Get inviter for context
+        let inviter_hash = session.inviter;
+        let inviter_id = session.inviter_id.clone();
+        let invitee_username = session.invitee_username.clone();
+        let excluded_set = session.excluded_candidates.clone();
+
+        // Send acknowledgment to declining assessor
+        self.client
+            .send_message(
+                sender,
+                &format!(
+                    "✅ You have declined the assessment for {}.\n\nI'll find another assessor.",
+                    username
+                ),
+            )
+            .await?;
+
+        // TODO Phase 1: Query Freenet state for cross-cluster matching
+        // For now, use a simple placeholder state
+        let state = crate::freenet::trust_contract::TrustNetworkState::new();
+
+        // Re-run BlindMatchmaker with exclusion list
+        let new_validator = BlindMatchmaker::select_validator_with_exclusions(
+            &state,
+            &inviter_hash,
+            &excluded_set,
+        );
+
+        if let Some(_validator_hash) = new_validator {
+            // TODO Phase 1: Resolve validator hash to ServiceId
+            // TODO Phase 1: Assign validator to session
+            // TODO Phase 1: Send PMs to new validator
+
+            // For now, notify inviter that re-matching is in progress
+            self.client
+                .send_message(
+                    &inviter_id,
+                    &format!(
+                        "ℹ️ The assessor for {} declined. Finding a new assessor...",
+                        invitee_username
+                    ),
+                )
+                .await?;
+        } else {
+            // No available validators - stalled
+            // Update session status and notify inviter
+            let session = self.vetting_sessions.get_session_mut(username).unwrap();
+            session.status = VettingStatus::Rejected;
+
+            self.client
+                .send_message(
+                    &inviter_id,
+                    &format!(
+                        "❌ Vetting stalled: No available assessors for {} (all candidates have declined).\n\nThe invitation remains open - they'll be matched when new members join.",
+                        invitee_username
+                    ),
+                )
+                .await?;
+        }
+
+        Ok(())
     }
 
     /// Handle Freenet state change
@@ -1036,5 +1159,122 @@ mod tests {
         // standing = 2 - 0 = 2 (positive)
         let result = bot.verify_admission_proof(member, vouchers, flaggers);
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_handle_reject_intro() {
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
+        let config = BotConfig::default();
+        let mut bot = StromaBot::new(client.clone(), freenet, config);
+
+        // Create a vetting session with an assigned validator
+        let inviter_hash = MemberHash::from_bytes(&[1; 32]);
+        let validator_id = ServiceId("validator".to_string());
+        let invitee_username = "@bob";
+
+        bot.vetting_sessions
+            .create_session(
+                ServiceId(invitee_username.to_string()),
+                invitee_username.to_string(),
+                inviter_hash,
+                ServiceId("alice".to_string()),
+                Some("Context".to_string()),
+                false,
+                0,
+            )
+            .unwrap();
+
+        // Assign validator
+        bot.vetting_sessions
+            .assign_validator(
+                invitee_username,
+                MemberHash::from_bytes(&[2; 32]),
+                validator_id.clone(),
+            )
+            .unwrap();
+
+        // Handle reject-intro from the validator
+        bot.handle_reject_intro(&validator_id, invitee_username)
+            .await
+            .unwrap();
+
+        // Verify acknowledgment was sent to validator
+        let sent = client.sent_messages();
+        assert!(!sent.is_empty());
+        assert!(sent[0].content.contains("declined"));
+
+        // Verify session was updated
+        let session = bot.vetting_sessions.get_session(invitee_username).unwrap();
+        assert_eq!(session.excluded_candidates.len(), 1);
+        // Status is Rejected because no validators are available (empty state)
+        assert_eq!(session.status, VettingStatus::Rejected);
+        assert!(session.validator.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_handle_reject_intro_not_assessor() {
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
+        let config = BotConfig::default();
+        let mut bot = StromaBot::new(client.clone(), freenet, config);
+
+        // Create a vetting session with an assigned validator
+        let inviter_hash = MemberHash::from_bytes(&[1; 32]);
+        let validator_id = ServiceId("validator".to_string());
+        let wrong_sender = ServiceId("wrong_person".to_string());
+        let invitee_username = "@bob";
+
+        bot.vetting_sessions
+            .create_session(
+                ServiceId(invitee_username.to_string()),
+                invitee_username.to_string(),
+                inviter_hash,
+                ServiceId("alice".to_string()),
+                Some("Context".to_string()),
+                false,
+                0,
+            )
+            .unwrap();
+
+        bot.vetting_sessions
+            .assign_validator(
+                invitee_username,
+                MemberHash::from_bytes(&[2; 32]),
+                validator_id,
+            )
+            .unwrap();
+
+        // Try to reject from wrong sender
+        bot.handle_reject_intro(&wrong_sender, invitee_username)
+            .await
+            .unwrap();
+
+        // Verify error message was sent
+        let sent = client.sent_messages();
+        assert!(!sent.is_empty());
+        assert!(sent[0].content.contains("not the assigned assessor"));
+
+        // Verify session was NOT updated
+        let session = bot.vetting_sessions.get_session(invitee_username).unwrap();
+        assert_eq!(session.excluded_candidates.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_handle_reject_intro_no_session() {
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
+        let config = BotConfig::default();
+        let mut bot = StromaBot::new(client.clone(), freenet, config);
+
+        // Try to reject for non-existent session
+        bot.handle_reject_intro(&ServiceId("someone".to_string()), "@nonexistent")
+            .await
+            .unwrap();
+
+        // Verify error message was sent
+        let sent = client.sent_messages();
+        assert!(!sent.is_empty());
+        assert!(sent[0].content.contains("No active vetting session"));
     }
 }

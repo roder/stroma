@@ -48,6 +48,10 @@ pub struct VettingSession {
 
     /// Count of previous flags if any (GAP-10)
     pub previous_flag_count: u32,
+
+    /// Excluded candidates who have declined assessment (st-fonga)
+    /// Used for re-running BlindMatchmaker after rejection
+    pub excluded_candidates: HashSet<MemberHash>,
 }
 
 /// Vetting session status
@@ -116,6 +120,7 @@ impl VettingSessionManager {
             status: VettingStatus::PendingMatch,
             has_previous_flags,
             previous_flag_count,
+            excluded_candidates: HashSet::new(),
         };
 
         self.sessions.insert(invitee_username, session);
