@@ -10,12 +10,6 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ServiceId(pub String);
 
-impl fmt::Display for ServiceId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
 /// Signal group identifier
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct GroupId(pub Vec<u8>);
