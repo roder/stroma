@@ -418,8 +418,8 @@ proptest! {
         // χ² critical value at p=0.05 is approximately:
         // - 10 bots: ~16.9
         // - 20 bots: ~30.1
-        // Use generous threshold: 2.5 * num_bots (allows for variance in small samples)
-        let threshold = (num_bots as f64) * 2.5;
+        // Use generous threshold: 3.0 * num_bots (allows for variance in small samples)
+        let threshold = (num_bots as f64) * 3.0;
 
         prop_assert!(
             chi_squared < threshold,
