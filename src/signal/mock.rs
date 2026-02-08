@@ -158,7 +158,7 @@ impl SignalClient for MockSignalClient {
             members.remove(pos);
             Ok(())
         } else {
-            Err(SignalError::MemberNotFound(member.to_string()))
+            Err(SignalError::MemberNotFound("[ServiceId]".to_string()))
         }
     }
 
