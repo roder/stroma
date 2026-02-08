@@ -605,11 +605,11 @@ unsafe {
 ### What Happens If These Constraints Are Violated
 - Code MUST be rejected (no exceptions)
 - Security review MUST flag violations
-- Witness Agent MUST block violating code
+- Security review MUST block violating code
 - Pull requests MUST be blocked
 
-### Witness Agent Responsibilities
-- Monitor all agents for Signal ID leakage
+### Security Review Responsibilities
+- Monitor all code changes for Signal ID leakage
 - Verify zeroization in all crypto operations
 - Block unsafe patterns (cleartext IDs, polling, etc.)
 - Verify trait abstractions for external dependencies
@@ -730,7 +730,7 @@ impl presage::Store for StromaProtocolStore {
 
 ### Implementation Requirement
 
-**Agent-Signal Task** (when integrating Presage):
+**Presage Integration Task**:
 1. DO NOT use presage-store-sqlite crate
 2. Implement custom StromaProtocolStore
 3. Implement presage::Store trait with minimal persistence

@@ -81,11 +81,18 @@ pub fn mask_identity(signal_id: &str, aci_identity: &IdentityKeyPair) -> [u8; 32
 
 ## Module Organization
 
-### Core Modules
-1. **Kernel**: Identity masking and HMAC logic
-2. **Shadow Beacon**: Emergent discovery mechanism
-3. **Gatekeeper**: Signal admin bot logic
-4. **Diplomat**: Federation proposal logic
+### Core Modules (as declared in `src/lib.rs`)
+1. **`identity`**: HMAC identity masking with ACI-derived keys (`src/identity.rs`)
+2. **`stark`**: ZK-STARK vouch verification circuits (`src/stark/`)
+3. **`gatekeeper`**: Ejection, rate limiting, health monitoring, audit trail (`src/gatekeeper/`)
+4. **`signal`**: Bot logic, commands, vetting, polls, proposals (`src/signal/`)
+5. **`freenet`**: Contract state, embedded kernel, state stream (`src/freenet/`)
+6. **`matchmaker`**: Cluster detection, DVR, strategic introductions (`src/matchmaker/`)
+7. **`persistence`**: Chunk encryption, distribution, recovery, write-blocking (`src/persistence/`)
+8. **`crypto`**: PSI-CA for federation discovery (`src/crypto/`)
+9. **`federation`**: Social anchor computation (`src/federation/`)
+10. **`serialization`**: CBOR via ciborium (`src/serialization/`)
+11. **`cli`**: Operator commands (`src/cli/`)
 
 ### Error Handling
 - Use `Result<T, E>` for all fallible operations

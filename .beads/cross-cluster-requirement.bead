@@ -107,7 +107,7 @@ When someone is being vetted:
 
 ### Edge Cases
 
-**Small Groups**: If the group only has one cluster, new members cannot join until the group develops multiple clusters. This incentivizes the existing members to build cross-cluster relationships first.
+**Small Groups (Single Cluster)**: Per the Bootstrap Exception above, single-cluster groups CAN admit new members without cross-cluster vouching. Cross-cluster becomes mandatory only when Bridge Removal detects 2+ clusters. This allows organic growth from the seed group.
 
 **Isolated Invitee**: If the invitee only knows people in one cluster, they need to be introduced to someone from another cluster. This is the point — the protocol forces network bridging.
 

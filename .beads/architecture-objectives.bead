@@ -163,7 +163,7 @@ systemd services:
 
 ## Core Modules
 
-### A. The Kernel (Identity Masking)
+### A. Identity Masking (`src/identity.rs`)
 - **Purpose**: Never store Signal IDs
 - **Method**: HMAC-SHA256 with Signal ACI-derived key
 - **Security**: Zeroize buffers immediately after hashing
@@ -171,27 +171,27 @@ systemd services:
 - **Blinded Identifiers**: Public ID for bot, private ID for ZK-math
 - **Result**: Memory dump contains only hashed identifiers
 
-### A-1. Bootstrap Module (One-Time Seed Group)
+### A-1. Bootstrap Module (`src/signal/bootstrap.rs`)
 - **Purpose**: Initialize new Stroma group
 - **Seed Size**: 3 members (manual addition by operator)
 - **Initial State**: All 3 vouch for each other (creates triangle)
-- **Freenet Init**: Creates Merkle Tree with 3 members, each with 2 vouches
+- **Freenet Init**: Creates contract with 3 members, each with 2 vouches
 - **After Bootstrap**: Bot takes over, no more manual additions
 
-### B. The Shadow Beacon (Emergent Discovery)
+### B. Federation & Discovery (`src/federation/`, `src/crypto/psi_ca.rs`)
 - **Purpose**: Bots find each other without admin coordination
 - **Method**: Social Anchor Hashing using Fixed Fibonacci Buckets [3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987]
 - **Discovery**: Bloom Filters + PSI-CA (Private Set Intersection Cardinality) for overlap detection
-- **Threshold**: BidirectionalMin with dual thresholds — BOTH must pass:
+- **Threshold**: BidirectionalMin with dual thresholds -- BOTH must pass:
   - `overlap_count >= min_shared_validators` (e.g., 3 absolute minimum)
   - `overlap / min(our_validators, their_validators) >= min_intersection_density` (e.g., 10%)
 - **Commutative Encryption**: Double-blinding for PSI handshake ensures anonymous overlap calculation
 - **Emergent Rendezvous**: Discovery URI derived from group's social frequency, not pre-shared keys
 - **See**: `.beads/discovery-protocols.bead` and `.beads/cryptography-zk.bead` for full specification
 
-### C. The Gatekeeper (Signal Admin Bot)
+### C. Trust Enforcement (`src/gatekeeper/`, `src/signal/bot.rs`)
 - **Purpose**: Enforce trust-based membership
-- **Admission**: Only after Freenet contract confirms "Vetted" status (≥2 vouches)
+- **Admission**: Only after Freenet contract confirms "Vetted" status (>=2 vouches)
 - **Trust Standing**: `Standing = Effective_Vouches - Regular_Flags` (must remain positive)
 - **Vouch Invalidation**: If voucher flags, their vouch is invalidated (excluded from BOTH counts)
 - **Ejection**: Immediate removal when `Standing < 0` OR `Effective_Vouches < 2` (no grace period)
@@ -199,13 +199,22 @@ systemd services:
 - **UX**: All vetting operations in 1-on-1 PMs (never group chat)
 - **Waiting Room**: State of being OUTSIDE Signal group during vetting (not a separate chat)
 
-### D. The Diplomat (Federation Logic)
-- **Purpose**: Coordinate federation between groups
+### D. Mesh Optimization (`src/matchmaker/`)
+- **Purpose**: Optimize network resilience via strategic introductions
+- **DVR**: Distinct Validator Ratio tracks mesh health
+- **Algorithm**: 3-phase (DVR-optimal / MST fallback / cluster bridging)
+- **Cluster Detection**: Bridge Removal (Tarjan's algorithm) for tight cluster identification
+
+### E. Persistence (`src/persistence/`)
+- **Purpose**: Encrypted chunk distribution for crash recovery
+- **Method**: AES-256-GCM encryption, 64KB chunks, rendezvous hashing for holder selection
+- **Write-Blocking**: 4-state machine (Provisional/Active/Degraded/Isolated)
+
+### F. Federation (`src/federation/`)
+- **Purpose**: Coordinate federation between groups (Phase 4+)
 - **Method**: Propose federation when overlap detected (intersection density threshold met)
 - **Consensus**: Human vote via Signal Poll (uses `config_change_threshold`) before federation
-- **Bridge Maintenance**: Proactively suggest connections when bridge density drops
 - **Cross-Mesh Vouching**: Members from Mesh-B can vouch for Mesh-A invitees
-- **Federation Contract**: Shared Freenet state for confederated meshes
 
 ---
 

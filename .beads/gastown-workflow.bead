@@ -9,11 +9,10 @@
 ## Agent Organization
 
 ### Agent Roles
-- **Mayor (Lead Agent)**: Project architecture and security auditing
-- **Agent-Signal**: `libsignal-service-rs` and protocol-level group management
-- **Agent-Freenet**: Wasm contract development with ComposableState, summary-delta synchronization
-- **Agent-Crypto**: STARK circuits (winterfell) and HMAC identity masking
-- **Witness Agent**: Constant audit of other agents to ensure no Signal ID logging
+- **Mayor**: Project architecture and security auditing
+- **Rig Stroma** (`stromarig/crew/matt`): Signal integration, Freenet contracts, trust logic, STARK circuits, HMAC masking
+- **Rig Presage** (`presage/`): Protocol v8 poll support, presage fork maintenance
+- **Rig libsignal** (`libsignal/`): libsignal-service-rs fork, upstream PR
 
 ### Context Persistence
 - Use **Beads** (git-backed persistent memory) for all architectural constraints
@@ -99,8 +98,8 @@
 
 ### Agent Coordination
 - Use `gt convoy` for parallel development
-- Ensure Witness Agent audits all other agents simultaneously
-- Never allow agents to work in isolation without oversight
+- Ensure security constraints are verified in all code reviews
+- All rigs must pass quality gates before merging
 
 ---
 

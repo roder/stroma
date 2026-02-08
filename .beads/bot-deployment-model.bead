@@ -31,17 +31,21 @@
 ### Deployment Model
 
 ```rust
-pub struct StromaBot {
-    signal_client: PresageManager,   // One Signal connection
-    protocol_store: StromaProtocolStore, // Custom store (NOT SqliteStore!)
-    freenet_node: FreenetClient,     // One Freenet node  
-    group_id: GroupId,                // Single group
-    group_name: String,               // "Mission Control", "Activists-NYC"
-    config: GroupConfig,              // Group-specific config
+// Actual struct from src/signal/bot.rs (generic over trait abstractions for testability)
+pub struct StromaBot<C: SignalClient, F: FreenetClient> {
+    client: C,                              // Signal client (MockSignalClient or LibsignalClient)
+    freenet: F,                             // Freenet client (MockFreenetClient or EmbeddedKernel)
+    config: BotConfig,                      // Per-instance config (group_id, pepper, thresholds)
+    group_manager: GroupManager<C>,         // Signal group operations
+    poll_manager: PollManager<C>,           // Proposal polls
+    bootstrap_manager: BootstrapManager<C>, // One-time seed group setup
+    vetting_sessions: VettingSessionManager,// Ephemeral admission state
+    member_resolver: MemberResolver,        // Transient MemberHash <-> ServiceId mapping
+    persistence_manager: WriteBlockingManager, // Chunk distribution health
 }
 ```
 
-**One bot = one of everything above.**
+**One bot = one Signal connection + one Freenet node + one group.**
 
 **⚠️ Store Requirement**: Each bot uses `StromaProtocolStore` (custom minimal store).
 - ❌ NEVER use `presage-store-sqlite` (stores message history - security violation)
