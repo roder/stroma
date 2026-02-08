@@ -7,18 +7,21 @@ use std::process::Command;
 use tempfile::{NamedTempFile, TempDir};
 
 fn get_binary_path() -> String {
-    // The binary path will be in target/debug/ or target/release/
+    // The binary path will be in target/debug/, target/release/, or target/llvm-cov-target/debug/
     let binary_name = if cfg!(windows) {
         "stroma.exe"
     } else {
         "stroma"
     };
 
-    // Try to find the binary
+    // Try to find the binary (check llvm-cov location first since that's where it'll be during coverage runs)
+    let llvm_cov_path = format!("target/llvm-cov-target/debug/{}", binary_name);
     let debug_path = format!("target/debug/{}", binary_name);
     let release_path = format!("target/release/{}", binary_name);
 
-    if std::path::Path::new(&debug_path).exists() {
+    if std::path::Path::new(&llvm_cov_path).exists() {
+        llvm_cov_path
+    } else if std::path::Path::new(&debug_path).exists() {
         debug_path
     } else if std::path::Path::new(&release_path).exists() {
         release_path
