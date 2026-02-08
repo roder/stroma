@@ -2,17 +2,17 @@
 
 ## 🎩 Mayor Briefing: Gastown Delegation Guide
 
-**Project**: Stroma — Privacy-first decentralized trust network  
-**Status**: Phase 0-2.5 Implementation in Progress (See Summary Below)  
-**Last Updated**: 2026-02-05 (checkboxes updated based on phase review reports)
+**Project**: Stroma — Privacy-first decentralized trust network
+**Status**: Phase 0 COMPLETE, Phases 1-2.5 Implementation in Progress (See Summary Below)
+**Last Updated**: 2026-02-07 (Phase 0 status updated to 100% complete)
 
-### 📊 Phase Completion Summary (as of 2026-02-05)
+### 📊 Phase Completion Summary (as of 2026-02-07)
 
 Based on phase review reports in `docs/todo/`:
 
 | Phase | Status | Completion | Critical Findings | Review Report |
 |-------|--------|------------|-------------------|---------------|
-| **Phase 0** | 🟡 SUBSTANTIALLY COMPLETE | **88%** (22/25 items) | ✅ All core features implemented<br>❌ 2 BLOCKERS: Freenet deps disabled (st-5nhs1), Presage disabled (st-rvzl)<br>✅ 321 tests passing<br>✅ GAP-07 & GAP-08 compliant | PHASE0_REVIEW_REPORT.md |
+| **Phase 0** | 🟢 COMPLETE | **100%** (25/25 items) | ✅ All core features implemented<br>✅ RESOLVED: Freenet deps enabled (st-5nhs1 closed)<br>✅ RESOLVED: Presage enabled (st-rvzl closed, a976fe81)<br>✅ 502 tests passing<br>✅ GAP-07 & GAP-08 compliant | PHASE0_REVIEW_REPORT.md (updated 2026-02-07) |
 | **Phase 1** | 🟡 PARTIAL | **70%** | ✅ Trust formula, ejection, health monitoring complete<br>❌ GAP-01 (audit trail) & GAP-03 (rate limiting) missing<br>⚠️ Some trust ops incomplete (integration) | phase1-review-report.md |
 | **Phase 2** | 🟡 PARTIAL | **40%** | ✅ DVR & strategic introductions complete<br>❌ /mesh commands stubbed<br>❌ Bridge Removal partial<br>❌ Integration tests missing<br>✅ Benchmarks: ALL targets MET with margin | PHASE2_REVIEW.md<br>PHASE2-BENCHMARKS.md |
 | **Phase 2.5** | 🟡 PARTIAL | **85%** | ✅ Core persistence modules complete (69 tests)<br>✅ Property tests complete (16/16 proptests)<br>❌ Attestation module missing (st-h6ocd)<br>❌ User commands missing (st-p12rt) | phase-2.5-review.md |
