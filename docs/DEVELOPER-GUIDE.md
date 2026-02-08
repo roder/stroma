@@ -1351,6 +1351,33 @@ let manager = Manager::with_store(store, options).await?;
 
 ## Development Workflow
 
+### API Documentation
+
+Stroma uses rustdoc for API reference documentation. The codebase includes 931 lines of rustdoc comments across 63 source files.
+
+**Generate and view API docs:**
+
+```bash
+# Generate documentation and open in browser
+cargo doc --no-deps --open
+
+# Generate without opening
+cargo doc --no-deps
+```
+
+**Documentation location:**
+
+Generated docs are placed in `./target/doc/stroma/index.html`
+
+**Module-level documentation:**
+
+Each module includes high-level documentation explaining its purpose and key types. See `src/*/mod.rs` files for module overviews.
+
+**Tips:**
+- Use `--no-deps` to exclude dependency documentation (faster builds)
+- Use `--document-private-items` to include private API documentation during development
+- Regenerate docs after making changes to doc comments
+
 ### Build
 
 ```bash
