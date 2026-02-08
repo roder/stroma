@@ -270,8 +270,8 @@ enum Endian {
 ///
 /// This type provides compatibility with bincode v1's Deserializer.
 pub struct Deserializer<'de, R: BincodeRead<'de>> {
-    reader: R,
-    config: Config,
+    pub reader: R,
+    pub config: Config,
     _phantom: std::marker::PhantomData<&'de ()>,
 }
 
