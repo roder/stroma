@@ -28,7 +28,6 @@ fn get_binary_path() -> String {
 }
 
 #[test]
-#[ignore] // Ignore until presage dependency is fixed
 fn test_cli_help() {
     let output = Command::new(get_binary_path())
         .arg("--help")
@@ -47,7 +46,6 @@ fn test_cli_help() {
 }
 
 #[test]
-#[ignore] // Ignore until presage dependency is fixed
 fn test_cli_version() {
     let output = Command::new(get_binary_path())
         .arg("version")
@@ -61,7 +59,6 @@ fn test_cli_version() {
 }
 
 #[test]
-#[ignore] // Ignore until presage dependency is fixed
 fn test_cli_link_device_requires_device_name() {
     let output = Command::new(get_binary_path())
         .arg("link-device")
@@ -75,7 +72,6 @@ fn test_cli_link_device_requires_device_name() {
 }
 
 #[test]
-#[ignore] // Ignore until presage dependency is fixed
 fn test_cli_link_device_with_device_name() {
     let output = Command::new(get_binary_path())
         .arg("link-device")
@@ -90,7 +86,6 @@ fn test_cli_link_device_with_device_name() {
 }
 
 #[test]
-#[ignore] // Ignore until presage dependency is fixed
 fn test_cli_run_requires_config() {
     let output = Command::new(get_binary_path())
         .arg("run")
@@ -104,7 +99,6 @@ fn test_cli_run_requires_config() {
 }
 
 #[test]
-#[ignore] // Ignore until presage dependency is fixed
 fn test_cli_run_with_missing_config() {
     let output = Command::new(get_binary_path())
         .arg("run")
@@ -118,7 +112,6 @@ fn test_cli_run_with_missing_config() {
 }
 
 #[test]
-#[ignore] // Ignore until presage dependency is fixed
 fn test_cli_run_with_valid_config() {
     let mut temp_file = NamedTempFile::new().unwrap();
     writeln!(temp_file, "[signal]").unwrap();
@@ -137,7 +130,6 @@ fn test_cli_run_with_valid_config() {
 }
 
 #[test]
-#[ignore] // Ignore until presage dependency is fixed
 fn test_cli_status() {
     let output = Command::new(get_binary_path())
         .arg("status")
@@ -150,7 +142,6 @@ fn test_cli_status() {
 }
 
 #[test]
-#[ignore] // Ignore until presage dependency is fixed
 fn test_cli_verify() {
     let output = Command::new(get_binary_path())
         .arg("verify")
@@ -163,7 +154,6 @@ fn test_cli_verify() {
 }
 
 #[test]
-#[ignore] // Ignore until presage dependency is fixed
 fn test_cli_backup_store_requires_output() {
     let output = Command::new(get_binary_path())
         .arg("backup-store")
@@ -177,7 +167,6 @@ fn test_cli_backup_store_requires_output() {
 }
 
 #[test]
-#[ignore] // Ignore until presage dependency is fixed
 fn test_cli_backup_store_with_invalid_output_dir() {
     let output = Command::new(get_binary_path())
         .arg("backup-store")
@@ -191,7 +180,6 @@ fn test_cli_backup_store_with_invalid_output_dir() {
 }
 
 #[test]
-#[ignore] // Ignore until presage dependency is fixed
 fn test_cli_backup_store_with_valid_output() {
     let temp_dir = TempDir::new().unwrap();
     let output_path = temp_dir.path().join("backup.tar.gz");
@@ -210,7 +198,6 @@ fn test_cli_backup_store_with_valid_output() {
 
 // Test all commands show help text
 #[test]
-#[ignore] // Ignore until presage dependency is fixed
 fn test_subcommand_help() {
     let commands = vec![
         "link-device",
@@ -240,7 +227,6 @@ fn test_subcommand_help() {
 
 // Test that invalid commands are rejected
 #[test]
-#[ignore] // Ignore until presage dependency is fixed
 fn test_invalid_command() {
     let output = Command::new(get_binary_path())
         .arg("invalid-command")
@@ -254,7 +240,6 @@ fn test_invalid_command() {
 
 // Test command variations and edge cases
 #[test]
-#[ignore] // Ignore until presage dependency is fixed
 fn test_link_device_with_all_options() {
     let output = Command::new(get_binary_path())
         .arg("link-device")
@@ -273,7 +258,6 @@ fn test_link_device_with_all_options() {
 }
 
 #[test]
-#[ignore] // Ignore until presage dependency is fixed
 fn test_run_with_bootstrap_contact() {
     let mut temp_file = NamedTempFile::new().unwrap();
     writeln!(temp_file, "[signal]").unwrap();
