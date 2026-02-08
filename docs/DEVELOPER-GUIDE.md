@@ -97,80 +97,109 @@ rustup target add x86_64-unknown-linux-musl
 
 **Decision**: STARKs for trustlessness and post-quantum security (proof size acceptable)
 
-## Module Structure (Federation-Ready)
+## Module Structure
 
 ```
 src/
 ├── main.rs                          # Event loop, CLI entry point
+├── lib.rs                           # Library root, module declarations
+├── identity.rs                      # HMAC identity masking with ACI-derived key, zeroization
 ├── cli/                             # Operator CLI (service management only)
 │   ├── mod.rs
 │   ├── link_device.rs               # Link to Signal account (one-time)
 │   ├── run.rs                       # Run bot service (awaits member-initiated bootstrap)
-│   └── utils.rs                     # status, verify, backup-store, version
-├── kernel/                          # Identity Masking
+│   ├── status.rs                    # Bot status reporting
+│   ├── verify.rs                    # Configuration verification
+│   ├── backup_store.rs              # Protocol store backup
+│   └── version.rs                   # Version information
+├── stark/                           # ZK-STARK Vouch Verification
 │   ├── mod.rs
-│   ├── hmac.rs                      # HMAC-based hashing with ACI-derived key
-│   └── zeroize_helpers.rs           # Immediate buffer purging
+│   ├── circuit.rs                   # VouchAir circuit (winterfell AIR)
+│   ├── types.rs                     # VouchClaim, VouchProof, MemberHash
+│   ├── prover.rs                    # prove_vouch_claim() (simplified Phase 0)
+│   ├── verifier.rs                  # verify_vouch_proof()
+│   └── proptests.rs                 # Property-based tests
 ├── freenet/                         # Freenet Integration
 │   ├── mod.rs
-│   ├── node.rs                      # Embedded Freenet kernel management
-│   ├── contract.rs                  # Wasm contract deployment
-│   └── state_stream.rs              # Real-time state monitoring
+│   ├── traits.rs                    # FreenetClient trait abstraction
+│   ├── embedded_kernel.rs           # EmbeddedKernel implementation (currently mock)
+│   ├── mock.rs                      # MockFreenetClient for tests
+│   ├── contract.rs                  # Contract deployment helpers
+│   ├── trust_contract.rs            # TrustNetworkState, GroupConfig, MemberHash
+│   └── state_stream.rs              # Real-time state change events
 ├── signal/                          # Signal Integration
 │   ├── mod.rs
-│   ├── store.rs                     # StromaProtocolStore (custom, NOT SqliteStore)
-│   ├── bot.rs                       # Bot authentication & commands
-│   ├── group.rs                     # Group management (add/remove)
-│   ├── pm.rs                        # 1-on-1 PM handling
-│   └── bootstrap.rs                 # Member-initiated bootstrap (/create-group, /add-seed)
-├── crypto/                          # ZK-Proofs & Trust Verification
-│   ├── mod.rs
-│   ├── stark_circuit.rs             # STARK circuit for vouching
-│   ├── proof_generation.rs          # Generate proofs (spawn_blocking)
-│   └── proof_verification.rs        # Verify proofs
+│   ├── traits.rs                    # SignalClient trait abstraction
+│   ├── client.rs                    # LibsignalClient (100% stubbed, wiring TODO)
+│   ├── mock.rs                      # MockSignalClient for tests
+│   ├── store.rs                     # StromaProtocolStore (minimal, security-focused)
+│   ├── linking.rs                   # link_secondary_device() (stubbed)
+│   ├── bot.rs                       # StromaBot: command dispatch, run loop
+│   ├── group.rs                     # Group management (add/remove members)
+│   ├── pm.rs                        # 1-on-1 PM command handling
+│   ├── bootstrap.rs                 # /create-group, /add-seed bootstrap flow
+│   ├── vetting.rs                   # VettingSessionManager (ephemeral sessions)
+│   ├── matchmaker.rs                # BlindMatchmaker (cross-cluster assessor selection)
+│   ├── member_resolver.rs           # Transient MemberHash <-> ServiceId mapping
+│   ├── polls.rs                     # PollManager (create, vote, terminate)
+│   ├── retry.rs                     # Retry logic with backoff
+│   └── proposals/                   # Proposal system
+│       ├── mod.rs
+│       ├── command.rs               # /propose argument parsing
+│       ├── lifecycle.rs             # Proposal creation, monitoring, execution
+│       └── executor.rs              # Config change application
 ├── gatekeeper/                      # Admission & Ejection Protocol
 │   ├── mod.rs
-│   ├── admission.rs                 # Vetting & admission logic
 │   ├── ejection.rs                  # Immediate ejection (two triggers)
-│   └── health_monitor.rs            # Continuous standing checks
+│   ├── health_monitor.rs            # Continuous standing checks via state stream
+│   ├── rate_limiter.rs              # 5-tier progressive cooldown (GAP-03)
+│   └── audit_trail.rs               # Immutable append-only log (GAP-01)
 ├── matchmaker/                      # Internal Mesh Optimization
 │   ├── mod.rs
-│   ├── graph_analysis.rs            # Topology analysis (Bridge Removal, centrality, DVR)
-│   ├── cluster_detection.rs         # Identify internal clusters (Tarjan's algorithm, Q3 validated)
-│   └── strategic_intro.rs           # DVR optimization + MST fallback (see ALGORITHMS.md, blind-matchmaker-dvr.bead)
-├── config/                          # Group Configuration
-│   ├── mod.rs
-│   └── group_config.rs              # GroupConfig struct (Freenet contract)
+│   ├── graph_analysis.rs            # Bridge detection, Union-Find, centrality
+│   ├── cluster_detection.rs         # Tarjan's algorithm, GAP-11 announcement
+│   ├── dvr.rs                       # Degree-Vouch Ratio calculation
+│   ├── strategic_intro.rs           # 3-phase: DVR / MST / cluster bridging
+│   └── display.rs                   # Transient name resolution for output
 ├── persistence/                     # Reciprocal Persistence Network
 │   ├── mod.rs                       # Public API
-│   ├── encryption.rs                # AES-256-GCM, Ed25519 signatures
-│   ├── chunking.rs                  # Split/join encrypted state into 64KB chunks
-│   ├── registry.rs                  # Persistence peer discovery
-│   ├── verification.rs              # Challenge-response verification (Q13)
-│   ├── recovery.rs                  # State recovery from chunks
-│   └── write_blocking.rs            # State machine (ACTIVE/DEGRADED/etc.)
-└── federation/                      # Federation Logic (DISABLED IN MVP)
-    ├── mod.rs                       # Feature flag: #[cfg(feature = "federation")]
-    ├── shadow_beacon.rs             # Social Anchor Hashing (Phase 4+)
-    ├── psi_ca.rs                    # Private Set Intersection (Phase 4+)
-    ├── diplomat.rs                  # Federation proposals (Phase 4+)
-    └── shadow_handover.rs           # Bot identity rotation (Phase 4+)
+│   ├── encryption.rs                # AES-256-GCM, version chain, Merkle root
+│   ├── chunks.rs                    # 64KB chunk split/join
+│   ├── chunk_storage.rs             # Contract-based chunk storage
+│   ├── distribution.rs              # Parallel chunk distribution
+│   ├── rendezvous.rs                # Deterministic holder selection
+│   ├── registry.rs                  # Peer discovery, tombstones, epochs
+│   ├── attestation.rs               # HMAC-SHA256 receipts (Q9)
+│   ├── health.rs                    # 4-state replication health model
+│   ├── recovery.rs                  # Crash recovery from chunks
+│   ├── write_blocking.rs            # State machine (Provisional/Active/Degraded/Isolated)
+│   └── proptests.rs                 # Property-based tests
+├── crypto/                          # Federation Cryptography
+│   ├── mod.rs
+│   └── psi_ca.rs                    # Private Set Intersection (federation discovery)
+├── federation/                      # Federation Logic (Phase 4+)
+│   ├── mod.rs
+│   └── social_anchor.rs             # Social Anchor computation
+└── serialization/                   # Wire Format
+    └── mod.rs                       # CBOR via ciborium (to_cbor, from_cbor)
 ```
 
-**Key Design**: `federation/` exists but is disabled via feature flag in MVP (validates architecture scales).
+**Key Design**: `federation/` and `crypto/psi_ca.rs` exist for federation discovery (Phase 4+).
 **Key Design**: `persistence/` ensures trust state durability even if Freenet data falls off.
+**Key Design**: `identity.rs` is a single file (not a module directory) containing HMAC masking with zeroization.
+**Key Design**: `stark/` contains ZK-STARK circuits; `crypto/` contains only PSI-CA for federation.
 
 **See**: [ALGORITHMS.md](ALGORITHMS.md) for detailed MST algorithm, PSI-CA protocol, and complexity analysis.
 
 ### Future: Shadow Handover (Phase 4+)
 
-The `shadow_handover.rs` module will implement cryptographic bot identity rotation:
+Phase 4+ will add a `shadow_handover.rs` module for cryptographic bot identity rotation:
 
 - **Purpose**: Allow bot to rotate Signal phone number while preserving trust context
 - **Mechanism**: Succession Document signed by old bot key, validated by Freenet contract
 - **Use Cases**: Signal ban recovery, periodic rotation, operational security
 
-See `.beads/federation-roadmap.bead` for protocol specification.
+**Note**: Not yet implemented. See `.beads/federation-roadmap.bead` for protocol specification.
 
 ## Two-Layer Architecture (Trust State + Persistence)
 
@@ -1145,8 +1174,6 @@ async fn proposal_monitoring_stream(
 
 **See**: `.beads/proposal-system.bead`, `.beads/voting-mechanism.bead`
 
-### Event-Driven Design with Embedded Kernel
-
 ### Anonymity-First Design
 
 #### Identity Masking (MANDATORY)
@@ -1774,4 +1801,4 @@ This project uses **Gastown** - multi-agent coordination with specialized roles:
 
 **Status**: Technology validation complete (Spike Week 1 & 2). Ready for Phase 0 implementation.
 
-**Last Updated**: 2026-02-01
+**Last Updated**: 2026-02-08

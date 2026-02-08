@@ -2,7 +2,24 @@
 
 **Status**: Immutable Architectural Constraint  
 **Created**: 2026-02-01  
+**Updated**: 2026-02-08  
 **Context**: Signal Protocol Integration
+
+---
+
+## Implementation Status
+
+| Component | File | Status |
+|-----------|------|--------|
+| `SignalClient` trait | `src/signal/traits.rs` | ✅ Complete (9 methods: 8 async + `service_id()`) |
+| `MockSignalClient` | `src/signal/mock.rs` | ✅ Complete (all tests pass) |
+| `LibsignalClient` | `src/signal/client.rs` | ❌ 100% stubbed (8/8 return `NotImplemented`) |
+| `StromaProtocolStore` | `src/signal/store.rs` | ❌ `load()`/`save()` return `NotImplemented` |
+| `link_secondary_device()` | `src/signal/linking.rs` | ❌ Returns `NotImplemented` |
+| `PollManager` | `src/signal/polls.rs` | ✅ Complete (logic works against mock) |
+| `StromaBot` | `src/signal/bot.rs` | ✅ Complete (logic works against mock) |
+
+**Blocking UAT**: Yes — Steps 1-2 in TODO.md must complete before UAT.
 
 ---
 
@@ -25,6 +42,8 @@ Stroma links to an **existing Signal account** as a secondary device. The operat
 5. Bot saves identity to StromaProtocolStore
 
 **No Primary Registration**: Stroma does NOT implement `Manager::register()`. Operator creates Signal account outside of Stroma.
+
+**Current Status**: `link_secondary_device()` in `src/signal/linking.rs` returns `NotImplemented`. See TODO.md Step 2.
 
 ---
 
@@ -106,18 +125,38 @@ All vetting/vouching occurs in **1-on-1 PMs** with bot (prevents metadata leakag
 ## Data Handling
 
 ### Custom Protocol Store (Security Critical)
+
+**Implementation**: `src/signal/store.rs`
+
 - ❌ **NEVER use `presage-store-sqlite`** - it stores message history (server seizure risk)
-- ✅ **ALWAYS use `StromaProtocolStore`** - stores only Signal protocol state
-- Custom store implements: `IdentityKeyStore`, `PreKeyStore`, `SessionStore`, `SenderKeyStore`
-- No message content, no conversation history, no metadata beyond protocol needs
-- See: `.beads/technology-stack.bead` for implementation details
+- ✅ **ALWAYS use `StromaProtocolStore`** - stores only Signal protocol state (~100KB)
+- Stores: identity keys (ACI/PNI), pre-keys, session ciphers
+- Does NOT store: message content, conversation history, contact database
+- Encrypted with operator-provided passphrase
+
+**Current Status**: `load()`/`save()` return `NotImplemented`. See TODO.md Step 2.
+
+```rust
+// src/signal/store.rs (actual structure)
+pub struct StromaProtocolStore {
+    state_path: PathBuf,      // Path to encrypted protocol state file
+    passphrase: String,       // Operator-provided passphrase for encryption
+    sessions: HashMap<String, SessionData>,  // In-memory session cache (ephemeral)
+}
+
+pub struct ProtocolState {
+    identity: IdentityData,   // Signal identity (ACI/PNI)
+    pre_keys: Vec<PreKeyData>, // Pre-keys for new conversations
+    version: u32,              // Version for migration
+}
+```
 
 ### Never Store Signal IDs
 - **Critical**: Bot must never store Signal IDs in cleartext
-- **HMAC-based hashing**: Use keyed hashing with ACI-derived key
-- **Ephemeral Memory**: Raw Signal IDs wiped immediately after hashing
+- **HMAC-based hashing**: Use keyed hashing with ACI-derived key (`src/identity.rs`)
+- **Ephemeral Memory**: Raw Signal IDs wiped immediately after hashing via `zeroize`
 - **Ephemeral State**: Vetting session data deleted after admission
-- **Memory Hygiene**: Use `zeroize` crate to purge sensitive buffers
+- **Transient Mapping**: `MemberResolver` provides ServiceId ↔ MemberHash lookup (never persisted)
 
 ---
 
@@ -132,3 +171,87 @@ All vetting/vouching occurs in **1-on-1 PMs** with bot (prevents metadata leakag
 - Vouches must be from members in DIFFERENT CLUSTERS (cross-cluster mandatory) to enter a Group
 - Bot verifies via Freenet that voucher is current Member
 - First vouch = invitation itself (no separate token)
+
+---
+
+## SignalClient Trait (Actual Implementation)
+
+**File**: `src/signal/traits.rs`
+
+```rust
+#[async_trait]
+pub trait SignalClient: Send + Sync + Clone {
+    async fn send_message(&self, recipient: &ServiceId, text: &str) -> SignalResult<()>;
+    async fn send_group_message(&self, group: &GroupId, text: &str) -> SignalResult<()>;
+    async fn create_group(&self, name: &str) -> SignalResult<GroupId>;
+    async fn add_group_member(&self, group: &GroupId, member: &ServiceId) -> SignalResult<()>;
+    async fn remove_group_member(&self, group: &GroupId, member: &ServiceId) -> SignalResult<()>;
+    async fn create_poll(&self, group: &GroupId, poll: &Poll) -> SignalResult<u64>;
+    async fn terminate_poll(&self, group: &GroupId, poll_timestamp: u64) -> SignalResult<()>;
+    async fn receive_messages(&self) -> SignalResult<Vec<Message>>;
+    fn service_id(&self) -> &ServiceId;
+}
+```
+
+**Implementations**:
+- `MockSignalClient` — In-memory mock for all tests (complete, passing)
+- `LibsignalClient` — Production client using presage (100% stubbed)
+
+---
+
+## Roadmap
+
+### Step 1: Rig Presage — NOT STARTED
+
+**Repo**: `presage/` (fork at `/Users/matt/gt/presage`)
+
+**Deliverables**:
+- [ ] Add missing E2E test coverage for presage fork
+- [ ] Validate secondary device linking works
+- [ ] Validate group creation/management works
+- [ ] Validate poll create/terminate works (Protocol v8)
+
+**Blocking**: Step 2 depends on validated presage APIs.
+
+### Step 2: Real Signal Integration — NOT STARTED
+
+**Deliverables**:
+
+- [ ] Wire `LibsignalClient` to presage `Manager` APIs:
+  - `send_message()` → `manager.send_message()`
+  - `send_group_message()` → `manager.send_message_to_group()`
+  - `create_group()` → `manager.create_group_v2()`
+  - `add_group_member()` / `remove_group_member()` → group membership APIs
+  - `create_poll()` → `DataMessage` with `PollCreate` (Protocol v8)
+  - `terminate_poll()` → `DataMessage` with `PollTerminate`
+  - `receive_messages()` → `manager.receive_messages()`
+
+- [ ] Implement `StromaProtocolStore` encryption/persistence:
+  - `load()` — Read encrypted file, decrypt with passphrase-derived key, deserialize CBOR
+  - `save()` — Serialize to CBOR, encrypt with passphrase-derived key, write atomically
+
+- [ ] Implement `link_secondary_device()` in `src/signal/linking.rs`:
+  - Display QR code in terminal
+  - Wait for scan confirmation
+  - Receive and store ACI/PNI identity
+
+- [ ] Enable 16 CLI integration tests in `tests/cli_integration.rs` (all `#[ignore]` with reason "presage dependency")
+
+**Test Strategy**:
+
+| Level | Tool | Purpose |
+|-------|------|---------|
+| Unit | `MockSignalClient` | All logic tests (existing, passing) |
+| Integration | `MockSignalClient` + recording proxy | Verify message flow |
+| E2E | Real Signal account (manual) | Device linking, group creation, polls |
+
+### Step 5: UAT — BLOCKED BY Steps 1-4
+
+**Manual Test Script** (when ready):
+
+1. **Link bot**: `stroma link-device --name "test-bot"` — scan QR code, bot links as secondary device
+2. **Create group**: Send `/create-group "UAT Test Group"` as PM to bot
+3. **Invite member**: Send `/invite @alice "friend from work"`
+4. **Vouch**: Alice sends `/vouch @bob` — admission flow completes
+5. **Propose**: Any member sends `/propose config --key min_vouches --value 3 --timeout 24h`
+6. **Verify persistence**: Restart bot — trust state recovers from Freenet

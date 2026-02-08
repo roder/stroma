@@ -82,7 +82,7 @@ When dualities conflict with *each other*, apply this hierarchy:
 ## Naming Conventions
 
 - **Functions**: Use `snake_case` (Rust convention)
-- **Modules**: Kernel, Shadow Beacon, Gatekeeper, Diplomat
+- **Modules**: identity, stark, gatekeeper, signal, freenet, matchmaker, persistence, crypto, federation, serialization, cli
 - **Bot Roles**: Relational Concierge, Protocol Gatekeeper, Zero-Knowledge Witness, Diplomat
 - **Network Terms**: Nexus-Mesh, Social Anchor, Trust Horizon, Blind Vouch, Recursive Vouching
 - **Node Types**: Leaf Node (1 link), Bridge Node (2 links), Validator (3+ links)

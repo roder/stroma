@@ -2,11 +2,25 @@
 
 **Status**: Immutable Architectural Constraint  
 **Created**: 2026-01-28  
+**Updated**: 2026-02-08  
 **Context**: Architecture Decision 2.4
 
 ---
 
-## Command: `/propose`
+## Overview
+
+The proposal system has two phases:
+
+| Phase | Scope | Voting | Status |
+|-------|-------|--------|--------|
+| **UAT (Phase 0)** | Binary Approve/Reject | Threshold + Quorum | Implemented |
+| **Post-UAT** | Multi-option polls | Plurality + Quorum | Designed, not implemented |
+
+---
+
+## Phase 0: Binary Proposals (UAT)
+
+### Command: `/propose`
 
 **Purpose**: Unified interface for all group decisions via consensus
 
@@ -39,7 +53,7 @@ Examples:
 /propose stroma default_poll_timeout 72h
 ```
 
-**3. Federation (federate)**
+**3. Federation (federate)** *(deferred to Phase 4+)*
 ```
 /propose federate <group-id> [--timeout duration]
 
@@ -76,40 +90,49 @@ Example:
 - Threshold is governance constant (changing it requires proposal itself)
 - Quorum prevents small minorities from passing proposals during low participation
 
+**Actual Implementation Structures:**
+
+`src/signal/polls.rs` — In-memory poll tracking:
 ```rust
-pub struct Proposal {
-    id: ProposalId,
-    proposer: Hash,
-    proposal_type: ProposalType,
-    
-    // Configuration
-    timeout: Duration,              // REQUIRED - defaults to GroupConfig.default_poll_timeout
-    threshold: f32,                 // From GroupConfig (fixed) - % of votes to pass
-    quorum: f32,                    // From GroupConfig (fixed) - % of members who must vote
-    
-    // Execution
-    action: FreenetAction,
-    
-    // Timestamps
-    created_at: Timestamp,
-    expires_at: Timestamp,          // created_at + timeout (ALWAYS finite)
+pub struct PollProposal {
+    pub proposal_type: ProposalType,
+    pub poll_id: u64,
+    pub timeout: u64,           // seconds
+    pub threshold: f32,         // copied from GroupConfig at creation
+    pub quorum: f32,            // copied from GroupConfig at creation
+}
+```
+
+`src/freenet/trust_contract.rs` — Persistent Freenet storage:
+```rust
+pub struct ActiveProposal {
+    pub poll_id: u64,
+    pub proposal_type: String,      // "ConfigChange", "Federation", "Other"
+    pub proposal_details: String,   // e.g., "min_vouches=3"
+    pub poll_timestamp: u64,
+    pub expires_at: u64,            // created_at + timeout (ALWAYS finite)
+    pub timeout_secs: u64,
+    pub threshold: f32,
+    pub quorum: f32,
+    pub checked: bool,
+    pub result: Option<ProposalResult>,
 }
 ```
 
 **Timeout is REQUIRED**: Every proposal MUST have a finite timeout. Open-ended polls are forbidden because they would prevent decisions from ever being finalized.
 
-### Timeout Configuration
+### GroupConfig (Actual Implementation)
 
+`src/freenet/trust_contract.rs`:
 ```rust
 pub struct GroupConfig {
-    // Default timeout when --timeout not specified (REQUIRED field)
-    default_poll_timeout: Duration,  // e.g., 48h - applied when proposer doesn't specify
-    
-    // Threshold for ALL proposals (not configurable per-poll)
-    config_change_threshold: f32,    // e.g., 0.70 (70%) - % of votes to pass
-    
-    // Quorum for ALL proposals (not configurable per-poll)
-    min_quorum: f32,                 // e.g., 0.50 (50%) - % of members who must vote
+    pub min_vouches: u32,                    // Default: 2
+    pub max_flags: u32,                      // Default: 3
+    pub open_membership: bool,               // Default: false
+    pub operators: BTreeSet<MemberHash>,
+    pub default_poll_timeout_secs: u64,      // Default: 172800 (48h)
+    pub config_change_threshold: f32,        // Default: 0.70 (70%)
+    pub min_quorum: f32,                     // Default: 0.50 (50%)
 }
 
 // Timeout resolution (in order of precedence):
@@ -275,62 +298,85 @@ async fn terminate_poll(
 - Termination provides clear visual feedback in Signal UI (poll shows as closed)
 - Votes cast after termination are ignored by Signal
 
-### Proposal Result Calculation
+### Proposal Result Calculation (Actual Implementation)
+
+**Implemented in**: `src/signal/polls.rs`
 
 ```rust
-pub struct ProposalResult {
-    pub approved: bool,
-    pub quorum_met: bool,
-    pub threshold_met: bool,
-    pub approve_count: u32,
-    pub reject_count: u32,
-    pub participation_rate: f32,  // total_votes / total_members
-    pub approval_rate: f32,       // approve_count / total_votes
+/// Vote aggregate (only counts, never individual voters)
+pub struct VoteAggregate {
+    pub approve: u32,
+    pub reject: u32,
+    pub total_members: u32,
 }
 
-fn calculate_proposal_result(
-    approve_count: u32,
-    reject_count: u32,
-    total_members: u32,
-    config: &GroupConfig,
-) -> ProposalResult {
-    let total_votes = approve_count + reject_count;
-    let participation_rate = total_votes as f32 / total_members as f32;
-    let approval_rate = if total_votes > 0 {
-        approve_count as f32 / total_votes as f32
+/// Poll outcome
+pub enum PollOutcome {
+    Passed {
+        approve_count: u32,
+        reject_count: u32,
+    },
+    Failed {
+        approve_count: u32,
+        reject_count: u32,
+    },
+    QuorumNotMet {
+        participation_rate: f32,
+        required_quorum: f32,
+    },
+}
+
+fn check_poll_outcome(poll_id: u64, votes: &VoteAggregate) -> Option<PollOutcome> {
+    let proposal = self.active_polls.get(&poll_id)?;
+    let total_voters = votes.approve + votes.reject;
+    let total_members = votes.total_members;
+
+    // Check quorum (% of members who must vote)
+    let participation_rate = total_voters as f32 / total_members as f32;
+    if participation_rate < proposal.quorum {
+        return Some(PollOutcome::QuorumNotMet {
+            participation_rate,
+            required_quorum: proposal.quorum,
+        });
+    }
+
+    // Check threshold (% of votes to pass)
+    let approve_rate = votes.approve as f32 / total_voters as f32;
+    if approve_rate >= proposal.threshold {
+        Some(PollOutcome::Passed { approve_count: votes.approve, reject_count: votes.reject })
     } else {
-        0.0
-    };
-    
-    let quorum_met = participation_rate >= config.min_quorum;
-    let threshold_met = approval_rate >= config.config_change_threshold;
-    
-    ProposalResult {
-        approved: quorum_met && threshold_met,
-        quorum_met,
-        threshold_met,
-        approve_count,
-        reject_count,
-        participation_rate,
-        approval_rate,
+        Some(PollOutcome::Failed { approve_count: votes.approve, reject_count: votes.reject })
     }
 }
 ```
 
+**Result stored in Freenet** (`src/freenet/trust_contract.rs`):
+
+```rust
+pub enum ProposalResult {
+    Passed { approve_count: u32, reject_count: u32 },
+    Failed { approve_count: u32, reject_count: u32 },
+    QuorumNotMet { participation_rate: f32 },
+}
+```
+
 **Failure Messages:**
-- If `!quorum_met`: "Proposal failed: Quorum not met (X% participated, Y% required)"
-- If `quorum_met && !threshold_met`: "Proposal failed: Threshold not met (X% approved, Y% required)"
-- If `approved`: "Proposal passed: X% approved (quorum: Y%, threshold: Z%)"
+- If `QuorumNotMet`: "Proposal failed: Quorum not met (X% participated, Y% required)"
+- If `Failed`: "Proposal failed: Threshold not met (X% approved, Y% required)"
+- If `Passed`: "Proposal passed: X% approved (quorum: Y%, threshold: Z%)"
 
 ### Code Constraints
 
 **Block These Patterns:**
 ```rust
-// ❌ NEVER have per-proposal thresholds or quorum
-pub struct Proposal {
-    threshold: f32,  // WRONG - use GroupConfig.config_change_threshold
-    quorum: f32,     // WRONG - use GroupConfig.min_quorum
+// ❌ NEVER let users set per-proposal thresholds or quorum
+// (PollProposal stores threshold/quorum, but values MUST come from GroupConfig)
+pub fn parse_propose_args(...) {
+    // WRONG: accepting --threshold or --quorum flags
+    threshold: user_provided_threshold,  // FORBIDDEN
+    quorum: user_provided_quorum,        // FORBIDDEN
 }
+// CORRECT: Copy from GroupConfig at poll creation time (see lifecycle.rs:65-66)
 
 // ❌ NEVER allow open-ended polls (no timeout)
 pub struct Proposal {
@@ -367,7 +413,7 @@ if !result.approved {
 }
 ```
 
-### Gastown Agent Instructions
+### Gastown Agent Instructions (Phase 0)
 
 **When implementing `/propose` command:**
 1. Parse subcommand (config, stroma, federate)
@@ -391,3 +437,226 @@ if !result.approved {
 3. Only check expired, unchecked proposals
 4. Mark as checked after first check
 5. Never re-check same proposal
+
+---
+
+## Post-UAT: Multi-Option Proposals
+
+**Problem**: Binary Approve/Reject is insufficient for config changes where the question is "what value?" not "should we change?"
+
+**Solution**: Extend the proposal system to support N-option polls using Signal Protocol v8's native multi-option poll support.
+
+### Extended Command Syntax
+
+```
+/propose config --key <key> --value <val1> --value <val2> [--value <valN>...] --timeout <duration> --proposal "<question>"
+
+/propose stroma --key <key> --value <val1> --value <val2> [--value <valN>...] --timeout <duration> --proposal "<question>"
+```
+
+**Examples:**
+```
+/propose config --key disappearing_messages --value "1 day" --value "7 days" --value "30 days" --timeout 24h --proposal "What should our disappearing message timer be?"
+
+/propose stroma --key min_vouches --value "2" --value "3" --value "4" --timeout 48h --proposal "Adjust minimum vouch threshold"
+```
+
+### Configuration Key Registry
+
+The proposal system must expose all configurable keys from both Signal's group API and Stroma's `GroupConfig`. Each key needs type validation and allowed values.
+
+**Stroma Config Keys** (from `src/freenet/trust_contract.rs`):
+
+| Key | Type | Default | Range/Values | Description |
+|-----|------|---------|--------------|-------------|
+| `min_vouches` | `u32` | 2 | 1-10 | Minimum vouches for full standing |
+| `max_flags` | `u32` | 3 | 1-10 | Maximum flags before ejection |
+| `open_membership` | `bool` | false | true/false | Whether new members can join |
+| `default_poll_timeout_secs` | `u64` | 172800 (48h) | 3600-604800 (1h-168h) | Default timeout for proposals |
+| `config_change_threshold` | `f32` | 0.70 | 0.50-1.00 | Fraction of votes needed to pass |
+| `min_quorum` | `f32` | 0.50 | 0.25-1.00 | Fraction of members who must vote |
+
+**Signal Group Config Keys** (from libsignal-service-rs `GroupV2` API):
+
+| Key | Type | Values | Description |
+|-----|------|--------|-------------|
+| `disappearing_messages` | duration | off, 1d, 7d, 14d, 30d, 90d | Message expiration timer |
+| `group_name` | string | 1-32 chars | Display name of the group |
+| `group_description` | string | 0-480 chars | Group description |
+| `add_members` | permission | all_members, only_admins | Who can add new members |
+| `edit_attributes` | permission | all_members, only_admins | Who can edit group info |
+| `announcements_only` | bool | true/false | Only admins can send messages |
+
+### Data Model Changes
+
+```rust
+pub struct ProposeArgs {
+    pub subcommand: ProposalSubcommand,
+    pub timeout: Option<Duration>,
+    pub custom_question: Option<String>,  // --proposal flag
+}
+
+pub enum ProposalSubcommand {
+    Config {
+        key: String,
+        values: Vec<String>,  // multiple --value flags (N >= 2)
+    },
+    Stroma {
+        key: String,
+        values: Vec<String>,
+    },
+    // Federate deferred to Phase 4+
+}
+
+pub struct VoteAggregate {
+    pub votes_per_option: Vec<u32>,  // votes[i] = count for option i
+    pub total_members: u32,
+}
+
+pub enum PollOutcome {
+    WinnerSelected {
+        winning_option: u32,
+        winning_value: String,
+        vote_count: u32,
+        total_votes: u32,
+    },
+    Tie {
+        tied_options: Vec<u32>,
+    },
+    QuorumNotMet {
+        participation_rate: f32,
+        required_quorum: f32,
+    },
+}
+```
+
+### Voting Logic: Plurality with Quorum
+
+Multi-option proposals use **plurality voting** (highest vote count wins) with **quorum requirement** (minimum participation):
+
+```rust
+fn calculate_multi_option_result(
+    votes_per_option: &[u32],
+    total_members: u32,
+    config: &GroupConfig,
+) -> PollOutcome {
+    let total_votes: u32 = votes_per_option.iter().sum();
+    let participation_rate = total_votes as f32 / total_members as f32;
+    
+    // Check quorum first
+    if participation_rate < config.min_quorum {
+        return PollOutcome::QuorumNotMet {
+            participation_rate,
+            required_quorum: config.min_quorum,
+        };
+    }
+    
+    // Find winner(s) by plurality
+    let max_votes = *votes_per_option.iter().max().unwrap_or(&0);
+    let winners: Vec<u32> = votes_per_option
+        .iter()
+        .enumerate()
+        .filter(|(_, &count)| count == max_votes)
+        .map(|(i, _)| i as u32)
+        .collect();
+    
+    if winners.len() > 1 {
+        PollOutcome::Tie { tied_options: winners }
+    } else {
+        PollOutcome::WinnerSelected {
+            winning_option: winners[0],
+            winning_value: /* map option index to --value string */,
+            vote_count: max_votes,
+            total_votes,
+        }
+    }
+}
+```
+
+**Note**: Threshold (`config_change_threshold`) does NOT apply to multi-option polls — only quorum. The winner is determined by plurality (most votes), not by meeting a percentage threshold.
+
+### UX Flow
+
+```
+User: /propose config --key disappearing_messages --value "1 day" --value "7 days" --value "30 days" --timeout 24h --proposal "What should our disappearing message timer be?"
+
+Bot creates Signal poll:
+  Question: "What should our disappearing message timer be?"
+  Options: 1 day | 7 days | 30 days
+  Timeout: 24h | Quorum: 50%
+
+[Members vote via Signal's native poll UI]
+
+After 24h, bot terminates poll:
+  Results: 1 day (3), 7 days (8), 30 days (4)
+  Winner: "7 days" (plurality, 8 of 15 votes)
+  Quorum: 100% (15/15 voted)
+
+  Bot announces: "Proposal PASSED: Disappearing messages set to 7 days (8 of 15 votes)"
+  Bot executes: Changes Signal group disappearing_messages to 7 days
+```
+
+### Tie-Breaking
+
+When multiple options receive the same highest vote count:
+
+1. **Announce the tie**: "Proposal tied between: 1 day (5), 7 days (5)"
+2. **No automatic execution**: Status quo preserved
+3. **Proposer can re-submit** with modified options or extended timeout
+
+### Gastown Agent Instructions (Post-UAT)
+
+**New modules to create:**
+- `src/signal/proposals/config_registry.rs` — `ConfigKeyRegistry` with validation rules per key
+
+**Modules to extend:**
+- `src/signal/proposals/command.rs` — Parse `--key`, `--value` (N times), `--proposal`
+- `src/signal/polls.rs` — `VoteAggregate` with `votes_per_option: Vec<u32>`, `PollOutcome` with `WinnerSelected`/`Tie`/`QuorumNotMet`
+- `src/signal/proposals/lifecycle.rs` — Generate poll options from `--value` flags, use `--proposal` as question
+- `src/signal/proposals/executor.rs` — Map winning option to original `--value`, call Signal API for Signal keys
+
+---
+
+## Roadmap
+
+### Phase 0: Binary Proposals (UAT) — COMPLETE
+
+| Component | File | Status |
+|-----------|------|--------|
+| Command parsing | `src/signal/proposals/command.rs` | ✅ Complete |
+| Poll creation | `src/signal/proposals/lifecycle.rs` | ✅ Complete |
+| Config execution | `src/signal/proposals/executor.rs` | ✅ Complete |
+| Poll management | `src/signal/polls.rs` | ✅ Complete |
+| Freenet storage | `src/freenet/trust_contract.rs` | ✅ Complete |
+
+**Current syntax**: `/propose config <key> <value> [--timeout <duration>]`
+
+**Current limitations**:
+- Binary Approve/Reject only (hardcoded in `lifecycle.rs:88`)
+- Single value per proposal
+- No `--key` or `--proposal` flags (positional args only)
+- Federation deferred (returns `NotImplemented`)
+
+### Post-UAT: Multi-Option Proposals — NOT STARTED
+
+| Deliverable | Priority | Depends On |
+|-------------|----------|------------|
+| `ConfigKeyRegistry` module | P1 | None |
+| Extended command parsing (`--key`, `--value` N times, `--proposal`) | P1 | ConfigKeyRegistry |
+| Multi-option `VoteAggregate` and `PollOutcome` | P1 | None |
+| Plurality voting logic | P1 | Multi-option VoteAggregate |
+| Signal config execution (presage API calls) | P2 | UAT validation |
+
+**Target syntax**: `/propose config --key disappearing_messages --value "1 day" --value "7 days" --timeout 24h --proposal "Choose timer"`
+
+**Blocking UAT?**: No. Binary proposals sufficient for UAT. Multi-option is enhancement.
+
+### Phase 4+: Federation Proposals — DEFERRED
+
+| Deliverable | Status |
+|-------------|--------|
+| `/propose federate <group-id>` command | Parses, returns `NotImplemented` |
+| `FederationDelta` variant in `StateDelta` | Not implemented |
+| PSI-CA discovery integration | Designed in architecture beads |
+
+**Blocking UAT?**: No. Federation is Phase 4+.

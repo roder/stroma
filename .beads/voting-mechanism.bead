@@ -63,7 +63,7 @@
 
 **libsignal-service-rs Fork:** ✅ COMPLETE
 - Repository: `github.com/roder/libsignal-service-rs`
-- Branch: `feature/protocol-v8-polls-fixed`
+- Branch: `feature/protocol-v8-polls-rebased`
 - Implemented: `PollCreate` (field 24), `PollTerminate` (field 25), `PollVote` (field 26), `PinMessage` (field 27), `UnpinMessage` (field 28)
 - Tests: Unit tests for all poll types (serialization roundtrip)
 
@@ -79,14 +79,14 @@
 # Stroma's Cargo.toml
 
 [dependencies]
-presage = { git = "https://github.com/whisperfish/presage" }
+presage = { git = "https://github.com/roder/presage", branch = "feature/protocol-v8-polls-compatibility" }
 # ❌ DO NOT ADD: presage-store-sqlite (stores message history - server seizure risk)
 # ✅ Implement custom StromaProtocolStore instead (see security-constraints.bead)
 
-[patch.crates-io]
+[patch."https://github.com/whisperfish/libsignal-service-rs"]
 libsignal-service = { 
     git = "https://github.com/roder/libsignal-service-rs", 
-    branch = "feature/protocol-v8-polls-fixed" 
+    branch = "feature/protocol-v8-polls-rebased" 
 }
 
 # Required for presage
@@ -195,18 +195,16 @@ async fn check_poll_results(
 
 ### Anonymity Guarantee
 
-**What Bot Sees:**
-- Total votes for each option
-- Approval ratio (e.g., 83%)
-- NOT who voted what
+**What Signal Shows (ephemeral, E2E encrypted):**
+- During an active poll, Signal clients show who voted for what to group participants
+- This is Signal's built-in behavior and cannot be changed by Stroma
 
-**What Members See:**
-- Poll question and options
-- Their own vote
-- Aggregated results (when poll ends)
-- NOT who voted what
+**What Stroma Persists (Freenet contract -- permanent):**
+- Only aggregate counts (approve: N, reject: M) and outcome (passed/failed)
+- NEVER individual voter identities or per-voter choices
+- If Freenet state is compromised, voting history cannot be reconstructed
 
-**This preserves privacy during sensitive decisions** (e.g., federation, config changes).
+**Privacy boundary**: Signal provides ephemeral vote visibility (disappears with messages). Stroma provides permanent outcome storage (aggregates only). The privacy guarantee is about what Stroma *persists*, not what Signal *shows*.
 
 ### Gastown Implementation Task
 
@@ -221,8 +219,8 @@ async fn check_poll_results(
 - Submit PR to Whisperfish
 - Use fork in Stroma (don't wait for merge)
 
-**Timeline**: 1-2 weeks  
-**Assigned to**: Agent-Signal (libsignal expertise)
+**Timeline**: 1-2 weeks (COMPLETE)  
+**Status**: Fork implemented, compiled, and integrated into Stroma Cargo.toml
 
 ### Migration Notes
 

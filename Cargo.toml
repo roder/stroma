@@ -13,55 +13,6 @@ path = "src/lib.rs"
 name = "stroma"
 path = "src/main.rs"
 
-# Spike binaries (NOT part of test suite)
-[[bin]]
-name = "spike-q1"
-path = "docs/spike/q1/main.rs"
-
-[[bin]]
-name = "spike-q2"
-path = "docs/spike/q2/main.rs"
-
-[[bin]]
-name = "spike-q3"
-path = "docs/spike/q3/main.rs"
-
-[[bin]]
-name = "spike-q5"
-path = "docs/spike/q5/main.rs"
-
-[[bin]]
-name = "spike-q4"
-path = "docs/spike/q4/main.rs"
-
-[[bin]]
-name = "spike-q7"
-path = "docs/spike/q7/main.rs"
-
-[[bin]]
-name = "spike-q8"
-path = "docs/spike/q8/main.rs"
-
-[[bin]]
-name = "spike-q9"
-path = "docs/spike/q9/main.rs"
-
-[[bin]]
-name = "spike-q11"
-path = "docs/spike/q11/main.rs"
-
-[[bin]]
-name = "spike-q12"
-path = "docs/spike/q12/main.rs"
-
-[[bin]]
-name = "spike-q13"
-path = "docs/spike/q13/main.rs"
-
-[[bin]]
-name = "spike-q14"
-path = "docs/spike/q14/main.rs"
-
 [dependencies]
 # Freenet node (in-process embedding via SimNetwork for testing, or Node for production)
 # - freenet: The node itself (SimNetwork for testing, NodeConfig for production)
@@ -123,7 +74,7 @@ name = "stark_vouch"
 harness = false
 
 [[bench]]
-name = "phase2_performance"
+name = "graph_performance"
 harness = false
 
 [[bench]]

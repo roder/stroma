@@ -136,7 +136,7 @@ This bead is the **single source of truth** for Stroma terminology. All document
 | **Identity masking** | HMAC-based hashing using ACI-derived key to convert Signal IDs to anonymous hashes |
 | **Trust map** | The complete graph of members, vouches, and flags that defines the trust network's state |
 
-**Note**: "Group pepper" is DEPRECATED. All cryptographic keys are derived from the Signal ACI identity.
+**Note**: The codebase currently uses `BotConfig.pepper` for identity masking (~20 call sites). The architectural goal is to derive all cryptographic keys from the Signal ACI identity via HKDF, but this migration is not yet complete. Both `pepper` and ACI-derived key paths exist in code.
 
 ### Persistence Terms
 

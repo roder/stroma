@@ -2,7 +2,7 @@
 
 **Status**: Pinned - Cannot be modified without explicit unpinning ceremony
 **Last Updated**: 2026-01-31
-**Applies To**: All persistence implementation, Agent-Freenet, Agent-Crypto, Agent-Signal
+**Applies To**: All persistence implementation (`src/persistence/`)
 
 ---
 

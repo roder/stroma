@@ -1,4 +1,4 @@
-//! Phase 2 performance benchmarks
+//! Graph performance benchmarks
 //!
 //! Performance targets:
 //! - DVR calculation: < 1ms

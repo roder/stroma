@@ -1064,17 +1064,7 @@ sudo systemctl status stroma-bot
 
 **Notify group before updates** (courtesy, not required)
 
-### Updating freenet-core
-
-```bash
-# Update freenet-core
-cd /path/to/freenet-core
-git pull origin main
-cargo install --path crates/core
-
-# Restart node (brief sync delay expected)
-sudo systemctl restart freenet-core
-```
+**Note**: Freenet is embedded in the Stroma binary — there is no separate freenet-core service to update. Updating the Stroma binary (via the steps above) automatically updates the embedded Freenet kernel.
 
 ## Security Best Practices
 
@@ -1768,4 +1758,4 @@ curl -L https://github.com/roder/stroma/releases/download/v1.0.0/stroma-x86_64-m
 
 ---
 
-**Last Updated**: 2026-01-27
+**Last Updated**: 2026-02-08

@@ -1,6 +1,6 @@
 # Stroma
 
-> **⚠️ EARLY DEVELOPMENT**: This project is currently in exploratory development and is not functional. Do not use in production.
+> **⚠️ PRE-ALPHA**: Architecture validated, implementation in progress. Not yet functional.
 
 **Signal groups where trust is verified by many, exposed to none.**
 
@@ -43,7 +43,7 @@ Stroma resolves the tension between verification and anonymity through **distrib
 
 ### How It Works (Simple):
 
-1. **Someone invites you**: A member sends `/invite @YourName "Context about you"` to the bot (private message only)
+1. **Someone invites you**: A member sends `/invite @YourName` to the bot (private message only)
    - Their invitation counts as your first vouch
    - Bot hashes your Signal ID immediately (never stores cleartext)
    - Vetting process begins
@@ -69,11 +69,11 @@ Stroma resolves the tension between verification and anonymity through **distrib
    - If a voucher flags you → their vouch is invalidated; if you drop below 2 effective vouches, immediate ejection
    - Build 3+ connections to become a Validator (more resilient to voucher departures, helps with network optimization)
 
-### The Magic: Trust Map Protection
+### The Magic: Trust Map 
 
 The bot acts as a **"Blind Matchmaker"** - it optimizes the trust mesh using graph algorithms while maintaining complete anonymity. The critical innovation: **the trust map never exists in any form that could be seized or exposed.**
 
-**For non-technical users**: It feels like a helpful bot managing your Signal group. You use simple commands like `/invite @friend` or `/status` in private messages. The bot handles everything automatically - vetting newcomers, monitoring trust standing, suggesting strategic introductions, and keeping the group secure. All technical complexity is hidden. You don't need to understand cryptography any more than you need to understand TCP/IP to use the internet securely. But you can - this project is fully open-source.
+**For non-technical users**: It feels like a helpful bot managing your Signal group. You use simple commands like `/invite @friend` or `/status` in private messages. The bot handles everything automatically - vetting newcomers, monitoring trust standing, suggesting strategic introductions, and keeping the group secure. All technical complexity is hidden. You don't need to understand cryptography any more than you need to understand TCP/IP to use the internet securely (but you can - this project is open-source).
  
 **For privacy advocates & security auditors**: **Trust map protection** via three independent defense layers:
 1. **No centralized storage**: Trust map in decentralized Freenet network (distributed across peers, no single seizure point)
@@ -81,7 +81,7 @@ The bot acts as a **"Blind Matchmaker"** - it optimizes the trust mesh using gra
 3. **Metadata isolation**: All vetting in 1-on-1 PMs (no Signal group metadata), bot operator least-privilege (service runner only), vetting conversations ephemeral (never persisted to disk)
 Together: **Even if adversary seizes the bot server, they get: small encrypted file (~100KB protocol state), hashes (not identities), topology (not relationship context), NO vetting conversations, NO message history.**
 
-**For developers & contributors**: Built on embedded [freenet-core](https://github.com/freenet/freenet-core) kernel (in-process, not external service). Contracts use ComposableState trait for mergeable state with CRDT-like semantics (Q1-Q2 validated). Set-based membership (BTreeSet) with on-demand Merkle Tree generation for ZK-proof verification (Q5: 0.09ms @ 1000 members). Internal cluster detection via Bridge Removal algorithm (Tarjan's, Q3 validated) achieving optimal mesh topology. Matchmaking uses DVR optimization (Distinct Validators, non-overlapping voucher sets) with MST fallback. Bot-side STARK proof verification for Phase 0 (Q4 validated). Persistence via Reciprocal Network with registry-based discovery (Q7), PoW Sybil resistance (Q8), challenge-response verification (Q9), rendezvous hashing (Q11), 64KB chunks (Q12), 1% spot checks (Q13), and contract distribution (Q14). External federation via Private Set Intersection with Cardinality (PSI-CA) and Social Anchor Hashing (emergent discovery, Phase 4+). See [ALGORITHMS.md](docs/ALGORITHMS.md) for MST implementation and complexity, [freenet-contract-design.mdc](.cursor/rules/freenet-contract-design.mdc) for patterns.
+**For developers & contributors**: Built on embedded [freenet-core](https://github.com/freenet/freenet-core) kernel (in-process, not external service). Contracts use ComposableState trait for mergeable state with CRDT-like semantics. Set-based membership (BTreeSet) with on-demand Merkle Tree generation for ZK-proof verification. Internal cluster detection via Bridge Removal algorithm (Tarjan's) achieving optimal mesh topology. Matchmaking uses DVR optimization (Distinct Validators, non-overlapping voucher sets) with MST fallback. Bot-side STARK proof verification. Persistence via Reciprocal Network with registry-based discovery, PoW Sybil resistance, challenge-response verification, rendezvous hashing, 64KB chunks, 1% spot checks, and contract distribution. External federation via Private Set Intersection with Cardinality (PSI-CA) and Social Anchor Hashing (emergent discovery). See [ALGORITHMS.md](docs/ALGORITHMS.md) for MST implementation and complexity, [freenet-contract-design.mdc](.beads/freenet-contract-design.bead) for patterns.
 
 ## Why "Stroma"?
 
@@ -99,7 +99,7 @@ Stroma serves three audiences. Choose your path:
 - **[How It Works](docs/HOW-IT-WORKS.md)** - **Start here:** Plain-language explanation of the trust protocol
 - **[User Guide](docs/USER-GUIDE.md)** - Bot commands, daily workflows, trust management
 - **[Trust Model Explained](docs/TRUST-MODEL.md)** - How vouching, flagging, and standing work
-- **Quick Start**: Install Signal → Get invited by a member → Chat with validator → Join group
+- **Quick Start**: Install Signal → Get invited by a member → Chat with assessor → Join group
 
 ### 🔧 For Operators (Bot Runners)
 **You want to run a Stroma bot for your community.**
@@ -113,7 +113,7 @@ Stroma serves three audiences. Choose your path:
 - **[Developer Guide](docs/DEVELOPER-GUIDE.md)** - Architecture, technical stack, contract design
 - **[Algorithms](docs/ALGORITHMS.md)** - **MST matchmaking, PSI-CA federation, complexity analysis**
 - **[Trust Model Technical](docs/TRUST-MODEL.md)** - Vouch invalidation, ejection triggers, mesh health
-- **[Federation Roadmap](docs/FEDERATION.md)** - Phase 4+ vision and design
+- **[Federation Roadmap](docs/FEDERATION.md)** - Future vision and design
 - **[TODO Checklist](docs/todo/TODO.md)** - Implementation roadmap and task tracking
 
 ---
@@ -137,7 +137,7 @@ Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/propose`, 
 - **Blind Matchmaker**: Suggests strategic introductions across different peer circles  
 - **Health Monitor**: Continuous trust standing checks via Freenet state stream
 - **Consensus Enforcer**: Executes only contract-approved actions (no autonomous decisions)
-- **Diplomat**: Discovers and proposes federation (Phase 4+)
+- **Diplomat**: Discovers and proposes federation (Future)
 
 → **[Trust Model Deep Dive](docs/TRUST-MODEL.md)** - Vouching, flagging, ejection math
 
@@ -148,13 +148,13 @@ Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/propose`, 
 - **Set-based membership**: BTreeSet with on-demand Merkle Tree generation
 - **Anonymous routing**: Dark mode (no IP exposure)
 - **Durability**: Reciprocal Persistence Network — validated architecture with:
-  - Registry-based bot discovery (Q7: <1ms latency)
-  - PoW Sybil resistance (Q8: >90% fake bot detection)
+  - Registry-based bot discovery 
+  - PoW Sybil resistance (>90% fake bot detection)
   - Challenge-response verification (Q9: SHA-256 proofs, 128 bytes)
-  - Rendezvous hashing for deterministic holders (Q11)
-  - 64KB chunks with 3 copies each (1 local + 2 remote replicas) (Q12: 0.2% overhead)
-  - 1% spot check fairness verification (Q13)
-  - Contract-based distribution (Q14: <10s recovery)
+  - Rendezvous hashing for deterministic holders
+  - 64KB chunks with 3 copies each (1 local + 2 remote replicas)
+  - 1% spot check fairness verification
+  - Contract-based distribution 
 
 → **[Developer Guide](docs/DEVELOPER-GUIDE.md)** - Architecture, contract design, tech stack
 → **[Persistence](docs/PERSISTENCE.md)** - State durability & recovery
@@ -187,13 +187,13 @@ Trust health is measured by **Distinct Validator Ratio** — the fraction of max
 **Replication Health** answers a critical question: "If the bot crashes, can the trust network be recovered?"
 
 Stroma uses a **Reciprocal Persistence Network** — bots hold encrypted chunks of each other's state, but can't read them. The architecture includes:
-- **Registry-based discovery** (Q7) for finding peers
-- **PoW Sybil resistance** (Q8) preventing fake bots from diluting the network
-- **Challenge-response verification** (Q9) proving chunk possession without revealing content
-- **Rendezvous hashing** (Q11) for deterministic holder assignment
-- **64KB chunk size** (Q12) optimizing distribution breadth vs coordination overhead
-- **1% spot check fairness** (Q13) detecting free-riders with minimal overhead
-- **Contract-based distribution** (Q14) for Phase 0, hybrid P2P in Phase 1+
+- **Registry-based discovery** for finding peers
+- **PoW Sybil resistance** preventing fake bots from diluting the network
+- **Challenge-response verification** proving chunk possession without revealing content
+- **Rendezvous hashing** for deterministic holder assignment
+- **64KB chunk size** optimizing distribution breadth vs coordination overhead
+- **1% spot check fairness** detecting free-riders with minimal overhead
+- **Contract-based distribution** 
 
 **Status (measured at write time)**:
 - 🟢 **Replicated** (all chunks 3/3): Fully resilient — all chunks available
@@ -206,9 +206,8 @@ Stroma uses a **Reciprocal Persistence Network** — bots hold encrypted chunks 
 **Replication Factor**: 3 copies per chunk (1 local + 2 remote replicas). Need any 1 of 3 to recover each chunk.
 
 → **[Persistence Documentation](docs/PERSISTENCE.md)** - Full durability architecture
-→ **[Spike Week 2 Results](docs/spike/)** - Validated persistence architecture (Q7-Q14)
 
-### Federation (Phase 4+ - Future)
+### Federation (Future)
 - **Emergent discovery**: Bots find each other via shared validators
 - **Human control**: Both groups vote to approve
 - **Private overlap**: PSI-CA reveals only count, not identities
@@ -249,7 +248,7 @@ _For detailed specifications on Trust Model, Mesh Health, Federation, Technical 
 | **Contracts** | freenet-stdlib v0.1+ | ContractInterface trait, summary-delta sync |
 | **ZK-Proofs** | STARKs (winterfell) | No trusted setup, post-quantum |
 | **Identity** | HMAC-SHA256 (ring) | ACI-derived key (bot's Signal identity) |
-| **Signal (high-level)** | Presage | High-level Rust API, group management, polls |
+| **Signal (high-level)** | Presage (FORK) | High-level Rust API, group management, polls |
 | **Signal (low-level)** | libsignal-service-rs (FORK) | Protocol v8 poll support via our fork |
 | **Voting** | Native Signal Polls | Structured voting (protocol v8) |
 | **CLI** | clap 4+ | Operator commands |
@@ -324,7 +323,6 @@ Groups discover each other via **emergent discovery** (shared validators), not a
 This project uses:
 - **Gastown coordination** - Claude agents with specialized roles
 - **Beads** - Immutable design constraints (see `.beads/`)
-- **Rules** - Development standards (see `.cursor/rules/`)
 
 **All commits by Claude agents must include:**
 ```
@@ -396,7 +394,6 @@ See [LICENSE](LICENSE) for full license text.
 
 ---
 
-**Status**: Architectural foundation complete. Spike Weeks 1 & 2 validated. Protocol v8 poll support complete. Ready for Phase 0 implementation.
+**Status**: Pre-alpha. Architecture validated, implementation in progress.
 
-**Last Updated**: 2026-02-01
-
+**Last Updated**: 2026-02-08
