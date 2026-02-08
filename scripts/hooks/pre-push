@@ -6,7 +6,6 @@
 #   cp <repo>/scripts/hooks/pre-push <repo>/.git/hooks/pre-push
 #
 # This hook:
-# 1. Runs bd hooks for beads sync (if available)
 # 2. Runs quality gates for ALL pushes (fmt, clippy, tests) - Layer 1 defense
 # 3. Checks CI status before pushing to main branch (any GitHub repo)
 # 4. Blocks push if quality gates fail or main CI is red (unless --no-verify)
@@ -18,16 +17,7 @@
 set -e
 
 # ============================================================================
-# Step 1: Run bd hooks for beads sync
-# ============================================================================
-
-if command -v bd >/dev/null 2>&1; then
-    # bd is available, run its pre-push hook logic
-    bd hooks run pre-push "$@" || exit $?
-fi
-
-# ============================================================================
-# Step 2: Quality Gates (all pushes to remote)
+# Quality Gates (all pushes to remote)
 # ============================================================================
 
 remote="$1"
@@ -43,6 +33,14 @@ else
     while read local_ref local_sha remote_ref remote_sha; do
         branch_name=$(basename "$remote_ref")
         
+        # Skip quality gates for branch deletions (local_sha is all zeros)
+        if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+            echo "ℹ️  [Gastown] Skipping quality gates for branch deletion: $branch_name" >&2
+            # Re-emit the push details for the next section
+            echo "$local_ref $local_sha $remote_ref $remote_sha"
+            continue
+        fi
+        
         # Skip quality gates for beads-sync branch (automated sync, already validated)
         if [ "$remote_ref" = "refs/heads/beads-sync" ]; then
             echo "ℹ️  [Gastown] Skipping quality gates for beads-sync branch" >&2
@@ -51,11 +49,35 @@ else
             continue
         fi
         
+        # Check if any Rust files are being pushed
+        # Compare the range of commits being pushed
+        if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+            # New branch, check all commits from base
+            range="$local_sha"
+        else
+            # Existing branch, check commits between remote and local
+            range="$remote_sha..$local_sha"
+        fi
+        
+        # Check if any .rs files or Cargo.toml changed in this push
+        rust_files_changed=$(git diff --name-only "$range" 2>/dev/null | grep -E '\.(rs|toml)$' || true)
+        
+        if [ -z "$rust_files_changed" ]; then
+            echo "ℹ️  [Gastown] No Rust files changed, skipping quality gates for $branch_name" >&2
+            # Re-emit the push details for the next section
+            echo "$local_ref $local_sha $remote_ref $remote_sha"
+            continue
+        fi
+        
         echo "🔍 [Gastown] Running quality gates for push to $branch_name..." >&2
+        echo "   📦 Rust files changed:" >&2
+        echo "$rust_files_changed" | head -10 | sed 's/^/      /' >&2
+        if [ $(echo "$rust_files_changed" | wc -l) -gt 10 ]; then
+            echo "      ... and $(( $(echo "$rust_files_changed" | wc -l) - 10 )) more" >&2
+        fi
 
         # Detect if this is a Rust project
         if [ -f "Cargo.toml" ]; then
-            echo "   📦 Rust project detected" >&2
             echo "   → Running cargo fmt --check" >&2
             if ! cargo fmt --check 2>&1 | head -20 >&2; then
                 echo "" >&2
