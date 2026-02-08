@@ -272,11 +272,13 @@ Phase 2 has **major implementation progress** with core algorithms complete (DVR
 - **Compliant**: No `VoteRecord` with member IDs
 - **Compliant**: Comments in `polls.rs:16-18` explicitly state GAP-02 requirement
 
-### ✅ Signal ID Privacy
-- **Verified**: No cleartext Signal IDs in logs (all logging reviewed)
-- **Verified**: Display name resolution uses transient in-memory mapping only
-- **Verified**: Transient mapping correctly implemented (no persistence of Signal ID → hash)
+### ✅ Signal ID Privacy — AUDIT COMPLETE (2026-02-07)
+- **Verified**: Display name resolution in `matchmaker/display.rs` uses transient HashMap
+- **Verified**: No cleartext Signal IDs in logs (independent code review completed)
+- **Verified**: Transient mapping only (no persistence of Signal ID → hash)
 - **Verified**: Strong security practices (HMAC masking, zeroization)
+- **Witness Sign-Off**: stromarig/polecats/jasper (st-ec7g0)
+- **Audit Document**: `docs/todo/phase2-security-audit.md`
 
 ---
 
@@ -370,11 +372,19 @@ Phase 2 has **major implementation progress** with core algorithms complete (DVR
    - `docs/USER-GUIDE.md` — All `/mesh` commands
    - GAP-11 announcement behavior
 
+<<<<<<< HEAD
 9. ✅ ~~**`security-audit-phase2`**~~ — COMPLETED (commit 58f1dd55, auditor: topaz)
    - ✅ Verified no cleartext Signal IDs in logs
    - ✅ Verified transient mapping implementation correct
    - ✅ Code review for GAP-02 compliance passed
    - ✅ Full report: `docs/todo/phase2-security-audit.md`
+=======
+9. ✅ ~~**`security-audit-phase2`**~~ — COMPLETED (st-ec7g0, 2026-02-07)
+   - ✅ Verified no cleartext Signal IDs in logs
+   - ✅ Verified transient mapping only
+   - ✅ Code review for GAP-02 compliance complete
+   - ✅ Witness sign-off: stromarig/polecats/jasper
+>>>>>>> 53be9154 (docs: Add Witness sign-off to Phase 2 security audit (st-ec7g0))
 
 ---
 
@@ -395,7 +405,11 @@ Per TODO.md lines 1912-2101, **ALL** of the following must be verified before cl
 1. ⚠️ **Integration tests**: Remove #[ignore] and verify tests pass
 2. ⚠️ **Code coverage**: Measure with `cargo llvm-cov` (target: 100% for matchmaker, proposals modules)
 3. ⚠️ **Performance targets**: Run benchmarks and validate all targets met
+<<<<<<< HEAD
 4. ✅ **Security audit**: Complete (commit 58f1dd55, auditor: topaz, report: `docs/todo/phase2-security-audit.md`)
+=======
+4. ✅ **Security audit**: Witness review complete (st-ec7g0, 2026-02-07) - All security requirements verified
+>>>>>>> 53be9154 (docs: Add Witness sign-off to Phase 2 security audit (st-ec7g0))
 
 ---
 
@@ -412,7 +426,11 @@ Per TODO.md lines 1912-2101, **ALL** of the following must be verified before cl
 
 **Estimated Work Remaining**: 2 beads focused on validation:
 1. Enable and verify integration tests
+<<<<<<< HEAD
 2. Run and validate performance benchmarks (measure code coverage)
+=======
+2. Run and validate performance benchmarks
+>>>>>>> 53be9154 (docs: Add Witness sign-off to Phase 2 security audit (st-ec7g0))
 
 **Critical Path**: Integration test enablement and performance validation are the final blockers for convoy closure. The implementation is feature-complete and security-verified.
 
