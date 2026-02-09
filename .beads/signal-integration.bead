@@ -14,12 +14,16 @@
 | `SignalClient` trait | `src/signal/traits.rs` | ✅ Complete (9 methods: 8 async + `service_id()`) |
 | `MockSignalClient` | `src/signal/mock.rs` | ✅ Complete (all tests pass) |
 | `LibsignalClient` | `src/signal/client.rs` | ❌ 100% stubbed (8/8 return `NotImplemented`) |
-| `StromaProtocolStore` | `src/signal/store.rs` | ❌ `load()`/`save()` return `NotImplemented` |
+| `StromaStore` | `src/signal/stroma_store.rs` | 🔄 Planned (wraps encrypted SqliteStore, no-ops messages) |
 | `link_secondary_device()` | `src/signal/linking.rs` | ❌ Returns `NotImplemented` |
+| `register` CLI command | `src/cli/register.rs` | 🔄 Planned (new phone number registration) |
 | `PollManager` | `src/signal/polls.rs` | ✅ Complete (logic works against mock) |
 | `StromaBot` | `src/signal/bot.rs` | ✅ Complete (logic works against mock) |
+| Presage poll support | `roder/presage` integration branch | ✅ UAT-validated (create/vote/terminate E2E on live Signal) |
 
 **Blocking UAT**: Yes — Steps 1-2 in TODO.md must complete before UAT.
+
+**Note**: `StromaProtocolStore` (`src/signal/store.rs`) has been superseded by the `StromaStore` wrapper architecture. The old file will be removed as part of the StromaStore migration convoy.
 
 ---
 
@@ -39,11 +43,11 @@ Stroma links to an **existing Signal account** as a secondary device. The operat
 2. Bot displays QR code in terminal
 3. Operator scans QR code with Signal app
 4. Bot receives ACI/PNI identity from primary device
-5. Bot saves identity to StromaProtocolStore
+5. Bot saves identity to encrypted `StromaStore`
 
-**No Primary Registration**: Stroma does NOT implement `Manager::register()`. Operator creates Signal account outside of Stroma.
+**Registration**: Stroma also supports `Manager::register()` via the `stroma register` CLI command for operators who want to register a dedicated phone number for the bot.
 
-**Current Status**: `link_secondary_device()` in `src/signal/linking.rs` returns `NotImplemented`. See TODO.md Step 2.
+**Current Status**: Both `link_secondary_device()` and `register` are not yet wired. See TODO.md Step 2.
 
 ---
 
@@ -124,30 +128,32 @@ All vetting/vouching occurs in **1-on-1 PMs** with bot (prevents metadata leakag
 
 ## Data Handling
 
-### Custom Protocol Store (Security Critical)
+### Store Architecture (Security Critical)
 
-**Implementation**: `src/signal/store.rs`
+**Implementation**: `src/signal/stroma_store.rs` (planned, replaces `src/signal/store.rs`)
 
-- ❌ **NEVER use `presage-store-sqlite`** - it stores message history (server seizure risk)
-- ✅ **ALWAYS use `StromaProtocolStore`** - stores only Signal protocol state (~100KB)
-- Stores: identity keys (ACI/PNI), pre-keys, session ciphers
-- Does NOT store: message content, conversation history, contact database
-- Encrypted with operator-provided passphrase
+- ❌ **NEVER use bare `SqliteStore`** - it stores message history (server seizure risk)
+- ✅ **ALWAYS use `StromaStore`** - wraps encrypted `SqliteStore`, no-ops message/sticker persistence
+- Persists: protocol state, group config, profile keys (survives restart)
+- Never persists: message content, conversation history, sticker packs
+- Encrypted with 24-word BIP-39 passphrase (SQLCipher AES-256)
 
-**Current Status**: `load()`/`save()` return `NotImplemented`. See TODO.md Step 2.
+**Current Status**: `StromaStore` wrapper is planned. Old `StromaProtocolStore` to be removed (never implemented `presage::Store` trait).
 
 ```rust
-// src/signal/store.rs (actual structure)
-pub struct StromaProtocolStore {
-    state_path: PathBuf,      // Path to encrypted protocol state file
-    passphrase: String,       // Operator-provided passphrase for encryption
-    sessions: HashMap<String, SessionData>,  // In-memory session cache (ephemeral)
+// src/signal/stroma_store.rs (planned structure)
+pub struct StromaStore(SqliteStore);  // Newtype wrapper
+
+impl StromaStore {
+    pub async fn open(path: &str, passphrase: &str) -> Result<Self> {
+        let inner = SqliteStore::open_with_passphrase(path, Some(passphrase), OnNewIdentity::Trust).await?;
+        Ok(Self(inner))
+    }
 }
 
-pub struct ProtocolState {
-    identity: IdentityData,   // Signal identity (ACI/PNI)
-    pre_keys: Vec<PreKeyData>, // Pre-keys for new conversations
-    version: u32,              // Version for migration
+impl presage::Store for StromaStore {
+    // Delegates: protocol state, groups, contacts, profiles -> SqliteStore
+    // No-ops: save_message -> Ok(()), message -> Ok(None), stickers -> no-op
 }
 ```
 
@@ -201,41 +207,50 @@ pub trait SignalClient: Send + Sync + Clone {
 
 ## Roadmap
 
-### Step 1: Rig Presage — NOT STARTED
+### Step 1: Rig Presage — PARTIALLY COMPLETE
 
-**Repo**: `presage/` (fork at `/Users/matt/gt/presage`)
+**Repo**: `presage/` (fork at `/Users/matt/gt/presage`, branch `integration/protocol-v8-polls`)
+
+**Completed**:
+- [x] Poll create/vote/terminate works (Protocol v8) -- UAT-validated against live Signal
+- [x] GroupContextV2 fix applied (messages arrive in group context, not as DMs)
+- [x] CLI consistency fixes (poll-author-uuid, -o append, master-key in docs)
+
+**Remaining** (separate convoy: GV2 Group CRUD):
+- [ ] Validate group creation/management works (presage has no create_group API yet)
+- [ ] Validate secondary device linking works via StromaStore
+
+**Blocking**: Step 2 depends on validated presage APIs + StromaStore.
+
+### Step 2: Real Signal Integration — IN PROGRESS
 
 **Deliverables**:
-- [ ] Add missing E2E test coverage for presage fork
-- [ ] Validate secondary device linking works
-- [ ] Validate group creation/management works
-- [ ] Validate poll create/terminate works (Protocol v8)
 
-**Blocking**: Step 2 depends on validated presage APIs.
+- [ ] Create `StromaStore` wrapper around encrypted `SqliteStore`:
+  - Wraps `presage-store-sqlite::SqliteStore` with SQLCipher encryption
+  - No-ops message/sticker persistence (server seizure protection)
+  - Persists protocol state, groups, profiles (restart recovery)
 
-### Step 2: Real Signal Integration — NOT STARTED
-
-**Deliverables**:
+- [ ] Implement passphrase management:
+  - 24-word BIP-39 recovery phrase generated at link/register time
+  - Delivery via file/stdin/env (container-native)
 
 - [ ] Wire `LibsignalClient` to presage `Manager` APIs:
   - `send_message()` → `manager.send_message()`
   - `send_group_message()` → `manager.send_message_to_group()`
-  - `create_group()` → `manager.create_group_v2()`
-  - `add_group_member()` / `remove_group_member()` → group membership APIs
-  - `create_poll()` → `DataMessage` with `PollCreate` (Protocol v8)
-  - `terminate_poll()` → `DataMessage` with `PollTerminate`
+  - `create_group()` → `manager.create_group()` (blocked on GV2 convoy)
+  - `add_group_member()` / `remove_group_member()` → (blocked on GV2 convoy)
+  - `create_poll()` → `manager.send_poll()` (API exists in presage fork)
+  - `terminate_poll()` → `manager.terminate_poll()` (API exists in presage fork)
   - `receive_messages()` → `manager.receive_messages()`
 
-- [ ] Implement `StromaProtocolStore` encryption/persistence:
-  - `load()` — Read encrypted file, decrypt with passphrase-derived key, deserialize CBOR
-  - `save()` — Serialize to CBOR, encrypt with passphrase-derived key, write atomically
+- [ ] Add `stroma register` CLI command (new phone number registration)
 
-- [ ] Implement `link_secondary_device()` in `src/signal/linking.rs`:
-  - Display QR code in terminal
-  - Wait for scan confirmation
-  - Receive and store ACI/PNI identity
+- [ ] Implement vote aggregate + HMAC'd voter dedup persistence in PollManager
 
-- [ ] Enable 16 CLI integration tests in `tests/cli_integration.rs` (all `#[ignore]` with reason "presage dependency")
+- [ ] Implement `link_secondary_device()` in `src/signal/linking.rs`
+
+- [ ] Enable 16 CLI integration tests in `tests/cli_integration.rs`
 
 **Test Strategy**:
 

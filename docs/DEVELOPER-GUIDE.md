@@ -49,7 +49,7 @@ This guide explains Stroma's architecture, technical stack, and development work
 | **ZK-Proofs** | winterfell | STARKs (no trusted setup) |
 | **Identity Hashing** | ring (HMAC-SHA256) | Group-scoped masking |
 | **Memory Hygiene** | zeroize | Immediate buffer purging |
-| **Signal Integration** | Presage + libsignal-service-rs | High-level API + protocol (custom store, no SqliteStore) |
+| **Signal Integration** | Presage + libsignal-service-rs | High-level API + protocol (StromaStore wrapper, encrypted) |
 | **Async Runtime** | tokio 1.35+ | Event-driven execution |
 | **CLI Framework** | clap 4+ | Operator interface |
 | **Supply Chain** | cargo-deny, cargo-crev | Security audits |
@@ -132,7 +132,7 @@ src/
 │   ├── traits.rs                    # SignalClient trait abstraction
 │   ├── client.rs                    # LibsignalClient (100% stubbed, wiring TODO)
 │   ├── mock.rs                      # MockSignalClient for tests
-│   ├── store.rs                     # StromaProtocolStore (minimal, security-focused)
+│   ├── stroma_store.rs              # StromaStore wrapper (encrypted SqliteStore, no-ops messages)
 │   ├── linking.rs                   # link_secondary_device() (stubbed)
 │   ├── bot.rs                       # StromaBot: command dispatch, run loop
 │   ├── group.rs                     # Group management (add/remove members)
@@ -775,14 +775,13 @@ pub struct StromaBot {
 
 ```rust
 use presage::Manager;
-// ❌ DO NOT USE: use presage_store_sqlite::SqliteStore;
-// Default SqliteStore stores ALL messages - server seizure risk!
+use crate::signal::StromaStore;  // ✅ Wrapper that no-ops message persistence
 
-use stroma::store::StromaProtocolStore;  // ✅ Custom minimal store
+// Open encrypted store with operator passphrase
+let store = StromaStore::open(db_path, &passphrase).await?;
 
-// Registration (done via provisioning tool)
-let store = StromaProtocolStore::new()?;
-let manager = Manager::with_store(store, options).await?;
+// Link as secondary device or load existing registration
+let manager = Manager::load_registered(store).await?;
 
 // Send messages
 manager.send_message(recipient, message, timestamp).await?;
@@ -794,16 +793,13 @@ let messages = manager.receive_messages().await?;
 
 **CRITICAL SECURITY REQUIREMENT:**
 
-Never use `presage_store_sqlite::SqliteStore` - it persists ALL messages to disk. If the bot server is seized, the adversary would get:
-- ❌ Complete vetting conversation history
-- ❌ Relationship context ("Great activist from...")
-- ❌ Contact database linking to Signal IDs
+Never use bare `SqliteStore` - it persists ALL messages to disk. Use `StromaStore` wrapper which:
+- ✅ Delegates protocol state, groups, profiles to encrypted SqliteStore (SQLCipher AES-256)
+- ✅ No-ops `save_message` — messages are never written to disk
+- ✅ Group configuration survives restarts
+- ✅ Passphrase generated as 24-word BIP-39 recovery phrase
 
-**Required:** Implement custom `StromaProtocolStore` that stores ONLY:
-- ✅ Signal protocol state (sessions, pre-keys) - ~100KB encrypted file
-- ✅ In-memory ephemeral message processing (never written to disk)
-
-See "Bot Storage (CRITICAL)" section below for implementation.
+See `docs/SIGNAL-STORAGE-SECURITY.md` for full threat model.
 
 **When Presage insufficient**, drop to libsignal-service-rs:
 
@@ -834,19 +830,18 @@ let poll = DataMessage {
 **Cargo.toml:**
 ```toml
 [dependencies]
-presage = { git = "https://github.com/whisperfish/presage" }
+presage = { git = "https://github.com/roder/presage", branch = "integration/protocol-v8-polls" }
+presage-store-sqlite = { git = "https://github.com/roder/presage", branch = "integration/protocol-v8-polls" }
+# NOTE: presage-store-sqlite is used ONLY via StromaStore wrapper (no-ops message persistence)
 
-# ❌ DO NOT ADD: presage-store-sqlite (server seizure risk)
-# Use custom StromaProtocolStore instead
-
-[patch.crates-io]
+[patch."https://github.com/whisperfish/libsignal-service-rs"]
 libsignal-service = {
     git = "https://github.com/roder/libsignal-service-rs",
-    branch = "feature/protocol-v8-polls"
+    branch = "feature/protocol-v8-polls-rebased"
 }
 ```
 
-**IMPORTANT:** Never add `presage-store-sqlite` as a dependency. It stores complete message history, violating our server seizure protection model.
+**IMPORTANT:** Never use bare `SqliteStore` directly. Always use the `StromaStore` wrapper which no-ops message persistence while delegating protocol state and group config.
 
 **See**: `.beads/poll-implementation-gastown.bead`, `.beads/voting-mechanism.bead`
 
@@ -1234,56 +1229,53 @@ fn process_sensitive_data(mut data: SensitiveData, aci_identity: &IdentityKeyPai
 
 #### Bot Storage (CRITICAL - Server Seizure Protection)
 
-**Problem**: Default Presage SqliteStore persists ALL messages
+**Problem**: Bare Presage SqliteStore persists ALL messages
 
 **Threat**: Server seizure reveals vetting conversations and relationship context
 
-**Solution**: Custom minimal ProtocolStore
+**Solution**: StromaStore wrapper — delegates protocol state/groups, no-ops messages
 
 ```rust
-use presage::Store;
+use crate::signal::StromaStore;
 
-pub struct StromaProtocolStore {
-    // In-memory only (ephemeral)
-    sessions: HashMap<ServiceId, Session>,
-    pre_keys_cache: HashMap<u32, PreKey>,
-    identity_keys: IdentityKeyPair,
-    
-    // Minimal encrypted file for restart (~100KB)
-    encrypted_protocol_state: PathBuf,
-    passphrase: SecureString,
-    
-    // NO message history
-    // NO contact database
-    // NO conversation content
-}
-
-impl Store for StromaProtocolStore {
-    // Implement ONLY protocol requirements:
-    // - get_session(), save_session()
-    // - get_pre_key(), save_pre_key()
-    // - get_identity_key()
-    
-    // DO NOT implement:
-    // - save_message() ← Not needed
-    // - get_messages() ← Not needed
-    // - save_contact() ← Not needed
-}
+// StromaStore wraps SqliteStore with SQLCipher encryption
+// Delegates: protocol state, groups, contacts, profiles
+// No-ops: save_message -> Ok(()), stickers -> no-op
+let store = StromaStore::open(db_path, &passphrase).await?;
+let manager = Manager::load_registered(store).await?;
 ```
 
+**What gets persisted (encrypted SQLite):**
+- Signal protocol state (identity keys, pre-keys, sessions)
+- Group configuration (master keys, member list — survives restart)
+- Profile keys (required for sealed sender)
+- Vote aggregates + HMAC'd voter dedup map (poll lifetime only)
+
+**What is NEVER persisted:**
+- Messages (save_message is no-op)
+- Vetting conversation transcripts
+- Sticker packs
+
+**Passphrase:**
+- Generated as 24-word BIP-39 recovery phrase at link/register time
+- Delivered via `--passphrase-file` (container), stdin prompt, or env var (fallback)
+
 **Server Seizure Result:**
-- Adversary gets: ~100KB encrypted file (protocol state only)
-- Adversary does NOT get: Messages, conversations, Signal IDs, context
+- Adversary gets: Encrypted SQLite database (SQLCipher AES-256)
+- Without passphrase: Opaque binary, unreadable
+- With passphrase: Protocol state, group config, ACI key (root key for Freenet chunks)
+- Adversary does NOT get: Messages, conversations, relationship context
 
 **Implementation:**
 ```rust
-// ❌ FORBIDDEN
+// ❌ FORBIDDEN — bare SqliteStore stores messages
 use presage_store_sqlite::SqliteStore;
 let store = SqliteStore::open_with_passphrase(...).await?;
 
-// ✅ REQUIRED
-let store = StromaProtocolStore::new(encrypted_file, passphrase)?;
-let manager = Manager::with_store(store, options).await?;
+// ✅ REQUIRED — StromaStore wrapper no-ops messages
+use crate::signal::StromaStore;
+let store = StromaStore::open(db_path, &passphrase).await?;
+let manager = Manager::load_registered(store).await?;
 ```
 
 
@@ -1590,7 +1582,7 @@ All PRs to `main` are automatically blocked if they violate security constraints
 | Formatting | `cargo fmt` | No deviations |
 | Test coverage | `cargo-llvm-cov` | **100% mandatory** |
 | Binary size | musl build | No bloat (10% / 1MB limit) |
-| Security constraints | grep patterns | No cleartext IDs, no SqliteStore |
+| Security constraints | grep patterns | No cleartext IDs, no bare SqliteStore |
 | Unsafe blocks | grep patterns | All must have `// SAFETY:` comments |
 
 ### Running Locally (Before PR)
@@ -1611,7 +1603,7 @@ cargo build --release --target x86_64-unknown-linux-musl
 ### Critical Violations (Auto-Reject)
 
 - ❌ Cleartext Signal IDs (use `mask_identity()` + zeroize)
-- ❌ `presage-store-sqlite` (use `StromaProtocolStore`)
+- ❌ Bare `SqliteStore` (use `StromaStore` wrapper)
 - ❌ Grace periods in ejection logic
 - ❌ Unsafe blocks without `// SAFETY:` comments
 - ❌ Test coverage below 100%

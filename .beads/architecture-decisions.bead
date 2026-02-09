@@ -677,7 +677,7 @@ src/
 │   ├── traits.rs                    # SignalClient trait abstraction
 │   ├── client.rs                    # LibsignalClient (100% stubbed, wiring TODO)
 │   ├── mock.rs                      # MockSignalClient for tests
-│   ├── store.rs                     # StromaProtocolStore (minimal, security-focused)
+│   ├── stroma_store.rs              # StromaStore wrapper (encrypted SqliteStore, no-ops messages)
 │   ├── linking.rs                   # link_secondary_device() (stubbed)
 │   ├── bot.rs                       # StromaBot: command dispatch, run loop
 │   ├── group.rs                     # Group management (add/remove members)

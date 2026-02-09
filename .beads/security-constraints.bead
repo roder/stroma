@@ -63,7 +63,7 @@ pub fn mask_identity(signal_id: &str, aci_identity: &IdentityKeyPair) -> Hash {
 **Why Signal ACI (not separate group pepper):**
 - Simpler backup: Signal store backup covers everything
 - No extra secrets: No separate pepper file to manage
-- Already secure: Signal keys stored in secure protocol store
+- Already secure: Signal keys stored in encrypted StromaStore (SQLCipher)
 - Consistent identity: One key derivation source for all crypto operations
 
 ### Immediate Zeroization (MANDATORY)
@@ -103,24 +103,33 @@ impl SensitiveData {
 
 ### Vote Privacy (Persistence Constraint)
 
-**⚠️ CRITICAL**: Individual votes MUST NEVER be persisted.
+**⚠️ CRITICAL**: Individual votes MUST NEVER be persisted to Freenet contracts.
 
-**What MAY be persisted (Freenet contract):**
+**What MAY be persisted (Freenet contract -- permanent):**
 - ✅ Aggregate vote counts (approve: N, reject: M)
 - ✅ Proposal outcome (passed/failed)
 - ✅ Quorum/threshold status
 
-**What MUST NEVER be persisted:**
-- ❌ Who voted for what
-- ❌ Individual vote records
-- ❌ Voter identities (hashed or cleartext)
+**What MAY be persisted (encrypted local SQLite -- ephemeral, poll lifetime only):**
+- ✅ HMAC'd voter dedup map (HMAC(ACI, pepper) -> selected options) for deduplication
+- ✅ Vote aggregates for restart recovery
+- ✅ Active poll metadata (proposal type, timeout, threshold)
+- **MUST** be zeroized from store immediately when poll outcome is determined
+
+**What MUST NEVER be persisted (anywhere):**
+- ❌ Cleartext voter identities
+- ❌ Raw Signal ACIs mapped to vote choices
 - ❌ Vote timestamps per voter
+
+**Threat model for local voter dedup data:**
+The SQLCipher passphrase protects the ACI private key, which is the root key for both Signal identity and Freenet chunk encryption. The voter dedup map (HMAC'd hashes in the same encrypted DB) adds zero incremental attack surface beyond what the ACI key already exposes. Data is zeroized on poll outcome.
 
 **Rationale:**
 - Signal shows votes to group members during poll (ephemeral, E2E encrypted)
 - Stroma stores only outcomes in Freenet (permanent, potentially seizable)
+- Local voter dedup enables correct vote-change handling without double-counting
 - Protects members from retroactive identification of dissent
-- Even with state seizure, voting history cannot be reconstructed
+- Even with state seizure, Freenet voting history cannot be reconstructed
 
 **See**: `.beads/voting-mechanism.bead` for full voting design
 
@@ -438,7 +447,7 @@ Beyond trust map seizure, these threats are documented with defenses:
 | 5 | Persistence Peer Attacks | Encryption + challenge-response | § 11 Persistence |
 | 6 | Freenet Data Loss | Reciprocal Persistence Network | `persistence-model.bead` |
 | 7 | Registry DDoS | PoW + rate limiting + sharding | `persistence-model.bead` |
-| 8 | Signal Storage Exposure | Custom `StromaProtocolStore` | § 10 Bot Storage |
+| 8 | Signal Storage Exposure | `StromaStore` wrapper (no message persistence) | § 10 Bot Storage |
 | 9 | Supply Chain Attack | cargo-deny, cargo-crev, reproducible builds | § 9 Supply Chain |
 | 10 | Signal Protocol Dependency | Inherit Signal's security model | Accepted risk |
 | 11 | Operator Account Compromise | Operator OPSEC, revocable linking | Accepted risk |
@@ -646,59 +655,55 @@ EOF
 
 **Scenario**: Bot server is physically seized or compromised by adversary
 
-**Current Risk with Default Presage SqliteStore**:
+**Risk with Default Presage SqliteStore (unmodified)**:
 - Stores complete message history (all vetting conversations)
 - Stores contact database (links to Signal IDs)
 - Stores group metadata and conversation patterns
 - Even encrypted, exposes relationship context and vetting details
 
-### Message Persistence Violations (BLOCK)
+### Architecture: StromaStore Wrapper
 
-**CRITICAL**: SqliteStore CANNOT be used for message storage or anything that would help identify bot users (members). Server seizure would expose the entire membership.
-
-- ❌ **NEVER** persist message history to disk
-- ❌ **NEVER** store vetting conversation content
-- ❌ **NEVER** use default Presage SqliteStore (stores ALL messages and contacts)
-- ❌ **NEVER** store invitation context or relationship reasons
-- ❌ **NEVER** persist Signal IDs in database (even encrypted)
-- ❌ **NEVER** maintain contact database on disk
-- ❌ **NEVER** use ANY storage mechanism that links Signal IDs to group membership
-
-### Correct Architecture: Minimal Custom Store
+**Solution**: `StromaStore` wraps presage's `SqliteStore` with SQLCipher encryption, delegating all persistence EXCEPT message and sticker storage (no-op). This preserves protocol state, group configuration, and profiles for restart recovery while never writing messages to disk.
 
 ```rust
-// ❌ FORBIDDEN - Default store
+// ✅ REQUIRED - StromaStore wrapper (no message persistence)
+pub struct StromaStore(SqliteStore);  // Newtype wrapper
+
+impl StromaStore {
+    pub async fn open(path: &str, passphrase: &str) -> Result<Self> {
+        let inner = SqliteStore::open_with_passphrase(path, Some(passphrase), OnNewIdentity::Trust).await?;
+        Ok(Self(inner))
+    }
+}
+
+impl presage::Store for StromaStore {
+    // Delegates to SqliteStore for: protocol state, groups, contacts, profiles
+    // No-ops for: save_message, message, messages, stickers
+}
+
+// ❌ FORBIDDEN - Bare SqliteStore (stores messages)
 let store = SqliteStore::open_with_passphrase(db_path, passphrase, OnNewIdentity::Trust).await?;
-// Problem: Stores messages, contacts, groups, metadata
 
-// ✅ REQUIRED - Custom minimal store
-pub struct StromaProtocolStore {
-    // In-memory only (ephemeral)
-    sessions: HashMap<ServiceId, Session>,
-    pre_keys_cache: HashMap<u32, PreKey>,
-    
-    // Minimal encrypted file for restart recovery (~100KB)
-    protocol_state_file: EncryptedProtocolState,
-    passphrase: SecureString,
-    
-    // NO message history - vetting conversations never persisted
-    // NO contact database - Signal IDs never on disk
-    // NO conversation content - ephemeral only
-}
-
-impl presage::Store for StromaProtocolStore {
-    // Implement ONLY protocol state requirements
-    // Sessions, pre-keys, identity keys
-    // NO message persistence methods
-}
+// ❌ FORBIDDEN - Old StromaProtocolStore (removed, never implemented presage::Store)
+let store = StromaProtocolStore::new(path, passphrase);
 ```
 
-### What Gets Stored (Minimally)
+### Message Persistence Violations (BLOCK)
 
-**On Disk (Encrypted, ~100KB file):**
-- Signal protocol state (sessions for encryption continuity)
-- Pre-keys (for new conversations)
-- Identity keys (bot's Signal identity)
+- ❌ **NEVER** persist message history to disk (StromaStore no-ops `save_message`)
+- ❌ **NEVER** store vetting conversation content
+- ❌ **NEVER** use bare `SqliteStore` without the `StromaStore` wrapper
+- ❌ **NEVER** store invitation context or relationship reasons
+- ❌ **NEVER** persist cleartext Signal IDs in database
+- ❌ **NEVER** maintain contact name database on disk
+
+### What Gets Stored (Encrypted SQLite via SQLCipher)
+
+**Persisted (survives restart):**
+- Signal protocol state (identity keys, pre-keys, sessions, sender keys)
+- Group configuration (master keys, member list, metadata)
+- Profile keys (required for sealed sender / unidentified access)
+- Vote aggregates + HMAC'd voter dedup map (poll lifetime only, zeroized on outcome)
 
 **In Memory Only (Ephemeral):**
 - Current vetting conversations (deleted after admission)
@@ -706,46 +711,56 @@ impl presage::Store for StromaProtocolStore {
 - Message content (processed, never stored)
 
 **NEVER Stored:**
-- ❌ Message history
+- ❌ Message history (save_message is no-op)
 - ❌ Vetting conversation transcripts
-- ❌ Contact database
 - ❌ Invitation context ("Great activist from...")
 - ❌ Relationship metadata
+- ❌ Sticker packs
 
-### Server Seizure Result (With Minimal Store)
+### Passphrase Management
+
+**The SQLCipher passphrase is the root security boundary.** It protects the ACI private key, which is the master key for both Signal identity and Freenet chunk encryption.
+
+- Generated as 24-word BIP-39 recovery phrase (256 bits entropy) at link/register time
+- Displayed once to operator on stderr, never logged
+- Delivered to process via: file (`--passphrase-file`), stdin prompt, or env var (fallback, discouraged)
+- Container deployment: Docker secrets or Kubernetes secret volumes
+
+### Server Seizure Result (With StromaStore)
 
 **Adversary gets:**
-- Small encrypted file (~100KB) with Signal protocol state
-- Encrypted with operator-provided passphrase
-- Contains only sessions and keys (no content)
+- Encrypted SQLite database (SQLCipher AES-256, PBKDF2-HMAC-SHA512 256K iterations)
+- Contains protocol state, group config, profile keys
+- If passphrase cracked: ACI private key (compromises Signal identity + Freenet chunk encryption)
 
 **Adversary does NOT get:**
-- ❌ Message content or history
+- ❌ Message content or history (never written to disk)
 - ❌ Vetting conversations
-- ❌ Signal IDs (only hashed in Freenet contract)
+- ❌ Cleartext Signal IDs (only HMAC'd hashes in voter dedup, zeroized on poll outcome)
 - ❌ Relationship context or reasons
-- ❌ Contact names or metadata
 
-**This preserves anonymity even under server compromise.**
+**Threat escalation**: If passphrase is cracked, the ACI private key enables Freenet trust map reconstruction (given enough chunks). The voter dedup map adds zero incremental risk beyond this.
 
 ### Implementation Requirement
 
-**Presage Integration Task**:
-1. DO NOT use presage-store-sqlite crate
-2. Implement custom StromaProtocolStore
-3. Implement presage::Store trait with minimal persistence
-4. Encrypt protocol state file with operator passphrase
-5. Test: Verify no messages persisted after conversations
+**StromaStore Migration**:
+1. Create `StromaStore` wrapper around encrypted `SqliteStore` (no-op messages/stickers)
+2. Remove old `StromaProtocolStore` (never implemented `presage::Store`)
+3. Implement passphrase generation (BIP-39) and delivery (file/stdin/env)
+4. Add `register` CLI command for new phone number registration
+5. Test: Verify no messages persisted, groups survive restart, vote state survives restart
 
-**See**: `.beads/technology-stack.bead`, `.beads/poll-implementation-gastown.bead`
+**See**: `.beads/technology-stack.bead`, `.beads/voting-mechanism.bead`
 
 ### Testing Requirements
 
 **Must verify:**
-- [ ] No message history in database after vetting
-- [ ] No Signal IDs in any persistent storage
-- [ ] Protocol state file is encrypted
-- [ ] File size remains minimal (~100KB, not growing)
+- [ ] No message history in database after vetting (save_message is no-op)
+- [ ] No cleartext Signal IDs in persistent storage
+- [ ] Database is SQLCipher encrypted
+- [ ] Group configuration survives process restart
+- [ ] Vote aggregates and dedup map survive process restart
+- [ ] Voter dedup map zeroized from store on poll outcome
 - [ ] Bot restart recovers sessions (encryption continuity)
 - [ ] Server seizure simulation reveals no sensitive data
 

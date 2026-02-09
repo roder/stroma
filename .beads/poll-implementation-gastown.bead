@@ -44,8 +44,8 @@ Add Signal protocol v8 poll support to libsignal-service-rs via fork and upstrea
 ```toml
 [dependencies]
 presage = { git = "https://github.com/whisperfish/presage" }
-# ❌ DO NOT ADD: presage-store-sqlite (stores message history - server seizure risk)
-# Implement custom StromaProtocolStore instead (see security-constraints.bead § 10)
+# presage-store-sqlite is used ONLY via StromaStore wrapper (no-ops message persistence)
+# See: security-constraints.bead § 10 for StromaStore architecture
 
 [patch.crates-io]
 # Use our fork with poll support
@@ -283,8 +283,8 @@ impl Manager<S, Registered> {
 **Storage Security Requirement:**
 
 When implementing Presage integration in Stroma:
-- ❌ DO NOT use presage-store-sqlite (default)
-- ✅ Implement custom StromaProtocolStore
+- ❌ DO NOT use bare SqliteStore (stores messages)
+- ✅ Use StromaStore wrapper (no-ops message persistence, encrypts with SQLCipher)
 - ✅ Store ONLY Signal protocol state (sessions, pre-keys)
 - ✅ NO message history persistence
 - ✅ NO contact database

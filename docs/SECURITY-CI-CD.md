@@ -16,7 +16,7 @@ Every PR must pass **all** of the following checks before merging:
 - ✅ No security vulnerabilities (RustSec database)
 - ✅ No unmaintained dependencies
 - ✅ License compliance (Apache-2.0, MIT, BSD only)
-- ✅ No banned crates (e.g., `presage-store-sqlite`)
+- ✅ No banned crates
 - ✅ No duplicate dependency versions
 - ✅ No wildcard dependencies
 
@@ -68,7 +68,7 @@ Every PR must pass **all** of the following checks before merging:
 **Source**: `.beads/security-constraints.bead`
 **Enforces**:
 - ✅ No cleartext Signal IDs stored
-- ✅ No `presage-store-sqlite` usage (must use `StromaProtocolStore`)
+- ✅ No bare `SqliteStore` usage (must use `StromaStore` wrapper)
 - ✅ Zeroization on sensitive data
 - ✅ No grace periods in ejection logic
 - ✅ Unsafe blocks must have `// SAFETY:` comments
@@ -116,7 +116,8 @@ cargo llvm-cov nextest --all-features
 cargo build --release --target x86_64-unknown-linux-musl
 
 # Security constraint checks
-grep -r "presage-store-sqlite" Cargo.toml src/
+# Verify no bare SqliteStore usage outside stroma_store.rs
+grep -r "SqliteStore" --include="*.rs" src/ | grep -v stroma_store.rs | grep -v StromaStore
 grep -r "unsafe" --include="*.rs" src/ | grep -v "// SAFETY:"
 ```
 
@@ -129,8 +130,8 @@ grep -r "unsafe" --include="*.rs" src/ | grep -v "// SAFETY:"
    - Zeroize immediately after hashing
 
 2. **Message Persistence** - NEVER persist message history
-   - No `presage-store-sqlite`
-   - Custom `StromaProtocolStore` required
+   - No bare `SqliteStore` (must use `StromaStore` wrapper which no-ops `save_message`)
+   - `StromaStore` wraps encrypted `SqliteStore` for protocol state/groups only
 
 3. **Grace Periods** - NEVER add ejection delays
    - Ejection is immediate (no warnings)

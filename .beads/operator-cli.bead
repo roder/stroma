@@ -58,7 +58,7 @@ stroma link-device \
 2. Displays QR code in terminal (via qr2term or similar)
 3. Waits for operator to scan QR with Signal app on their phone
 4. Receives ACI/PNI identity from primary device
-5. Saves identity to custom StromaProtocolStore
+5. Saves identity to encrypted StromaStore (SQLCipher)
 6. Confirms successful linking
 
 **UX Flow:**

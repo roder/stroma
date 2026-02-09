@@ -113,8 +113,8 @@ description = """
 **ABSOLUTE #2**: NEVER persist message history.
 
 ```bash
-# SqliteStore usage (FORBIDDEN - stores message history)
-rg 'SqliteStore|presage-store-sqlite|presage_store_sqlite' --type rust src/ Cargo.toml
+# Bare SqliteStore usage (FORBIDDEN outside stroma_store.rs - stores message history)
+rg 'SqliteStore' --type rust src/ Cargo.toml | grep -v 'stroma_store.rs' | grep -v 'StromaStore'
 
 # Message storage patterns
 rg 'store_message|persist_message|save_message|write_message' --type rust src/
@@ -124,9 +124,10 @@ rg 'message_history|chat_history|conversation_log' --type rust src/
 rg 'CREATE TABLE.*message|INSERT INTO.*message' --type rust src/
 ```
 
-**Stroma MUST use custom StromaProtocolStore** which:
-- Stores ONLY protocol state (~100KB)
-- NEVER stores message content
+**Stroma MUST use StromaStore wrapper** which:
+- Wraps encrypted SqliteStore (SQLCipher AES-256)
+- Delegates: protocol state, groups, profiles (survives restart)
+- No-ops: save_message, stickers (NEVER stores message content)
 - NEVER stores vetting conversations
 
 **Violation found?**

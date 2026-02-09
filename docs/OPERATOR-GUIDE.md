@@ -191,9 +191,11 @@ mkdir -p ~/.config/stroma
 # Create config.toml
 cat > ~/.config/stroma/config.toml <<'EOF'
 [signal]
-# Path to Signal protocol store (CRITICAL - this IS your identity)
-# Created during device linking, contains ACI keypair for all crypto operations
-store_path = "/var/lib/stroma/signal-store"
+# Path to encrypted Signal store (CRITICAL - this IS your identity)
+# Created during device linking or registration, encrypted with your recovery phrase
+# Contains ACI keypair for all crypto operations, group config, profile keys
+# Does NOT store message history (by design - server seizure protection)
+store_path = "/var/lib/stroma/signal-store.db"
 
 # Device name shown in Signal's linked devices list
 device_name = "Stroma Bot"
@@ -226,9 +228,9 @@ EOF
 - **Freenet is embedded**: No separate Freenet service to run - it's built into Stroma
 - **Contract key is automatic**: Created during member-initiated bootstrap, managed by the bot
 
-### Signal Protocol Store (CRITICAL for Recovery)
+### Signal Store (CRITICAL for Recovery)
 
-**Your Signal protocol store IS your recovery identity.** No separate keypair needed.
+**Your encrypted Signal store IS your recovery identity.** No separate keypair needed. The store is encrypted with a 24-word recovery phrase generated during setup.
 
 The bot uses the Signal account's **ACI (Account Identity) key** for ALL cryptographic operations:
 - Chunk encryption (AES-256-GCM key derived via HKDF)
@@ -236,7 +238,7 @@ The bot uses the Signal account's **ACI (Account Identity) key** for ALL cryptog
 - Identity masking (HMAC key derived via HKDF)
 - Persistence network identification
 
-**Note**: Group pepper is DEPRECATED. All cryptographic keys are now derived from the Signal ACI identity, simplifying backup to just the Signal protocol store.
+**Note**: Group pepper is DEPRECATED. All cryptographic keys are now derived from the Signal ACI identity, simplifying backup to just the encrypted Signal store + your recovery phrase.
 
 ```bash
 # Signal protocol store location (created during registration)
@@ -254,9 +256,13 @@ tar -czf /secure-backup/stroma-signal-store-$(date +%Y%m%d).tar.gz /var/lib/stro
 
 **If you lose this Signal store, you CANNOT recover your trust network.** The ACI identity key inside is the ONLY way to decrypt your fragments.
 
-**What's in the Signal store:**
+**What's in the encrypted Signal store:**
 - ACI identity keypair (your cryptographic identity)
 - PNI identity keypair (phone number identity)
+- Group configuration (member list, metadata — survives restart)
+- Profile keys (required for sealed sender)
+- Vote state during active polls (zeroized when poll completes)
+- **NO message history** (structurally impossible — save_message is a no-op)
 - Session keys (for encrypted conversations)
 - Pre-keys (for establishing new sessions)
 
@@ -279,7 +285,7 @@ chunk_size = 65536
 replication_factor = 3
 ```
 
-**Note**: No separate keypair file or persistence identity needed — your Signal protocol store (configured in `[signal].store_path`) IS your persistence identity. Encryption keys are derived from your Signal ACI identity via HKDF. No heartbeat mechanism required. Replication Health is measured at write time based on successful chunk distribution acknowledgments.
+**Note**: No separate keypair file or persistence identity needed — your encrypted Signal store (configured in `[signal].store_path`) IS your persistence identity. Encryption keys are derived from your Signal ACI identity via HKDF. The store itself is encrypted with your recovery phrase (SQLCipher AES-256). No heartbeat mechanism required. Replication Health is measured at write time based on successful chunk distribution acknowledgments.
 
 ## Signal Account Setup (One-Time)
 
@@ -368,7 +374,7 @@ Signal supports **one primary device** (Android/iOS phone) with **up to 5 linked
 3. Link new number as new device to existing Signal account (if possible)
 4. If account fully banned: This requires a new ACI identity, see "Signal Ban" in Disaster Recovery section
 
-**CRITICAL**: Your Signal protocol store contains the ACI identity key used to encrypt your persistence fragments. A NEW ACI identity CANNOT decrypt fragments encrypted with the OLD identity. Backup your Signal store before any issues arise.
+**CRITICAL**: Your encrypted Signal store contains the ACI identity key used to encrypt your persistence fragments. A NEW ACI identity CANNOT decrypt fragments encrypted with the OLD identity. Backup your Signal store + recovery phrase before any issues arise.
 
 ## Bootstrap Process (Member-Initiated)
 
@@ -509,8 +515,8 @@ services:
     restart: unless-stopped
     command: run --config /data/config.toml
     volumes:
-      # Signal protocol store - CRITICAL, back this up!
-      - ./stroma-data/signal-store:/data/signal-store
+      # Encrypted Signal store - CRITICAL, back this up!
+      - ./stroma-data/signal-store.db:/data/signal-store.db
       # Freenet state directory
       - ./stroma-data/freenet-state:/data/freenet-state
       # Configuration (read-only)
@@ -1076,8 +1082,8 @@ sudo systemctl status stroma-bot
 - ✅ Regular security updates (OS packages)
 - ✅ Monitor for unauthorized access
 
-### Signal Protocol Store Security
-- ✅ Store in secure location (`/var/lib/stroma/signal-store/`)
+### Signal Store Security
+- ✅ Store encrypted database in secure location (`/var/lib/stroma/signal-store.db`)
 - ✅ Set restrictive permissions (700 on directory, 600 on files)
 - ✅ Backup securely (encrypted off-server) — THIS IS YOUR ONLY RECOVERY PATH
 - ❌ NEVER commit to git
@@ -1123,7 +1129,7 @@ sudo systemctl restart stroma
 **Recovery:**
 1. Set up new server
 2. Install Stroma (container or binary)
-3. Restore Signal protocol store from backup (CRITICAL — your only recovery path)
+3. Restore encrypted Signal store + recovery phrase from backup (CRITICAL — your only recovery path)
 4. Restore `config.toml` from backup
 5. Start service
 6. Bot recovers trust state from Reciprocal Persistence Network
@@ -1131,7 +1137,7 @@ sudo systemctl restart stroma
 **Time to Recovery**: 30-60 minutes
 
 **Critical Requirements:**
-- ✅ MUST have Signal protocol store backup (contains ACI identity for decryption)
+- ✅ MUST have encrypted Signal store backup + recovery phrase (contains ACI identity for decryption)
 - ✅ MUST have `config.toml` backup (contract key needed)
 - ⚠️ Persistence network must have your fragments (other bots hold them)
 - ❌ Without Signal store backup, you CANNOT decrypt your fragments

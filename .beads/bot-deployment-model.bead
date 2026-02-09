@@ -47,8 +47,9 @@ pub struct StromaBot<C: SignalClient, F: FreenetClient> {
 
 **One bot = one Signal connection + one Freenet node + one group.**
 
-**⚠️ Store Requirement**: Each bot uses `StromaProtocolStore` (custom minimal store).
-- ❌ NEVER use `presage-store-sqlite` (stores message history - security violation)
+**⚠️ Store Requirement**: Each bot uses `StromaStore` (wrapper around encrypted SqliteStore, no-ops message persistence).
+- ❌ NEVER use bare `SqliteStore` (stores message history - security violation)
+- ✅ ALWAYS use `StromaStore` wrapper (delegates protocol state/groups, no-ops messages/stickers)
 - ✅ See `.beads/security-constraints.bead` and `.beads/technology-stack.bead`
 
 ### Multi-Group Deployment

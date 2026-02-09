@@ -18,9 +18,13 @@ Work must be delegated in this order. Each step depends on the one above it.
 
 ```
 Step 1: Rig Presage        Wire presage fork to real Signal (E2E validation)
+   |                        ✅ Polls (create/vote/terminate) UAT-validated
+   |                        ⬜ Group CRUD (create_group, add/remove member) -- separate convoy
    |
 Step 2: Rig Stroma         Wire LibsignalClient to presage Manager APIs
-   |                        Implement StromaProtocolStore persistence
+   |                        Implement StromaStore wrapper (replaces StromaProtocolStore)
+   |                        Implement passphrase management (BIP-39)
+   |                        Add register CLI command
    |                        Implement link_secondary_device()
    |
 Step 3: Rig Stroma         Wire EmbeddedKernel to real Freenet APIs
@@ -42,9 +46,11 @@ Steps 1-2 can be parallelized (presage E2E validation is independent of stroma w
 | Area | Status | Blocks UAT? |
 |------|--------|-------------|
 | **Mock-Layer Logic** | COMPLETE (502+ tests) | No |
-| **Presage Fork E2E** | COMPILES, never called | **Yes** -- Step 1 |
+| **Presage Fork E2E** | ✅ Polls UAT-validated (create/vote/terminate on live Signal) | **Partial** -- Group CRUD still needed |
 | **LibsignalClient** | 100% stubbed (8/8 methods) | **Yes** -- Step 2 |
-| **StromaProtocolStore** | load/save return NotImplemented | **Yes** -- Step 2 |
+| **StromaStore** | Planned (replaces StromaProtocolStore, wraps encrypted SqliteStore) | **Yes** -- Step 2 |
+| **Passphrase Management** | Planned (BIP-39 24-word recovery phrase) | **Yes** -- Step 2 |
+| **Register CLI** | Planned (new phone number registration) | **Yes** -- Step 2 |
 | **link_secondary_device** | Returns NotImplemented | **Yes** -- Step 2 |
 | **EmbeddedKernel** | Custom mock, not real Freenet | **Yes** -- Step 3 |
 | **Freenet state stream** | Commented out in run() | **Yes** -- Step 3 |
@@ -199,18 +205,29 @@ This is the main bot codebase at `stromarig/crew/matt/`.
 
 **Deliverables**:
 
-- [ ] Wire `LibsignalClient` to presage `Manager` APIs
+- [ ] Create `StromaStore` wrapper (`src/signal/stroma_store.rs`) around encrypted `SqliteStore`:
+  - Wraps `presage-store-sqlite::SqliteStore` with SQLCipher encryption
+  - No-ops message/sticker persistence (server seizure protection)
+  - Persists protocol state, groups, profiles (restart recovery)
+  - Supersedes `StromaProtocolStore` (which never implemented presage's `Store` trait)
+- [ ] Remove old `StromaProtocolStore` (`src/signal/store.rs`) and update imports across codebase
+- [ ] Implement passphrase management:
+  - 24-word BIP-39 recovery phrase generated at link/register time
+  - Delivery via `--passphrase-file` (container-native), stdin prompt, or env var (fallback)
+- [ ] Add `stroma register` CLI command (`src/cli/register.rs`) for new phone number registration
+- [ ] Wire `LibsignalClient` to presage `Manager` APIs:
   - `send_message()` -> `manager.send_message()`
   - `send_group_message()` -> `manager.send_message_to_group()`
-  - `create_group()` -> `manager.create_group_v2()`
-  - `add_group_member()` / `remove_group_member()` -> group membership APIs
-  - `create_poll()` -> `DataMessage` with `PollCreate` (protocol v8)
-  - `terminate_poll()` -> `DataMessage` with `PollTerminate`
+  - `create_group()` -> `manager.create_group()` (blocked on GV2 Group CRUD convoy)
+  - `add_group_member()` / `remove_group_member()` -> (blocked on GV2 Group CRUD convoy)
+  - `create_poll()` -> `manager.send_poll()` (API exists in presage fork)
+  - `terminate_poll()` -> `manager.terminate_poll()` (API exists in presage fork)
   - `receive_messages()` -> `manager.receive_messages()`
-- [ ] Implement `StromaProtocolStore` encryption/persistence (currently stubbed -- `load()`/`save()` return `Err(NotImplemented)`)
+- [ ] Implement vote aggregate + HMAC'd voter dedup persistence in PollManager (zeroize on outcome)
 - [ ] Implement `link_secondary_device()` in `src/signal/linking.rs` (currently stubbed)
+- [ ] Lift `presage-store-sqlite` ban in `deny.toml` and `security.yml` (REQUIRES HUMAN APPROVAL)
 - [ ] Enable 16 CLI integration tests in `tests/cli_integration.rs` (all `#[ignore]` with reason "presage dependency")
-- [ ] End-to-end manual test: bot links as secondary device, receives messages, creates group
+- [ ] End-to-end manual test: bot registers/links, receives messages, creates group, restarts without losing state
 
 **Testing Strategy**:
 
@@ -313,7 +330,7 @@ When Steps 1-4 are complete, UAT is ready. Verify by running through this manual
 6. **Vouch**: New assessor sends `/vouch @carol` -- bot verifies cross-cluster, generates STARK proof, adds carol to group
 7. **Status**: Carol sends `/status` -- bot returns her real standing, vouchers, flags from Freenet
 8. **Propose**: Any member sends `/propose stroma --key min_vouches --value "2" --value "3" --timeout 1h --proposal "Change min vouches?"` -- Signal poll created, timeout monitored, result executed
-9. **Persistence**: Restart bot -- trust state recoverable from Freenet, Signal session resumes from `StromaProtocolStore`
+9. **Persistence**: Restart bot -- trust state recoverable from Freenet, Signal session resumes from encrypted `StromaStore`, group config and vote state survive restart
 
 All steps must complete without `NotImplemented` errors. All Signal messages must flow through real Signal network. All trust state must persist in Freenet contract.
 
@@ -516,13 +533,13 @@ After 24h, bot terminates poll:
 
 **Beads**: `.beads/technology-stack.bead` (presage fork, libsignal-service-rs fork, dependency chain), `.beads/signal-integration.bead` (Step 1 roadmap)
 
-The presage fork at `github.com/roder/presage` (branch: `feature/protocol-v8-polls-compatibility`) provides Signal protocol integration with v8 poll support. **This is Step 1 on the critical path** -- Stroma's `LibsignalClient` wiring (Step 2) depends on presage APIs being validated against real Signal.
+The presage fork at `github.com/roder/presage` (branch: `integration/protocol-v8-polls`) provides Signal protocol integration with v8 poll support. **Step 1 poll validation is complete** -- polls have been UAT-tested against live Signal production servers. Group CRUD (create_group, add/remove member) is tracked in a separate convoy.
 
 **Fork Chain**:
 ```
 Signal Protocol (spec)
     -> roder/libsignal-service-rs (branch: feature/protocol-v8-polls-rebased)
-        -> roder/presage (branch: feature/protocol-v8-polls-compatibility)
+        -> roder/presage (branch: integration/protocol-v8-polls)
             -> Stroma Cargo.toml
 ```
 
@@ -531,16 +548,18 @@ Signal Protocol (spec)
 - [x] Protocol v8 poll support added to libsignal-service-rs fork (PollCreate, PollVote, PollTerminate, PinMessage, UnpinMessage)
 - [x] Presage fork compiles with libsignal-service-rs fork
 - [x] Stroma builds successfully with `presage = { git = "...", branch = "..." }` in Cargo.toml
+- [x] **E2E Validation**: Poll create/vote/terminate tested against live Signal production servers
+- [x] **Convenience Wrappers**: `send_poll()`, `vote_on_poll()`, `terminate_poll()` added to presage Manager
+- [x] **GroupContextV2 Fix**: Poll messages now arrive in group context (was missing, caused DMs)
+- [x] **CLI Consistency**: `--poll-author-uuid`, `-o` append mode, `--master-key` in all docs
+- [x] **Integration branch**: 3 feature branches merged into `integration/protocol-v8-polls`
 
 ### Remaining
 
-- [ ] **E2E Validation**: Test real Signal group poll lifecycle (create poll, vote, terminate) against a real Signal account
-- [ ] **Convenience Wrappers**: Add high-level presage APIs:
-  - `send_poll(group, question, options)` -- create a poll in a group
-  - `vote_on_poll(group, poll_timestamp, selected_options)` -- cast a vote
-  - `terminate_poll(group, poll_timestamp)` -- close a poll
+- [ ] **Group CRUD**: `create_group()`, `add_group_member()`, `remove_group_member()` -- separate convoy (GV2 Group CRUD)
 - [ ] **Upstream PR**: Submit protocol v8 poll support PR to `whisperfish/libsignal-service-rs`
-- [ ] **Fork Maintenance**: Keep `feature/protocol-v8-polls-rebased` branch rebased against upstream whisperfish as it evolves
+- [ ] **Upstream PR**: Submit presage convenience wrappers PR to `whisperfish/presage`
+- [ ] **Fork Maintenance**: Keep branches rebased against upstream whisperfish as it evolves
 
 ---
 
