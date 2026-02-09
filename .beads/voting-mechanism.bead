@@ -79,9 +79,10 @@
 # Stroma's Cargo.toml
 
 [dependencies]
-presage = { git = "https://github.com/roder/presage", branch = "feature/protocol-v8-polls-compatibility" }
-# ❌ DO NOT ADD: presage-store-sqlite (stores message history - server seizure risk)
-# ✅ Implement custom StromaProtocolStore instead (see security-constraints.bead)
+presage = { git = "https://github.com/roder/presage", branch = "integration/protocol-v8-polls" }
+presage-store-sqlite = { git = "https://github.com/roder/presage", branch = "integration/protocol-v8-polls" }
+# NOTE: presage-store-sqlite is used ONLY via StromaStore wrapper (no-ops message persistence)
+# See: security-constraints.bead § 10 for StromaStore architecture
 
 [patch."https://github.com/whisperfish/libsignal-service-rs"]
 libsignal-service = { 

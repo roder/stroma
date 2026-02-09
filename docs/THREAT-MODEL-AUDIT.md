@@ -139,7 +139,7 @@ This document provides the high-level threat model for Stroma. For implementatio
 8. **Signal Client Storage Exposure**: Default Presage stores expose membership
    - **Attack**: Server seizure reveals message history, contacts, group metadata
    - **Attack**: Even encrypted, vetting conversations expose relationship context
-   - **Defense**: Custom `StromaProtocolStore` (NOT `presage-store-sqlite`)
+   - **Defense**: `StromaStore` wrapper (encrypted `SqliteStore`, no-ops message persistence)
    - **Defense**: Store ONLY Signal protocol state (~100KB encrypted file)
    - **Defense**: Never persist message content, history, or contact database
    - **Result**: Server seizure yields only encrypted protocol state, no membership data

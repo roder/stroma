@@ -1,8 +1,8 @@
 # Security Analysis: Bot Storage Threat Model
 
-**Date**: 2026-01-28  
-**Issue**: Presage SqliteStore persists message history (server seizure risk)  
-**Resolution**: Custom minimal ProtocolStore requirement
+**Date**: 2026-02-09 (revised)
+**Issue**: Presage SqliteStore persists message history (server seizure risk)
+**Resolution**: StromaStore wrapper — delegates protocol state, no-ops message persistence
 
 ---
 
@@ -12,31 +12,26 @@
 
 ```rust
 // Default SqliteStore persists:
-pub struct SqliteStore {
-    // Protocol state (required)
-    sessions: Table<Session>,
-    pre_keys: Table<PreKey>,
-    identity_keys: Table<IdentityKey>,
-    
-    // Message history (PROBLEMATIC)
-    messages: Table<Message>,          // ❌ All vetting conversations
-    
-    // Contact database (PROBLEMATIC)
-    contacts: Table<Contact>,          // ❌ Links to Signal IDs
-    
-    // Group metadata (PROBLEMATIC)
-    groups: Table<Group>,              // ❌ Group structure
-}
+// Protocol state (required) ✅
+//   sessions, pre_keys, identity_keys, sender_keys
+// Group configuration (required) ✅
+//   groups, group_avatars
+// Message history (PROBLEMATIC) ❌
+//   thread_messages — ALL vetting conversations
+// Contact database (PROBLEMATIC) ❌
+//   contacts, contacts_verification_state
+// Sticker packs (unnecessary) ❌
+//   sticker_packs
 ```
 
-### Server Seizure Impact (With Default Store)
+### Server Seizure Impact (With Bare SqliteStore)
 
-**If bot server is seized, adversary gets:**
+**If bot server is seized with bare SqliteStore, adversary gets:**
 
 1. **Complete Message History**
    - All vetting conversations
    - Who invited whom with what context
-   - "Great activist from local organizing" → relationship details
+   - "Great activist from local organizing" — relationship details
    - Timestamps and patterns
 
 2. **Contact Database**
@@ -53,30 +48,23 @@ pub struct SqliteStore {
 
 ---
 
-### Why This Happened
-
-**Assumption Error:**
-- We focused on "what Stroma application stores" (Freenet contract)
-- We didn't think about "what Signal library stores" (Presage's SqliteStore)
-- We saw "ephemeral vetting" as application-level concern
-- We didn't extend it to the persistence layer of dependencies
-
-**This is a valuable lesson**: Security constraints must address ALL persistence layers, not just application state.
-
----
-
-## The Fix: Minimal Custom Store
+## The Fix: StromaStore Wrapper
 
 ### Architecture Decision
 
-**Use Presage Manager API but with custom StromaProtocolStore**
+**Wrap presage's `SqliteStore` in a `StromaStore` newtype** that:
+- Delegates all persistence EXCEPT message and sticker storage (no-op)
+- Uses SQLCipher encryption (AES-256, PBKDF2-HMAC-SHA512, 256K iterations)
+- Persists protocol state, group config, profiles (survives restart)
+- Never writes messages or stickers to disk
 
-### What Gets Stored
+### What Gets Stored (Encrypted SQLite)
 
-**On Disk (Encrypted, ~100KB):**
-- Signal session keys (for encryption continuity)
-- Pre-keys (for new conversations)
-- Identity keys (bot's Signal identity)
+**Persisted (survives restart):**
+- Signal protocol state (identity keys, pre-keys, sessions, sender keys)
+- Group configuration (master keys, member list, metadata)
+- Profile keys (required for sealed sender / unidentified access)
+- Vote aggregates + HMAC'd voter dedup map (poll lifetime only, zeroized on outcome)
 
 **In Memory Only (Ephemeral):**
 - Vetting conversations (processed, never written)
@@ -84,137 +72,95 @@ pub struct SqliteStore {
 - Message content (command processed, then discarded)
 
 **NEVER Stored:**
-- ❌ Message history
+- ❌ Message history (save_message is no-op)
 - ❌ Vetting conversation transcripts
-- ❌ Contact database
+- ❌ Sticker packs
 - ❌ Invitation context or reasons
-- ❌ Signal IDs (even encrypted)
+- ❌ Cleartext Signal IDs
 
 ### Implementation Pattern
 
 ```rust
-pub struct StromaProtocolStore {
-    // Protocol state for encryption
-    sessions: HashMap<ServiceId, Session>,
-    pre_keys: HashMap<u32, PreKey>,
-    identity_keys: IdentityKeyPair,
-    
-    // Minimal encrypted file
-    state_file: EncryptedProtocolState,  // ~100KB
-    
-    // Message handling (ephemeral)
-    current_session_messages: Vec<EphemeralMessage>,  // In-memory, cleared after processing
+pub struct StromaStore(SqliteStore);  // Newtype wrapper
+
+impl StromaStore {
+    pub async fn open(path: &str, passphrase: &str) -> Result<Self> {
+        // SQLCipher AES-256 encryption
+        let inner = SqliteStore::open_with_passphrase(
+            path, Some(passphrase), OnNewIdentity::Trust
+        ).await?;
+        Ok(Self(inner))
+    }
 }
 
-impl presage::Store for StromaProtocolStore {
-    // Implement protocol requirements
-    async fn load_session(&self, id: &ServiceId) -> Result<Session> {
-        Ok(self.sessions.get(id).cloned())
-    }
-    
-    async fn save_session(&mut self, id: ServiceId, session: Session) -> Result<()> {
-        self.sessions.insert(id, session);
-        self.persist_protocol_state().await  // Small file update
-    }
-    
-    // DO NOT implement message persistence
-    // presage::Store trait may have optional message methods
-    // Leave them unimplemented or return empty
+impl presage::Store for StromaStore {
+    // Delegates to SqliteStore: protocol state, groups, contacts, profiles
+    // No-ops: save_message -> Ok(()), message -> Ok(None), stickers -> empty
 }
 ```
 
-### Server Seizure Result (With Minimal Store)
+### Passphrase Management
+
+- Generated as 24-word BIP-39 recovery phrase (256 bits entropy) at link/register time
+- Displayed once to operator on stderr, never logged
+- Delivered to process via: `--passphrase-file` (container-native), stdin prompt, or env var (fallback)
+- SQLCipher has no passphrase length limit
+
+### Server Seizure Result (With StromaStore)
 
 **Adversary gets:**
-- ~100KB encrypted file
-- Passphrase required to decrypt
-- Contains only protocol state (sessions, keys)
+- Encrypted SQLite database (SQLCipher AES-256)
+- Cannot read without passphrase
+- If passphrase cracked: protocol state, group config, profile keys
+- If passphrase cracked: ACI private key (root key for Signal identity + Freenet chunk encryption)
 
 **Adversary does NOT get:**
-- Message content
-- Vetting conversations
-- Relationship context
-- Signal IDs
-- Contact information
+- ❌ Message content or history (never written to disk)
+- ❌ Vetting conversations
+- ❌ Cleartext Signal IDs (only HMAC'd hashes in voter dedup, zeroized on poll outcome)
+- ❌ Relationship context or reasons
 
-**This aligns with Stroma's threat model.**
-
----
-
-## Updated Security Constraints
-
-### Added to `.beads/security-constraints.bead` Section 10:
-
-**Bot Storage Constraints**:
-- ❌ NEVER persist message history
-- ❌ NEVER use default SqliteStore
-- ❌ NEVER store vetting conversations
-- ✅ Implement custom minimal ProtocolStore
-- ✅ Store ONLY Signal protocol state
-- ✅ Encrypt protocol state file
-
-### Added to `.cursor/rules/security-guardrails.mdc`:
-
-**Bot Storage Constraints (BLOCK - Server Seizure Threat)**:
-- Same constraints as above
-- Explicit blocking patterns
-- Enforcement patterns
-- Server seizure threat model
-
-### Added to `.beads/technology-stack.bead`:
-
-**Custom Store Requirement**:
-- Implementation guidance
-- Code examples
-- Why necessary
-
-### Added to `docs/DEVELOPER-GUIDE.md`:
-
-**Bot Storage (CRITICAL - Server Seizure Protection)**:
-- Full implementation pattern
-- Explanation of gap in previous rules
-- Testing requirements
-
-### Updated `.beads/poll-implementation-gastown.bead`:
-
-**Storage Security Requirement**:
-- Agent-Signal must use custom store
-- DO NOT use presage-store-sqlite
-- Testing checklist
+**Threat escalation**: If passphrase is cracked, the ACI private key enables Freenet trust map reconstruction (given enough chunks). The voter dedup map adds zero incremental risk beyond this. The SQLCipher passphrase is the root security boundary.
 
 ---
 
-## Why This Is Critical
+## Why Not a Fully Custom Store?
 
-**Network Topology IS Social Structure** (User's insight Q4):
+The original plan was a custom `StromaProtocolStore` implementing presage's `Store` trait from scratch. This was abandoned because:
 
-The trust map reveals:
-- Who knows whom
-- How they're connected
-- Relationship strengths (vouch counts)
-- Community structure (clusters)
+1. **Implementation cost**: presage's `Store` trait requires ~2000 lines across `StateStore`, `ContentsStore`, `ProtocolStore`, `PreKeysStore`, `SenderKeyStore`, `SessionStoreExt`
+2. **Group config must survive restarts**: Groups need to be persisted for `send_message_to_group` to work (looks up member list)
+3. **SqliteStore already supports encryption**: SQLCipher integration is built in and well-tested
+4. **Wrapper is minimal**: ~200-300 lines to delegate everything and no-op messages/stickers
 
-**Message history adds:**
-- WHY people trust each other ("Great activist...")
-- Relationship context
-- Conversation patterns
-- Identity hints
-
-**Together**: Complete deanonymization of the network.
-
-**With minimal store**: Adversary only gets topology (hashes + counts), not identities or context.
+The wrapper approach preserves the security principle (no message persistence) while leveraging existing, tested infrastructure.
 
 ---
 
-## Implementation Guidance
+## Vote Privacy Addendum
 
-Agent implementation guidance for `StromaProtocolStore` is defined in the canonical beads:
+### Voter Deduplication (HMAC'd, Encrypted, Ephemeral)
 
-- **`.beads/security-constraints.bead`** § 10 - Immutable constraint with full store specification
-- **`.beads/technology-stack.bead`** - Implementation patterns and anti-patterns
-- **`.beads/signal-integration.bead`** - Store requirements for Signal integration
+When a member changes their vote on a poll, the bot needs to know their previous vote to update aggregates correctly. This requires a voter dedup map:
+
+- Stored as `HMAC(voter_ACI, pepper) -> [selected_option_indices]`
+- Persisted in the encrypted SQLite store (survives restart)
+- Zeroized immediately when poll outcome is determined (Passed/Failed/QuorumNotMet)
+- HMAC'd voter identities are not reversible without the pepper (ACI-derived via HKDF)
+
+**Threat model**: The attack chain to deanonymize votes requires cracking the SQLCipher passphrase AND the HMAC pepper — the same chain needed to extract the ACI private key, which compromises the entire Freenet trust map. Zero incremental risk.
 
 ---
 
-**Status**: Security vulnerability identified and mitigated via architectural constraints.  
-**Result**: All documentation, rules, and beads updated to prevent implementation of vulnerable pattern.
+## Updated References
+
+Implementation guidance is defined in the canonical beads:
+
+- **`.beads/security-constraints.bead`** § 10 — Immutable constraint with StromaStore specification
+- **`.beads/technology-stack.bead`** — Implementation patterns, anti-patterns, Cargo.toml config
+- **`.beads/signal-integration.bead`** — Store requirements, status, roadmap
+
+---
+
+**Status**: Security vulnerability identified (2026-01-28) and mitigated via StromaStore wrapper architecture (2026-02-09).
+**Result**: All documentation, beads, and CI updated. Message persistence is structurally impossible via no-op delegation.

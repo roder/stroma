@@ -261,8 +261,8 @@ echo "✅ No cleartext Signal IDs"
 
 **2. Check for prohibited SqliteStore:**
 ```bash
-if rg 'SqliteStore|presage-store-sqlite' --type rust src/ Cargo.toml 2>/dev/null; then
-  echo "❌ SqliteStore usage prohibited - must use StromaProtocolStore"
+if rg 'SqliteStore' --type rust src/ Cargo.toml 2>/dev/null | grep -v 'stroma_store.rs' | grep -v 'StromaStore' 2>/dev/null; then
+  echo "❌ Bare SqliteStore usage prohibited - must use StromaStore wrapper"
   exit 1
 fi
 echo "✅ No prohibited store usage"

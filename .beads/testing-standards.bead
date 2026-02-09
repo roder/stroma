@@ -897,7 +897,7 @@ proptest! {
 ```rust
 // ❌ BAD: Hardcoded dependency, untestable
 pub struct StromaBot {
-    manager: presage::Manager<StromaProtocolStore>,  // Direct type
+    manager: presage::Manager<StromaStore>,  // StromaStore wrapper around encrypted SqliteStore
 }
 
 impl StromaBot {
