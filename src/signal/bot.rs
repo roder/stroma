@@ -783,33 +783,128 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             )
             .await?;
 
-        // TODO Phase 1: Query Freenet state for cross-cluster matching
-        // For now, use a simple placeholder state
-        let state = crate::freenet::trust_contract::TrustNetworkState::new();
+        // Query Freenet state for cross-cluster matching
+        use crate::serialization::from_cbor;
+        use crate::signal::vetting::msg_assessment_request;
+
+        let contract = match &self.config.contract_hash {
+            Some(hash) => *hash,
+            None => {
+                // Bootstrap phase - shouldn't happen in reject flow, but handle gracefully
+                return self
+                    .client
+                    .send_message(
+                        &inviter_id,
+                        &format!(
+                            "❌ Cannot re-select assessor: network not initialized (bootstrap phase)."
+                        ),
+                    )
+                    .await;
+            }
+        };
+
+        let state_bytes = match self.freenet.get_state(&contract).await {
+            Ok(state) => state.data,
+            Err(e) => {
+                return self
+                    .client
+                    .send_message(
+                        &inviter_id,
+                        &format!("❌ Failed to query Freenet for re-selection: {}", e),
+                    )
+                    .await;
+            }
+        };
+
+        let state: crate::freenet::trust_contract::TrustNetworkState = match from_cbor(&state_bytes)
+        {
+            Ok(s) => s,
+            Err(e) => {
+                return self
+                    .client
+                    .send_message(
+                        &inviter_id,
+                        &format!("❌ Failed to deserialize contract state: {}", e),
+                    )
+                    .await;
+            }
+        };
 
         // Re-run BlindMatchmaker with exclusion list
         let new_validator = BlindMatchmaker::select_validator(&state, &inviter_hash, &excluded_set);
 
-        if let Some(_validator_hash) = new_validator {
-            // TODO Phase 1: Resolve validator hash to ServiceId
-            // TODO Phase 1: Assign validator to session
-            // TODO Phase 1: Send PMs to new validator
+        if let Some(validator_hash) = new_validator {
+            // Resolve validator hash to ServiceId via MemberResolver
+            match self.member_resolver.get_service_id(&validator_hash) {
+                Some(validator_id) => {
+                    // Get session data for PM (extract values to avoid borrow conflict)
+                    let (context, has_previous_flags, previous_flag_count) = {
+                        let session = self.vetting_sessions.get_session(username).unwrap();
+                        (
+                            session.context.clone(),
+                            session.has_previous_flags,
+                            session.previous_flag_count,
+                        )
+                    };
 
-            // For now, notify inviter that re-matching is in progress
-            self.client
-                .send_message(
-                    &inviter_id,
-                    &format!(
-                        "ℹ️ The assessor for {} declined. Finding a new assessor...",
-                        invitee_username
-                    ),
-                )
-                .await?;
+                    // Assign validator to session
+                    if let Err(e) = self.vetting_sessions.assign_assessor(
+                        username,
+                        validator_hash,
+                        validator_id.clone(),
+                    ) {
+                        return self
+                            .client
+                            .send_message(
+                                &inviter_id,
+                                &format!("❌ Failed to assign new assessor: {}", e),
+                            )
+                            .await;
+                    }
+
+                    // Send PM to new assessor with assessment request
+                    let assessment_msg = msg_assessment_request(
+                        username,
+                        context.as_deref(),
+                        has_previous_flags,
+                        previous_flag_count,
+                    );
+                    self.client
+                        .send_message(&validator_id, &assessment_msg)
+                        .await?;
+
+                    // Notify inviter that re-matching succeeded
+                    self.client
+                        .send_message(
+                            &inviter_id,
+                            &format!(
+                                "✅ New assessor assigned for {}. Assessment in progress.",
+                                invitee_username
+                            ),
+                        )
+                        .await?;
+                }
+                None => {
+                    // Validator not in resolver - shouldn't happen, but handle gracefully
+                    let session = self.vetting_sessions.get_session_mut(username).unwrap();
+                    session.status = VettingStatus::Stalled;
+
+                    self.client
+                        .send_message(
+                            &inviter_id,
+                            &format!(
+                                "❌ Vetting stalled: Selected assessor for {} not reachable.\n\nThe invitation remains open - they'll be matched when the network topology changes.",
+                                invitee_username
+                            ),
+                        )
+                        .await?;
+                }
+            }
         } else {
             // No available validators - stalled
             // Update session status and notify inviter
             let session = self.vetting_sessions.get_session_mut(username).unwrap();
-            session.status = VettingStatus::Rejected;
+            session.status = VettingStatus::Stalled;
 
             self.client
                 .send_message(
