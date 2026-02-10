@@ -60,6 +60,7 @@ exceptions = [
 
     # Presage (Signal client library) - AGPL-3.0-only
     { allow = ["AGPL-3.0-only"], crate = "presage" },
+    { allow = ["AGPL-3.0-only"], crate = "presage-store-sqlite" },
 
     # Freenet dependencies (LGPL copyleft, required for P2P network)
     { allow = ["LGPL-3.0-only"], crate = "freenet-macros" },
