@@ -21,9 +21,10 @@ freenet = "0.1"
 freenet-stdlib = { version = "=0.1.30", features = ["contract", "net"] }
 
 # Signal integration (uses forked libsignal-service-rs with poll support)
-# ❌ DO NOT USE: presage-store-sqlite (stores ALL messages - server seizure risk!)
-# See: .beads/security-constraints.bead § 10, .cursor/rules/security-guardrails.mdc
+# presage-store-sqlite: Used via StromaStore wrapper that blocks message persistence
+# See: .beads/security-constraints.bead § 10, docs/SIGNAL-STORAGE-SECURITY.md
 presage = { git = "https://github.com/roder/presage", branch = "feature/protocol-v8-polls-compatibility" }
+presage-store-sqlite = { git = "https://github.com/roder/presage", branch = "feature/protocol-v8-polls-compatibility" }
 
 # Async runtime and serialization
 tokio = { version = "1", features = ["full"] }

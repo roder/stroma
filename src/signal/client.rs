@@ -1,22 +1,23 @@
 //! Production Signal Client Implementation
 //!
-//! Implements SignalClient trait using libsignal-service-rs directly.
-//! This bypasses presage's abstraction layer for direct control.
+//! Implements SignalClient trait using presage Manager with StromaStore.
+//! StromaStore wraps SqliteStore for encrypted persistence while blocking
+//! message history storage (seizure protection).
 //!
-//! Note: The presage dependency is now available and compiles successfully
-//! (st-rvzl complete). This implementation provides an alternative direct
-//! integration path if needed.
+//! See: .beads/signal-integration.bead, .beads/security-constraints.bead § 10
 
-use super::store::StromaProtocolStore;
+use super::stroma_store::StromaStore;
 use super::traits::*;
 use async_trait::async_trait;
+use presage::Manager;
+use presage::manager::Registered;
 
 /// Production Signal client implementation
 ///
-/// Uses libsignal-service-rs directly without presage abstraction.
+/// Uses presage Manager with StromaStore for encrypted protocol state.
 pub struct LibsignalClient {
     service_id: ServiceId,
-    _store: StromaProtocolStore,
+    _manager: Manager<StromaStore, Registered>,
 }
 
 impl LibsignalClient {
@@ -24,11 +25,11 @@ impl LibsignalClient {
     ///
     /// # Arguments
     /// * `service_id` - Bot's Signal service ID (ACI)
-    /// * `store` - Protocol store for encryption state
-    pub fn new(service_id: ServiceId, store: StromaProtocolStore) -> Self {
+    /// * `manager` - Presage Manager with StromaStore
+    pub fn new(service_id: ServiceId, manager: Manager<StromaStore, Registered>) -> Self {
         Self {
             service_id,
-            _store: store,
+            _manager: manager,
         }
     }
 }
@@ -119,12 +120,7 @@ impl SignalClient for LibsignalClient {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn test_client_creation() {
-        let service_id = ServiceId("test".to_string());
-        let store = StromaProtocolStore::new("/tmp/test.store", "passphrase".to_string());
-        let _client = LibsignalClient::new(service_id, store);
-    }
+    // Test removed: LibsignalClient now requires presage Manager<StromaStore, Registered>
+    // which requires async initialization and full Signal registration flow.
+    // Integration tests will cover this.
 }

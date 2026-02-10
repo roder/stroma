@@ -20,7 +20,7 @@ pub mod pm;
 pub mod polls;
 pub mod proposals;
 pub mod retry;
-pub mod store;
+pub mod stroma_store;
 pub mod traits;
 pub mod vetting;
 
@@ -29,5 +29,5 @@ pub use bot::{BotConfig, StromaBot};
 pub use client::LibsignalClient;
 pub use member_resolver::MemberResolver;
 pub use mock::MockSignalClient;
-pub use store::StromaProtocolStore;
+pub use stroma_store::StromaStore;
 pub use traits::{SignalClient, SignalError, SignalResult};
