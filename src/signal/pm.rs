@@ -236,7 +236,9 @@ pub async fn handle_pm_command<F: crate::freenet::FreenetClient>(
             handle_propose(client, sender, &subcommand, &args).await
         }
 
-        Command::Status { username } => handle_status(client, sender, username.as_deref()).await,
+        Command::Status { username } => {
+            handle_status(client, freenet, config, sender, username.as_deref()).await
+        }
 
         Command::Mesh { subcommand } => {
             handle_mesh(
@@ -569,29 +571,149 @@ async fn handle_propose(
     client.send_message(sender, &response).await
 }
 
-async fn handle_status(
+async fn handle_status<F: crate::freenet::FreenetClient>(
     client: &impl SignalClient,
+    freenet: &F,
+    config: &crate::signal::bot::BotConfig,
     sender: &ServiceId,
     username: Option<&str>,
 ) -> SignalResult<()> {
+    use crate::freenet::{
+        contract::MemberHash, traits::FreenetError, trust_contract::TrustNetworkState,
+    };
+    use crate::serialization::from_cbor;
+
     // GAP-04: /status shows own vouchers only, rejects third-party queries
     if username.is_some() {
         let response = "Third-party status queries are not allowed. Use /status (without username) to see your own standing.";
         return client.send_message(sender, response).await;
     }
 
-    // TODO: Implement status query
-    // 1. Hash sender's ServiceId to MemberHash
-    // 2. Query Freenet contract for sender's trust state
-    // 3. Calculate: all_vouchers, all_flaggers, voucher_flaggers
-    // 4. Calculate: effective_vouches = |all_vouchers| - |voucher_flaggers|
-    // 5. Calculate: regular_flags = |all_flaggers| - |voucher_flaggers|
-    // 6. Calculate: standing = effective_vouches - regular_flags
-    // 7. Determine role: Invitee (not in group), Bridge (2 vouches), Validator (3+ vouches)
-    // 8. Show list of vouchers (allowed for self-query)
+    // Hash sender's ServiceId to MemberHash
+    let sender_hash = MemberHash::from_identity(&sender.0, &config.pepper);
 
-    let response = "📊 Your Trust Status\nRole: Bridge\nAll vouches: 2 (Alice, Bob)\nAll flags: 0\nVoucher-flaggers: 0\nEffective vouches: 2 ✅\nRegular flags: 0\nStanding: +2 (positive)";
-    client.send_message(sender, response).await
+    // Get contract hash
+    let contract = match &config.contract_hash {
+        Some(hash) => *hash,
+        None => {
+            client
+                .send_message(
+                    sender,
+                    "❌ Trust contract not configured. Has the group been bootstrapped?",
+                )
+                .await?;
+            return Ok(());
+        }
+    };
+
+    // Query Freenet for current contract state
+    let state_bytes = match freenet.get_state(&contract).await {
+        Ok(state) => state.data,
+        Err(FreenetError::ContractNotFound) => {
+            client
+                .send_message(
+                    sender,
+                    "❌ Trust contract not found. Has the group been bootstrapped?",
+                )
+                .await?;
+            return Ok(());
+        }
+        Err(e) => {
+            client
+                .send_message(sender, &format!("❌ Failed to query Freenet: {}", e))
+                .await?;
+            return Ok(());
+        }
+    };
+
+    let state: TrustNetworkState = match from_cbor(&state_bytes) {
+        Ok(s) => s,
+        Err(e) => {
+            client
+                .send_message(
+                    sender,
+                    &format!("❌ Failed to deserialize contract state: {}", e),
+                )
+                .await?;
+            return Ok(());
+        }
+    };
+
+    // Calculate trust metrics
+    let all_vouchers = state.vouches.get(&sender_hash).cloned().unwrap_or_default();
+    let all_flaggers = state.flags.get(&sender_hash).cloned().unwrap_or_default();
+
+    let voucher_flaggers: std::collections::HashSet<_> =
+        all_vouchers.intersection(&all_flaggers).cloned().collect();
+
+    let all_vouchers_count = all_vouchers.len() as u32;
+    let all_flaggers_count = all_flaggers.len() as u32;
+    let voucher_flagger_count = voucher_flaggers.len() as u32;
+
+    let effective_vouches = all_vouchers_count - voucher_flagger_count;
+    let regular_flags = all_flaggers_count - voucher_flagger_count;
+
+    // Calculate standing
+    let standing = state.calculate_standing(&sender_hash);
+    let standing_value = standing.unwrap_or(0);
+
+    // Determine role
+    let is_member = state.members.contains(&sender_hash);
+    let role = if !is_member {
+        "Invitee"
+    } else if effective_vouches >= 3 {
+        "Validator"
+    } else {
+        "Bridge"
+    };
+
+    // Format voucher list (showing partial hashes for privacy)
+    let voucher_list: Vec<String> = all_vouchers
+        .iter()
+        .map(|hash| {
+            let hex = hex::encode(hash.as_bytes());
+            format!("{}...", &hex[..8]) // Show first 8 chars of hash
+        })
+        .collect();
+
+    let voucher_display = if voucher_list.is_empty() {
+        "none".to_string()
+    } else {
+        voucher_list.join(", ")
+    };
+
+    // Build response
+    let mut response = format!("📊 Your Trust Status\nRole: {}\n", role);
+    response.push_str(&format!(
+        "All vouches: {} ({})\n",
+        all_vouchers_count, voucher_display
+    ));
+    response.push_str(&format!("All flags: {}\n", all_flaggers_count));
+    response.push_str(&format!("Voucher-flaggers: {}\n", voucher_flagger_count));
+    response.push_str(&format!("Effective vouches: {} ", effective_vouches));
+    if effective_vouches >= config.min_vouch_threshold {
+        response.push_str("✅\n");
+    } else {
+        response.push_str("⚠️\n");
+    }
+    response.push_str(&format!("Regular flags: {}\n", regular_flags));
+    response.push_str(&format!(
+        "Standing: {} ({})",
+        if standing_value >= 0 {
+            format!("+{}", standing_value)
+        } else {
+            standing_value.to_string()
+        },
+        if standing_value > 0 {
+            "positive"
+        } else if standing_value < 0 {
+            "negative"
+        } else {
+            "neutral"
+        }
+    ));
+
+    client.send_message(sender, &response).await
 }
 
 async fn handle_mesh<F: crate::freenet::FreenetClient>(
@@ -1385,10 +1507,40 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_status() {
+        use crate::freenet::contract::MemberHash;
+        use crate::freenet::traits::ContractState;
+        use crate::freenet::trust_contract::TrustNetworkState;
+        use crate::serialization::to_cbor;
+
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let sender = ServiceId("user1".to_string());
+        let freenet = MockFreenetClient::new();
 
-        let result = handle_status(&client, &sender, None).await;
+        let contract_hash = ContractHash::from_bytes(&[0u8; 32]);
+        let config = crate::signal::bot::BotConfig {
+            group_id: GroupId(vec![1, 2, 3]),
+            contract_hash: Some(contract_hash),
+            pepper: vec![0u8; 32],
+            min_vouch_threshold: 2,
+        };
+
+        // Create test state with sender as a member with vouches
+        let mut test_state = TrustNetworkState::new();
+        let sender_hash = MemberHash::from_identity(&sender.0, &config.pepper);
+        test_state.members.insert(sender_hash);
+
+        // Add some vouchers
+        let voucher1 = MemberHash::from_bytes(&[1u8; 32]);
+        let voucher2 = MemberHash::from_bytes(&[2u8; 32]);
+        let mut vouchers = std::collections::HashSet::new();
+        vouchers.insert(voucher1);
+        vouchers.insert(voucher2);
+        test_state.vouches.insert(sender_hash, vouchers);
+
+        let state_bytes = to_cbor(&test_state).unwrap();
+        freenet.put_state(contract_hash, ContractState { data: state_bytes });
+
+        let result = handle_status(&client, &freenet, &config, &sender, None).await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
@@ -1398,10 +1550,28 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_status_rejects_third_party() {
+        use crate::freenet::traits::ContractState;
+        use crate::freenet::trust_contract::TrustNetworkState;
+        use crate::serialization::to_cbor;
+
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let sender = ServiceId("user1".to_string());
+        let freenet = MockFreenetClient::new();
 
-        let result = handle_status(&client, &sender, Some("@alice")).await;
+        let contract_hash = ContractHash::from_bytes(&[0u8; 32]);
+        let config = crate::signal::bot::BotConfig {
+            group_id: GroupId(vec![1, 2, 3]),
+            contract_hash: Some(contract_hash),
+            pepper: vec![0u8; 32],
+            min_vouch_threshold: 2,
+        };
+
+        // Set up minimal state (not actually used since third-party query is rejected early)
+        let test_state = TrustNetworkState::new();
+        let state_bytes = to_cbor(&test_state).unwrap();
+        freenet.put_state(contract_hash, ContractState { data: state_bytes });
+
+        let result = handle_status(&client, &freenet, &config, &sender, Some("@alice")).await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
