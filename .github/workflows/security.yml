@@ -106,7 +106,7 @@ jobs:
           cache-key: security-binary-size
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y musl-tools protobuf-compiler
+        run: sudo apt-get update && sudo apt-get install -y musl-tools protobuf-compiler libssl-dev pkg-config
 
       - name: Build release binary (musl)
         run: cargo build --release --target x86_64-unknown-linux-musl
