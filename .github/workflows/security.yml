@@ -105,24 +105,18 @@ jobs:
         uses: ./.github/actions/rust-setup
         with:
           toolchain: stable
-          targets: x86_64-unknown-linux-musl
           cache-key: security-binary-size
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y musl-tools protobuf-compiler libssl-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler libssl-dev pkg-config
 
-      - name: Build release binary (musl)
-        env:
-          # Point musl cross-compiler to system OpenSSL headers and libraries
-          OPENSSL_DIR: /usr
-          OPENSSL_INCLUDE_DIR: /usr/include
-          OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
-        run: cargo build --release --target x86_64-unknown-linux-musl
+      - name: Build release binary
+        run: cargo build --release
 
       - name: Measure binary size
         id: size-check
         run: |
-          BINARY_SIZE=$(stat -c%s "target/x86_64-unknown-linux-musl/release/stroma" || echo "0")
+          BINARY_SIZE=$(stat -c%s "target/release/stroma" || echo "0")
           echo "binary_size=$BINARY_SIZE" >> $GITHUB_OUTPUT
           echo "Binary size: $(numfmt --to=iec-i --suffix=B $BINARY_SIZE)"
 
