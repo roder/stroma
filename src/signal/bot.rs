@@ -361,7 +361,6 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     async fn handle_vouch(&mut self, sender: &ServiceId, username: &str) -> SignalResult<()> {
         use crate::freenet::contract::MemberHash;
         use crate::matchmaker::cluster_detection::detect_clusters;
-        use crate::signal::matchmaker::BlindMatchmaker;
         use std::collections::BTreeSet;
 
         // 1. Hash sender's ServiceId to MemberHash
@@ -422,8 +421,9 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
         if cross_cluster_required {
             // Check if voucher is from different cluster than inviter
-            let is_cross_cluster =
-                BlindMatchmaker::are_cross_cluster(&state, &inviter_hash, &voucher_hash);
+            let inviter_cluster = cluster_result.member_clusters.get(&inviter_hash);
+            let voucher_cluster = cluster_result.member_clusters.get(&voucher_hash);
+            let is_cross_cluster = inviter_cluster != voucher_cluster;
 
             if !is_cross_cluster {
                 let response = format!(
@@ -717,7 +717,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
         // Re-run BlindMatchmaker with exclusion list
         let new_validator =
-            BlindMatchmaker::select_validator_with_exclusions(&state, &inviter_hash, &excluded_set);
+            BlindMatchmaker::select_validator(&state, &inviter_hash, &excluded_set);
 
         if let Some(_validator_hash) = new_validator {
             // TODO Phase 1: Resolve validator hash to ServiceId

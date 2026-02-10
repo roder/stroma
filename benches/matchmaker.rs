@@ -159,22 +159,6 @@ fn benchmark_matchmaker_single_cluster(c: &mut Criterion) {
     });
 }
 
-fn benchmark_matchmaker_cross_cluster_check(c: &mut Criterion) {
-    let state = create_clustered_network(4, 10);
-    let member1 = test_member(0); // Cluster 0
-    let member2 = test_member(15); // Cluster 1
-
-    c.bench_function("matchmaker_cross_cluster_check", |b| {
-        b.iter(|| {
-            BlindMatchmaker::are_cross_cluster(
-                black_box(&state),
-                black_box(&member1),
-                black_box(&member2),
-            )
-        });
-    });
-}
-
 fn benchmark_matchmaker_scaling(c: &mut Criterion) {
     let mut group = c.benchmark_group("matchmaker_scaling");
 
@@ -202,7 +186,6 @@ criterion_group!(
     benchmark_matchmaker_medium_network,
     benchmark_matchmaker_large_network,
     benchmark_matchmaker_single_cluster,
-    benchmark_matchmaker_cross_cluster_check,
     benchmark_matchmaker_scaling
 );
 criterion_main!(benches);

@@ -272,8 +272,8 @@ This is the main bot codebase at `stromarig/crew/matt/`.
 
 | Component | File | Status | Gap |
 |-----------|------|--------|-----|
-| `select_validator()` | `signal/matchmaker.rs` | Working | Uses real TrustGraph + DVR-optimal selection |
-| `select_validator_with_exclusions()` | `signal/matchmaker.rs` | Phase 0 stub | No TrustGraph, no DVR, takes `first()` -- divergent from `select_validator()` |
+| `select_validator()` | `signal/matchmaker.rs` | Working | Uses real TrustGraph + DVR-optimal selection, supports exclusion list |
+| `select_validator_with_exclusions()` | `signal/matchmaker.rs` | ✅ Removed | Eliminated - functionality merged into `select_validator()` |
 | `VettingSession` / `VettingSessionManager` | `signal/vetting.rs` | Complete | `excluded_candidates`, `Stalled` variant, all methods, privacy-safe messages |
 | `MemberResolver` | `signal/member_resolver.rs` | Complete | Bidirectional, zeroizing, transient |
 | `/reject-intro` parsing | `signal/pm.rs` | Complete | Parsed and routed to bot handler |
@@ -294,10 +294,13 @@ This is the main bot codebase at `stromarig/crew/matt/`.
   - After finding new validator: resolve via `MemberResolver`, call `assign_assessor()`, send privacy-safe PM, update session status
   - Currently lines 714-725 are all TODOs after the match succeeds
 
-- [ ] **Eliminate `select_validator_with_exclusions()`** in `src/signal/matchmaker.rs`:
-  - Merge its exclusion-list parameter into `select_validator()` (which already accepts `excluded: &HashSet<MemberHash>`)
-  - The Phase 0 approximation method is divergent (no TrustGraph, no DVR) and only creates bugs when called alongside the real version
-  - Remove `are_cross_cluster()` Phase 0 approximation if no longer used after merge
+- [x] **Eliminate `select_validator_with_exclusions()`** in `src/signal/matchmaker.rs`:
+  - ✅ Merged exclusion-list parameter into `select_validator()` (which already accepts `excluded: &HashSet<MemberHash>`)
+  - ✅ Removed Phase 0 approximation method `select_validator_with_exclusions()`
+  - ✅ Removed `are_cross_cluster()` Phase 0 approximation
+  - ✅ Updated `handle_vouch()` to use proper cluster detection from `ClusterResult`
+  - ✅ Updated `handle_reject_intro()` to use `select_validator()` instead of `select_validator_with_exclusions()`
+  - ✅ Removed related tests and benchmarks
 
 - [ ] **Integrate Freenet state stream in `StromaBot::run()`** in `src/signal/bot.rs`:
   - Uncomment and implement the `tokio::select!` block at lines 89-94
@@ -622,7 +625,6 @@ cargo deny check                        # Supply chain security
 | Issue | Priority | Rig | Description |
 |-------|----------|-----|-------------|
 | handle_reject_intro BROKEN | P0 | Stroma | Uses blank state + Phase 0 matcher, never assigns/PMs new validator after re-selection |
-| Divergent matchmaker methods | P0 | Stroma | `select_validator()` (real) and `select_validator_with_exclusions()` (Phase 0 stub) are inconsistent |
 | Freenet state stream | P0 | Stroma | `StromaBot::run()` only polls Signal; Freenet `tokio::select!` is commented out |
 | handle_status stub | P0 | Stroma | Returns hardcoded placeholder, never queries Freenet for real standing data |
 | Duplicate MemberHash | P1 | Stroma | Two independent `MemberHash` types (`freenet::contract` and `stark::types`) with manual byte conversions |
