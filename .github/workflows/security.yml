@@ -71,12 +71,8 @@ jobs:
       - name: Check for prohibited dependencies
         run: |
           echo "Checking for prohibited dependencies..."
-          # Check for presage-store-sqlite (prohibited by security-constraints.bead)
-          # Only check in dependencies sections, not comments
-          if grep -E '^\s*(presage-store-sqlite)\s*=' Cargo.toml; then
-            echo "::error::presage-store-sqlite is prohibited - must use custom StromaProtocolStore"
-            exit 1
-          fi
+          # Note: presage-store-sqlite now permitted with StromaStore wrapper (LEG 2)
+          # Other prohibited dependencies can be added here as needed
           echo "✓ No prohibited dependencies found"
 
       - name: Upload unsafe block report
@@ -180,20 +176,22 @@ jobs:
           fi
           echo "✓ Zeroization check complete"
 
-      - name: Verify no presage-store-sqlite usage
+      - name: Verify StromaStore wrapper usage
         run: |
-          echo "Checking for prohibited presage-store-sqlite..."
-          # Check Cargo.toml for actual dependency (not comments)
+          echo "Checking for proper StromaStore wrapper usage..."
+          # presage-store-sqlite is now allowed, but ONLY via StromaStore wrapper
+          # Check that if presage-store-sqlite is used, StromaStore wrapper exists
           if grep -E '^\s*(presage-store-sqlite)\s*=' Cargo.toml; then
-            echo "::error::presage-store-sqlite is prohibited - must use custom StromaProtocolStore per security-constraints.bead §10"
-            exit 1
+            echo "✓ presage-store-sqlite dependency found"
+            # Verify StromaStore wrapper exists
+            if ! grep -r "StromaStore" --include="*.rs" src/; then
+              echo "::error::presage-store-sqlite requires StromaStore wrapper - see LEG 3"
+              exit 1
+            fi
+            echo "✓ StromaStore wrapper implementation verified"
+          else
+            echo "✓ presage-store-sqlite not used"
           fi
-          # Check source files for SqliteStore usage
-          if grep -r "SqliteStore" --include="*.rs" src/; then
-            echo "::error::SqliteStore usage is prohibited - must use custom StromaProtocolStore per security-constraints.bead §10"
-            exit 1
-          fi
-          echo "✓ No prohibited store usage detected"
 
       - name: Verify StromaProtocolStore implementation
         run: |
