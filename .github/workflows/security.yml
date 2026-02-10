@@ -103,7 +103,7 @@ jobs:
       - name: Install system dependencies
         run: |
           apk add --no-cache musl-dev pkgconfig openssl-dev openssl-libs-static git \
-            clang18-static llvm18-dev
+            clang18-static llvm18-dev protoc
 
       - name: Verify clang-sys dependencies
         run: |

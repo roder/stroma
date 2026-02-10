@@ -10,13 +10,15 @@ FROM rust:1.93-alpine AS builder
 
 # Install musl-dev and required build dependencies
 # clang18-static + llvm18-dev provide libclang.a for wasmer's bindgen dependency
+# protoc is needed for spqr (SparsePostQuantumRatchet) protobuf compilation
 RUN apk add --no-cache \
     musl-dev \
     pkgconfig \
     openssl-dev \
     openssl-libs-static \
     clang18-static \
-    llvm18-dev
+    llvm18-dev \
+    protoc
 
 # Set environment for clang-sys (wasmer -> bindgen -> clang-sys)
 ENV LIBCLANG_STATIC_PATH=/usr/lib/llvm18/lib
