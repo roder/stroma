@@ -2922,7 +2922,7 @@ dependencies = [
 [[package]]
 name = "libsignal-service"
 version = "0.1.0"
-source = "git+https://github.com/roder/libsignal-service-rs?branch=feature%2Fprotocol-v8-polls-rebased#84222b23edee4414b2179bcbdc5356350b3d3bcc"
+source = "git+https://github.com/roder/libsignal-service-rs?branch=main#84222b23edee4414b2179bcbdc5356350b3d3bcc"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -3740,7 +3740,7 @@ dependencies = [
 [[package]]
 name = "presage"
 version = "0.8.0-dev"
-source = "git+https://github.com/roder/presage?branch=feature%2Fprotocol-v8-polls-compatibility#baa17f5efd09fe76a4480b6c19200b0de69e69ed"
+source = "git+https://github.com/roder/presage?branch=main#d8e60223da51f98adea417419900d0043896fe86"
 dependencies = [
  "base64",
  "bytes",
