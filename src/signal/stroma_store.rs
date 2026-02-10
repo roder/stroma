@@ -132,52 +132,50 @@ impl ContentsStore for StromaStore {
     }
 
     // Messages: NO-OP (seizure protection)
-    fn clear_messages(&mut self) -> impl Future<Output = Result<(), Self::ContentsStoreError>> {
-        async { Ok(()) }
+    async fn clear_messages(&mut self) -> Result<(), Self::ContentsStoreError> {
+        Ok(())
     }
 
-    fn clear_thread(
+    async fn clear_thread(
         &mut self,
         _thread: &Thread,
-    ) -> impl Future<Output = Result<(), Self::ContentsStoreError>> {
-        async { Ok(()) }
+    ) -> Result<(), Self::ContentsStoreError> {
+        Ok(())
     }
 
-    fn save_message(
+    async fn save_message(
         &self,
         _thread: &Thread,
         _message: Content,
-    ) -> impl Future<Output = Result<(), Self::ContentsStoreError>> {
-        async { Ok(()) }
+    ) -> Result<(), Self::ContentsStoreError> {
+        Ok(())
     }
 
-    fn delete_message(
+    async fn delete_message(
         &mut self,
         _thread: &Thread,
         _timestamp: u64,
-    ) -> impl Future<Output = Result<bool, Self::ContentsStoreError>> {
-        async { Ok(false) }
+    ) -> Result<bool, Self::ContentsStoreError> {
+        Ok(false)
     }
 
-    fn message(
+    async fn message(
         &self,
         _thread: &Thread,
         _timestamp: u64,
-    ) -> impl Future<Output = Result<Option<Content>, Self::ContentsStoreError>> {
-        async { Ok(None) }
+    ) -> Result<Option<Content>, Self::ContentsStoreError> {
+        Ok(None)
     }
 
-    fn messages(
+    async fn messages(
         &self,
         _thread: &Thread,
         _range: impl RangeBounds<u64>,
-    ) -> impl Future<Output = Result<Self::MessagesIter, Self::ContentsStoreError>> {
-        async {
-            Ok(
-                Box::new(std::iter::empty::<Result<Content, SqliteStoreError>>())
-                    as Box<dyn Iterator<Item = Result<Content, SqliteStoreError>> + Send + Sync>,
-            )
-        }
+    ) -> Result<Self::MessagesIter, Self::ContentsStoreError> {
+        Ok(
+            Box::new(std::iter::empty::<Result<Content, SqliteStoreError>>())
+                as Box<dyn Iterator<Item = Result<Content, SqliteStoreError>> + Send + Sync>,
+        )
     }
 
     // Contacts: Delegate to inner store
@@ -295,38 +293,36 @@ impl ContentsStore for StromaStore {
     }
 
     // Stickers: NO-OP (not used by Stroma)
-    fn add_sticker_pack(
+    async fn add_sticker_pack(
         &mut self,
         _pack: &StickerPack,
-    ) -> impl Future<Output = Result<(), Self::ContentsStoreError>> + Send {
-        async { Ok(()) }
+    ) -> Result<(), Self::ContentsStoreError> {
+        Ok(())
     }
 
-    fn sticker_pack(
+    async fn sticker_pack(
         &self,
         _id: &[u8],
-    ) -> impl Future<Output = Result<Option<StickerPack>, Self::ContentsStoreError>> {
-        async { Ok(None) }
+    ) -> Result<Option<StickerPack>, Self::ContentsStoreError> {
+        Ok(None)
     }
 
-    fn remove_sticker_pack(
+    async fn remove_sticker_pack(
         &mut self,
         _id: &[u8],
-    ) -> impl Future<Output = Result<bool, Self::ContentsStoreError>> {
-        async { Ok(false) }
+    ) -> Result<bool, Self::ContentsStoreError> {
+        Ok(false)
     }
 
-    fn sticker_packs(
+    async fn sticker_packs(
         &self,
-    ) -> impl Future<Output = Result<Self::StickerPacksIter, Self::ContentsStoreError>> {
-        async {
-            Ok(
-                Box::new(std::iter::empty::<Result<StickerPack, SqliteStoreError>>())
-                    as Box<
-                        dyn Iterator<Item = Result<StickerPack, SqliteStoreError>> + Send + Sync,
-                    >,
-            )
-        }
+    ) -> Result<Self::StickerPacksIter, Self::ContentsStoreError> {
+        Ok(
+            Box::new(std::iter::empty::<Result<StickerPack, SqliteStoreError>>())
+                as Box<
+                    dyn Iterator<Item = Result<StickerPack, SqliteStoreError>> + Send + Sync,
+                >,
+        )
     }
 }
 
