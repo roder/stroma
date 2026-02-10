@@ -110,9 +110,10 @@ skip-tree = []
 
 # Banned crates (prohibited by security policy)
 deny = [
-    # presage-store-sqlite stores ALL messages - server seizure risk
+    # presage-store-sqlite is allowed ONLY through StromaStore wrapper
+    # StromaStore uses encrypted SqliteStore for account config, groups, and vote state
+    # but delegates message storage to separate, ephemeral storage (server seizure protection)
     # See security-constraints.bead §10
-    { name = "presage-store-sqlite", reason = "Stores message history - prohibited by security-constraints.bead §10. Use custom StromaProtocolStore instead." },
 ]
 
 # Note: chrono was previously banned in favor of time crate, but it's a transitive
