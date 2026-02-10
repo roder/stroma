@@ -78,20 +78,89 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     /// Receives Signal messages and processes commands.
     /// In production, also monitors Freenet state changes.
     pub async fn run(&mut self) -> SignalResult<()> {
-        loop {
-            // Receive messages from Signal
-            let messages = self.client.receive_messages().await?;
+        use futures::StreamExt;
 
-            for message in messages {
-                self.handle_message(message).await?;
+        // Subscribe to Freenet state stream if contract configured
+        let mut freenet_stream = if let Some(contract) = &self.config.contract_hash {
+            Some(self.freenet.subscribe(contract).await.map_err(|e| {
+                SignalError::Protocol(format!("Failed to subscribe to Freenet: {}", e))
+            })?)
+        } else {
+            None
+        };
+
+        // Polling interval for Signal messages
+        let mut signal_interval = tokio::time::interval(tokio::time::Duration::from_millis(100));
+
+        loop {
+            tokio::select! {
+                _ = signal_interval.tick() => {
+                    // Receive messages from Signal
+                    let messages = self.client.receive_messages().await?;
+
+                    for message in messages {
+                        self.handle_message(message).await?;
+                    }
+                }
+                Some(change) = async {
+                    match freenet_stream.as_mut() {
+                        Some(stream) => stream.next().await,
+                        None => futures::future::pending().await,
+                    }
+                } => {
+                    // Handle Freenet state change
+                    self.handle_freenet_state_change(change).await?;
+                }
+            }
+        }
+    }
+
+    /// Handle Freenet state change from subscription stream
+    ///
+    /// Processes raw state changes from Freenet and detects:
+    /// - Expired proposals that need to be checked
+    /// - Membership changes (future: admission/ejection events)
+    async fn handle_freenet_state_change(
+        &mut self,
+        change: crate::freenet::traits::StateChange,
+    ) -> SignalResult<()> {
+        use crate::serialization::from_cbor;
+
+        // Deserialize the new state
+        let state: crate::freenet::trust_contract::TrustNetworkState =
+            from_cbor(&change.new_state.data).map_err(|e| {
+                SignalError::Protocol(format!("Failed to deserialize Freenet state: {}", e))
+            })?;
+
+        // Check for expired proposals
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        for (poll_id, proposal) in &state.active_proposals {
+            // Skip if already checked
+            if proposal.checked {
+                continue;
             }
 
-            // TODO: Also monitor Freenet state changes
-            // tokio::select! {
-            //     Some(msg) = signal_stream.next() => self.handle_message(msg).await?,
-            //     Some(change) = freenet_stream.next() => self.handle_state_change(change).await?,
-            // }
+            // Check if proposal has expired
+            if current_time >= proposal.expires_at {
+                // Get poll timestamp from poll_manager
+                let poll_timestamp = proposal.expires_at;
+
+                // Create ProposalExpired event
+                let state_change = StateChange::ProposalExpired {
+                    poll_id: *poll_id,
+                    poll_timestamp,
+                };
+
+                // Handle the expiration
+                self.handle_state_change(state_change, &state).await?;
+            }
         }
+
+        Ok(())
     }
 
     /// Handle incoming message
