@@ -579,9 +579,7 @@ async fn handle_status<F: crate::freenet::FreenetClient>(
     username: Option<&str>,
 ) -> SignalResult<()> {
     use crate::freenet::{
-        contract::MemberHash,
-        traits::FreenetError,
-        trust_contract::TrustNetworkState,
+        contract::MemberHash, traits::FreenetError, trust_contract::TrustNetworkState,
     };
     use crate::serialization::from_cbor;
 
@@ -660,10 +658,8 @@ async fn handle_status<F: crate::freenet::FreenetClient>(
         .unwrap_or_default();
 
     // voucher_flaggers: flaggers who also vouched for sender
-    let voucher_flaggers: std::collections::HashSet<_> = all_flaggers
-        .intersection(&all_vouchers)
-        .copied()
-        .collect();
+    let voucher_flaggers: std::collections::HashSet<_> =
+        all_flaggers.intersection(&all_vouchers).copied().collect();
 
     // 4. Calculate: effective_vouches = |all_vouchers| - |voucher_flaggers|
     let effective_vouches = all_vouchers.len() - voucher_flaggers.len();
