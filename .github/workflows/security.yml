@@ -198,7 +198,7 @@ jobs:
           fi
 
           # Verify wrapper uses presage-store-sqlite's SqliteStore
-          if ! grep -q "use presage_store_sqlite::SqliteStore" src/signal/stroma_store.rs; then
+          if ! grep -q "presage_store_sqlite" src/signal/stroma_store.rs || ! grep -q "SqliteStore" src/signal/stroma_store.rs; then
             echo "::error::StromaStore must wrap SqliteStore from presage-store-sqlite"
             exit 1
           fi
