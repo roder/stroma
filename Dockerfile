@@ -18,8 +18,9 @@ RUN apk add --no-cache \
     clang18-static \
     llvm18-dev
 
-# Set LIBCLANG_STATIC_PATH for clang-sys (wasmer -> bindgen -> clang-sys)
+# Set environment for clang-sys (wasmer -> bindgen -> clang-sys)
 ENV LIBCLANG_STATIC_PATH=/usr/lib/llvm18/lib
+ENV LLVM_CONFIG_PATH=/usr/lib/llvm18/bin/llvm-config
 
 # Create non-root user for build process
 RUN addgroup -g 1000 builder && \

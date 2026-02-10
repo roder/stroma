@@ -110,7 +110,9 @@ jobs:
           echo "=== Checking libclang.a location ==="
           apk info -L clang18-static 2>/dev/null | grep libclang || echo "Not in clang18-static package info"
           ls -la /usr/lib/llvm18/lib/libclang* 2>/dev/null || echo "Not at /usr/lib/llvm18/lib"
-          find /usr -name 'libclang.a' 2>/dev/null || echo "libclang.a not found under /usr"
+          echo "=== Checking llvm-config ==="
+          ls -la /usr/lib/llvm18/bin/llvm-config 2>/dev/null || echo "llvm-config not at /usr/lib/llvm18/bin"
+          /usr/lib/llvm18/bin/llvm-config --version 2>/dev/null || echo "llvm-config not working"
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -118,6 +120,7 @@ jobs:
       - name: Build release binary (musl)
         env:
           LIBCLANG_STATIC_PATH: /usr/lib/llvm18/lib
+          LLVM_CONFIG_PATH: /usr/lib/llvm18/bin/llvm-config
         run: cargo build --release --target x86_64-unknown-linux-musl --bin stroma
 
       - name: Measure binary size
