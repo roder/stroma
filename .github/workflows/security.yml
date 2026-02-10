@@ -97,29 +97,33 @@ jobs:
   binary-size:
     name: Binary Size Monitor
     runs-on: ubuntu-latest
+    container:
+      image: rust:1.93-alpine
     steps:
+      - name: Install system dependencies
+        run: |
+          apk add --no-cache musl-dev pkgconfig openssl-dev openssl-libs-static git \
+            clang18-static llvm18-dev
+
+      - name: Verify clang-sys dependencies
+        run: |
+          echo "=== Checking libclang.a location ==="
+          apk info -L clang18-static 2>/dev/null | grep libclang || echo "Not in clang18-static package info"
+          ls -la /usr/lib/llvm18/lib/libclang* 2>/dev/null || echo "Not at /usr/lib/llvm18/lib"
+          find /usr -name 'libclang.a' 2>/dev/null || echo "libclang.a not found under /usr"
+
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Rust toolchain
-        uses: ./.github/actions/rust-setup
-        with:
-          toolchain: stable
-          cache-key: security-binary-size
-
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler libssl-dev pkg-config
-
-      # NOTE: Using native gnu target for size trend monitoring.
-      # musl static build (for Docker/releases) blocked by clang-sys requiring
-      # libclang.a -- tracked separately. Size trends are target-independent.
-      - name: Build release binary
-        run: cargo build --release --bin stroma
+      - name: Build release binary (musl)
+        env:
+          LIBCLANG_STATIC_PATH: /usr/lib/llvm18/lib
+        run: cargo build --release --target x86_64-unknown-linux-musl --bin stroma
 
       - name: Measure binary size
         id: size-check
         run: |
-          BINARY_SIZE=$(stat -c%s "target/release/stroma" || echo "0")
+          BINARY_SIZE=$(stat -c%s "target/x86_64-unknown-linux-musl/release/stroma" || echo "0")
           echo "binary_size=$BINARY_SIZE" >> $GITHUB_OUTPUT
           echo "Binary size: $(numfmt --to=iec-i --suffix=B $BINARY_SIZE)"
 

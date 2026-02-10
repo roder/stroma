@@ -9,11 +9,17 @@
 FROM rust:1.93-alpine AS builder
 
 # Install musl-dev and required build dependencies
+# clang18-static + llvm18-dev provide libclang.a for wasmer's bindgen dependency
 RUN apk add --no-cache \
     musl-dev \
     pkgconfig \
     openssl-dev \
-    openssl-libs-static
+    openssl-libs-static \
+    clang18-static \
+    llvm18-dev
+
+# Set LIBCLANG_STATIC_PATH for clang-sys (wasmer -> bindgen -> clang-sys)
+ENV LIBCLANG_STATIC_PATH=/usr/lib/llvm18/lib
 
 # Create non-root user for build process
 RUN addgroup -g 1000 builder && \
