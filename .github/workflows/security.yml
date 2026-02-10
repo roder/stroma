@@ -101,12 +101,17 @@ jobs:
       image: rust:1.93-alpine
     steps:
       - name: Install system dependencies
-        run: apk add --no-cache musl-dev pkgconfig openssl-dev openssl-libs-static protobuf-dev git
+        run: |
+          apk add --no-cache musl-dev pkgconfig openssl-dev openssl-libs-static git \
+            clang18-static llvm18-dev protoc
 
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Build release binary (musl)
+        env:
+          LIBCLANG_STATIC_PATH: /usr/lib/llvm18/lib
+          LLVM_CONFIG_PATH: /usr/lib/llvm18/bin/llvm-config
         run: cargo build --release --target x86_64-unknown-linux-musl --bin stroma
 
       - name: Measure binary size
@@ -116,6 +121,7 @@ jobs:
           echo "binary_size=$BINARY_SIZE" >> $GITHUB_OUTPUT
           echo "Binary size: $(numfmt --to=iec-i --suffix=B $BINARY_SIZE)"
 
+          # Store baseline (if first run)
           mkdir -p .github/metrics
           if [ ! -f .github/metrics/binary-baseline.txt ]; then
             echo "$BINARY_SIZE" > .github/metrics/binary-baseline.txt
