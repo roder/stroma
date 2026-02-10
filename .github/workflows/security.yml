@@ -105,15 +105,6 @@ jobs:
           apk add --no-cache musl-dev pkgconfig openssl-dev openssl-libs-static git \
             clang18-static llvm18-dev protoc
 
-      - name: Verify clang-sys dependencies
-        run: |
-          echo "=== Checking libclang.a location ==="
-          apk info -L clang18-static 2>/dev/null | grep libclang || echo "Not in clang18-static package info"
-          ls -la /usr/lib/llvm18/lib/libclang* 2>/dev/null || echo "Not at /usr/lib/llvm18/lib"
-          echo "=== Checking llvm-config ==="
-          ls -la /usr/lib/llvm18/bin/llvm-config 2>/dev/null || echo "llvm-config not at /usr/lib/llvm18/bin"
-          /usr/lib/llvm18/bin/llvm-config --version 2>/dev/null || echo "llvm-config not working"
-
       - name: Checkout code
         uses: actions/checkout@v4
 
