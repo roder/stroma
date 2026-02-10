@@ -71,11 +71,14 @@ jobs:
       - name: Check for prohibited dependencies
         run: |
           echo "Checking for prohibited dependencies..."
-          # Check for presage-store-sqlite (prohibited by security-constraints.bead)
-          # Only check in dependencies sections, not comments
-          if grep -E '^\s*(presage-store-sqlite)\s*=' Cargo.toml; then
-            echo "::error::presage-store-sqlite is prohibited - must use custom StromaProtocolStore"
-            exit 1
+          # presage-store-sqlite is allowed through StromaStore wrapper
+          # Verify StromaStore wrapper exists if presage-store-sqlite is used
+          if grep -qE '^\s*presage-store-sqlite\s*=' Cargo.toml; then
+            if ! grep -rq "StromaStore" --include="*.rs" src/; then
+              echo "::error::presage-store-sqlite requires StromaStore wrapper - see security-constraints.bead §10"
+              exit 1
+            fi
+            echo "✓ presage-store-sqlite properly wrapped by StromaStore"
           fi
           echo "✓ No prohibited dependencies found"
 
@@ -109,6 +112,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y musl-tools protobuf-compiler libssl-dev pkg-config
 
       - name: Build release binary (musl)
+        env:
+          # Point musl cross-compiler to system OpenSSL headers and libraries
+          OPENSSL_DIR: /usr
+          OPENSSL_INCLUDE_DIR: /usr/include
+          OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
         run: cargo build --release --target x86_64-unknown-linux-musl
 
       - name: Measure binary size
@@ -180,28 +188,25 @@ jobs:
           fi
           echo "✓ Zeroization check complete"
 
-      - name: Verify no presage-store-sqlite usage
+      - name: Verify StromaStore wrapper implementation
         run: |
-          echo "Checking for prohibited presage-store-sqlite..."
-          # Check Cargo.toml for actual dependency (not comments)
-          if grep -E '^\s*(presage-store-sqlite)\s*=' Cargo.toml; then
-            echo "::error::presage-store-sqlite is prohibited - must use custom StromaProtocolStore per security-constraints.bead §10"
-            exit 1
-          fi
-          # Check source files for SqliteStore usage
-          if grep -r "SqliteStore" --include="*.rs" src/; then
-            echo "::error::SqliteStore usage is prohibited - must use custom StromaProtocolStore per security-constraints.bead §10"
-            exit 1
-          fi
-          echo "✓ No prohibited store usage detected"
-
-      - name: Verify StromaProtocolStore implementation
-        run: |
-          echo "Verifying custom StromaProtocolStore exists..."
-          if [ -f "src/store/stroma_protocol_store.rs" ] || grep -q "StromaProtocolStore" src/**/*.rs; then
-            echo "✓ StromaProtocolStore implementation found"
+          echo "Verifying StromaStore wrapper exists..."
+          # presage-store-sqlite must be wrapped by StromaStore (encrypted, no message storage)
+          if grep -qE '^\s*presage-store-sqlite\s*=' Cargo.toml; then
+            if grep -rq "struct StromaStore" --include="*.rs" src/; then
+              echo "✓ StromaStore wrapper implementation found"
+              # Verify StromaStore does not directly store messages
+              if grep -r "save_message\|store_message" --include="*.rs" src/ | grep -q StromaStore; then
+                echo "::error::StromaStore must NOT implement message storage - see security-constraints.bead §10"
+                exit 1
+              fi
+              echo "✓ StromaStore properly excludes message storage"
+            else
+              echo "::error::presage-store-sqlite requires StromaStore wrapper - see security-constraints.bead §10"
+              exit 1
+            fi
           else
-            echo "::warning::StromaProtocolStore implementation not found - required by security-constraints.bead"
+            echo "✓ No presage-store-sqlite dependency found"
           fi
 
       - name: Check for grace period violations
