@@ -795,9 +795,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                     .client
                     .send_message(
                         &inviter_id,
-                        &format!(
-                            "❌ Cannot re-select assessor: network not initialized (bootstrap phase)."
-                        ),
+                        "❌ Cannot re-select assessor: network not initialized (bootstrap phase).",
                     )
                     .await;
             }
@@ -870,7 +868,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                         previous_flag_count,
                     );
                     self.client
-                        .send_message(&validator_id, &assessment_msg)
+                        .send_message(validator_id, &assessment_msg)
                         .await?;
 
                     // Notify inviter that re-matching succeeded
