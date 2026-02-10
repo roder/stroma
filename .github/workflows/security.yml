@@ -97,27 +97,17 @@ jobs:
   binary-size:
     name: Binary Size Monitor
     runs-on: ubuntu-latest
+    container:
+      image: rust:1.93-alpine
     steps:
+      - name: Install system dependencies
+        run: apk add --no-cache musl-dev pkgconfig openssl-dev openssl-libs-static protobuf-dev git
+
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Rust toolchain
-        uses: ./.github/actions/rust-setup
-        with:
-          toolchain: stable
-          targets: x86_64-unknown-linux-musl
-          cache-key: security-binary-size
-
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y musl-tools protobuf-compiler libssl-dev pkg-config
-
       - name: Build release binary (musl)
-        env:
-          # Use static linking for OpenSSL to avoid glibc/musl header conflicts
-          OPENSSL_STATIC: "1"
-          OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
-          PKG_CONFIG_ALLOW_CROSS: "1"
-        run: cargo build --release --target x86_64-unknown-linux-musl
+        run: cargo build --release --target x86_64-unknown-linux-musl --bin stroma
 
       - name: Measure binary size
         id: size-check
@@ -126,7 +116,6 @@ jobs:
           echo "binary_size=$BINARY_SIZE" >> $GITHUB_OUTPUT
           echo "Binary size: $(numfmt --to=iec-i --suffix=B $BINARY_SIZE)"
 
-          # Store baseline (if first run)
           mkdir -p .github/metrics
           if [ ! -f .github/metrics/binary-baseline.txt ]; then
             echo "$BINARY_SIZE" > .github/metrics/binary-baseline.txt
@@ -140,7 +129,6 @@ jobs:
             echo "Current: $(numfmt --to=iec-i --suffix=B $BINARY_SIZE)"
             echo "Change: $(numfmt --to=iec-i --suffix=B $INCREASE) ($PERCENT%)"
 
-            # Fail if increase exceeds 10% or 1MB
             if [ "$INCREASE" -gt 1048576 ] || (( $(echo "$PERCENT > 10" | bc -l) )); then
               echo "::error::Binary size increased by $(numfmt --to=iec-i --suffix=B $INCREASE) ($PERCENT%) - exceeds threshold"
               exit 1
@@ -155,7 +143,6 @@ jobs:
           path: |
             .github/metrics/
           retention-days: 30
-
   # ============================================================================
   # Job 4: Security Constraints Verification
   # ============================================================================
