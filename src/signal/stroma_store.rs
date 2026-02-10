@@ -136,10 +136,7 @@ impl ContentsStore for StromaStore {
         Ok(())
     }
 
-    async fn clear_thread(
-        &mut self,
-        _thread: &Thread,
-    ) -> Result<(), Self::ContentsStoreError> {
+    async fn clear_thread(&mut self, _thread: &Thread) -> Result<(), Self::ContentsStoreError> {
         Ok(())
     }
 
@@ -307,21 +304,14 @@ impl ContentsStore for StromaStore {
         Ok(None)
     }
 
-    async fn remove_sticker_pack(
-        &mut self,
-        _id: &[u8],
-    ) -> Result<bool, Self::ContentsStoreError> {
+    async fn remove_sticker_pack(&mut self, _id: &[u8]) -> Result<bool, Self::ContentsStoreError> {
         Ok(false)
     }
 
-    async fn sticker_packs(
-        &self,
-    ) -> Result<Self::StickerPacksIter, Self::ContentsStoreError> {
+    async fn sticker_packs(&self) -> Result<Self::StickerPacksIter, Self::ContentsStoreError> {
         Ok(
             Box::new(std::iter::empty::<Result<StickerPack, SqliteStoreError>>())
-                as Box<
-                    dyn Iterator<Item = Result<StickerPack, SqliteStoreError>> + Send + Sync,
-                >,
+                as Box<dyn Iterator<Item = Result<StickerPack, SqliteStoreError>> + Send + Sync>,
         )
     }
 }
