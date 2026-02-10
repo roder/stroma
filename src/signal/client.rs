@@ -9,8 +9,8 @@
 use super::stroma_store::StromaStore;
 use super::traits::*;
 use async_trait::async_trait;
-use presage::Manager;
 use presage::manager::Registered;
+use presage::Manager;
 
 /// Production Signal client implementation
 ///

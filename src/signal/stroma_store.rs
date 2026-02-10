@@ -7,11 +7,9 @@
 //!
 //! See: .beads/signal-integration.bead, .beads/security-constraints.bead § 10
 
-use std::ops::RangeBounds;
 use std::future::Future;
+use std::ops::RangeBounds;
 
-use presage::store::{ContentsStore, StateStore, Store, Thread, StickerPack};
-use presage::model::{contacts::Contact, groups::Group};
 use presage::libsignal_service::{
     prelude::{Content, ProfileKey, Uuid},
     protocol::{IdentityKeyPair, SenderCertificate, ServiceId},
@@ -19,10 +17,14 @@ use presage::libsignal_service::{
     Profile,
 };
 use presage::manager::RegistrationData;
+use presage::model::{contacts::Contact, groups::Group};
+use presage::store::{ContentsStore, StateStore, StickerPack, Store, Thread};
 use presage::AvatarBytes;
 
 // Re-export SqliteStore types
-pub use presage_store_sqlite::{SqliteStore, SqliteStoreError, SqliteConnectOptions, OnNewIdentity};
+pub use presage_store_sqlite::{
+    OnNewIdentity, SqliteConnectOptions, SqliteStore, SqliteStoreError,
+};
 
 /// Stroma wrapper around SqliteStore
 ///
@@ -48,7 +50,8 @@ impl StromaStore {
         passphrase: Option<&str>,
         trust_new_identities: OnNewIdentity,
     ) -> Result<Self, SqliteStoreError> {
-        let inner = SqliteStore::open_with_passphrase(path, passphrase, trust_new_identities).await?;
+        let inner =
+            SqliteStore::open_with_passphrase(path, passphrase, trust_new_identities).await?;
         Ok(Self { inner })
     }
 
@@ -117,7 +120,8 @@ impl ContentsStore for StromaStore {
     type ContactsIter = <SqliteStore as ContentsStore>::ContactsIter;
     type GroupsIter = <SqliteStore as ContentsStore>::GroupsIter;
     type MessagesIter = Box<dyn Iterator<Item = Result<Content, SqliteStoreError>> + Send + Sync>;
-    type StickerPacksIter = Box<dyn Iterator<Item = Result<StickerPack, SqliteStoreError>> + Send + Sync>;
+    type StickerPacksIter =
+        Box<dyn Iterator<Item = Result<StickerPack, SqliteStoreError>> + Send + Sync>;
 
     fn clear_profiles(&mut self) -> impl Future<Output = Result<(), Self::ContentsStoreError>> {
         self.inner.clear_profiles()
@@ -169,8 +173,10 @@ impl ContentsStore for StromaStore {
         _range: impl RangeBounds<u64>,
     ) -> impl Future<Output = Result<Self::MessagesIter, Self::ContentsStoreError>> {
         async {
-            Ok(Box::new(std::iter::empty::<Result<Content, SqliteStoreError>>())
-                as Box<dyn Iterator<Item = Result<Content, SqliteStoreError>> + Send + Sync>)
+            Ok(
+                Box::new(std::iter::empty::<Result<Content, SqliteStoreError>>())
+                    as Box<dyn Iterator<Item = Result<Content, SqliteStoreError>> + Send + Sync>,
+            )
         }
     }
 
@@ -186,7 +192,9 @@ impl ContentsStore for StromaStore {
         self.inner.save_contact(contact)
     }
 
-    fn contacts(&self) -> impl Future<Output = Result<Self::ContactsIter, Self::ContentsStoreError>> {
+    fn contacts(
+        &self,
+    ) -> impl Future<Output = Result<Self::ContactsIter, Self::ContentsStoreError>> {
         self.inner.contacts()
     }
 
@@ -312,8 +320,12 @@ impl ContentsStore for StromaStore {
         &self,
     ) -> impl Future<Output = Result<Self::StickerPacksIter, Self::ContentsStoreError>> {
         async {
-            Ok(Box::new(std::iter::empty::<Result<StickerPack, SqliteStoreError>>())
-                as Box<dyn Iterator<Item = Result<StickerPack, SqliteStoreError>> + Send + Sync>)
+            Ok(
+                Box::new(std::iter::empty::<Result<StickerPack, SqliteStoreError>>())
+                    as Box<
+                        dyn Iterator<Item = Result<StickerPack, SqliteStoreError>> + Send + Sync,
+                    >,
+            )
         }
     }
 }
