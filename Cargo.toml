@@ -23,7 +23,7 @@ freenet-stdlib = { version = "=0.1.30", features = ["contract", "net"] }
 # Signal integration (uses forked libsignal-service-rs with poll support)
 # ❌ DO NOT USE: presage-store-sqlite (stores ALL messages - server seizure risk!)
 # See: .beads/security-constraints.bead § 10, .cursor/rules/security-guardrails.mdc
-presage = { git = "https://github.com/roder/presage", branch = "feature/protocol-v8-polls-compatibility" }
+presage = { git = "https://github.com/roder/presage", branch = "main" }
 
 # Async runtime and serialization
 tokio = { version = "1", features = ["full"] }
@@ -97,7 +97,7 @@ harness = false
 # Branch rebased on post-websocket-migration libsignal (commit 498c03d)
 # See: .beads/poll-implementation-gastown.bead
 [patch."https://github.com/whisperfish/libsignal-service-rs"]
-libsignal-service = { git = "https://github.com/roder/libsignal-service-rs", branch = "feature/protocol-v8-polls-rebased" }
+libsignal-service = { git = "https://github.com/roder/libsignal-service-rs", branch = "main" }
 
 # Required per libsignal-service-rs README: patch curve25519-dalek to use Signal's fork
 # This resolves the version conflict between crates.io and Signal's forked version
