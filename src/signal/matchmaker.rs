@@ -104,7 +104,6 @@ impl BlindMatchmaker {
             .find(|member| *member != inviter)
             .copied()
     }
-
 }
 
 #[cfg(test)]
@@ -203,5 +202,4 @@ mod tests {
         let assessor = BlindMatchmaker::select_validator(&state, &alice, &excluded);
         assert!(assessor.is_none());
     }
-
 }

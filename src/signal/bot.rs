@@ -788,8 +788,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         let state = crate::freenet::trust_contract::TrustNetworkState::new();
 
         // Re-run BlindMatchmaker with exclusion list
-        let new_validator =
-            BlindMatchmaker::select_validator(&state, &inviter_hash, &excluded_set);
+        let new_validator = BlindMatchmaker::select_validator(&state, &inviter_hash, &excluded_set);
 
         if let Some(_validator_hash) = new_validator {
             // TODO Phase 1: Resolve validator hash to ServiceId
