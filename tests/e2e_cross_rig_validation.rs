@@ -104,11 +104,7 @@ impl SignalClient for MockSignalClient {
         Ok(())
     }
 
-    async fn remove_group_member(
-        &self,
-        _group: &GroupId,
-        _member: &ServiceId,
-    ) -> SignalResult<()> {
+    async fn remove_group_member(&self, _group: &GroupId, _member: &ServiceId) -> SignalResult<()> {
         Ok(())
     }
 
@@ -171,9 +167,8 @@ async fn test_e2e_cross_rig_validation() {
     let group_id = GroupId(b"test-group-12345".to_vec());
 
     // Create PollManager with mock client (no store for this test)
-    let mut poll_manager =
-        PollManager::new(mock_client.clone(), group_id.clone(), &aci_key, None)
-            .expect("Failed to create PollManager");
+    let mut poll_manager = PollManager::new(mock_client.clone(), group_id.clone(), &aci_key, None)
+        .expect("Failed to create PollManager");
 
     // === PHASE 4: Create Poll ===
 
@@ -315,13 +310,11 @@ async fn test_prop_hmac_voter_masking_deterministic() {
     let mock_client = MockSignalClient::new();
     let group_id = GroupId(b"test-group".to_vec());
 
-    let mut poll_manager1 =
-        PollManager::new(mock_client.clone(), group_id.clone(), &aci_key, None)
-            .expect("Failed to create PollManager");
+    let mut poll_manager1 = PollManager::new(mock_client.clone(), group_id.clone(), &aci_key, None)
+        .expect("Failed to create PollManager");
 
-    let mut poll_manager2 =
-        PollManager::new(mock_client.clone(), group_id.clone(), &aci_key, None)
-            .expect("Failed to create PollManager");
+    let mut poll_manager2 = PollManager::new(mock_client.clone(), group_id.clone(), &aci_key, None)
+        .expect("Failed to create PollManager");
 
     let proposal = PollProposal {
         proposal_type: ProposalType::Other {
@@ -334,7 +327,11 @@ async fn test_prop_hmac_voter_masking_deterministic() {
     };
 
     let poll_id1 = poll_manager1
-        .create_proposal_poll(proposal.clone(), "Test?".to_string(), vec!["Yes".to_string()])
+        .create_proposal_poll(
+            proposal.clone(),
+            "Test?".to_string(),
+            vec!["Yes".to_string()],
+        )
         .await
         .expect("Failed to create poll");
 
