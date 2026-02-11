@@ -351,13 +351,14 @@ mod tests {
         });
 
         // Wait for state change event
-        let timeout = tokio::time::timeout(
-            tokio::time::Duration::from_secs(2),
-            stream.next()
-        ).await;
+        let timeout =
+            tokio::time::timeout(tokio::time::Duration::from_secs(2), stream.next()).await;
 
         // Should receive state change notification (not timeout on empty stream)
-        assert!(timeout.is_ok(), "Stream should emit state changes, not be empty");
+        assert!(
+            timeout.is_ok(),
+            "Stream should emit state changes, not be empty"
+        );
         let change = timeout.unwrap();
         assert!(change.is_some(), "Should receive state change event");
 
@@ -394,10 +395,8 @@ mod tests {
         // Collect state change events
         let mut events = vec![];
         for _ in 0..3 {
-            let timeout = tokio::time::timeout(
-                tokio::time::Duration::from_secs(1),
-                stream.next()
-            ).await;
+            let timeout =
+                tokio::time::timeout(tokio::time::Duration::from_secs(1), stream.next()).await;
 
             if let Ok(Some(change)) = timeout {
                 events.push(change);
@@ -405,7 +404,11 @@ mod tests {
         }
 
         // Should receive all 3 state change events
-        assert_eq!(events.len(), 3, "Should receive one event per delta application");
+        assert_eq!(
+            events.len(),
+            3,
+            "Should receive one event per delta application"
+        );
 
         // TODO: Wire to real Freenet state stream
         // Expected: Implement real-time state change notifications using Freenet Executor
