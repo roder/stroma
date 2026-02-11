@@ -1757,8 +1757,12 @@ mod tests {
         // Verify session was updated
         let session = bot.vetting_sessions.get_session(invitee_username).unwrap();
         assert_eq!(session.excluded_candidates.len(), 1);
-        // Status is Rejected because no assessors are available (empty state)
-        assert_eq!(session.status, VettingStatus::Rejected);
+        // Status remains PendingMatch because:
+        // 1. contract_hash is None (bootstrap phase), so re-matching can't be attempted
+        // 2. Session stays alive so invitee can be matched when network initializes
+        // 3. /reject-intro means "I can't assess" not "invitee is unsuitable"
+        //    (assessors should use /flag if invitee is a threat)
+        assert_eq!(session.status, VettingStatus::PendingMatch);
         assert!(session.assessor.is_none());
     }
 
