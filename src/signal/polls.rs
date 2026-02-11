@@ -303,21 +303,22 @@ impl<C: SignalClient> PollManager<C> {
     /// Persist poll state to encrypted store.
     ///
     /// Saves vote aggregates and voter dedup map to SQLCipher database.
-    pub async fn persist_poll_state(
-        &self,
-        poll_id: u64,
-        store: &StromaStore,
-    ) -> SignalResult<()> {
+    pub async fn persist_poll_state(&self, poll_id: u64, store: &StromaStore) -> SignalResult<()> {
         // Get aggregate for this poll
         let aggregate = self.vote_aggregates.get(&poll_id).ok_or_else(|| {
             SignalError::InvalidMessage(format!("No aggregate for poll {}", poll_id))
         })?;
 
         // Serialize aggregate as simple bytes (approve:reject:total_members)
-        let data = format!("{}:{}:{}", aggregate.approve, aggregate.reject, aggregate.total_members);
+        let data = format!(
+            "{}:{}:{}",
+            aggregate.approve, aggregate.reject, aggregate.total_members
+        );
         let key = format!("poll_state_{}", poll_id);
 
-        store.store_data(&key, data.as_bytes()).await
+        store
+            .store_data(&key, data.as_bytes())
+            .await
             .map_err(|e| SignalError::Store(format!("Failed to persist poll state: {}", e)))?;
 
         Ok(())
@@ -333,32 +334,43 @@ impl<C: SignalClient> PollManager<C> {
     ) -> SignalResult<()> {
         let key = format!("poll_state_{}", poll_id);
 
-        let data = store.retrieve_data(&key).await
+        let data = store
+            .retrieve_data(&key)
+            .await
             .map_err(|e| SignalError::Store(format!("Failed to restore poll state: {}", e)))?;
 
         if let Some(bytes) = data {
             // Deserialize: "approve:reject:total_members"
-            let s = String::from_utf8(bytes)
-                .map_err(|e| SignalError::InvalidMessage(format!("Invalid poll state data: {}", e)))?;
+            let s = String::from_utf8(bytes).map_err(|e| {
+                SignalError::InvalidMessage(format!("Invalid poll state data: {}", e))
+            })?;
 
             let parts: Vec<&str> = s.split(':').collect();
             if parts.len() != 3 {
-                return Err(SignalError::InvalidMessage("Invalid poll state format".to_string()));
+                return Err(SignalError::InvalidMessage(
+                    "Invalid poll state format".to_string(),
+                ));
             }
 
-            let approve = parts[0].parse::<u32>()
-                .map_err(|e| SignalError::InvalidMessage(format!("Invalid approve count: {}", e)))?;
-            let reject = parts[1].parse::<u32>()
+            let approve = parts[0].parse::<u32>().map_err(|e| {
+                SignalError::InvalidMessage(format!("Invalid approve count: {}", e))
+            })?;
+            let reject = parts[1]
+                .parse::<u32>()
                 .map_err(|e| SignalError::InvalidMessage(format!("Invalid reject count: {}", e)))?;
-            let total_members = parts[2].parse::<u32>()
-                .map_err(|e| SignalError::InvalidMessage(format!("Invalid total_members: {}", e)))?;
+            let total_members = parts[2].parse::<u32>().map_err(|e| {
+                SignalError::InvalidMessage(format!("Invalid total_members: {}", e))
+            })?;
 
             // Restore aggregate
-            self.vote_aggregates.insert(poll_id, VoteAggregate {
-                approve,
-                reject,
-                total_members,
-            });
+            self.vote_aggregates.insert(
+                poll_id,
+                VoteAggregate {
+                    approve,
+                    reject,
+                    total_members,
+                },
+            );
         }
 
         Ok(())
@@ -778,7 +790,10 @@ mod tests {
             .unwrap();
 
         // Finalize poll outcome
-        manager.finalize_poll_outcome(poll_id, &store).await.unwrap();
+        manager
+            .finalize_poll_outcome(poll_id, &store)
+            .await
+            .unwrap();
 
         // Verify dedup map is zeroized
         // (Implementation detail: check that internal dedup map for this poll is gone)
@@ -821,7 +836,6 @@ mod tests {
 
         // Verify: cleartext voter ID should NEVER appear in the database
         // This is a conceptual test - in practice we'd inspect the DB or use property tests
-        // For now, just ensure persistence succeeds without panic
-        assert!(true);
+        // Test passes if persistence succeeds without panic
     }
 }
