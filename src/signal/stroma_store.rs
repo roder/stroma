@@ -410,7 +410,7 @@ mod tests {
             ServiceId::parse_from_service_id_string("00000000-0000-0000-0000-000000000000")
                 .unwrap();
         let metadata = Metadata {
-            sender: service_id.clone(),
+            sender: service_id,
             destination: service_id,
             sender_device: *DEFAULT_DEVICE_ID,
             timestamp: 123456,
