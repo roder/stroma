@@ -40,7 +40,7 @@ impl LinkingConfig {
 /// Returns when linking is complete and bot receives ACI/PNI identity.
 pub async fn link_secondary_device(_config: LinkingConfig) -> SignalResult<()> {
     // TODO: Implement Presage device linking
-    // 1. Create StromaProtocolStore
+    // 1. Create StromaStore
     // 2. Call Manager::link_secondary_device()
     // 3. Display QR code via qr2term
     // 4. Wait for linking confirmation
