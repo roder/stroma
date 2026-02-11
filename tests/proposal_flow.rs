@@ -128,8 +128,9 @@ async fn test_proposal_creation() {
         .expect("Failed to add group member");
 
     let aci_key = [42u8; 32];
-    let mut poll_manager = stroma::signal::polls::PollManager::new(client.clone(), group_id, &aci_key, None)
-        .expect("Failed to create PollManager");
+    let mut poll_manager =
+        stroma::signal::polls::PollManager::new(client.clone(), group_id, &aci_key, None)
+            .expect("Failed to create PollManager");
     let config = freenet.state.config.clone();
     let contract_hash = ContractHash::from_bytes(&[0u8; 32]);
 
@@ -156,8 +157,9 @@ async fn test_proposal_outcome_passed() {
     let group_id = stroma::signal::traits::GroupId(vec![1, 2, 3]);
 
     let aci_key = [42u8; 32];
-    let mut poll_manager = stroma::signal::polls::PollManager::new(client, group_id, &aci_key, None)
-        .expect("Failed to create PollManager");
+    let mut poll_manager =
+        stroma::signal::polls::PollManager::new(client, group_id, &aci_key, None)
+            .expect("Failed to create PollManager");
 
     let poll_id = 0u64;
 
@@ -225,8 +227,9 @@ async fn test_proposal_outcome_quorum_not_met() {
     let group_id = stroma::signal::traits::GroupId(vec![1, 2, 3]);
 
     let aci_key = [42u8; 32];
-    let mut poll_manager = stroma::signal::polls::PollManager::new(client, group_id, &aci_key, None)
-        .expect("Failed to create PollManager");
+    let mut poll_manager =
+        stroma::signal::polls::PollManager::new(client, group_id, &aci_key, None)
+            .expect("Failed to create PollManager");
 
     let poll_id = 1u64;
 
@@ -291,8 +294,9 @@ async fn test_proposal_execution_end_to_end() {
     }
 
     let aci_key = [42u8; 32];
-    let mut poll_manager = stroma::signal::polls::PollManager::new(client.clone(), group_id, &aci_key, None)
-        .expect("Failed to create PollManager");
+    let mut poll_manager =
+        stroma::signal::polls::PollManager::new(client.clone(), group_id, &aci_key, None)
+            .expect("Failed to create PollManager");
     let freenet = TestFreenetClient::new();
     let config = freenet.state.config.clone();
     let contract_hash = ContractHash::from_bytes(&[0u8; 32]);
@@ -539,8 +543,9 @@ async fn test_complete_proposal_workflow_with_monitoring() {
     }
 
     let aci_key = [42u8; 32];
-    let mut poll_manager = stroma::signal::polls::PollManager::new(client, group_id.clone(), &aci_key, None)
-        .expect("Failed to create PollManager");
+    let mut poll_manager =
+        stroma::signal::polls::PollManager::new(client, group_id.clone(), &aci_key, None)
+            .expect("Failed to create PollManager");
 
     // 1. Create a proposal with a very short timeout (2 seconds)
     let args = parse_propose_args(
