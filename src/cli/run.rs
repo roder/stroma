@@ -1,3 +1,4 @@
+use super::passphrase::{determine_passphrase_source, read_passphrase};
 use std::path::Path;
 
 /// Run the bot service
@@ -8,6 +9,7 @@ use std::path::Path;
 pub async fn execute(
     config_path: String,
     bootstrap_contact: Option<String>,
+    passphrase_file: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Starting Stroma bot service...");
     println!();
@@ -27,6 +29,10 @@ pub async fn execute(
     }
 
     println!();
+
+    // Read passphrase for opening encrypted store
+    let source = determine_passphrase_source(passphrase_file);
+    let _passphrase = read_passphrase(source, Some("Enter database passphrase: "))?;
 
     // TODO: Implement actual bot service
     // This will:
@@ -58,7 +64,9 @@ mod tests {
         writeln!(temp_file, "[signal]").unwrap();
         writeln!(temp_file, "store_path = \"/tmp/store\"").unwrap();
 
-        let result = execute(temp_file.path().to_string_lossy().to_string(), None).await;
+        std::env::set_var("STROMA_DB_PASSPHRASE", "test_passphrase");
+        let result = execute(temp_file.path().to_string_lossy().to_string(), None, None).await;
+        std::env::remove_var("STROMA_DB_PASSPHRASE");
 
         assert!(result.is_ok());
     }
@@ -68,18 +76,23 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(temp_file, "[signal]").unwrap();
 
+        std::env::set_var("STROMA_DB_PASSPHRASE", "test_passphrase");
         let result = execute(
             temp_file.path().to_string_lossy().to_string(),
             Some("@alice".to_string()),
+            None,
         )
         .await;
+        std::env::remove_var("STROMA_DB_PASSPHRASE");
 
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_run_with_missing_config() {
-        let result = execute("/nonexistent/config.toml".to_string(), None).await;
+        std::env::set_var("STROMA_DB_PASSPHRASE", "test_passphrase");
+        let result = execute("/nonexistent/config.toml".to_string(), None, None).await;
+        std::env::remove_var("STROMA_DB_PASSPHRASE");
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));

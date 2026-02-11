@@ -1,3 +1,4 @@
+use super::passphrase::{determine_passphrase_source, read_passphrase};
 use std::path::{Path, PathBuf};
 
 /// Backup Signal protocol store
@@ -5,7 +6,10 @@ use std::path::{Path, PathBuf};
 /// This command creates a secure backup of the Signal protocol store,
 /// which contains the ACI identity keypair critical for recovery.
 /// Losing this store means losing access to the trust network forever.
-pub async fn execute(output_path: String) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn execute(
+    output_path: String,
+    passphrase_file: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("💾 Backing up Signal protocol store...");
     println!();
 
@@ -37,6 +41,10 @@ pub async fn execute(output_path: String) -> Result<(), Box<dyn std::error::Erro
         .into());
     }
 
+    // Read passphrase for opening encrypted store
+    let source = determine_passphrase_source(passphrase_file);
+    let _passphrase = read_passphrase(source, Some("Enter database passphrase: "))?;
+
     // TODO: Implement actual backup
     // This will:
     // 1. Create a tarball of the Signal protocol store
@@ -67,7 +75,9 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let output_path = temp_dir.path().join("backup.tar.gz");
 
-        let result = execute(output_path.to_string_lossy().to_string()).await;
+        std::env::set_var("STROMA_DB_PASSPHRASE", "test_passphrase");
+        let result = execute(output_path.to_string_lossy().to_string(), None).await;
+        std::env::remove_var("STROMA_DB_PASSPHRASE");
 
         // Should fail because store doesn't exist
         assert!(result.is_err());
@@ -79,7 +89,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_backup_store_with_invalid_output_dir() {
-        let result = execute("/nonexistent/dir/backup.tar.gz".to_string()).await;
+        std::env::set_var("STROMA_DB_PASSPHRASE", "test_passphrase");
+        let result = execute("/nonexistent/dir/backup.tar.gz".to_string(), None).await;
+        std::env::remove_var("STROMA_DB_PASSPHRASE");
 
         // Should fail because output directory doesn't exist
         assert!(result.is_err());
@@ -91,7 +103,9 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let output_path = temp_dir.path().join("backup.tar.gz");
 
-        let result = execute(output_path.to_string_lossy().to_string()).await;
+        std::env::set_var("STROMA_DB_PASSPHRASE", "test_passphrase");
+        let result = execute(output_path.to_string_lossy().to_string(), None).await;
+        std::env::remove_var("STROMA_DB_PASSPHRASE");
 
         // Should fail since default store path won't exist
         assert!(result.is_err());

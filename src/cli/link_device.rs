@@ -1,3 +1,4 @@
+use super::passphrase::{determine_passphrase_source, read_passphrase};
 use std::path::PathBuf;
 
 /// Link bot as secondary device to Signal account
@@ -8,6 +9,7 @@ pub async fn execute(
     device_name: String,
     store_path: Option<String>,
     servers: String,
+    passphrase_file: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("🔗 Linking Stroma bot as secondary device...");
     println!();
@@ -24,6 +26,10 @@ pub async fn execute(
     println!("Store Path: {}", store_path);
     println!("Servers: {}", servers);
     println!();
+
+    // Read passphrase for opening encrypted store
+    let source = determine_passphrase_source(passphrase_file);
+    let _passphrase = read_passphrase(source, Some("Enter database passphrase: "))?;
 
     // TODO: Implement actual Signal device linking
     // This will use presage to:
@@ -44,20 +50,34 @@ mod tests {
 
     #[tokio::test]
     async fn test_link_device_with_custom_path() {
+        // Set env var to avoid interactive prompt
+        std::env::set_var("STROMA_DB_PASSPHRASE", "test_passphrase");
+
         let result = execute(
             "Test Bot".to_string(),
             Some("/tmp/test-store".to_string()),
             "production".to_string(),
+            None,
         )
         .await;
 
+        std::env::remove_var("STROMA_DB_PASSPHRASE");
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_link_device_with_default_path() {
-        let result = execute("Test Bot".to_string(), None, "production".to_string()).await;
+        std::env::set_var("STROMA_DB_PASSPHRASE", "test_passphrase");
 
+        let result = execute(
+            "Test Bot".to_string(),
+            None,
+            "production".to_string(),
+            None,
+        )
+        .await;
+
+        std::env::remove_var("STROMA_DB_PASSPHRASE");
         assert!(result.is_ok());
     }
 }
