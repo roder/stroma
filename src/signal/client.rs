@@ -99,14 +99,20 @@ impl SignalClient for LibsignalClient {
         {
             let keys = self.group_keys.lock().await;
             if !keys.contains_key(group) {
-                return Err(SignalError::GroupNotFound(format!("Group not found: {}", group)));
+                return Err(SignalError::GroupNotFound(format!(
+                    "Group not found: {}",
+                    group
+                )));
             }
         }
 
         // STUB: Add to member set
         {
             let mut members = self.group_members.lock().await;
-            members.entry(group.clone()).or_insert_with(HashSet::new).insert(member.clone());
+            members
+                .entry(group.clone())
+                .or_insert_with(HashSet::new)
+                .insert(member.clone());
         }
 
         Ok(())
@@ -118,19 +124,25 @@ impl SignalClient for LibsignalClient {
         {
             let keys = self.group_keys.lock().await;
             if !keys.contains_key(group) {
-                return Err(SignalError::MemberNotFound(format!("Member not found in unknown group: {}", group)));
+                return Err(SignalError::MemberNotFound(format!(
+                    "Member not found in unknown group: {}",
+                    group
+                )));
             }
         }
 
         // STUB: Check if member exists and remove
         {
             let mut members = self.group_members.lock().await;
-            let group_members = members.get_mut(group).ok_or_else(||
+            let group_members = members.get_mut(group).ok_or_else(|| {
                 SignalError::MemberNotFound(format!("Group not found: {}", group))
-            )?;
+            })?;
 
             if !group_members.remove(member) {
-                return Err(SignalError::MemberNotFound(format!("Member not found: {}", member.0)));
+                return Err(SignalError::MemberNotFound(format!(
+                    "Member not found: {}",
+                    member.0
+                )));
             }
         }
 
@@ -228,7 +240,10 @@ mod tests {
         let member_id = ServiceId("member-aci".to_string());
 
         // Add member first
-        client.add_group_member(&group_id, &member_id).await.unwrap();
+        client
+            .add_group_member(&group_id, &member_id)
+            .await
+            .unwrap();
 
         // Act
         let result = client.remove_group_member(&group_id, &member_id).await;
@@ -248,7 +263,10 @@ mod tests {
 
         // Assert
         // Empty names should be allowed - Signal Protocol doesn't enforce this
-        assert!(result.is_ok(), "create_group with empty name should succeed");
+        assert!(
+            result.is_ok(),
+            "create_group with empty name should succeed"
+        );
     }
 
     #[tokio::test]
@@ -262,9 +280,12 @@ mod tests {
         let result = client.add_group_member(&fake_group_id, &member_id).await;
 
         // Assert
-        assert!(result.is_err(), "add_group_member to nonexistent group should fail");
+        assert!(
+            result.is_err(),
+            "add_group_member to nonexistent group should fail"
+        );
         match result {
-            Err(SignalError::GroupNotFound(_)) => {},
+            Err(SignalError::GroupNotFound(_)) => {}
             _ => panic!("Expected GroupNotFound error"),
         }
     }
@@ -281,9 +302,12 @@ mod tests {
         let result = client.remove_group_member(&group_id, &member_id).await;
 
         // Assert
-        assert!(result.is_err(), "remove_group_member for nonexistent member should fail");
+        assert!(
+            result.is_err(),
+            "remove_group_member for nonexistent member should fail"
+        );
         match result {
-            Err(SignalError::MemberNotFound(_)) => {},
+            Err(SignalError::MemberNotFound(_)) => {}
             _ => panic!("Expected MemberNotFound error"),
         }
     }
