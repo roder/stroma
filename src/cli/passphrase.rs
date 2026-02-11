@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Modes for passphrase delivery, checked in order
 #[derive(Debug)]
@@ -98,19 +98,6 @@ pub fn determine_passphrase_source(passphrase_file: Option<String>) -> Passphras
     } else {
         PassphraseSource::Stdin
     }
-}
-
-/// Resolve store path with default fallback
-///
-/// Returns the provided store path or the default Signal protocol store location.
-pub fn resolve_store_path(store_path: Option<String>) -> String {
-    store_path.unwrap_or_else(|| {
-        let default_path = dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("stroma")
-            .join("signal-store");
-        default_path.to_string_lossy().to_string()
-    })
 }
 
 /// Display generated passphrase on stderr with clear warnings

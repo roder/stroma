@@ -1,9 +1,8 @@
 use super::passphrase::{
-    determine_passphrase_source, display_generated_passphrase, generate_passphrase,
-    read_passphrase,
+    determine_passphrase_source, display_generated_passphrase, generate_passphrase, read_passphrase,
 };
-use stroma::signal::stroma_store::StromaStore;
 use std::path::PathBuf;
+use stroma::signal::stroma_store::StromaStore;
 
 /// Register a new Stroma bot
 ///
@@ -44,7 +43,8 @@ pub async fn execute(
 
     // Handle passphrase based on source
     let passphrase = match source {
-        super::passphrase::PassphraseSource::File(_) | super::passphrase::PassphraseSource::EnvVar => {
+        super::passphrase::PassphraseSource::File(_)
+        | super::passphrase::PassphraseSource::EnvVar => {
             // Read existing passphrase from file or env var
             read_passphrase(source, None)?
         }

@@ -69,13 +69,7 @@ mod tests {
     async fn test_link_device_with_default_path() {
         std::env::set_var("STROMA_DB_PASSPHRASE", "test_passphrase");
 
-        let result = execute(
-            "Test Bot".to_string(),
-            None,
-            "production".to_string(),
-            None,
-        )
-        .await;
+        let result = execute("Test Bot".to_string(), None, "production".to_string(), None).await;
 
         std::env::remove_var("STROMA_DB_PASSPHRASE");
         assert!(result.is_ok());
