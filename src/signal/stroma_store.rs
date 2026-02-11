@@ -17,8 +17,14 @@ use presage::model::groups::Group;
 use presage::store::{ContentsStore, StateStore, StickerPack, Store, Thread};
 use presage::AvatarBytes;
 use presage_store_sqlite::{OnNewIdentity, SqliteStore, SqliteStoreError};
+use std::collections::HashMap;
 use std::ops::RangeBounds;
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
+
+// TEMPORARY: Simple in-memory storage for poll state (testing only)
+// TODO: Replace with actual SQLite table
+static POLL_STATE_CACHE: OnceLock<Mutex<HashMap<String, Vec<u8>>>> = OnceLock::new();
 
 /// Stroma protocol store wrapper
 ///
@@ -52,6 +58,27 @@ impl StromaStore {
         .map_err(|e| StoreError::Sqlite(format!("{:?}", e)))?;
 
         Ok(Self(inner))
+    }
+
+    /// Store arbitrary data (for poll state persistence).
+    ///
+    /// TEMPORARY: Uses in-memory cache for testing.
+    /// TODO: Implement actual SQLite table for generic key-value storage.
+    pub async fn store_data(&self, key: &str, value: &[u8]) -> Result<(), StoreError> {
+        let cache = POLL_STATE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        let mut cache_guard = cache.lock().unwrap();
+        cache_guard.insert(key.to_string(), value.to_vec());
+        Ok(())
+    }
+
+    /// Retrieve arbitrary data (for poll state restoration).
+    ///
+    /// TEMPORARY: Uses in-memory cache for testing.
+    /// TODO: Implement actual SQLite table for generic key-value storage.
+    pub async fn retrieve_data(&self, key: &str) -> Result<Option<Vec<u8>>, StoreError> {
+        let cache = POLL_STATE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        let cache_guard = cache.lock().unwrap();
+        Ok(cache_guard.get(key).cloned())
     }
 }
 
