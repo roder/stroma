@@ -14,7 +14,7 @@ use presage::libsignal_service::zkgroup::GroupMasterKeyBytes;
 use presage::manager::RegistrationData;
 use presage::model::contacts::Contact;
 use presage::model::groups::Group;
-use presage::store::{ContentsStore, StickerPack, StateStore, Store, Thread};
+use presage::store::{ContentsStore, StateStore, StickerPack, Store, Thread};
 use presage::AvatarBytes;
 use presage_store_sqlite::{OnNewIdentity, SqliteStore, SqliteStoreError};
 use std::ops::RangeBounds;
@@ -133,8 +133,12 @@ impl ContentsStore for StromaStore {
     >;
 
     type MessagesIter = Box<
-        dyn Iterator<Item = Result<presage::libsignal_service::content::Content, Self::ContentsStoreError>>
-            + Send
+        dyn Iterator<
+                Item = Result<
+                    presage::libsignal_service::content::Content,
+                    Self::ContentsStoreError,
+                >,
+            > + Send
             + Sync,
     >;
 
@@ -208,10 +212,7 @@ impl ContentsStore for StromaStore {
         self.0.contacts().await
     }
 
-    async fn contact_by_id(
-        &self,
-        id: &Uuid,
-    ) -> Result<Option<Contact>, Self::ContentsStoreError> {
+    async fn contact_by_id(&self, id: &Uuid) -> Result<Option<Contact>, Self::ContentsStoreError> {
         self.0.contact_by_id(id).await
     }
 
@@ -292,7 +293,8 @@ impl ContentsStore for StromaStore {
         &self,
         _thread: &Thread,
         _timestamp: u64,
-    ) -> Result<Option<presage::libsignal_service::content::Content>, Self::ContentsStoreError> {
+    ) -> Result<Option<presage::libsignal_service::content::Content>, Self::ContentsStoreError>
+    {
         // NO-OP: No messages stored
         Ok(None)
     }
@@ -307,11 +309,17 @@ impl ContentsStore for StromaStore {
     }
 
     // Delegate sticker pack methods
-    async fn add_sticker_pack(&mut self, pack: &StickerPack) -> Result<(), Self::ContentsStoreError> {
+    async fn add_sticker_pack(
+        &mut self,
+        pack: &StickerPack,
+    ) -> Result<(), Self::ContentsStoreError> {
         self.0.add_sticker_pack(pack).await
     }
 
-    async fn remove_sticker_pack(&mut self, pack_id: &[u8]) -> Result<bool, Self::ContentsStoreError> {
+    async fn remove_sticker_pack(
+        &mut self,
+        pack_id: &[u8],
+    ) -> Result<bool, Self::ContentsStoreError> {
         self.0.remove_sticker_pack(pack_id).await
     }
 
@@ -379,14 +387,16 @@ mod tests {
     #[tokio::test]
     async fn test_message_storage_noops() {
         use presage::libsignal_service::content::{Content, ContentBody, Metadata};
-        use presage::libsignal_service::protocol::ServiceId;
         use presage::libsignal_service::prelude::Uuid;
+        use presage::libsignal_service::protocol::ServiceId;
         use presage::store::Thread;
 
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
 
-        let store = StromaStore::open(&db_path, "test_passphrase".to_string()).await.unwrap();
+        let store = StromaStore::open(&db_path, "test_passphrase".to_string())
+            .await
+            .unwrap();
 
         // Create dummy thread and message
         let uuid = Uuid::nil();
@@ -396,7 +406,9 @@ mod tests {
         use presage::libsignal_service::push_service::DEFAULT_DEVICE_ID;
         use presage::proto::NullMessage;
 
-        let service_id = ServiceId::parse_from_service_id_string("00000000-0000-0000-0000-000000000000").unwrap();
+        let service_id =
+            ServiceId::parse_from_service_id_string("00000000-0000-0000-0000-000000000000")
+                .unwrap();
         let metadata = Metadata {
             sender: service_id.clone(),
             destination: service_id,
