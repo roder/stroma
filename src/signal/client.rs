@@ -7,7 +7,7 @@
 //! (st-rvzl complete). This implementation provides an alternative direct
 //! integration path if needed.
 
-use super::store::StromaProtocolStore;
+use super::stroma_store::StromaStore;
 use super::traits::*;
 use async_trait::async_trait;
 
@@ -16,7 +16,7 @@ use async_trait::async_trait;
 /// Uses libsignal-service-rs directly without presage abstraction.
 pub struct LibsignalClient {
     service_id: ServiceId,
-    _store: StromaProtocolStore,
+    _store: StromaStore,
 }
 
 impl LibsignalClient {
@@ -25,7 +25,7 @@ impl LibsignalClient {
     /// # Arguments
     /// * `service_id` - Bot's Signal service ID (ACI)
     /// * `store` - Protocol store for encryption state
-    pub fn new(service_id: ServiceId, store: StromaProtocolStore) -> Self {
+    pub fn new(service_id: ServiceId, store: StromaStore) -> Self {
         Self {
             service_id,
             _store: store,
@@ -121,10 +121,12 @@ impl SignalClient for LibsignalClient {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_client_creation() {
+    #[tokio::test]
+    async fn test_client_creation() {
         let service_id = ServiceId("test".to_string());
-        let store = StromaProtocolStore::new("/tmp/test.store", "passphrase".to_string());
+        let store = StromaStore::open("/tmp/test.db", "passphrase".to_string())
+            .await
+            .unwrap();
         let _client = LibsignalClient::new(service_id, store);
     }
 }
