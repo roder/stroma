@@ -37,6 +37,7 @@ pub struct EmbeddedKernel {
 /// Wrapper for Freenet Executor (type-erased to handle MockRuntime visibility issue st-ko618)
 struct ExecutorWrapper {
     /// Type-erased Freenet executor or fallback MockExecutor
+    #[allow(dead_code)] // Reserved for future Freenet Executor once st-ko618 is resolved
     inner: Box<dyn Any + Send + Sync>,
     /// Fallback mock storage (used when Freenet executor is not available)
     fallback_storage: Option<HashMap<ContractHash, Vec<u8>>>,
@@ -53,7 +54,7 @@ impl ExecutorWrapper {
     fn new_freenet_mock() -> Result<Self, FreenetError> {
         // Fallback storage until st-ko618 is resolved
         Ok(Self {
-            inner: Box::new(()),  // Placeholder for future Freenet executor
+            inner: Box::new(()), // Placeholder for future Freenet executor
             fallback_storage: Some(HashMap::new()),
         })
     }
@@ -185,15 +186,15 @@ impl FreenetClient for EmbeddedKernel {
         // Spawn task to filter and forward events
         tokio::spawn(async move {
             while let Ok((hash, change)) = rx.recv().await {
-                if hash == contract_hash {
-                    if tx.send(change).is_err() {
-                        break; // Receiver dropped
-                    }
+                if hash == contract_hash && tx.send(change).is_err() {
+                    break; // Receiver dropped
                 }
             }
         });
 
-        Ok(Box::new(tokio_stream::wrappers::UnboundedReceiverStream::new(rx_filtered)))
+        Ok(Box::new(
+            tokio_stream::wrappers::UnboundedReceiverStream::new(rx_filtered),
+        ))
     }
 
     async fn deploy_contract(
