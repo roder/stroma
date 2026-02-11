@@ -145,7 +145,10 @@ impl<C: SignalClient> PollManager<C> {
             });
 
         // Get or create voter selections map for this poll
-        let selections = self.voter_selections.entry(poll_id).or_insert_with(HashMap::new);
+        let selections = self
+            .voter_selections
+            .entry(poll_id)
+            .or_default();
 
         // Check if voter has voted before (vote change)
         if let Some(previous_vote) = selections.get(&voter_hmac) {
