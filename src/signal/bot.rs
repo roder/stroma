@@ -52,15 +52,24 @@ pub struct StromaBot<C: SignalClient, F: crate::freenet::FreenetClient> {
 }
 
 impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
-    pub fn new(client: C, freenet: F, config: BotConfig) -> Self {
+    pub fn new(client: C, freenet: F, config: BotConfig) -> Result<Self, SignalError> {
         let group_manager = GroupManager::new(client.clone(), config.group_id.clone());
-        let poll_manager = PollManager::new(client.clone(), config.group_id.clone());
+
+        // Derive HMAC pepper from operator ACI (using config.pepper as seed)
+        // In production, this would be the actual operator's Signal ACI key
+        // Ensure we have 32 bytes by taking first 32 or padding with zeros
+        let mut aci_seed = [0u8; 32];
+        let copy_len = config.pepper.len().min(32);
+        aci_seed[..copy_len].copy_from_slice(&config.pepper[..copy_len]);
+
+        let poll_manager =
+            PollManager::new(client.clone(), config.group_id.clone(), &aci_seed, None)?;
         let bootstrap_manager = BootstrapManager::new(client.clone(), config.pepper.clone());
         let vetting_sessions = VettingSessionManager::new();
         let member_resolver = MemberResolver::new(config.pepper.clone());
         let persistence_manager = crate::persistence::WriteBlockingManager::new();
 
-        Self {
+        Ok(Self {
             client,
             freenet,
             config,
@@ -70,7 +79,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             vetting_sessions,
             member_resolver,
             persistence_manager,
-        }
+        })
     }
 
     /// Run bot event loop
@@ -215,7 +224,9 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             }
 
             MessageContent::PollVote(vote) => {
-                self.poll_manager.process_vote(&vote)?;
+                // Extract voter ACI from sender (ServiceId)
+                let voter_aci = &message.sender.0;
+                self.poll_manager.process_vote(&vote, voter_aci).await?;
             }
         }
 
@@ -1232,7 +1243,7 @@ mod tests {
         let freenet = MockFreenetClient::new();
         let config = BotConfig::default();
 
-        let _bot = StromaBot::new(client, freenet, config);
+        let _bot = StromaBot::new(client, freenet, config).unwrap();
     }
 
     #[tokio::test]
@@ -1240,7 +1251,7 @@ mod tests {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let freenet = MockFreenetClient::new();
         let config = BotConfig::default();
-        let mut bot = StromaBot::new(client.clone(), freenet, config);
+        let mut bot = StromaBot::new(client.clone(), freenet, config).unwrap();
 
         let message = Message {
             sender: ServiceId("user1".to_string()),
@@ -1266,7 +1277,7 @@ mod tests {
             pepper: b"test-pepper".to_vec(),
             contract_hash: None,
         };
-        let mut bot = StromaBot::new(client.clone(), freenet, config);
+        let mut bot = StromaBot::new(client.clone(), freenet, config).unwrap();
 
         let change = StateChange::MemberVetted {
             member_hash: "hash123".to_string(),
@@ -1300,7 +1311,7 @@ mod tests {
             pepper: b"test-pepper".to_vec(),
             contract_hash: None,
         };
-        let mut bot = StromaBot::new(client.clone(), freenet, config);
+        let mut bot = StromaBot::new(client.clone(), freenet, config).unwrap();
 
         let change = StateChange::MemberRevoked {
             member_hash: "hash123".to_string(),
@@ -1328,7 +1339,7 @@ mod tests {
             pepper: b"test-pepper".to_vec(),
             contract_hash: None,
         };
-        let bot = StromaBot::new(client, freenet, config);
+        let bot = StromaBot::new(client, freenet, config).unwrap();
 
         // Below threshold
         let trigger = bot.check_ejection(1, 0, 0);
@@ -1371,7 +1382,7 @@ mod tests {
             pepper: b"test-pepper".to_vec(),
             contract_hash: None,
         };
-        let mut bot = StromaBot::new(client.clone(), freenet, config);
+        let mut bot = StromaBot::new(client.clone(), freenet, config).unwrap();
 
         // Create state with two disconnected clusters
         let mut state = crate::freenet::trust_contract::TrustNetworkState::new();
@@ -1427,7 +1438,7 @@ mod tests {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let freenet = MockFreenetClient::new();
         let config = BotConfig::default();
-        let mut bot = StromaBot::new(client.clone(), freenet, config);
+        let mut bot = StromaBot::new(client.clone(), freenet, config).unwrap();
 
         // Create state with single cluster (all connected)
         let state = crate::freenet::trust_contract::TrustNetworkState::new();
@@ -1456,7 +1467,7 @@ mod tests {
             .unwrap();
 
         let config = BotConfig::default();
-        let mut bot = StromaBot::new(client.clone(), freenet.clone(), config);
+        let mut bot = StromaBot::new(client.clone(), freenet.clone(), config).unwrap();
         bot.group_manager = GroupManager::new(client.clone(), group.clone());
 
         // Set up state with 2 disconnected clusters
@@ -1545,7 +1556,7 @@ mod tests {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let freenet = MockFreenetClient::new();
         let config = BotConfig::default();
-        let mut bot = StromaBot::new(client.clone(), freenet, config);
+        let mut bot = StromaBot::new(client.clone(), freenet, config).unwrap();
 
         let message = Message {
             sender: ServiceId("alice".to_string()),
@@ -1572,7 +1583,7 @@ mod tests {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let freenet = MockFreenetClient::new();
         let config = BotConfig::default();
-        let mut bot = StromaBot::new(client.clone(), freenet, config);
+        let mut bot = StromaBot::new(client.clone(), freenet, config).unwrap();
 
         // Manually create session with previous flags for testing
         bot.vetting_sessions
@@ -1608,7 +1619,7 @@ mod tests {
             pepper: b"test-pepper".to_vec(),
             contract_hash: None,
         };
-        let bot = StromaBot::new(client, freenet, config);
+        let bot = StromaBot::new(client, freenet, config).unwrap();
 
         // Create test member and vouchers
         let member = MemberHash([1; 32]);
@@ -1635,7 +1646,7 @@ mod tests {
             pepper: b"test-pepper".to_vec(),
             contract_hash: None,
         };
-        let bot = StromaBot::new(client, freenet, config);
+        let bot = StromaBot::new(client, freenet, config).unwrap();
 
         // Create test member with only 1 voucher
         let member = MemberHash([1; 32]);
@@ -1662,7 +1673,7 @@ mod tests {
             pepper: b"test-pepper".to_vec(),
             contract_hash: None,
         };
-        let bot = StromaBot::new(client, freenet, config);
+        let bot = StromaBot::new(client, freenet, config).unwrap();
 
         // Create test member with vouchers but more flags
         let member = MemberHash([1; 32]);
@@ -1693,7 +1704,7 @@ mod tests {
             pepper: b"test-pepper".to_vec(),
             contract_hash: None,
         };
-        let bot = StromaBot::new(client, freenet, config);
+        let bot = StromaBot::new(client, freenet, config).unwrap();
 
         // Create test member where one voucher also flagged (overlap)
         let member = MemberHash([1; 32]);
@@ -1716,7 +1727,7 @@ mod tests {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let freenet = MockFreenetClient::new();
         let config = BotConfig::default();
-        let mut bot = StromaBot::new(client.clone(), freenet, config);
+        let mut bot = StromaBot::new(client.clone(), freenet, config).unwrap();
 
         // Create a vetting session with an assigned assessor
         let inviter_hash = MemberHash::from_bytes(&[1; 32]);
@@ -1771,7 +1782,7 @@ mod tests {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let freenet = MockFreenetClient::new();
         let config = BotConfig::default();
-        let mut bot = StromaBot::new(client.clone(), freenet, config);
+        let mut bot = StromaBot::new(client.clone(), freenet, config).unwrap();
 
         // Create a vetting session with an assigned assessor
         let inviter_hash = MemberHash::from_bytes(&[1; 32]);
@@ -1819,7 +1830,7 @@ mod tests {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let freenet = MockFreenetClient::new();
         let config = BotConfig::default();
-        let mut bot = StromaBot::new(client.clone(), freenet, config);
+        let mut bot = StromaBot::new(client.clone(), freenet, config).unwrap();
 
         // Try to reject for non-existent session
         bot.handle_reject_intro(&ServiceId("someone".to_string()), "@nonexistent")
