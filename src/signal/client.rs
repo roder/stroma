@@ -79,9 +79,16 @@ impl Clone for LibsignalClient {
 /// Presage Manager methods produce futures that capture `ThreadRng` and non-Send
 /// protocol store trait objects. This helper moves the async work to a blocking
 /// thread where Send constraints don't apply.
-async fn run_manager_op<F, T>(manager: &Arc<Mutex<Manager<StromaStore, Registered>>>, op: F) -> Result<T, SignalError>
+async fn run_manager_op<F, T>(
+    manager: &Arc<Mutex<Manager<StromaStore, Registered>>>,
+    op: F,
+) -> Result<T, SignalError>
 where
-    F: FnOnce(&mut Manager<StromaStore, Registered>) -> std::pin::Pin<Box<dyn std::future::Future<Output = T> + '_>> + Send + 'static,
+    F: FnOnce(
+            &mut Manager<StromaStore, Registered>,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = T> + '_>>
+        + Send
+        + 'static,
     T: Send + 'static,
 {
     let manager = Arc::clone(manager);
@@ -142,9 +149,7 @@ impl SignalClient for LibsignalClient {
 
     async fn send_group_message(&self, group: &GroupId, text: &str) -> SignalResult<()> {
         let manager = self.manager.as_ref().ok_or_else(|| {
-            SignalError::NotImplemented(
-                "send_group_message: no Manager configured".to_string(),
-            )
+            SignalError::NotImplemented("send_group_message: no Manager configured".to_string())
         })?;
 
         let master_key = {
@@ -210,8 +215,7 @@ impl SignalClient for LibsignalClient {
             Ok(group_id)
         } else {
             // Stub: in-memory only (for tests without Manager)
-            let group_id =
-                GroupId(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+            let group_id = GroupId(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
             let master_key = [0u8; 32];
             {
                 let mut keys = self.group_keys.lock().await;
@@ -328,9 +332,7 @@ impl SignalClient for LibsignalClient {
 
     async fn receive_messages(&self) -> SignalResult<Vec<Message>> {
         let manager = self.manager.as_ref().ok_or_else(|| {
-            SignalError::NotImplemented(
-                "receive_messages: no Manager configured".to_string(),
-            )
+            SignalError::NotImplemented("receive_messages: no Manager configured".to_string())
         })?;
 
         use futures::StreamExt;
@@ -341,12 +343,9 @@ impl SignalClient for LibsignalClient {
         let messages = tokio::task::spawn_blocking(move || {
             handle.block_on(async {
                 let mut mgr = manager.lock().await;
-                let stream = mgr
-                    .receive_messages()
-                    .await
-                    .map_err(|e| {
-                        SignalError::Network(format!("receive_messages failed: {:?}", e))
-                    })?;
+                let stream = mgr.receive_messages().await.map_err(|e| {
+                    SignalError::Network(format!("receive_messages failed: {:?}", e))
+                })?;
 
                 let mut messages = Vec::new();
                 futures::pin_mut!(stream);
@@ -380,8 +379,7 @@ fn convert_received(received: Received) -> Option<Message> {
             let sender_id = content.metadata.sender.raw_uuid().to_string();
             let timestamp = content.metadata.timestamp;
 
-            if let presage::libsignal_service::content::ContentBody::DataMessage(dm) =
-                &content.body
+            if let presage::libsignal_service::content::ContentBody::DataMessage(dm) = &content.body
             {
                 if let Some(body) = &dm.body {
                     return Some(Message {
