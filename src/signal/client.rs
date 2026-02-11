@@ -121,12 +121,121 @@ impl SignalClient for LibsignalClient {
 mod tests {
     use super::*;
 
+    async fn create_test_client(test_name: &str) -> LibsignalClient {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let db_path = format!("/tmp/test_libsignal_client_{}_{}.db", test_name, timestamp);
+        let service_id = ServiceId("test".to_string());
+        let store = StromaStore::open(&db_path, "passphrase".to_string())
+            .await
+            .expect("Failed to open test store");
+        LibsignalClient::new(service_id, store)
+    }
+
     #[tokio::test]
     async fn test_client_creation() {
-        let service_id = ServiceId("test".to_string());
-        let store = StromaStore::open("/tmp/test.db", "passphrase".to_string())
-            .await
-            .unwrap();
-        let _client = LibsignalClient::new(service_id, store);
+        let _client = create_test_client("client_creation").await;
+    }
+
+    #[tokio::test]
+    async fn test_create_group() {
+        // Arrange
+        let client = create_test_client("create_group").await;
+        let group_name = "Test Group";
+
+        // Act
+        let result = client.create_group(group_name).await;
+
+        // Assert
+        assert!(result.is_ok(), "create_group should succeed");
+        let group_id = result.unwrap();
+        assert!(!group_id.0.is_empty(), "GroupId should not be empty");
+    }
+
+    #[tokio::test]
+    async fn test_add_group_member() {
+        // Arrange
+        let client = create_test_client("add_group_member").await;
+        let group_name = "Test Group";
+        let group_id = client.create_group(group_name).await.unwrap();
+        let member_id = ServiceId("member-aci".to_string());
+
+        // Act
+        let result = client.add_group_member(&group_id, &member_id).await;
+
+        // Assert
+        assert!(result.is_ok(), "add_group_member should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_remove_group_member() {
+        // Arrange
+        let client = create_test_client("remove_group_member").await;
+        let group_name = "Test Group";
+        let group_id = client.create_group(group_name).await.unwrap();
+        let member_id = ServiceId("member-aci".to_string());
+
+        // Add member first
+        client.add_group_member(&group_id, &member_id).await.unwrap();
+
+        // Act
+        let result = client.remove_group_member(&group_id, &member_id).await;
+
+        // Assert
+        assert!(result.is_ok(), "remove_group_member should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_create_group_with_empty_name() {
+        // Arrange
+        let client = create_test_client("create_group_empty_name").await;
+        let group_name = "";
+
+        // Act
+        let result = client.create_group(group_name).await;
+
+        // Assert
+        // Empty names should be allowed - Signal Protocol doesn't enforce this
+        assert!(result.is_ok(), "create_group with empty name should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_add_group_member_to_nonexistent_group() {
+        // Arrange
+        let client = create_test_client("add_member_nonexistent_group").await;
+        let fake_group_id = GroupId(vec![1, 2, 3, 4]);
+        let member_id = ServiceId("member-aci".to_string());
+
+        // Act
+        let result = client.add_group_member(&fake_group_id, &member_id).await;
+
+        // Assert
+        assert!(result.is_err(), "add_group_member to nonexistent group should fail");
+        match result {
+            Err(SignalError::GroupNotFound(_)) => {},
+            _ => panic!("Expected GroupNotFound error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_remove_nonexistent_member() {
+        // Arrange
+        let client = create_test_client("remove_nonexistent_member").await;
+        let group_name = "Test Group";
+        let group_id = client.create_group(group_name).await.unwrap();
+        let member_id = ServiceId("nonexistent-member".to_string());
+
+        // Act
+        let result = client.remove_group_member(&group_id, &member_id).await;
+
+        // Assert
+        assert!(result.is_err(), "remove_group_member for nonexistent member should fail");
+        match result {
+            Err(SignalError::MemberNotFound(_)) => {},
+            _ => panic!("Expected MemberNotFound error"),
+        }
     }
 }
