@@ -39,9 +39,9 @@ use tokio::sync::Mutex;
 
 // === Test Fixtures ===
 
-/// Deterministic test ACI key (32 bytes for testing)
-fn test_aci_key() -> Vec<u8> {
-    vec![42u8; 32]
+/// Deterministic test voter pepper (32 bytes for testing)
+fn test_voter_pepper() -> [u8; 32] {
+    [42u8; 32]
 }
 
 /// Deterministic test passphrase (BIP-39 compatible for testing)
@@ -108,13 +108,24 @@ impl SignalClient for MockSignalClient {
         Ok(())
     }
 
-    async fn create_poll(&self, _group_id: &GroupId, poll: &Poll) -> SignalResult<u64> {
+    async fn create_poll(
+        &self,
+        _group_id: &GroupId,
+        question: &str,
+        options: Vec<String>,
+        _allow_multiple: bool,
+    ) -> SignalResult<u64> {
         let mut next_id = self.next_poll_id.lock().await;
         let poll_id = *next_id;
         *next_id += 1;
 
+        let poll = Poll {
+            question: question.to_string(),
+            options,
+        };
+
         let mut polls = self.polls.lock().await;
-        polls.insert(poll_id, poll.clone());
+        polls.insert(poll_id, poll);
 
         Ok(poll_id)
     }
@@ -122,6 +133,39 @@ impl SignalClient for MockSignalClient {
     async fn terminate_poll(&self, _group_id: &GroupId, poll_id: u64) -> SignalResult<()> {
         let mut terminated = self.terminated_polls.lock().await;
         terminated.push(poll_id);
+        Ok(())
+    }
+
+    async fn get_group_info(
+        &self,
+        _group: &GroupId,
+    ) -> SignalResult<stroma::signal::traits::GroupInfo> {
+        use stroma::signal::traits::GroupInfo;
+        Ok(GroupInfo {
+            name: "Test Group".to_string(),
+            description: Some("Test Description".to_string()),
+            disappearing_messages_timer: None,
+            announcements_only: false,
+        })
+    }
+
+    async fn set_group_name(&self, _group: &GroupId, _name: &str) -> SignalResult<()> {
+        Ok(())
+    }
+
+    async fn set_group_description(
+        &self,
+        _group: &GroupId,
+        _description: &str,
+    ) -> SignalResult<()> {
+        Ok(())
+    }
+
+    async fn set_disappearing_messages(&self, _group: &GroupId, _seconds: u32) -> SignalResult<()> {
+        Ok(())
+    }
+
+    async fn set_announcements_only(&self, _group: &GroupId, _enabled: bool) -> SignalResult<()> {
         Ok(())
     }
 
@@ -159,7 +203,7 @@ async fn test_e2e_cross_rig_validation() {
 
     // For E2E testing, we use deterministic ACI key
     // In production, this would come from Signal registration
-    let aci_key = test_aci_key();
+    let voter_pepper = test_voter_pepper();
 
     // === PHASE 3: Initialize PollManager (Bot Core) ===
 
@@ -167,8 +211,8 @@ async fn test_e2e_cross_rig_validation() {
     let group_id = GroupId(b"test-group-12345".to_vec());
 
     // Create PollManager with mock client (no store for this test)
-    let mut poll_manager = PollManager::new(mock_client.clone(), group_id.clone(), &aci_key, None)
-        .expect("Failed to create PollManager");
+    let mut poll_manager =
+        PollManager::new(mock_client.clone(), group_id.clone(), &voter_pepper, None);
 
     // === PHASE 4: Create Poll ===
 
@@ -306,15 +350,15 @@ async fn test_e2e_cross_rig_validation() {
 /// when using the same ACI identity (bot-specific, not deterministic across bots).
 #[tokio::test]
 async fn test_prop_hmac_voter_masking_deterministic() {
-    let aci_key = test_aci_key();
+    let voter_pepper = test_voter_pepper();
     let mock_client = MockSignalClient::new();
     let group_id = GroupId(b"test-group".to_vec());
 
-    let mut poll_manager1 = PollManager::new(mock_client.clone(), group_id.clone(), &aci_key, None)
-        .expect("Failed to create PollManager");
+    let mut poll_manager1 =
+        PollManager::new(mock_client.clone(), group_id.clone(), &voter_pepper, None);
 
-    let mut poll_manager2 = PollManager::new(mock_client.clone(), group_id.clone(), &aci_key, None)
-        .expect("Failed to create PollManager");
+    let mut poll_manager2 =
+        PollManager::new(mock_client.clone(), group_id.clone(), &voter_pepper, None);
 
     let proposal = PollProposal {
         proposal_type: ProposalType::Other {
@@ -381,13 +425,12 @@ async fn test_prop_hmac_voter_masking_deterministic() {
 /// Alice voting Yes→No should be identical to Alice voting No directly.
 #[tokio::test]
 async fn test_prop_vote_dedup_commutative() {
-    let aci_key = test_aci_key();
+    let voter_pepper = test_voter_pepper();
     let mock_client = MockSignalClient::new();
     let group_id = GroupId(b"test-group".to_vec());
 
     // Scenario 1: Alice votes Yes, then changes to No
-    let mut pm1 = PollManager::new(mock_client.clone(), group_id.clone(), &aci_key, None)
-        .expect("Failed to create PollManager");
+    let mut pm1 = PollManager::new(mock_client.clone(), group_id.clone(), &voter_pepper, None);
 
     let proposal = PollProposal {
         proposal_type: ProposalType::Other {
@@ -435,8 +478,7 @@ async fn test_prop_vote_dedup_commutative() {
     .expect("Failed to process vote change");
 
     // Scenario 2: Alice votes No directly
-    let mut pm2 = PollManager::new(mock_client.clone(), group_id.clone(), &aci_key, None)
-        .expect("Failed to create PollManager");
+    let mut pm2 = PollManager::new(mock_client.clone(), group_id.clone(), &voter_pepper, None);
 
     let poll_id2 = pm2
         .create_proposal_poll(
@@ -494,12 +536,11 @@ async fn test_security_no_cleartext_signal_ids() {
     //
     // See: .beads/security-constraints.bead § Identity Masking
 
-    let aci_key = test_aci_key();
+    let voter_pepper = test_voter_pepper();
     let mock_client = MockSignalClient::new();
     let group_id = GroupId(b"test-group".to_vec());
 
-    let mut poll_manager = PollManager::new(mock_client.clone(), group_id, &aci_key, None)
-        .expect("Failed to create PollManager");
+    let mut poll_manager = PollManager::new(mock_client.clone(), group_id, &voter_pepper, None);
 
     let proposal = PollProposal {
         proposal_type: ProposalType::Other {
@@ -547,12 +588,12 @@ async fn test_security_no_cleartext_signal_ids() {
 /// Verifies that sensitive data is zeroized when a poll terminates.
 #[tokio::test]
 async fn test_security_zeroization_on_termination() {
-    let aci_key = test_aci_key();
+    let voter_pepper = test_voter_pepper();
     let mock_client = MockSignalClient::new();
     let group_id = GroupId(b"test-group".to_vec());
 
-    let mut poll_manager = PollManager::new(mock_client.clone(), group_id.clone(), &aci_key, None)
-        .expect("Failed to create PollManager");
+    let mut poll_manager =
+        PollManager::new(mock_client.clone(), group_id.clone(), &voter_pepper, None);
 
     let proposal = PollProposal {
         proposal_type: ProposalType::Other {

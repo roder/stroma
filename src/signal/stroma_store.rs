@@ -1,9 +1,11 @@
 //! Stroma Store Wrapper
 //!
-//! Newtype wrapper around presage SqliteStore that:
-//! - Delegates protocol state management (groups, contacts, profiles)
-//! - No-ops message storage methods (server seizure protection)
-//! - Encrypts with operator passphrase via SQLCipher
+//! Dual-database architecture:
+//! - signal.db: presage SqliteStore (protocol state, groups, contacts, profiles)
+//! - stroma.db: Stroma-specific data (poll state, ephemeral vote aggregates)
+//!
+//! Both databases use the SAME passphrase (24-word BIP-39 recovery phrase).
+//! Message storage is NO-OPed for server seizure protection.
 //!
 //! See: .beads/security-constraints.bead § 10
 
@@ -17,68 +19,165 @@ use presage::model::groups::Group;
 use presage::store::{ContentsStore, StateStore, StickerPack, Store, Thread};
 use presage::AvatarBytes;
 use presage_store_sqlite::{OnNewIdentity, SqliteStore, SqliteStoreError};
-use std::collections::HashMap;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::{Pool, Sqlite};
 use std::ops::RangeBounds;
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
-
-// TEMPORARY: Simple in-memory storage for poll state (testing only)
-// TODO: Replace with actual SQLite table
-static POLL_STATE_CACHE: OnceLock<Mutex<HashMap<String, Vec<u8>>>> = OnceLock::new();
+use std::str::FromStr;
 
 /// Stroma protocol store wrapper
 ///
-/// CRITICAL: This wrapper delegates to SQLite for:
-/// - Account configuration (ACI/PNI identity)
-/// - Group membership state
-/// - Protocol state (sessions, pre-keys, sender keys)
+/// CRITICAL: This wrapper uses two separate databases:
+/// 1. signal.db - presage SqliteStore (protocol state, groups, contacts)
+/// 2. stroma.db - Stroma-specific data (poll state, ephemeral aggregates)
 ///
-/// But explicitly NO-OPs message storage (server seizure protection).
+/// Both databases are encrypted with SQLCipher using the SAME passphrase.
+/// Message storage is NO-OPed for server seizure protection.
+///
 /// See: security-constraints.bead §10
 #[derive(Clone)]
-pub struct StromaStore(SqliteStore);
+pub struct StromaStore {
+    signal_store: SqliteStore,
+    stroma_db: Pool<Sqlite>,
+}
 
 impl StromaStore {
-    /// Open StromaStore
+    /// Open both signal.db (presage) and stroma.db with the same passphrase.
+    ///
+    /// Both databases are created at the same time during initial setup and
+    /// encrypted with SQLCipher using the SAME passphrase.
     ///
     /// # Arguments
-    /// * `path` - Path to SQLCipher database
-    /// * `passphrase` - Encryption passphrase for SQLCipher
+    /// * `path` - Directory containing both databases (not a file path)
+    /// * `passphrase` - Encryption passphrase for both databases (SQLCipher)
+    ///
+    /// # Returns
+    /// * `Ok(StromaStore)` - Store with both databases opened
+    /// * `Err(StoreError)` - If either database fails to open
     pub async fn open(path: impl AsRef<Path>, passphrase: String) -> Result<Self, StoreError> {
-        let path_str = path.as_ref().to_str().ok_or_else(|| {
+        let base_path = path.as_ref();
+
+        // Ensure base path is a directory
+        if base_path.exists() && !base_path.is_dir() {
+            return Err(StoreError::Sqlite(
+                "Path must be a directory, not a file".to_string(),
+            ));
+        }
+
+        // Create directory if it doesn't exist
+        if !base_path.exists() {
+            std::fs::create_dir_all(base_path)
+                .map_err(|e| StoreError::Sqlite(format!("Failed to create directory: {}", e)))?;
+        }
+
+        // Open presage's SqliteStore (signal.db)
+        let signal_db_path = base_path.join("signal.db");
+        let signal_db_str = signal_db_path.to_str().ok_or_else(|| {
             StoreError::Sqlite("Invalid path: contains non-UTF8 characters".to_string())
         })?;
 
-        let inner = SqliteStore::open_with_passphrase(
-            path_str,
+        let signal_store = SqliteStore::open_with_passphrase(
+            signal_db_str,
             Some(&passphrase),
             OnNewIdentity::Trust, // Trust new identities by default
         )
         .await
-        .map_err(|e| StoreError::Sqlite(format!("{:?}", e)))?;
+        .map_err(|e| StoreError::Sqlite(format!("Failed to open signal.db: {:?}", e)))?;
 
-        Ok(Self(inner))
+        // Open stroma.db with SQLCipher using SAME passphrase
+        let stroma_db_path = base_path.join("stroma.db");
+        let stroma_db_str = stroma_db_path
+            .to_str()
+            .ok_or_else(|| StoreError::Sqlite("Invalid stroma.db path".to_string()))?;
+
+        // Create SQLCipher connection options
+        // Note: SQLCipher requires the key to be quoted if it contains spaces
+        let connect_options =
+            SqliteConnectOptions::from_str(&format!("sqlite://{}", stroma_db_str))
+                .map_err(|e| StoreError::Sqlite(format!("Invalid connection string: {}", e)))?
+                .create_if_missing(true)
+                .pragma("key", format!("'{}'", passphrase.replace("'", "''"))); // Same passphrase as signal.db, SQL-escaped
+
+        // Create connection pool
+        let stroma_db = SqlitePoolOptions::new()
+            .max_connections(5)
+            .connect_with(connect_options)
+            .await
+            .map_err(|e| StoreError::Sqlite(format!("Failed to open stroma.db: {}", e)))?;
+
+        // Run migrations
+        sqlx::migrate!("./src/signal/stroma_store_migrations")
+            .run(&stroma_db)
+            .await
+            .map_err(|e| StoreError::Sqlite(format!("Migration failed: {}", e)))?;
+
+        Ok(Self {
+            signal_store,
+            stroma_db,
+        })
     }
 
-    /// Store arbitrary data (for poll state persistence).
+    /// Store arbitrary key-value data in stroma.db (for poll state persistence).
     ///
-    /// TEMPORARY: Uses in-memory cache for testing.
-    /// TODO: Implement actual SQLite table for generic key-value storage.
+    /// Uses stroma_kv table in the separate stroma.db database.
+    /// Per security-constraints.bead: Poll state MUST be zeroized when outcome determined.
     pub async fn store_data(&self, key: &str, value: &[u8]) -> Result<(), StoreError> {
-        let cache = POLL_STATE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-        let mut cache_guard = cache.lock().unwrap();
-        cache_guard.insert(key.to_string(), value.to_vec());
+        sqlx::query(
+            "INSERT OR REPLACE INTO stroma_kv (key, value, updated_at) VALUES (?, ?, strftime('%s', 'now'))"
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&self.stroma_db)
+        .await
+        .map_err(|e| StoreError::Sqlite(format!("Failed to store data: {}", e)))?;
         Ok(())
     }
 
-    /// Retrieve arbitrary data (for poll state restoration).
+    /// Retrieve arbitrary key-value data from stroma.db (for poll state restoration).
     ///
-    /// TEMPORARY: Uses in-memory cache for testing.
-    /// TODO: Implement actual SQLite table for generic key-value storage.
+    /// Returns None if the key doesn't exist in the stroma_kv table.
     pub async fn retrieve_data(&self, key: &str) -> Result<Option<Vec<u8>>, StoreError> {
-        let cache = POLL_STATE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-        let cache_guard = cache.lock().unwrap();
-        Ok(cache_guard.get(key).cloned())
+        let row: Option<(Vec<u8>,)> = sqlx::query_as("SELECT value FROM stroma_kv WHERE key = ?")
+            .bind(key)
+            .fetch_optional(&self.stroma_db)
+            .await
+            .map_err(|e| StoreError::Sqlite(format!("Failed to retrieve data: {}", e)))?;
+        Ok(row.map(|r| r.0))
+    }
+
+    /// Delete key-value data from stroma.db (for poll state cleanup).
+    ///
+    /// Per security-constraints.bead: Poll state MUST be zeroized when outcome determined.
+    pub async fn delete_data(&self, key: &str) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM stroma_kv WHERE key = ?")
+            .bind(key)
+            .execute(&self.stroma_db)
+            .await
+            .map_err(|e| StoreError::Sqlite(format!("Failed to delete data: {}", e)))?;
+        Ok(())
+    }
+
+    /// Clear all data from both databases (signal.db and stroma.db).
+    ///
+    /// This is used during unregistration to ensure no local data remains.
+    /// For full account deletion, use the Manager's delete_account() method first
+    /// to also remove the account from Signal servers.
+    ///
+    /// CAUTION: This is irreversible. All local data will be lost.
+    pub async fn clear_all(&mut self) -> Result<(), StoreError> {
+        // Clear signal.db via presage
+        self.signal_store
+            .clear()
+            .await
+            .map_err(|e| StoreError::Sqlite(format!("Failed to clear signal store: {:?}", e)))?;
+
+        // Clear stroma.db
+        sqlx::query("DELETE FROM stroma_kv")
+            .execute(&self.stroma_db)
+            .await
+            .map_err(|e| StoreError::Sqlite(format!("Failed to clear stroma data: {}", e)))?;
+
+        Ok(())
     }
 }
 
@@ -89,60 +188,60 @@ impl StateStore for StromaStore {
     async fn load_registration_data(
         &self,
     ) -> Result<Option<RegistrationData>, Self::StateStoreError> {
-        self.0.load_registration_data().await
+        self.signal_store.load_registration_data().await
     }
 
     async fn save_registration_data(
         &mut self,
         state: &RegistrationData,
     ) -> Result<(), Self::StateStoreError> {
-        self.0.save_registration_data(state).await
+        self.signal_store.save_registration_data(state).await
     }
 
     async fn is_registered(&self) -> bool {
-        self.0.is_registered().await
+        self.signal_store.is_registered().await
     }
 
     async fn clear_registration(&mut self) -> Result<(), Self::StateStoreError> {
-        self.0.clear_registration().await
+        self.signal_store.clear_registration().await
     }
 
     async fn set_aci_identity_key_pair(
         &self,
         key_pair: presage::libsignal_service::protocol::IdentityKeyPair,
     ) -> Result<(), Self::StateStoreError> {
-        self.0.set_aci_identity_key_pair(key_pair).await
+        self.signal_store.set_aci_identity_key_pair(key_pair).await
     }
 
     async fn set_pni_identity_key_pair(
         &self,
         key_pair: presage::libsignal_service::protocol::IdentityKeyPair,
     ) -> Result<(), Self::StateStoreError> {
-        self.0.set_pni_identity_key_pair(key_pair).await
+        self.signal_store.set_pni_identity_key_pair(key_pair).await
     }
 
     async fn sender_certificate(&self) -> Result<Option<SenderCertificate>, Self::StateStoreError> {
-        self.0.sender_certificate().await
+        self.signal_store.sender_certificate().await
     }
 
     async fn save_sender_certificate(
         &self,
         certificate: &SenderCertificate,
     ) -> Result<(), Self::StateStoreError> {
-        self.0.save_sender_certificate(certificate).await
+        self.signal_store.save_sender_certificate(certificate).await
     }
 
     async fn fetch_master_key(
         &self,
     ) -> Result<Option<presage::libsignal_service::prelude::MasterKey>, Self::StateStoreError> {
-        self.0.fetch_master_key().await
+        self.signal_store.fetch_master_key().await
     }
 
     async fn store_master_key(
         &self,
         master_key: Option<&presage::libsignal_service::prelude::MasterKey>,
     ) -> Result<(), Self::StateStoreError> {
-        self.0.store_master_key(master_key).await
+        self.signal_store.store_master_key(master_key).await
     }
 }
 
@@ -174,7 +273,7 @@ impl ContentsStore for StromaStore {
 
     // Delegate profile methods
     async fn clear_profiles(&mut self) -> Result<(), Self::ContentsStoreError> {
-        self.0.clear_profiles().await
+        self.signal_store.clear_profiles().await
     }
 
     async fn upsert_profile_key(
@@ -182,14 +281,14 @@ impl ContentsStore for StromaStore {
         uuid: &Uuid,
         key: ProfileKey,
     ) -> Result<bool, Self::ContentsStoreError> {
-        self.0.upsert_profile_key(uuid, key).await
+        self.signal_store.upsert_profile_key(uuid, key).await
     }
 
     async fn profile_key(
         &self,
         service_id: &presage::libsignal_service::protocol::ServiceId,
     ) -> Result<Option<ProfileKey>, Self::ContentsStoreError> {
-        self.0.profile_key(service_id).await
+        self.signal_store.profile_key(service_id).await
     }
 
     async fn save_profile(
@@ -198,7 +297,7 @@ impl ContentsStore for StromaStore {
         key: ProfileKey,
         profile: presage::libsignal_service::Profile,
     ) -> Result<(), Self::ContentsStoreError> {
-        self.0.save_profile(uuid, key, profile).await
+        self.signal_store.save_profile(uuid, key, profile).await
     }
 
     async fn profile(
@@ -206,7 +305,7 @@ impl ContentsStore for StromaStore {
         uuid: Uuid,
         key: ProfileKey,
     ) -> Result<Option<presage::libsignal_service::Profile>, Self::ContentsStoreError> {
-        self.0.profile(uuid, key).await
+        self.signal_store.profile(uuid, key).await
     }
 
     async fn save_profile_avatar(
@@ -215,7 +314,9 @@ impl ContentsStore for StromaStore {
         key: ProfileKey,
         avatar: &AvatarBytes,
     ) -> Result<(), Self::ContentsStoreError> {
-        self.0.save_profile_avatar(uuid, key, avatar).await
+        self.signal_store
+            .save_profile_avatar(uuid, key, avatar)
+            .await
     }
 
     async fn profile_avatar(
@@ -223,29 +324,52 @@ impl ContentsStore for StromaStore {
         uuid: Uuid,
         key: ProfileKey,
     ) -> Result<Option<AvatarBytes>, Self::ContentsStoreError> {
-        self.0.profile_avatar(uuid, key).await
+        self.signal_store.profile_avatar(uuid, key).await
+    }
+
+    // Delegate profile credential methods
+    async fn save_profile_credential(
+        &mut self,
+        uuid: Uuid,
+        credential_bytes: Vec<u8>,
+        expiration_time: u64,
+    ) -> Result<(), Self::ContentsStoreError> {
+        self.signal_store
+            .save_profile_credential(uuid, credential_bytes, expiration_time)
+            .await
+    }
+
+    async fn profile_credential(
+        &self,
+        uuid: &Uuid,
+    ) -> Result<Option<Vec<u8>>, Self::ContentsStoreError> {
+        self.signal_store.profile_credential(uuid).await
+    }
+
+    async fn clear_expired_credentials(&mut self) -> Result<u64, Self::ContentsStoreError> {
+        self.signal_store.clear_expired_credentials().await
     }
 
     // Delegate contact methods
     async fn clear_contacts(&mut self) -> Result<(), Self::ContentsStoreError> {
-        self.0.clear_contacts().await
+        self.signal_store.clear_contacts().await
     }
 
     async fn save_contact(&mut self, contact: &Contact) -> Result<(), Self::ContentsStoreError> {
-        self.0.save_contact(contact).await
+        self.signal_store.save_contact(contact).await
     }
 
     async fn contacts(&self) -> Result<Self::ContactsIter, Self::ContentsStoreError> {
-        self.0.contacts().await
+        self.signal_store.contacts().await
     }
 
     async fn contact_by_id(&self, id: &Uuid) -> Result<Option<Contact>, Self::ContentsStoreError> {
-        self.0.contact_by_id(id).await
+        self.signal_store.contact_by_id(id).await
     }
 
     // Delegate group methods
     async fn clear_groups(&mut self) -> Result<(), Self::ContentsStoreError> {
-        self.0.clear_groups().await
+        self.signal_store.clear_groups().await
     }
 
     async fn save_group(
@@ -253,18 +377,18 @@ impl ContentsStore for StromaStore {
         master_key_bytes: GroupMasterKeyBytes,
         group: impl Into<Group>,
     ) -> Result<(), Self::ContentsStoreError> {
-        self.0.save_group(master_key_bytes, group).await
+        self.signal_store.save_group(master_key_bytes, group).await
     }
 
     async fn groups(&self) -> Result<Self::GroupsIter, Self::ContentsStoreError> {
-        self.0.groups().await
+        self.signal_store.groups().await
     }
 
     async fn group(
         &self,
         master_key_bytes: GroupMasterKeyBytes,
     ) -> Result<Option<Group>, Self::ContentsStoreError> {
-        self.0.group(master_key_bytes).await
+        self.signal_store.group(master_key_bytes).await
     }
 
     async fn save_group_avatar(
@@ -272,19 +396,21 @@ impl ContentsStore for StromaStore {
         master_key_bytes: GroupMasterKeyBytes,
         avatar: &AvatarBytes,
     ) -> Result<(), Self::ContentsStoreError> {
-        self.0.save_group_avatar(master_key_bytes, avatar).await
+        self.signal_store
+            .save_group_avatar(master_key_bytes, avatar)
+            .await
     }
 
     async fn group_avatar(
         &self,
         master_key_bytes: GroupMasterKeyBytes,
     ) -> Result<Option<AvatarBytes>, Self::ContentsStoreError> {
-        self.0.group_avatar(master_key_bytes).await
+        self.signal_store.group_avatar(master_key_bytes).await
     }
 
     // Delegate general contents methods
     async fn clear_contents(&mut self) -> Result<(), Self::ContentsStoreError> {
-        self.0.clear_contents().await
+        self.signal_store.clear_contents().await
     }
 
     // NO-OP message methods (server seizure protection)
@@ -340,30 +466,30 @@ impl ContentsStore for StromaStore {
         &mut self,
         pack: &StickerPack,
     ) -> Result<(), Self::ContentsStoreError> {
-        self.0.add_sticker_pack(pack).await
+        self.signal_store.add_sticker_pack(pack).await
     }
 
     async fn remove_sticker_pack(
         &mut self,
         pack_id: &[u8],
     ) -> Result<bool, Self::ContentsStoreError> {
-        self.0.remove_sticker_pack(pack_id).await
+        self.signal_store.remove_sticker_pack(pack_id).await
     }
 
     async fn sticker_pack(
         &self,
         pack_id: &[u8],
     ) -> Result<Option<StickerPack>, Self::ContentsStoreError> {
-        self.0.sticker_pack(pack_id).await
+        self.signal_store.sticker_pack(pack_id).await
     }
 
     async fn sticker_packs(&self) -> Result<Self::StickerPacksIter, Self::ContentsStoreError> {
-        self.0.sticker_packs().await
+        self.signal_store.sticker_packs().await
     }
 }
 
 // Delegate Store trait (high-level store operations)
-// Note: We delegate to the inner SqliteStore's Store implementation
+// Note: We delegate to the signal_store's Store implementation
 impl Store for StromaStore {
     type Error = SqliteStoreError;
 
@@ -372,15 +498,15 @@ impl Store for StromaStore {
     type PniStore = <SqliteStore as Store>::PniStore;
 
     async fn clear(&mut self) -> Result<(), Self::Error> {
-        self.0.clear().await
+        self.signal_store.clear().await
     }
 
     fn aci_protocol_store(&self) -> Self::AciStore {
-        self.0.aci_protocol_store()
+        self.signal_store.aci_protocol_store()
     }
 
     fn pni_protocol_store(&self) -> Self::PniStore {
-        self.0.pni_protocol_store()
+        self.signal_store.pni_protocol_store()
     }
 }
 
@@ -405,10 +531,13 @@ mod tests {
     #[tokio::test]
     async fn test_stroma_store_open() {
         let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-
-        let result = StromaStore::open(&db_path, "test_passphrase".to_string()).await;
+        // Pass directory path, not file path
+        let result = StromaStore::open(temp_dir.path(), "test_passphrase".to_string()).await;
         assert!(result.is_ok());
+
+        // Verify both databases were created
+        assert!(temp_dir.path().join("signal.db").exists());
+        assert!(temp_dir.path().join("stroma.db").exists());
     }
 
     #[tokio::test]
@@ -419,9 +548,8 @@ mod tests {
         use presage::store::Thread;
 
         let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test.db");
 
-        let store = StromaStore::open(&db_path, "test_passphrase".to_string())
+        let store = StromaStore::open(temp_dir.path(), "test_passphrase".to_string())
             .await
             .unwrap();
 
@@ -459,5 +587,57 @@ mod tests {
         let result = store.message(&thread, 12345).await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_kv_storage() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = StromaStore::open(temp_dir.path(), "test_passphrase".to_string())
+            .await
+            .unwrap();
+
+        // Test store_data
+        let key = "test_poll_state";
+        let value = b"test_data";
+        let result = store.store_data(key, value).await;
+        assert!(result.is_ok());
+
+        // Test retrieve_data
+        let retrieved = store.retrieve_data(key).await.unwrap();
+        assert_eq!(retrieved, Some(value.to_vec()));
+
+        // Test delete_data
+        let result = store.delete_data(key).await;
+        assert!(result.is_ok());
+
+        // Verify deletion
+        let retrieved = store.retrieve_data(key).await.unwrap();
+        assert_eq!(retrieved, None);
+    }
+
+    #[tokio::test]
+    async fn test_clear_all() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut store = StromaStore::open(temp_dir.path(), "test_passphrase".to_string())
+            .await
+            .unwrap();
+
+        // Store some data in stroma.db
+        let key1 = "test_key_1";
+        let key2 = "test_key_2";
+        store.store_data(key1, b"value1").await.unwrap();
+        store.store_data(key2, b"value2").await.unwrap();
+
+        // Verify data exists
+        assert!(store.retrieve_data(key1).await.unwrap().is_some());
+        assert!(store.retrieve_data(key2).await.unwrap().is_some());
+
+        // Clear all data
+        let result = store.clear_all().await;
+        assert!(result.is_ok());
+
+        // Verify stroma.db is cleared
+        assert!(store.retrieve_data(key1).await.unwrap().is_none());
+        assert!(store.retrieve_data(key2).await.unwrap().is_none());
     }
 }

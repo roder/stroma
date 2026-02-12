@@ -194,8 +194,6 @@ All 7 critical gaps resolved. 16/16 proptests passing.
 
 ## Remaining Work: Rig Stroma (Steps 2-4)
 
-This is the main bot codebase at `stromarig/crew/matt/`.
-
 ### Step 2: Real Signal Integration
 
 **Beads**: `.beads/signal-integration.bead` (trait, store, linking roadmap), `.beads/technology-stack.bead` (presage/libsignal crate usage), `.beads/operator-cli.bead` (CLI commands)
@@ -205,17 +203,17 @@ This is the main bot codebase at `stromarig/crew/matt/`.
 
 **Deliverables**:
 
-- [ ] Create `StromaStore` wrapper (`src/signal/stroma_store.rs`) around encrypted `SqliteStore`:
+- [X] Create `StromaStore` wrapper (`src/signal/stroma_store.rs`) around encrypted `SqliteStore`:
   - Wraps `presage-store-sqlite::SqliteStore` with SQLCipher encryption
   - No-ops message/sticker persistence (server seizure protection)
   - Persists protocol state, groups, profiles (restart recovery)
   - Supersedes `StromaProtocolStore` (which never implemented presage's `Store` trait)
-- [ ] Remove old `StromaProtocolStore` (`src/signal/store.rs`) and update imports across codebase
-- [ ] Implement passphrase management:
+- [X] Remove old `StromaProtocolStore` (`src/signal/store.rs`) and update imports across codebase
+- [X] Implement passphrase management:
   - 24-word BIP-39 recovery phrase generated at link/register time
   - Delivery via `--passphrase-file` (container-native), stdin prompt, or env var (fallback)
-- [ ] Add `stroma register` CLI command (`src/cli/register.rs`) for new phone number registration
-- [ ] Wire `LibsignalClient` to presage `Manager` APIs:
+- [X] Add `stroma register` CLI command (`src/cli/register.rs`) for new phone number registration
+- [X] Wire `LibsignalClient` to presage `Manager` APIs:
   - `send_message()` -> `manager.send_message()`
   - `send_group_message()` -> `manager.send_message_to_group()`
   - `create_group()` -> `manager.create_group()` (blocked on GV2 Group CRUD convoy)
@@ -223,10 +221,10 @@ This is the main bot codebase at `stromarig/crew/matt/`.
   - `create_poll()` -> `manager.send_poll()` (API exists in presage fork)
   - `terminate_poll()` -> `manager.terminate_poll()` (API exists in presage fork)
   - `receive_messages()` -> `manager.receive_messages()`
-- [ ] Implement vote aggregate + HMAC'd voter dedup persistence in PollManager (zeroize on outcome)
-- [ ] Implement `link_secondary_device()` in `src/signal/linking.rs` (currently stubbed)
-- [ ] Lift `presage-store-sqlite` ban in `deny.toml` and `security.yml` (REQUIRES HUMAN APPROVAL)
-- [ ] Enable 16 CLI integration tests in `tests/cli_integration.rs` (all `#[ignore]` with reason "presage dependency")
+- [X] Implement vote aggregate + HMAC'd voter dedup persistence in PollManager (zeroize on outcome)
+- [X] Implement `link_secondary_device()` in `src/signal/linking.rs` (currently stubbed)
+- [X] Lift `presage-store-sqlite` ban in `deny.toml` and `security.yml` (REQUIRES HUMAN APPROVAL)
+- [X] Enable 16 CLI integration tests in `tests/cli_integration.rs` (all `#[ignore]` with reason "presage dependency")
 - [ ] End-to-end manual test: bot registers/links, receives messages, creates group, restarts without losing state
 
 **Testing Strategy**:
@@ -500,7 +498,7 @@ After 24h, bot terminates poll:
 
 1. **Duplicate `MemberHash` types** -- `freenet::contract::MemberHash` (private inner, ~28 import sites) and `stark::types::MemberHash` (public inner, used in `signal/bot.rs`) are two independent types for the same concept. Manual byte-level conversions in `signal/bot.rs` bridge them.
 
-2. **Competing identity hashing** -- `freenet::contract::MemberHash::from_identity()` uses plain `SHA256(identity || pepper)`, while `identity::mask_identity()` uses proper `HMAC-SHA256` with `HKDF`-derived keys. The former is weaker and contradicts the security constraint requiring HMAC-based masking.
+2. **~~Competing identity hashing~~** -- ✅ RESOLVED (2026-02-12): `freenet::contract::MemberHash::from_identity()` has been **removed entirely**. All callers now use `identity::mask_identity()` with the proper HMAC-SHA256 approach and mnemonic-derived keys via `StromaKeyring`.
 
 3. **No type bridge between `MaskedIdentity` and `MemberHash`** -- `identity.rs` produces `MaskedIdentity([u8; 32])`, Freenet stores `MemberHash([u8; 32])`. No `From` impl exists; conversion is manual via raw bytes.
 
@@ -511,8 +509,8 @@ After 24h, bot terminates poll:
 **Deliverables**:
 
 - [ ] Unify `MemberHash` into a single type shared by `freenet` and `stark` -- either extract to a shared `crate::types` module or make `stark` depend on `freenet::contract::MemberHash`
-- [ ] Add `From<MaskedIdentity> for MemberHash` (and/or reverse) for type-safe conversion between `identity.rs` output and Freenet storage
-- [ ] Deprecate `freenet::contract::MemberHash::from_identity()` (plain SHA256 with pepper) in favor of routing through `identity::mask_identity()` (HMAC-HKDF) -- then remove after all callers migrate
+- [x] ~~Add `From<MaskedIdentity> for MemberHash` (and/or reverse) for type-safe conversion between `identity.rs` output and Freenet storage~~ -- ✅ DONE (2026-02-12): Added `From<MaskedIdentity> for freenet::contract::MemberHash` and `From<MaskedIdentity> for stark::types::MemberHash`
+- [x] ~~Remove `freenet::contract::MemberHash::from_identity()` (plain SHA256 with pepper) in favor of routing through `identity::mask_identity()` (HMAC-HKDF)~~ -- ✅ DONE (2026-02-12): Method **removed entirely**, all callers migrated to `mask_identity()` + `From<MaskedIdentity>`
 - [ ] Rename `src/crypto/` to `src/psi/` or move `psi_ca.rs` under `src/federation/` since PSI-CA is specifically for federation handshakes
 - [ ] Update `.beads/rust-standards.bead` and `.cursor/rules/rust-standards.mdc` to reflect actual module paths (remove "Kernel" references, document actual layout)
 
@@ -626,7 +624,7 @@ cargo deny check                        # Supply chain security
 | Freenet state stream | P0 | Stroma | `StromaBot::run()` only polls Signal; Freenet `tokio::select!` is commented out |
 | handle_status stub | P0 | Stroma | Returns hardcoded placeholder, never queries Freenet for real standing data |
 | Duplicate MemberHash | P1 | Stroma | Two independent `MemberHash` types (`freenet::contract` and `stark::types`) with manual byte conversions |
-| Weak from_identity() | P1 | Stroma | `MemberHash::from_identity()` uses plain SHA256, not HMAC-HKDF -- contradicts security constraints |
+| ~~Weak from_identity()~~ | ~~P1~~ | Stroma | ✅ RESOLVED (2026-02-12): Method **removed**, all callers migrated to `mask_identity()` with mnemonic-derived keys |
 | st-hhzd4 | P1 | Stroma | ServiceId Display trait exposes cleartext identities |
 | st-7wpro | P1 | Stroma | Pre-existing rendezvous proptest failure |
 | Coverage | P1 | Stroma | 100% enforcement disabled in CI (~87% actual) |

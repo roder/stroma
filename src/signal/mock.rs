@@ -18,6 +18,7 @@ pub struct MockSignalClient {
 struct MockState {
     sent_messages: Vec<SentMessage>,
     group_members: HashMap<GroupId, Vec<ServiceId>>,
+    group_info: HashMap<GroupId, GroupInfo>,
     incoming_messages: Vec<Message>,
     polls: HashMap<u64, (GroupId, Poll)>,
     next_poll_id: u64,
@@ -123,7 +124,7 @@ impl SignalClient for MockSignalClient {
         Ok(())
     }
 
-    async fn create_group(&self, _name: &str) -> SignalResult<GroupId> {
+    async fn create_group(&self, name: &str) -> SignalResult<GroupId> {
         let mut state = self.state.lock().unwrap();
         let group_id = state.next_group_id;
         state.next_group_id += 1;
@@ -133,6 +134,17 @@ impl SignalClient for MockSignalClient {
 
         // Initialize empty member list
         state.group_members.insert(group.clone(), Vec::new());
+
+        // Initialize group info with defaults
+        state.group_info.insert(
+            group.clone(),
+            GroupInfo {
+                name: name.to_string(),
+                description: None,
+                disappearing_messages_timer: None,
+                announcements_only: false,
+            },
+        );
 
         Ok(group)
     }
@@ -162,7 +174,13 @@ impl SignalClient for MockSignalClient {
         }
     }
 
-    async fn create_poll(&self, group: &GroupId, poll: &Poll) -> SignalResult<u64> {
+    async fn create_poll(
+        &self,
+        group: &GroupId,
+        question: &str,
+        options: Vec<String>,
+        _allow_multiple: bool,
+    ) -> SignalResult<u64> {
         let mut state = self.state.lock().unwrap();
 
         if !state.group_members.contains_key(group) {
@@ -171,7 +189,11 @@ impl SignalClient for MockSignalClient {
 
         let poll_id = state.next_poll_id;
         state.next_poll_id += 1;
-        state.polls.insert(poll_id, (group.clone(), poll.clone()));
+        let poll = Poll {
+            question: question.to_string(),
+            options,
+        };
+        state.polls.insert(poll_id, (group.clone(), poll));
 
         Ok(poll_id)
     }
@@ -190,6 +212,59 @@ impl SignalClient for MockSignalClient {
             content: format!("Poll {} terminated", poll_timestamp),
         });
 
+        Ok(())
+    }
+
+    async fn get_group_info(&self, group: &GroupId) -> SignalResult<GroupInfo> {
+        let state = self.state.lock().unwrap();
+        state
+            .group_info
+            .get(group)
+            .cloned()
+            .ok_or_else(|| SignalError::GroupNotFound(group.to_string()))
+    }
+
+    async fn set_group_name(&self, group: &GroupId, name: &str) -> SignalResult<()> {
+        let mut state = self.state.lock().unwrap();
+        let info = state
+            .group_info
+            .get_mut(group)
+            .ok_or_else(|| SignalError::GroupNotFound(group.to_string()))?;
+        info.name = name.to_string();
+        Ok(())
+    }
+
+    async fn set_group_description(&self, group: &GroupId, description: &str) -> SignalResult<()> {
+        let mut state = self.state.lock().unwrap();
+        let info = state
+            .group_info
+            .get_mut(group)
+            .ok_or_else(|| SignalError::GroupNotFound(group.to_string()))?;
+        info.description = if description.is_empty() {
+            None
+        } else {
+            Some(description.to_string())
+        };
+        Ok(())
+    }
+
+    async fn set_disappearing_messages(&self, group: &GroupId, seconds: u32) -> SignalResult<()> {
+        let mut state = self.state.lock().unwrap();
+        let info = state
+            .group_info
+            .get_mut(group)
+            .ok_or_else(|| SignalError::GroupNotFound(group.to_string()))?;
+        info.disappearing_messages_timer = if seconds == 0 { None } else { Some(seconds) };
+        Ok(())
+    }
+
+    async fn set_announcements_only(&self, group: &GroupId, enabled: bool) -> SignalResult<()> {
+        let mut state = self.state.lock().unwrap();
+        let info = state
+            .group_info
+            .get_mut(group)
+            .ok_or_else(|| SignalError::GroupNotFound(group.to_string()))?;
+        info.announcements_only = enabled;
         Ok(())
     }
 
@@ -268,13 +343,48 @@ mod tests {
 
         client.add_group_member(&group, &member).await.unwrap();
 
-        let poll = Poll {
-            question: "Approve member?".to_string(),
-            options: vec!["Approve".to_string(), "Reject".to_string()],
-        };
-
-        let poll_id = client.create_poll(&group, &poll).await.unwrap();
+        let poll_id = client
+            .create_poll(
+                &group,
+                "Approve member?",
+                vec!["Approve".to_string(), "Reject".to_string()],
+                false,
+            )
+            .await
+            .unwrap();
         assert_eq!(poll_id, 0);
+    }
+
+    #[tokio::test]
+    async fn test_group_settings() {
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let group = client.create_group("Test Group").await.unwrap();
+
+        // Check initial state
+        let info = client.get_group_info(&group).await.unwrap();
+        assert_eq!(info.name, "Test Group");
+        assert_eq!(info.description, None);
+        assert_eq!(info.disappearing_messages_timer, None);
+        assert!(!info.announcements_only);
+
+        // Update settings
+        client.set_group_name(&group, "New Name").await.unwrap();
+        client
+            .set_group_description(&group, "Test description")
+            .await
+            .unwrap();
+        client
+            .set_disappearing_messages(&group, 86400)
+            .await
+            .unwrap();
+        client.set_announcements_only(&group, true).await.unwrap();
+
+        // Verify changes
+        let info = client.get_group_info(&group).await.unwrap();
+        assert_eq!(info.name, "New Name");
+        assert_eq!(info.description, Some("Test description".to_string()));
+        assert_eq!(info.disappearing_messages_timer, Some(86400));
+        assert!(info.announcements_only);
     }
 
     #[tokio::test]

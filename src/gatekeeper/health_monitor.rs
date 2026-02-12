@@ -351,7 +351,9 @@ mod tests {
         async fn create_poll(
             &self,
             _group: &GroupId,
-            _poll: &crate::signal::traits::Poll,
+            _question: &str,
+            _options: Vec<String>,
+            _allow_multiple: bool,
         ) -> Result<u64, SignalError> {
             Ok(1)
         }
@@ -360,6 +362,46 @@ mod tests {
             &self,
             _group: &crate::signal::traits::GroupId,
             _poll_timestamp: u64,
+        ) -> Result<(), SignalError> {
+            Ok(())
+        }
+
+        async fn get_group_info(
+            &self,
+            _group: &GroupId,
+        ) -> Result<crate::signal::traits::GroupInfo, SignalError> {
+            Ok(crate::signal::traits::GroupInfo {
+                name: "Test Group".to_string(),
+                description: None,
+                disappearing_messages_timer: None,
+                announcements_only: false,
+            })
+        }
+
+        async fn set_group_name(&self, _group: &GroupId, _name: &str) -> Result<(), SignalError> {
+            Ok(())
+        }
+
+        async fn set_group_description(
+            &self,
+            _group: &GroupId,
+            _description: &str,
+        ) -> Result<(), SignalError> {
+            Ok(())
+        }
+
+        async fn set_disappearing_messages(
+            &self,
+            _group: &GroupId,
+            _seconds: u32,
+        ) -> Result<(), SignalError> {
+            Ok(())
+        }
+
+        async fn set_announcements_only(
+            &self,
+            _group: &GroupId,
+            _enabled: bool,
         ) -> Result<(), SignalError> {
             Ok(())
         }

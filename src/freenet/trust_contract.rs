@@ -63,6 +63,22 @@ pub struct TrustNetworkState {
     /// Immutable append-only log of operator actions.
     #[serde(default)]
     pub audit_log: Vec<AuditEntry>,
+
+    /// Key epoch for identity masking (rotation tracking).
+    ///
+    /// This tracks which generation of mnemonic-derived keys was used to create
+    /// the MemberHash values in this state. When rotating the root mnemonic:
+    /// 1. Old members need to be re-invited with new hashes
+    /// 2. The epoch is incremented
+    /// 3. The bot validates incoming operations match the current epoch
+    ///
+    /// Default: 1 (initial epoch, matches StromaKeyring default)
+    #[serde(default = "default_key_epoch")]
+    pub key_epoch: u64,
+}
+
+fn default_key_epoch() -> u64 {
+    1
 }
 
 /// Group configuration.
@@ -259,6 +275,7 @@ impl TrustNetworkState {
             gap11_announcement_sent: false,
             active_proposals: HashMap::new(),
             audit_log: Vec::new(),
+            key_epoch: 1,
         }
     }
 

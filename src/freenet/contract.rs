@@ -6,7 +6,6 @@
 //! - Small deltas (~100-500 bytes), infrequent updates
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap};
 
 /// Trust contract state.
@@ -42,15 +41,6 @@ impl MemberHash {
     /// Get bytes.
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
-    }
-
-    /// Compute HMAC-masked identity.
-    pub fn from_identity(identity: &str, pepper: &[u8]) -> Self {
-        let mut hasher = Sha256::new();
-        hasher.update(identity.as_bytes());
-        hasher.update(pepper);
-        let hash_bytes = hasher.finalize();
-        Self::from_bytes(&hash_bytes)
     }
 }
 
@@ -276,23 +266,33 @@ mod tests {
     }
 
     #[test]
-    fn test_member_hash_from_identity() {
-        let hash1 = MemberHash::from_identity("alice", b"pepper");
-        let hash2 = MemberHash::from_identity("alice", b"pepper");
-        let hash3 = MemberHash::from_identity("bob", b"pepper");
+    fn test_member_hash_via_mask_identity() {
+        use crate::identity::mask_identity;
 
-        // Same identity + pepper = same hash
+        // Use a consistent 32-byte test key (simulates StromaKeyring output)
+        let key = [0x42u8; 32];
+
+        let hash1: MemberHash = mask_identity("alice", &key).into();
+        let hash2: MemberHash = mask_identity("alice", &key).into();
+        let hash3: MemberHash = mask_identity("bob", &key).into();
+
+        // Same identity + key = same hash
         assert_eq!(hash1, hash2);
         // Different identity = different hash
         assert_ne!(hash1, hash3);
     }
 
     #[test]
-    fn test_member_hash_pepper_changes_output() {
-        let hash1 = MemberHash::from_identity("alice", b"pepper1");
-        let hash2 = MemberHash::from_identity("alice", b"pepper2");
+    fn test_member_hash_key_changes_output() {
+        use crate::identity::mask_identity;
 
-        // Different pepper = different hash
+        let key1 = [0x42u8; 32];
+        let key2 = [0x43u8; 32];
+
+        let hash1: MemberHash = mask_identity("alice", &key1).into();
+        let hash2: MemberHash = mask_identity("alice", &key2).into();
+
+        // Different key = different hash
         assert_ne!(hash1, hash2);
     }
 

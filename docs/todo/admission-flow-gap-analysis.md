@@ -73,7 +73,7 @@ The admission vetting flow is **substantially complete** with the core architect
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Hash sender to MemberHash | ✅ COMPLETE | `MemberHash::from_identity()` |
+| Hash sender to MemberHash | ✅ COMPLETE | `identity::mask_identity()` + `From<MaskedIdentity>` |
 | Query Freenet state | ✅ COMPLETE | Full state query and deserialization |
 | Verify sender is active member | ✅ COMPLETE | `state.members.contains()` |
 | VettingSession lookup | ✅ COMPLETE | `get_session(username)` |

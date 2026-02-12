@@ -57,10 +57,17 @@ dirs = "5.0"
 bip39 = "2.1"
 rpassword = "7.3"
 rand = "0.8"
+toml = "0.8"
 
 # Logging
 tracing = "0.1"
 tracing-subscriber = "0.3"
+
+# Database (for stroma.db - separate from presage's signal.db)
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "macros"] }
+
+# Duration parsing (for /propose signal commands)
+humantime = "2.1"
 
 # Property-based testing
 proptest = "1.6"
@@ -69,6 +76,9 @@ proptest = "1.6"
 petgraph = "0.6"
 uuid = "1.20.0"
 tokio-stream = { version = "0.1.18", features = ["sync"] }
+
+# QR code rendering (for device linking)
+qr2term = "0.3"
 
 [dev-dependencies]
 rand = "0.8"
@@ -101,7 +111,6 @@ harness = false
 
 # Protocol v8 poll support via our fork of libsignal-service-rs
 # Branch rebased on post-websocket-migration libsignal (commit 498c03d)
-# See: .beads/poll-implementation-gastown.bead
 [patch."https://github.com/whisperfish/libsignal-service-rs"]
 libsignal-service = { git = "https://github.com/roder/libsignal-service-rs", branch = "main" }
 

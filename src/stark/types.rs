@@ -1,14 +1,39 @@
 //! Types for vouch verification STARK proofs
 
+use crate::freenet::contract::MemberHash as ContractMemberHash;
+use crate::identity::MaskedIdentity;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use zeroize::Zeroize;
 
 /// A 32-byte hash representing a member identity
+///
+/// This type is equivalent to `freenet::contract::MemberHash` and can be
+/// converted to/from it via the `From` implementations.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Zeroize,
 )]
 pub struct MemberHash(pub [u8; 32]);
+
+impl From<ContractMemberHash> for MemberHash {
+    fn from(hash: ContractMemberHash) -> Self {
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(hash.as_bytes());
+        MemberHash(bytes)
+    }
+}
+
+impl From<MemberHash> for ContractMemberHash {
+    fn from(hash: MemberHash) -> Self {
+        ContractMemberHash::from_bytes(&hash.0)
+    }
+}
+
+impl From<MaskedIdentity> for MemberHash {
+    fn from(masked: MaskedIdentity) -> Self {
+        MemberHash(*masked.as_bytes())
+    }
+}
 
 /// A claim about a member's vouch verification state
 #[derive(Debug, Clone, Serialize, Deserialize)]

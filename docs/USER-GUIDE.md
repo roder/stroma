@@ -191,7 +191,7 @@ Returns:
 - Trust health (DVR percentage)
 - Replication health (chunk status)
 - Federation status
-- Subcommand hints (`/mesh strength`, `/mesh replication`, `/mesh config`)
+- Subcommand hints (`/mesh strength`, `/mesh replication`, `/mesh config`, `/mesh settings`)
 
 #### `/mesh strength`
 **Shows detailed network health metrics (trust)**
@@ -237,6 +237,42 @@ Returns all configurable parameters:
 - Trust thresholds
 - Config version and last updated
 
+#### `/mesh settings`
+**Shows all available configuration keys**
+
+Returns comprehensive list of all configurable settings:
+- Stroma trust settings (min_vouches, max_flags, thresholds, etc.)
+- Signal group settings (name, description, disappearing messages, etc.)
+- Valid value ranges for each key
+- Current values
+- Poll options (binary vs multi-option)
+
+Example response:
+```
+⚙️ Available Configuration Keys
+
+📋 Stroma Settings (/propose stroma <key> <value>):
+  min_vouches: 2 (range: 1-10) - Minimum vouches for standing
+  max_flags: 3 (range: 1-10) - Maximum flags before ejection
+  open_membership: false (true/false) - Allow new members
+  default_poll_timeout_secs: 172800 (3600-604800) - Default timeout
+  config_change_threshold: 0.70 (0.50-1.00) - Vote threshold
+  min_quorum: 0.50 (0.25-1.00) - Minimum participation
+
+📡 Signal Settings (/propose signal <key> <value>):
+  name: "Group Name" (1-32 chars) - Group display name
+  description: "..." (0-480 chars) - Group description
+  disappearing_messages: off (off, 1h, 1d, 7d, 14d, 30d, 90d) - Message timer
+  announcements_only: false (true/false) - Admin-only messages
+
+📊 Poll Options:
+  Signal polls support up to 10 options.
+  Binary: /propose signal <key> <value> (creates Approve/Reject poll)
+  Multi:  /propose signal --key <key> --value <v1> --value <v2> ... (post-UAT)
+
+💡 Example: /propose signal disappearing_messages 7d --timeout 48h
+```
+
 ### Configuration
 
 #### `/propose` - Unified Proposal System
@@ -249,26 +285,31 @@ Returns all configurable parameters:
 
 **Subcommands:**
 
-**`/propose config <setting> <value>`** - Signal group settings:
-- `name` - Group name
-- `description` - Group description
-- `disappearing_messages` - Message retention (e.g., 24h)
+**`/propose signal <setting> <value>`** - Signal group settings:
+- `name` (1-32 chars) - Group display name
+- `description` (0-480 chars) - Group description
+- `disappearing_messages` (off, 1h, 1d, 7d, 14d, 30d, 90d) - Message retention timer
+- `announcements_only` (true/false) - Only admins can send messages
 
 **`/propose stroma <setting> <value>`** - Stroma trust settings:
-- `config_change_threshold` (0.5-1.0) - % of votes needed to pass proposals
-- `min_quorum` (0.3-1.0) - % of members who must vote for quorum
-- `default_poll_timeout` (duration) - Default poll timeout if not specified
-- `min_intersection_density` (0.0-1.0) - Federation overlap threshold
-- `validator_percentile` (1-100) - Validator threshold percentile
-- `min_vouch_threshold` (≥2) - Minimum effective vouches to stay in group
+- `min_vouches` (1-10) - Minimum vouches for full standing
+- `max_flags` (1-10) - Maximum flags before ejection
+- `open_membership` (true/false) - Whether new members can join
+- `default_poll_timeout_secs` (3600-604800) - Default poll timeout in seconds
+- `config_change_threshold` (0.50-1.00) - % of votes needed to pass proposals
+- `min_quorum` (0.25-1.00) - % of members who must vote for quorum
 
 **`/propose federate <group-id>`** - Federation:
-- Proposes federation with another Stroma group
+- Proposes federation with another Stroma group (Phase 4+, not yet implemented)
 
-**Example:**
+**Examples:**
 ```
-/propose stroma min_intersection_density 0.15
+/propose signal disappearing_messages 7d --timeout 48h
+/propose signal name "Privacy Advocates" --timeout 72h
+/propose stroma min_vouches 3 --timeout 48h
 ```
+
+**Tip:** Use `/mesh settings` to see all available configuration keys with their current values and valid ranges.
 
 ### Audit
 

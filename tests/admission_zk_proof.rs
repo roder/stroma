@@ -188,6 +188,7 @@ fn test_freenet_stores_outcomes_not_proofs() {
         gap11_announcement_sent: false,
         active_proposals: std::collections::HashMap::new(),
         audit_log: vec![],
+        key_epoch: 1,
     };
 
     // StateDelta should have no proof-related fields

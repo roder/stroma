@@ -17,8 +17,8 @@ use crate::freenet::{
     trust_contract::{StateDelta, TrustNetworkState},
 };
 use crate::gatekeeper::audit_trail::AuditEntry;
+use crate::identity::mask_identity;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
 /// Bootstrap state machine
@@ -47,17 +47,21 @@ pub enum BootstrapState {
 pub struct BootstrapManager<C: SignalClient> {
     signal: C,
     state: BootstrapState,
-    /// ACI identity key for HMAC (derived from Signal identity)
-    pepper: Vec<u8>,
+    /// Identity masking key from StromaKeyring (mnemonic-derived)
+    identity_masking_key: [u8; 32],
 }
 
 impl<C: SignalClient> BootstrapManager<C> {
     /// Create new bootstrap manager
-    pub fn new(signal: C, pepper: Vec<u8>) -> Self {
+    ///
+    /// # Arguments
+    /// * `signal` - Signal client
+    /// * `identity_masking_key` - Key from `StromaKeyring::identity_masking_key()`
+    pub fn new(signal: C, identity_masking_key: [u8; 32]) -> Self {
         Self {
             signal,
             state: BootstrapState::AwaitingInitiation,
-            pepper,
+            identity_masking_key,
         }
     }
 
@@ -92,8 +96,8 @@ impl<C: SignalClient> BootstrapManager<C> {
             ));
         }
 
-        // Hash initiator identity immediately
-        let initiator_hash = hash_identity(&initiator.0, &self.pepper);
+        // Hash initiator identity immediately using secure HMAC
+        let initiator_hash = mask_identity(&initiator.0, &self.identity_masking_key).into();
 
         // Transition to collecting seeds
         self.state = BootstrapState::CollectingSeeds {
@@ -144,7 +148,7 @@ impl<C: SignalClient> BootstrapManager<C> {
         };
 
         // Verify sender is the initiator
-        let from_hash = hash_identity(&from.0, &self.pepper);
+        let from_hash: MemberHash = mask_identity(&from.0, &self.identity_masking_key).into();
         if from_hash != initiator {
             return Err(SignalError::Unauthorized);
         }
@@ -156,8 +160,9 @@ impl<C: SignalClient> BootstrapManager<C> {
             ));
         }
 
-        // Hash new seed identity
-        let new_seed_hash = hash_identity(new_seed_username, &self.pepper);
+        // Hash new seed identity using secure HMAC
+        let new_seed_hash: MemberHash =
+            mask_identity(new_seed_username, &self.identity_masking_key).into();
 
         // Check for duplicates
         if current_seeds.contains(&new_seed_hash) {
@@ -297,19 +302,8 @@ impl<C: SignalClient> BootstrapManager<C> {
     }
 }
 
-/// Hash identity with pepper (HMAC-like)
-fn hash_identity(identity: &str, pepper: &[u8]) -> MemberHash {
-    let mut hasher = Sha256::new();
-    hasher.update(identity.as_bytes());
-    hasher.update(pepper);
-    let hash_bytes = hasher.finalize();
-
-    // Create MemberHash from bytes
-    let mut hash_array = [0u8; 32];
-    hash_array.copy_from_slice(&hash_bytes[..32]);
-
-    MemberHash::from_bytes(&hash_array)
-}
+// NOTE: The old hash_identity function using SHA256(identity||pepper) has been removed.
+// All identity hashing now uses identity::mask_identity() with HMAC-SHA256 and mnemonic-derived key.
 
 /// Zeroize identity after hashing (for security)
 #[allow(dead_code)]
@@ -323,14 +317,14 @@ mod tests {
     use crate::freenet::MockFreenetClient;
     use crate::signal::mock::MockSignalClient;
 
-    fn test_pepper() -> Vec<u8> {
-        b"test-pepper-123".to_vec()
+    fn test_masking_key() -> [u8; 32] {
+        *b"test-masking-key-32-bytes-pad!!!" // 32 bytes exactly
     }
 
     #[tokio::test]
     async fn test_bootstrap_manager_creation() {
         let signal = MockSignalClient::new(ServiceId("bot".to_string()));
-        let manager = BootstrapManager::new(signal, test_pepper());
+        let manager = BootstrapManager::new(signal, test_masking_key());
 
         assert!(matches!(
             manager.state(),
@@ -342,7 +336,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_group() {
         let signal = MockSignalClient::new(ServiceId("bot".to_string()));
-        let mut manager = BootstrapManager::new(signal.clone(), test_pepper());
+        let mut manager = BootstrapManager::new(signal.clone(), test_masking_key());
 
         let initiator = ServiceId("alice".to_string());
         let result = manager
@@ -371,7 +365,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_group_empty_name() {
         let signal = MockSignalClient::new(ServiceId("bot".to_string()));
-        let mut manager = BootstrapManager::new(signal, test_pepper());
+        let mut manager = BootstrapManager::new(signal, test_masking_key());
 
         let initiator = ServiceId("alice".to_string());
         let result = manager
@@ -384,7 +378,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_group_already_in_progress() {
         let signal = MockSignalClient::new(ServiceId("bot".to_string()));
-        let mut manager = BootstrapManager::new(signal, test_pepper());
+        let mut manager = BootstrapManager::new(signal, test_masking_key());
 
         let initiator = ServiceId("alice".to_string());
 
@@ -405,7 +399,7 @@ mod tests {
     #[tokio::test]
     async fn test_add_seed_without_create_group() {
         let signal = MockSignalClient::new(ServiceId("bot".to_string()));
-        let mut manager = BootstrapManager::new(signal, test_pepper());
+        let mut manager = BootstrapManager::new(signal, test_masking_key());
 
         let from = ServiceId("alice".to_string());
         let freenet = MockFreenetClient::new();
@@ -417,7 +411,7 @@ mod tests {
     #[tokio::test]
     async fn test_add_seed_by_non_initiator() {
         let signal = MockSignalClient::new(ServiceId("bot".to_string()));
-        let mut manager = BootstrapManager::new(signal, test_pepper());
+        let mut manager = BootstrapManager::new(signal, test_masking_key());
 
         let initiator = ServiceId("alice".to_string());
         manager
@@ -437,7 +431,7 @@ mod tests {
     async fn test_add_two_seeds() {
         let signal = MockSignalClient::new(ServiceId("bot".to_string()));
         let freenet = MockFreenetClient::new();
-        let mut manager = BootstrapManager::new(signal.clone(), test_pepper());
+        let mut manager = BootstrapManager::new(signal.clone(), test_masking_key());
 
         let initiator = ServiceId("alice".to_string());
         manager
@@ -470,7 +464,7 @@ mod tests {
     async fn test_add_duplicate_seed() {
         let signal = MockSignalClient::new(ServiceId("bot".to_string()));
         let freenet = MockFreenetClient::new();
-        let mut manager = BootstrapManager::new(signal, test_pepper());
+        let mut manager = BootstrapManager::new(signal, test_masking_key());
 
         let initiator = ServiceId("alice".to_string());
         manager
@@ -490,11 +484,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_hash_identity_consistency() {
-        let pepper = test_pepper();
-        let hash1 = hash_identity("alice", &pepper);
-        let hash2 = hash_identity("alice", &pepper);
-        let hash3 = hash_identity("bob", &pepper);
+    async fn test_mask_identity_consistency() {
+        let key = test_masking_key();
+        let hash1: MemberHash = mask_identity("alice", &key).into();
+        let hash2: MemberHash = mask_identity("alice", &key).into();
+        let hash3: MemberHash = mask_identity("bob", &key).into();
 
         // Same identity produces same hash
         assert_eq!(hash1, hash2);
@@ -506,7 +500,7 @@ mod tests {
     async fn test_complete_bootstrap_creates_triangle() {
         let signal = MockSignalClient::new(ServiceId("bot".to_string()));
         let freenet = MockFreenetClient::new();
-        let mut manager = BootstrapManager::new(signal.clone(), test_pepper());
+        let mut manager = BootstrapManager::new(signal.clone(), test_masking_key());
 
         let initiator = ServiceId("alice".to_string());
         manager
@@ -552,7 +546,7 @@ mod tests {
 
         let signal = MockSignalClient::new(ServiceId("bot".to_string()));
         let freenet = MockFreenetClient::new();
-        let mut manager = BootstrapManager::new(signal.clone(), test_pepper());
+        let mut manager = BootstrapManager::new(signal.clone(), test_masking_key());
 
         let initiator = ServiceId("alice".to_string());
         manager

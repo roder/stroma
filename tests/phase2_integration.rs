@@ -193,12 +193,18 @@ mod test_mocks {
         async fn create_poll(
             &self,
             group: &GroupId,
-            poll: &Poll,
+            question: &str,
+            options: Vec<String>,
+            _allow_multiple: bool,
         ) -> stroma::signal::traits::SignalResult<u64> {
             let mut state = self.state.lock().unwrap();
             let poll_id = state.next_poll_id;
             state.next_poll_id += 1;
-            state.polls.insert(poll_id, (group.clone(), poll.clone()));
+            let poll = Poll {
+                question: question.to_string(),
+                options,
+            };
+            state.polls.insert(poll_id, (group.clone(), poll));
             Ok(poll_id)
         }
 
@@ -212,6 +218,51 @@ mod test_mocks {
                 recipient: Recipient::Group(group.clone()),
                 content: format!("Poll {} terminated", poll_timestamp),
             });
+            Ok(())
+        }
+
+        async fn get_group_info(
+            &self,
+            _group: &GroupId,
+        ) -> stroma::signal::traits::SignalResult<stroma::signal::traits::GroupInfo> {
+            use stroma::signal::traits::GroupInfo;
+            Ok(GroupInfo {
+                name: "Test Group".to_string(),
+                description: Some("Test Description".to_string()),
+                disappearing_messages_timer: None,
+                announcements_only: false,
+            })
+        }
+
+        async fn set_group_name(
+            &self,
+            _group: &GroupId,
+            _name: &str,
+        ) -> stroma::signal::traits::SignalResult<()> {
+            Ok(())
+        }
+
+        async fn set_group_description(
+            &self,
+            _group: &GroupId,
+            _description: &str,
+        ) -> stroma::signal::traits::SignalResult<()> {
+            Ok(())
+        }
+
+        async fn set_disappearing_messages(
+            &self,
+            _group: &GroupId,
+            _seconds: u32,
+        ) -> stroma::signal::traits::SignalResult<()> {
+            Ok(())
+        }
+
+        async fn set_announcements_only(
+            &self,
+            _group: &GroupId,
+            _enabled: bool,
+        ) -> stroma::signal::traits::SignalResult<()> {
             Ok(())
         }
 
@@ -749,12 +800,13 @@ async fn test_scenario_3_proposal_lifecycle() {
     let timeout = Duration::from_secs(5 * 60); // 5 minutes
 
     // b) Verify: Signal Poll created with correct options
-    let poll = Poll {
-        question: "Approve config change: name = \"New Name\"?".to_string(),
-        options: vec!["Approve".to_string(), "Reject".to_string()],
-    };
+    let poll_question = "Approve config change: name = \"New Name\"?".to_string();
+    let poll_options = vec!["Approve".to_string(), "Reject".to_string()];
 
-    let poll_id = signal_client.create_poll(&group, &poll).await.unwrap();
+    let poll_id = signal_client
+        .create_poll(&group, &poll_question, poll_options, false)
+        .await
+        .unwrap();
     assert_eq!(poll_id, 0, "First poll should have ID 0");
 
     // Verify poll was created
@@ -863,12 +915,13 @@ async fn test_scenario_4_proposal_quorum_fail() {
         value: "20".to_string(),
     };
 
-    let poll = Poll {
-        question: "Approve config change: max_members = 20?".to_string(),
-        options: vec!["Approve".to_string(), "Reject".to_string()],
-    };
+    let poll_question = "Approve config change: max_members = 20?".to_string();
+    let poll_options = vec!["Approve".to_string(), "Reject".to_string()];
 
-    let poll_id = signal_client.create_poll(&group, &poll).await.unwrap();
+    let poll_id = signal_client
+        .create_poll(&group, &poll_question, poll_options, false)
+        .await
+        .unwrap();
 
     // Only 3 members vote (all approve)
     let vote_count = 3;

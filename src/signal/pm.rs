@@ -283,7 +283,7 @@ async fn handle_invite(
 ) -> SignalResult<()> {
     // TODO: Implement full invitation logic with Freenet:
     // 1. Verify sender is a current member (query Freenet contract)
-    // 2. Hash invitee identity: ServiceId -> MemberHash (with ACI-derived key)
+    // 2. Hash invitee identity: ServiceId -> MemberHash (with mnemonic-derived key)
     // 3. Check if invitee already exists (member or pending invitee)
     // 4. Record first vouch in Freenet (AddVouch delta)
     // 5. Start vetting process (trigger cross-cluster matching)
@@ -333,12 +333,13 @@ async fn handle_flag<F: crate::freenet::FreenetClient>(
         traits::{ContractDelta, FreenetError},
         trust_contract::{StateDelta, TrustNetworkState},
     };
+    use crate::identity::mask_identity;
     use crate::serialization::{from_cbor, to_cbor};
     use crate::signal::group::EjectionTrigger;
 
-    // Hash sender and target identities
-    let sender_hash = MemberHash::from_identity(&sender.0, &config.pepper);
-    let target_hash = MemberHash::from_identity(username, &config.pepper);
+    // Hash sender and target identities using mnemonic-derived key
+    let sender_hash: MemberHash = mask_identity(&sender.0, &config.identity_masking_key).into();
+    let target_hash: MemberHash = mask_identity(username, &config.identity_masking_key).into();
 
     // Query Freenet for current contract state
     let contract = match &config.contract_hash {
@@ -581,6 +582,7 @@ async fn handle_status<F: crate::freenet::FreenetClient>(
     use crate::freenet::{
         contract::MemberHash, traits::FreenetError, trust_contract::TrustNetworkState,
     };
+    use crate::identity::mask_identity;
     use crate::serialization::from_cbor;
 
     // GAP-04: /status shows own vouchers only, rejects third-party queries
@@ -589,8 +591,8 @@ async fn handle_status<F: crate::freenet::FreenetClient>(
         return client.send_message(sender, response).await;
     }
 
-    // Hash sender's ServiceId to MemberHash
-    let sender_hash = MemberHash::from_identity(&sender.0, &config.pepper);
+    // Hash sender's ServiceId to MemberHash using mnemonic-derived key
+    let sender_hash: MemberHash = mask_identity(&sender.0, &config.identity_masking_key).into();
 
     // Get contract hash
     let contract = match &config.contract_hash {
@@ -731,12 +733,13 @@ async fn handle_mesh<F: crate::freenet::FreenetClient>(
             handle_mesh_replication(client, persistence_manager, sender).await
         }
         Some("config") => handle_mesh_config(client, freenet, config, sender).await,
+        Some("settings") => handle_mesh_settings(client, freenet, config, sender).await,
         Some(unknown) => {
             client
                 .send_message(
                     sender,
                     &format!(
-                        "Unknown /mesh subcommand: {}.\n\nAvailable: /mesh, /mesh strength, /mesh replication, /mesh config",
+                        "Unknown /mesh subcommand: {}.\n\nAvailable: /mesh, /mesh strength, /mesh replication, /mesh config, /mesh settings",
                         unknown
                     ),
                 )
@@ -1199,6 +1202,147 @@ async fn handle_mesh_config<F: crate::freenet::FreenetClient>(
     client.send_message(sender, &response).await
 }
 
+async fn handle_mesh_settings<F: crate::freenet::FreenetClient>(
+    client: &impl SignalClient,
+    freenet: &F,
+    config: &crate::signal::bot::BotConfig,
+    sender: &ServiceId,
+) -> SignalResult<()> {
+    use crate::freenet::traits::FreenetError;
+    use crate::serialization::from_cbor;
+
+    // Get contract hash
+    let contract = match &config.contract_hash {
+        Some(hash) => *hash,
+        None => {
+            client
+                .send_message(
+                    sender,
+                    "❌ Trust contract not configured. Has the group been bootstrapped?",
+                )
+                .await?;
+            return Ok(());
+        }
+    };
+
+    // Query Freenet for current state
+    let state_bytes = match freenet.get_state(&contract).await {
+        Ok(state) => state.data,
+        Err(FreenetError::ContractNotFound) => {
+            client
+                .send_message(
+                    sender,
+                    "❌ Trust contract not found. Has the group been bootstrapped?",
+                )
+                .await?;
+            return Ok(());
+        }
+        Err(e) => {
+            client
+                .send_message(sender, &format!("❌ Failed to query Freenet: {}", e))
+                .await?;
+            return Ok(());
+        }
+    };
+
+    let state: crate::freenet::trust_contract::TrustNetworkState = match from_cbor(&state_bytes) {
+        Ok(s) => s,
+        Err(e) => {
+            client
+                .send_message(
+                    sender,
+                    &format!("❌ Failed to deserialize contract state: {}", e),
+                )
+                .await?;
+            return Ok(());
+        }
+    };
+
+    // Get Signal group info (using the group_id from BotConfig)
+    let signal_info = client.get_group_info(&config.group_id).await.ok();
+
+    // Format response
+    let group_config = &state.config;
+    let mut response = String::from("⚙️ Available Configuration Keys\n\n");
+
+    // Stroma Settings
+    response.push_str("📋 Stroma Settings (/propose stroma <key> <value>):\n");
+    response.push_str(&format!(
+        "  min_vouches: {} (range: 1-10) - Minimum vouches for standing\n",
+        group_config.min_vouches
+    ));
+    response.push_str(&format!(
+        "  max_flags: {} (range: 1-10) - Maximum flags before ejection\n",
+        group_config.max_flags
+    ));
+    response.push_str(&format!(
+        "  open_membership: {} (true/false) - Allow new members\n",
+        group_config.open_membership
+    ));
+    response.push_str(&format!(
+        "  default_poll_timeout_secs: {} (3600-604800) - Default timeout\n",
+        group_config.default_poll_timeout_secs
+    ));
+    response.push_str(&format!(
+        "  config_change_threshold: {:.2} (0.50-1.00) - Vote threshold\n",
+        group_config.config_change_threshold
+    ));
+    response.push_str(&format!(
+        "  min_quorum: {:.2} (0.25-1.00) - Minimum participation\n\n",
+        group_config.min_quorum
+    ));
+
+    // Signal Settings
+    response.push_str("📡 Signal Settings (/propose signal <key> <value>):\n");
+    if let Some(info) = signal_info {
+        response.push_str(&format!(
+            "  name: \"{}\" (1-32 chars) - Group display name\n",
+            info.name
+        ));
+        response.push_str(&format!(
+            "  description: \"{}\" (0-480 chars) - Group description\n",
+            info.description.unwrap_or_else(|| "".to_string())
+        ));
+        let timer_str = match info.disappearing_messages_timer {
+            None | Some(0) => "off".to_string(),
+            Some(3600) => "1h".to_string(),
+            Some(86400) => "1d".to_string(),
+            Some(604800) => "7d".to_string(),
+            Some(1209600) => "14d".to_string(),
+            Some(2592000) => "30d".to_string(),
+            Some(7776000) => "90d".to_string(),
+            Some(s) => format!("{}s", s),
+        };
+        response.push_str(&format!(
+            "  disappearing_messages: {} (off, 1h, 1d, 7d, 14d, 30d, 90d) - Message timer\n",
+            timer_str
+        ));
+        response.push_str(&format!(
+            "  announcements_only: {} (true/false) - Admin-only messages\n\n",
+            info.announcements_only
+        ));
+    } else {
+        response.push_str("  name: <current> (1-32 chars) - Group display name\n");
+        response.push_str("  description: <current> (0-480 chars) - Group description\n");
+        response.push_str(
+            "  disappearing_messages: <current> (off, 1h, 1d, 7d, 14d, 30d, 90d) - Message timer\n",
+        );
+        response.push_str("  announcements_only: <current> (true/false) - Admin-only messages\n\n");
+    }
+
+    // Poll Options
+    response.push_str("📊 Poll Options:\n");
+    response.push_str("  Signal polls support up to 10 options.\n");
+    response.push_str("  Binary: /propose signal <key> <value> (creates Approve/Reject poll)\n");
+    response.push_str(
+        "  Multi:  /propose signal --key <key> --value <v1> --value <v2> ... (post-UAT)\n\n",
+    );
+
+    response.push_str("💡 Example: /propose signal disappearing_messages 7d --timeout 48h");
+
+    client.send_message(sender, &response).await
+}
+
 async fn handle_audit<F: crate::freenet::FreenetClient>(
     client: &impl SignalClient,
     freenet: &F,
@@ -1520,13 +1664,14 @@ mod tests {
         let config = crate::signal::bot::BotConfig {
             group_id: GroupId(vec![1, 2, 3]),
             contract_hash: Some(contract_hash),
-            pepper: vec![0u8; 32],
             min_vouch_threshold: 2,
+            ..Default::default()
         };
 
         // Create test state with sender as a member with vouches
         let mut test_state = TrustNetworkState::new();
-        let sender_hash = MemberHash::from_identity(&sender.0, &config.pepper);
+        let sender_hash: MemberHash =
+            crate::identity::mask_identity(&sender.0, &config.identity_masking_key).into();
         test_state.members.insert(sender_hash);
 
         // Add some vouchers
@@ -1562,8 +1707,8 @@ mod tests {
         let config = crate::signal::bot::BotConfig {
             group_id: GroupId(vec![1, 2, 3]),
             contract_hash: Some(contract_hash),
-            pepper: vec![0u8; 32],
             min_vouch_threshold: 2,
+            ..Default::default()
         };
 
         // Set up minimal state (not actually used since third-party query is rejected early)
@@ -1595,8 +1740,8 @@ mod tests {
         let config = crate::signal::bot::BotConfig {
             group_id: GroupId(vec![1, 2, 3]),
             contract_hash: Some(contract_hash),
-            pepper: vec![0u8; 32],
             min_vouch_threshold: 2,
+            ..Default::default()
         };
 
         // Create test state with some operator audit entries
@@ -1640,8 +1785,8 @@ mod tests {
         let config = crate::signal::bot::BotConfig {
             group_id: GroupId(vec![1, 2, 3]),
             contract_hash: Some(contract_hash),
-            pepper: vec![0u8; 32],
             min_vouch_threshold: 2,
+            ..Default::default()
         };
 
         // Create test state with bootstrap audit entries
@@ -1683,8 +1828,8 @@ mod tests {
         let config = crate::signal::bot::BotConfig {
             group_id: GroupId(vec![1, 2, 3]),
             contract_hash: Some(contract_hash),
-            pepper: vec![0u8; 32],
             min_vouch_threshold: 2,
+            ..Default::default()
         };
 
         // Set up test state with some members and vouches
@@ -1739,8 +1884,8 @@ mod tests {
         let config = crate::signal::bot::BotConfig {
             group_id: GroupId(vec![1, 2, 3]),
             contract_hash: Some(contract_hash),
-            pepper: vec![0u8; 32],
             min_vouch_threshold: 2,
+            ..Default::default()
         };
 
         // Set up test state
@@ -1781,8 +1926,8 @@ mod tests {
         let config = crate::signal::bot::BotConfig {
             group_id: GroupId(vec![1, 2, 3]),
             contract_hash: Some(ContractHash::from_bytes(&[0u8; 32])),
-            pepper: vec![0u8; 32],
             min_vouch_threshold: 2,
+            ..Default::default()
         };
 
         // Test 1: Empty persistence manager (PROVISIONAL state)
@@ -1875,8 +2020,8 @@ mod tests {
         let config = crate::signal::bot::BotConfig {
             group_id: GroupId(vec![1, 2, 3]),
             contract_hash: Some(contract_hash),
-            pepper: vec![0u8; 32],
             min_vouch_threshold: 2,
+            ..Default::default()
         };
 
         // Set up test state
@@ -1910,8 +2055,8 @@ mod tests {
         let config = crate::signal::bot::BotConfig {
             group_id: GroupId(vec![1, 2, 3]),
             contract_hash: Some(ContractHash::from_bytes(&[0u8; 32])),
-            pepper: vec![0u8; 32],
             min_vouch_threshold: 2,
+            ..Default::default()
         };
 
         let persistence_manager = crate::persistence::WriteBlockingManager::new();

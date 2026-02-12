@@ -281,7 +281,13 @@ impl SignalClient for LibsignalClient {
         Ok(())
     }
 
-    async fn create_poll(&self, group: &GroupId, poll: &Poll) -> SignalResult<u64> {
+    async fn create_poll(
+        &self,
+        group: &GroupId,
+        question: &str,
+        options: Vec<String>,
+        allow_multiple: bool,
+    ) -> SignalResult<u64> {
         let manager = self.manager.as_ref().ok_or_else(|| {
             SignalError::NotImplemented("create_poll: no Manager configured".to_string())
         })?;
@@ -293,12 +299,11 @@ impl SignalClient for LibsignalClient {
             })?
         };
 
-        let question = poll.question.clone();
-        let options = poll.options.clone();
+        let question = question.to_string();
 
         run_manager_op(manager, move |mgr| {
             Box::pin(async move {
-                mgr.send_poll(&master_key, question, options, false)
+                mgr.send_poll(&master_key, question, options, allow_multiple)
                     .await
                     .map_err(|e| SignalError::Network(format!("create_poll failed: {:?}", e)))
             })
@@ -328,6 +333,97 @@ impl SignalClient for LibsignalClient {
         .await??;
 
         Ok(())
+    }
+
+    async fn get_group_info(&self, group: &GroupId) -> SignalResult<GroupInfo> {
+        let manager = self.manager.as_ref().ok_or_else(|| {
+            SignalError::NotImplemented("get_group_info: no Manager configured".to_string())
+        })?;
+
+        let master_key = {
+            let keys = self.group_keys.lock().await;
+            *keys.get(group).ok_or_else(|| {
+                SignalError::GroupNotFound(format!("No master key for group: {}", group))
+            })?
+        };
+
+        run_manager_op(manager, move |mgr| {
+            Box::pin(async move {
+                use presage::store::ContentsStore;
+                // Fetch group from store
+                let presage_group: presage::model::groups::Group = mgr
+                    .store()
+                    .group(master_key)
+                    .await
+                    .map_err(|e| SignalError::Store(format!("Failed to get group: {:?}", e)))?
+                    .ok_or_else(|| SignalError::GroupNotFound("Group not in store".to_string()))?;
+
+                Ok::<GroupInfo, SignalError>(GroupInfo {
+                    name: presage_group.title,
+                    description: presage_group.description,
+                    disappearing_messages_timer: presage_group
+                        .disappearing_messages_timer
+                        .map(|t| t.duration),
+                    // TODO: Update when presage Group struct includes announcements_only field
+                    announcements_only: false,
+                })
+            })
+        })
+        .await?
+    }
+
+    async fn set_group_name(&self, group: &GroupId, name: &str) -> SignalResult<()> {
+        let manager = self.manager.as_ref().ok_or_else(|| {
+            SignalError::NotImplemented("set_group_name: no Manager configured".to_string())
+        })?;
+
+        let master_key = {
+            let keys = self.group_keys.lock().await;
+            *keys.get(group).ok_or_else(|| {
+                SignalError::GroupNotFound(format!("No master key for group: {}", group))
+            })?
+        };
+
+        let name = name.to_string();
+
+        run_manager_op(manager, move |mgr| {
+            Box::pin(async move {
+                mgr.update_group_title(&master_key, name)
+                    .await
+                    .map_err(|e| SignalError::Network(format!("set_group_name failed: {:?}", e)))
+            })
+        })
+        .await??;
+
+        Ok(())
+    }
+
+    async fn set_group_description(
+        &self,
+        _group: &GroupId,
+        _description: &str,
+    ) -> SignalResult<()> {
+        // TODO: Wire to presage Manager when set_group_description is available
+        // Method exists in latest presage but not yet in our dependency version
+        Err(SignalError::NotImplemented(
+            "set_group_description: presage API not yet available".to_string(),
+        ))
+    }
+
+    async fn set_disappearing_messages(&self, _group: &GroupId, _seconds: u32) -> SignalResult<()> {
+        // TODO: Wire to presage Manager when set_disappearing_messages_timer is available
+        // Method exists in latest presage but not yet in our dependency version
+        Err(SignalError::NotImplemented(
+            "set_disappearing_messages: presage API not yet available".to_string(),
+        ))
+    }
+
+    async fn set_announcements_only(&self, _group: &GroupId, _enabled: bool) -> SignalResult<()> {
+        // TODO: Wire to presage Manager when set_group_announcements_only is available
+        // Method exists in latest presage but not yet in our dependency version
+        Err(SignalError::NotImplemented(
+            "set_announcements_only: presage API not yet available".to_string(),
+        ))
     }
 
     async fn receive_messages(&self) -> SignalResult<Vec<Message>> {
@@ -405,9 +501,9 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let db_path = format!("/tmp/test_libsignal_client_{}_{}.db", test_name, timestamp);
+        let db_dir = format!("/tmp/test_libsignal_client_{}_{}", test_name, timestamp);
         let service_id = ServiceId("test".to_string());
-        let store = StromaStore::open(&db_path, "passphrase".to_string())
+        let store = StromaStore::open(&db_dir, "passphrase".to_string())
             .await
             .expect("Failed to open test store");
         LibsignalClient::new(service_id, store)
@@ -543,12 +639,15 @@ mod tests {
     async fn test_create_poll_not_implemented() {
         let client = create_test_client("create_poll_not_impl").await;
         let group_id = client.create_group("Test Group").await.unwrap();
-        let poll = Poll {
-            question: "Test?".to_string(),
-            options: vec!["Yes".to_string(), "No".to_string()],
-        };
 
-        let result = client.create_poll(&group_id, &poll).await;
+        let result = client
+            .create_poll(
+                &group_id,
+                "Test?",
+                vec!["Yes".to_string(), "No".to_string()],
+                false,
+            )
+            .await;
 
         match result {
             Err(SignalError::NotImplemented(msg)) => {

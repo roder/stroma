@@ -4,7 +4,7 @@
 //! in `.beads/contract-encryption.bead`. It provides:
 //!
 //! - AES-256-GCM encryption of full trust state
-//! - Ed25519 signatures using Signal ACI identity
+//! - Ed25519 signatures using mnemonic-derived signing key
 //! - Version chain with anti-replay protection
 //! - Public Merkle root for ZK-proof verification
 //!
@@ -16,15 +16,25 @@
 //!
 //! ## Security Model
 //!
-//! - **Encryption**: AES-256-GCM with key derived from Signal ACI via HKDF
-//! - **Signature**: Ed25519 using Signal ACI identity key
+//! - **Encryption**: AES-256-GCM with key derived from BIP-39 mnemonic via HKDF
+//! - **Signature**: Ed25519 using mnemonic-derived signing key
 //! - **Version Chain**: Monotonic versioning + previous_hash for anti-replay
 //! - **Public Commitment**: Merkle root for ZK-proofs (not encrypted)
+//!
+//! ## Key Hierarchy (via StromaKeyring)
+//!
+//! All keys are derived from the 24-word BIP-39 mnemonic using HKDF:
+//! - `state_encryption_key()` → AES-256-GCM encryption
+//! - `state_signing_key()` → Ed25519 signatures
+//!
+//! Note: Parameters named `aci_key` are legacy names kept for backwards compatibility.
+//! These should be passed values from `StromaKeyring`, NOT Signal ACI keys.
 //!
 //! ## References
 //!
 //! - Specification: `.beads/contract-encryption.bead`
 //! - Persistence Model: `.beads/persistence-model.bead`
+//! - Key Derivation: `crypto::keyring::StromaKeyring`
 
 use hkdf::Hkdf;
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
@@ -43,7 +53,7 @@ pub type Timestamp = u64;
 /// Encrypted trust network state with versioning and signatures.
 ///
 /// This structure wraps the encrypted trust state and provides:
-/// - Authentication via Ed25519 signature (Signal ACI identity)
+/// - Authentication via Ed25519 signature (mnemonic-derived signing key)
 /// - Version chain for anti-replay protection
 /// - Public Merkle root for ZK-proof verification
 /// - Metadata for recovery ordering
@@ -59,20 +69,22 @@ pub type Timestamp = u64;
 ///
 /// ```rust,ignore
 /// use stroma::persistence::encryption::EncryptedTrustNetworkState;
+/// use stroma::crypto::StromaKeyring;
 ///
-/// let aci_key = [0u8; 32]; // Signal ACI private key
+/// let keyring = StromaKeyring::from_mnemonic("abandon ... art")?;
+/// let encryption_key = keyring.state_encryption_key();
 /// let plaintext = b"trust state data";
 /// let previous = None; // First version
 ///
 /// let encrypted = EncryptedTrustNetworkState::new(
 ///     plaintext,
 ///     previous,
-///     &aci_key,
+///     encryption_key,
 ///     merkle_root,
 /// ).unwrap();
 ///
 /// // Verify and decrypt
-/// let decrypted = encrypted.decrypt(&aci_key).unwrap();
+/// let decrypted = encrypted.decrypt(encryption_key).unwrap();
 /// assert_eq!(decrypted, plaintext);
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,17 +95,18 @@ pub struct EncryptedTrustNetworkState {
     /// GCM nonce (12 bytes, unique per encryption)
     pub nonce: [u8; 12],
 
-    /// Ed25519 signature by Signal ACI identity key
+    /// Ed25519 signature by mnemonic-derived signing key
     ///
     /// Signs: hash(ciphertext || nonce || version || previous_hash || timestamp)
     ///
-    /// TODO: Replace with Ed25519 signature once Signal protocol integration is complete.
+    /// TODO: Replace with Ed25519 signature once signing is fully implemented.
     /// For now, this is a placeholder that will be HMAC-SHA256 for testing.
     pub signature: Vec<u8>,
 
-    /// Signal ACI public key for verification
+    /// Public key for verification (mnemonic-derived)
     ///
-    /// TODO: Replace with actual Signal ACI public key type once libsignal-protocol is integrated.
+    /// TODO: Replace with proper Ed25519 public key type when signing is implemented.
+    /// Field name kept for backwards compatibility.
     pub aci_pubkey: Vec<u8>,
 
     /// Merkle root of member set (PUBLIC, not encrypted)
@@ -137,13 +150,13 @@ pub enum EncryptionError {
     KeyDerivationFailed(String),
 }
 
-/// Encryption key derived from Signal ACI identity.
+/// Encryption key derived from BIP-39 mnemonic (via StromaKeyring).
 ///
 /// Automatically zeroized on drop.
 #[derive(Zeroize, ZeroizeOnDrop)]
 struct EncryptionKey([u8; 32]);
 
-/// Signing key derived from Signal ACI identity.
+/// Signing key derived from BIP-39 mnemonic (via StromaKeyring).
 ///
 /// Automatically zeroized on drop.
 #[derive(Zeroize, ZeroizeOnDrop)]
@@ -156,7 +169,8 @@ impl EncryptedTrustNetworkState {
     ///
     /// * `plaintext` - Trust state to encrypt (serialized bytes)
     /// * `previous` - Previous state (for version chain), or None for first version
-    /// * `aci_key` - Signal ACI private key (32 bytes)
+    /// * `aci_key` - Encryption key from `StromaKeyring::state_encryption_key()` (32 bytes).
+    ///   Parameter named for backwards compat.
     /// * `member_merkle_root` - Merkle root of member set (public commitment)
     ///
     /// # Returns
@@ -165,26 +179,26 @@ impl EncryptedTrustNetworkState {
     ///
     /// # Errors
     ///
-    /// - `InvalidKey`: ACI key is not 32 bytes
+    /// - `InvalidKey`: Encryption key is not 32 bytes
     /// - `EncryptionFailed`: AES-256-GCM encryption failed
     /// - `KeyDerivationFailed`: HKDF key derivation failed
     ///
     /// # Security
     ///
     /// - Generates random 12-byte nonce (NEVER reused)
-    /// - Derives encryption key via HKDF from ACI
+    /// - Derives encryption key via HKDF from mnemonic (via StromaKeyring)
     /// - Encrypts with AES-256-GCM (authenticated encryption)
     /// - Signs state hash with derived signing key
     /// - Keys are zeroized after use
     pub fn new(
         plaintext: &[u8],
         previous: Option<&Self>,
-        aci_key: &[u8],
+        aci_key: &[u8], // Note: parameter named for backwards compat, use StromaKeyring::state_encryption_key()
         member_merkle_root: Hash,
     ) -> Result<Self, EncryptionError> {
         if aci_key.len() != 32 {
             return Err(EncryptionError::InvalidKey(
-                "ACI key must be 32 bytes".to_string(),
+                "Encryption key must be 32 bytes".to_string(),
             ));
         }
 
@@ -192,7 +206,7 @@ impl EncryptedTrustNetworkState {
         let version = previous.map(|p| p.version + 1).unwrap_or(1);
         let previous_hash = previous.map(|p| p.compute_hash()).unwrap_or([0u8; 32]); // Zero hash for genesis
 
-        // Derive encryption key from ACI
+        // Derive encryption key using HKDF
         let encryption_key = derive_encryption_key(aci_key)?;
 
         // Generate random nonce
@@ -210,8 +224,8 @@ impl EncryptedTrustNetworkState {
         key.seal_in_place_append_tag(nonce_obj, Aad::empty(), &mut ciphertext)
             .map_err(|e| EncryptionError::EncryptionFailed(format!("Encryption failed: {}", e)))?;
 
-        // TODO: Extract actual Signal ACI public key once libsignal-protocol is integrated
-        let aci_pubkey = aci_key[..32].to_vec(); // Placeholder: use private key bytes for now
+        // TODO: Derive Ed25519 public key from signing key when Ed25519 is implemented
+        let aci_pubkey = aci_key[..32].to_vec(); // Placeholder: use input key bytes for now
 
         // Get current timestamp
         let timestamp = current_timestamp();
@@ -238,7 +252,8 @@ impl EncryptedTrustNetworkState {
     ///
     /// # Arguments
     ///
-    /// * `aci_key` - Signal ACI private key (32 bytes)
+    /// * `aci_key` - Encryption key from `StromaKeyring::state_encryption_key()` (32 bytes).
+    ///   Parameter named for backwards compat.
     ///
     /// # Returns
     ///
@@ -248,7 +263,7 @@ impl EncryptedTrustNetworkState {
     ///
     /// - `SignatureVerificationFailed`: Signature doesn't match
     /// - `DecryptionFailed`: Wrong key or corrupted data
-    /// - `InvalidKey`: ACI key is not 32 bytes
+    /// - `InvalidKey`: Encryption key is not 32 bytes
     ///
     /// # Security
     ///
@@ -256,9 +271,10 @@ impl EncryptedTrustNetworkState {
     /// - Uses authenticated encryption (AES-256-GCM)
     /// - Keys are zeroized after use
     pub fn decrypt(&self, aci_key: &[u8]) -> Result<Vec<u8>, EncryptionError> {
+        // Note: parameter named for backwards compat, use StromaKeyring::state_encryption_key()
         if aci_key.len() != 32 {
             return Err(EncryptionError::InvalidKey(
-                "ACI key must be 32 bytes".to_string(),
+                "Encryption key must be 32 bytes".to_string(),
             ));
         }
 
@@ -347,7 +363,7 @@ impl EncryptedTrustNetworkState {
     }
 }
 
-/// Derive encryption key from Signal ACI identity using HKDF.
+/// Derive encryption key from master key using HKDF.
 ///
 /// Uses HKDF-SHA256 with context separation:
 /// - Salt: "stroma-state-encryption-v1"
@@ -355,7 +371,8 @@ impl EncryptedTrustNetworkState {
 ///
 /// # Arguments
 ///
-/// * `aci_key` - Signal ACI private key (32 bytes)
+/// * `aci_key` - Master key from `StromaKeyring::state_encryption_key()` (32 bytes).
+///   Parameter named for backwards compat.
 ///
 /// # Returns
 ///
@@ -372,7 +389,7 @@ fn derive_encryption_key(aci_key: &[u8]) -> Result<EncryptionKey, EncryptionErro
     Ok(EncryptionKey(key))
 }
 
-/// Derive signing key from Signal ACI identity using HKDF.
+/// Derive signing key from master key using HKDF.
 ///
 /// Uses HKDF-SHA256 with context separation:
 /// - Salt: "stroma-identity-masking-v1"
@@ -380,7 +397,8 @@ fn derive_encryption_key(aci_key: &[u8]) -> Result<EncryptionKey, EncryptionErro
 ///
 /// # Arguments
 ///
-/// * `aci_key` - Signal ACI private key (32 bytes)
+/// * `aci_key` - Master key from `StromaKeyring::state_signing_key()` (32 bytes).
+///   Parameter named for backwards compat.
 ///
 /// # Returns
 ///
@@ -416,13 +434,14 @@ fn generate_nonce() -> [u8; 12] {
 
 /// Sign state hash with derived signing key.
 ///
-/// TODO: Replace with Ed25519 signature once Signal protocol integration is complete.
+/// TODO: Replace with Ed25519 signature once full Ed25519 signing is implemented.
 /// For now, uses HMAC-SHA256 as a placeholder.
 ///
 /// # Arguments
 ///
 /// * `state` - State to sign
-/// * `aci_key` - Signal ACI private key (32 bytes)
+/// * `aci_key` - Signing key from `StromaKeyring` (32 bytes).
+///   Parameter named for backwards compat.
 ///
 /// # Returns
 ///
@@ -444,13 +463,14 @@ fn sign_state(
 
 /// Verify state signature.
 ///
-/// TODO: Replace with Ed25519 verification once Signal protocol integration is complete.
+/// TODO: Replace with Ed25519 verification once full Ed25519 signing is implemented.
 /// For now, uses HMAC-SHA256 verification as a placeholder.
 ///
 /// # Arguments
 ///
 /// * `state` - State to verify
-/// * `aci_key` - Signal ACI private key (32 bytes)
+/// * `aci_key` - Signing key from `StromaKeyring` (32 bytes).
+///   Parameter named for backwards compat.
 ///
 /// # Returns
 ///
@@ -481,7 +501,7 @@ mod tests {
     use super::*;
 
     fn test_aci_key() -> Vec<u8> {
-        vec![42u8; 32] // Dummy 32-byte ACI key for testing
+        vec![42u8; 32] // Dummy 32-byte key for testing (mimics StromaKeyring output)
     }
 
     fn test_merkle_root() -> Hash {

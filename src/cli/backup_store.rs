@@ -4,8 +4,10 @@ use std::path::{Path, PathBuf};
 /// Backup Signal protocol store
 ///
 /// This command creates a secure backup of the Signal protocol store,
-/// which contains the ACI identity keypair critical for recovery.
-/// Losing this store means losing access to the trust network forever.
+/// which contains the Signal protocol state necessary for maintaining
+/// the bot's Signal account connection. Note: Freenet chunk decryption
+/// and identity masking keys are derived from the BIP-39 mnemonic, NOT
+/// stored here. Back up both the mnemonic AND this store for full recovery.
 pub async fn execute(
     output_path: String,
     passphrase_file: Option<String>,
@@ -41,9 +43,12 @@ pub async fn execute(
         .into());
     }
 
-    // Read passphrase for opening encrypted store
+    // Read existing passphrase for opening encrypted store
     let source = determine_passphrase_source(passphrase_file);
-    let _passphrase = read_passphrase(source, Some("Enter database passphrase: "))?;
+    let _passphrase = read_passphrase(
+        source,
+        Some("Enter database passphrase (or paste from password vault): "),
+    )?;
 
     // TODO: Implement actual backup
     // This will:
@@ -54,8 +59,9 @@ pub async fn execute(
 
     println!("❌ Backup functionality not yet implemented");
     println!();
-    println!("⚠️  CRITICAL: This store contains your ACI identity key");
-    println!("   Without it, you CANNOT decrypt your persistence fragments");
+    println!("⚠️  CRITICAL: This store contains your Signal protocol state");
+    println!("   Required for maintaining bot's Signal account connection.");
+    println!("   Note: Freenet chunk decryption uses mnemonic-derived keys.");
     println!("   Store backup in:");
     println!("     - Encrypted USB drive in safe location");
     println!("     - Hardware security module (HSM)");
@@ -79,12 +85,30 @@ mod tests {
         let result = execute(output_path.to_string_lossy().to_string(), None).await;
         std::env::remove_var("STROMA_DB_PASSPHRASE");
 
-        // Should fail because store doesn't exist
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Signal protocol store not found"));
+        // Result depends on whether default store exists on this machine:
+        // - If store doesn't exist: Err("Signal protocol store not found")
+        // - If store exists: Ok(()) with "not yet implemented" message
+        // Both are valid outcomes for this test (we're testing the output path validation)
+        let default_store = dirs::data_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("stroma")
+            .join("signal-store");
+
+        if default_store.exists() {
+            // Store exists, function should succeed (returning "not implemented")
+            assert!(
+                result.is_ok(),
+                "Expected Ok when store exists: {:?}",
+                result
+            );
+        } else {
+            // Store doesn't exist, should fail with specific error
+            assert!(result.is_err());
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("Signal protocol store not found"));
+        }
     }
 
     #[tokio::test]
@@ -107,11 +131,26 @@ mod tests {
         let result = execute(output_path.to_string_lossy().to_string(), None).await;
         std::env::remove_var("STROMA_DB_PASSPHRASE");
 
-        // Should fail since default store path won't exist
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Signal protocol store not found"));
+        // Result depends on whether default store exists on this machine
+        let default_store = dirs::data_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("stroma")
+            .join("signal-store");
+
+        if default_store.exists() {
+            // Store exists, function should succeed (returning "not implemented")
+            assert!(
+                result.is_ok(),
+                "Expected Ok when store exists: {:?}",
+                result
+            );
+        } else {
+            // Store doesn't exist, should fail with specific error
+            assert!(result.is_err());
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("Signal protocol store not found"));
+        }
     }
 }

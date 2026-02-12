@@ -50,6 +50,7 @@ fn create_single_cluster(size: usize) -> TrustNetworkState {
         gap11_announcement_sent: false,
         active_proposals: HashMap::new(),
         audit_log: vec![],
+        key_epoch: 1,
     }
 }
 
@@ -91,6 +92,7 @@ fn create_multi_cluster(clusters: usize, cluster_size: usize) -> TrustNetworkSta
         gap11_announcement_sent: false,
         active_proposals: HashMap::new(),
         audit_log: vec![],
+        key_epoch: 1,
     }
 }
 
@@ -134,6 +136,7 @@ fn create_sparse_clusters(clusters: usize, cluster_size: usize) -> TrustNetworkS
         gap11_announcement_sent: false,
         active_proposals: HashMap::new(),
         audit_log: vec![],
+        key_epoch: 1,
     }
 }
 

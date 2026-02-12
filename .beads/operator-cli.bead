@@ -2,6 +2,7 @@
 
 **Status**: Immutable Architectural Constraint  
 **Created**: 2026-02-01  
+**Updated**: 2026-02-12  
 **Context**: CLI Interface Design
 
 ---
@@ -20,11 +21,13 @@
 stroma <COMMAND> [OPTIONS]
 
 Commands:
-  link-device  Link to existing Signal account as secondary device (one-time)
+  register     Register new bot as primary device with Signal (phone number)
+  link-device  Link to existing Signal account as secondary device (QR code)
   run          Run bot service (awaits member-initiated bootstrap if new)
   status       Show bot health and embedded kernel status
   verify       Verify configuration and state integrity
   backup-store Export Signal protocol store for backup (encrypted)
+  unregister   Unregister bot and clean up local data
   version      Show version information
   help         Show help message
 ```
@@ -33,33 +36,137 @@ Commands:
 
 ---
 
+## Default Paths & Auto-Configuration
+
+Stroma uses sensible defaults so operators don't need to write configuration files:
+
+| Item | Default Path | Notes |
+|------|--------------|-------|
+| Signal store | `~/.local/share/stroma/signal-store/` | Encrypted with passphrase |
+| Config file | `~/.local/share/stroma/config.toml` | Auto-generated if missing |
+| Passphrase file | `~/.local/share/stroma/passphrase.txt` | Mode 0600, auto-generated |
+
+**Auto-Generation**: When you run `register` or `link-device` without `--passphrase-file`:
+1. A 24-word BIP-39 passphrase is generated
+2. Saved to `passphrase.txt` (mode 0600) adjacent to the store
+3. Default `config.toml` is created with the store path
+4. The passphrase is displayed prominently for backup
+
+---
+
 ## Command Specifications
 
-### `link-device` - Link to Signal Account (FIRST STEP)
+### `register` - Register as Primary Device (NEW)
+
+**Purpose**: Register Stroma as a NEW Signal account (primary device)
+
+**Use Case**: When you have a phone number but no existing Signal account to link to.
+
+```bash
+stroma register \
+  --phone <+E.164> \
+  [--store-path <PATH>] \
+  [--servers <production|staging>] \
+  [--voice] \
+  [--captcha <TOKEN>] \
+  [--force] \
+  [--passphrase-file <PATH>]
+```
+
+**Options:**
+- `--phone`: Phone number in E.164 format (e.g., `+16137827274`) — REQUIRED
+- `--store-path`: Where to save Signal protocol store (default: `~/.local/share/stroma/signal-store/`)
+- `--servers`: Signal server environment (default: production)
+- `--voice`: Use voice call instead of SMS for verification code
+- `--captcha`: Captcha token if previous attempt required one
+- `--force`: Re-register even if store already exists (deletes existing store)
+- `--passphrase-file`: Use existing passphrase from file (for restore from backup)
+
+**What It Does:**
+1. Generates 24-word BIP-39 passphrase (or reads from `--passphrase-file`)
+2. Creates encrypted Signal protocol store
+3. Sends SMS/voice verification to phone number
+4. Prompts for verification code
+5. Completes registration with Signal servers
+6. Saves passphrase to `passphrase.txt` (if generated)
+7. Creates default `config.toml`
+8. Displays passphrase for backup (CRITICAL)
+
+**UX Flow:**
+```
+$ stroma register --phone +16137827274
+
+🔐 Registering new Stroma bot as primary device...
+
+Sending verification code to +16137827274...
+Enter the 6-digit code from SMS: 123456
+
+✅ Registration successful!
+   ACI: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+   Store: ~/.local/share/stroma/signal-store/
+
+═══════════════════════════════════════════════════════════════════════════════
+🔑 CRITICAL: Database Passphrase (SAVE THIS SECURELY)
+═══════════════════════════════════════════════════════════════════════════════
+
+   1-6   abandon abandon abandon abandon abandon abandon              
+   7-12  abandon abandon abandon abandon abandon abandon              
+  13-18  abandon abandon abandon abandon abandon abandon              
+  19-24  abandon abandon abandon abandon art                          
+
+───────────────────────────────────────────────────────────────────────────────
+  Copy-paste version (single line):
+
+  abandon abandon abandon abandon abandon abandon abandon abandon...
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📁 SAVED TO: ~/.local/share/stroma/passphrase.txt
+📝 Created config: ~/.local/share/stroma/config.toml
+
+Next step: stroma run
+```
+
+**When to Use Register vs Link-Device:**
+
+| Scenario | Command |
+|----------|---------|
+| Fresh phone number, no existing Signal | `register --phone +1...` |
+| Have Signal on phone, want bot as linked device | `link-device --device-name "Bot"` |
+| VoIP number (SMSPool, Twilio) | `register --phone +1...` |
+| Restore from backup | `register --phone +1... --passphrase-file /backup/passphrase.txt` |
+
+---
+
+### `link-device` - Link to Signal Account
 
 **Purpose**: Link Stroma as a secondary device to an existing Signal account
 
-**Prerequisite**: Operator must have a Signal account on a primary device (phone). How the operator obtains this account is their responsibility (prepaid SIM, VoIP, etc.).
+**Prerequisite**: Operator must have a Signal account on a primary device (phone).
 
 ```bash
 stroma link-device \
   --device-name <NAME> \
-  --servers <production|staging> \
-  --store-path <PATH>
+  [--store-path <PATH>] \
+  [--servers <production|staging>] \
+  [--passphrase-file <PATH>]
 ```
 
 **Options:**
-- `--device-name`: Name shown in Signal's linked devices list (e.g., "Stroma Bot")
+- `--device-name`: Name shown in Signal's linked devices list (e.g., "Stroma Bot") — REQUIRED
+- `--store-path`: Where to save Signal protocol store (default: `~/.local/share/stroma/signal-store/`)
 - `--servers`: Signal server environment (default: production)
-- `--store-path`: Where to save the Signal protocol store (default: from config)
+- `--passphrase-file`: Use existing passphrase from file (for restore from backup)
 
 **What It Does:**
-1. Generates provisioning URL via `Manager::link_secondary_device()`
-2. Displays QR code in terminal (via qr2term or similar)
-3. Waits for operator to scan QR with Signal app on their phone
-4. Receives ACI/PNI identity from primary device
-5. Saves identity to encrypted StromaStore (SQLCipher)
-6. Confirms successful linking
+1. Generates 24-word BIP-39 passphrase (or reads from `--passphrase-file`)
+2. Creates encrypted Signal protocol store
+3. Displays QR code in terminal
+4. Waits for operator to scan QR with Signal app
+5. Receives ACI/PNI identity from primary device
+6. Saves passphrase to `passphrase.txt` (if generated)
+7. Creates default `config.toml`
+8. Displays passphrase for backup (CRITICAL)
 
 **UX Flow:**
 ```
@@ -73,7 +180,6 @@ Scan this QR code with Signal on your phone:
 ┌───────────────────┐
 │  █▀▀▀▀▀▀▀▀▀▀▀█   │
 │  █ ▄▄▄▄▄ █▀█ █   │
-│  █ █   █ █▄▀ █   │
 │  ...QR CODE...   │
 │  █▄▄▄▄▄▄▄▄▄▄▄█   │
 └───────────────────┘
@@ -83,20 +189,11 @@ Or use URL: sgnl://linkdevice?uuid=...
 Waiting for scan...
 
 ✅ Device linked successfully!
-   ACI: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-   Device Name: Stroma Bot
-   Store saved to: /var/lib/stroma/signal-store/
 
-⚠️  CRITICAL: Backup this Signal store immediately!
-    This is your ONLY recovery path for the trust network.
+[... passphrase display same as register ...]
 
-Next step: stroma run --config /etc/stroma/config.toml
+Next step: stroma run
 ```
-
-**Security Notes:**
-- Linked devices have FULL messaging and group management capabilities
-- The ACI identity becomes the bot's cryptographic identity for ALL operations
-- Signal store must be backed up immediately after linking
 
 ---
 
@@ -105,31 +202,49 @@ Next step: stroma run --config /etc/stroma/config.toml
 **Purpose**: Run bot service with embedded Freenet kernel
 
 ```bash
-stroma run --config <PATH> [--log-level <LEVEL>] [--bootstrap-contact <@USER>]
+stroma run \
+  [--config <PATH>] \
+  [--store-path <PATH>] \
+  [--bootstrap-contact <@USER>] \
+  [--passphrase-file <PATH>]
 ```
 
 **Options:**
-- `--config`: Path to configuration file (required)
-- `--log-level`: Logging verbosity (default: info)
+- `--config`: Path to config file (default: `~/.local/share/stroma/config.toml`)
+- `--store-path`: Path to Signal store (default: `~/.local/share/stroma/signal-store/`)
 - `--bootstrap-contact`: (Optional) Send bootstrap instructions to this user on startup
+- `--passphrase-file`: Path to passphrase file (default: `~/.local/share/stroma/passphrase.txt`)
+
+**Passphrase Loading Priority:**
+1. `--passphrase-file` flag if provided
+2. `STROMA_DB_PASSPHRASE` environment variable
+3. Default passphrase file (`passphrase.txt` adjacent to store)
+4. Interactive prompt (stdin)
+
+**Auto-Configuration:**
+- If `config.toml` doesn't exist, a default one is generated
+- Config contains ONLY operator settings (paths, logging)
+- Trust parameters (min_vouch_threshold, etc.) are in Freenet contract
 
 **What It Does:**
-1. Loads configuration
-2. Initializes embedded Freenet kernel
-3. Authenticates with Signal
-4. If no group exists: enters **awaiting bootstrap** state
-5. If group exists: loads contract and enters normal operation
-6. Starts event loop (monitors Freenet, handles Signal messages)
-7. Runs until interrupted
+1. Loads configuration (or generates default)
+2. Reads passphrase (from file, env, or stdin)
+3. Initializes embedded Freenet kernel
+4. Authenticates with Signal
+5. If no group exists: enters **awaiting bootstrap** state
+6. If group exists: loads contract and enters normal operation
+7. Starts event loop (monitors Freenet, handles Signal messages)
 
-**Bootstrap is Member-Initiated:**
-
-When the bot starts without an existing group, it awaits bootstrap commands from a member:
-
+**UX Flow:**
 ```
-$ stroma run --config config.toml
+$ stroma run
 
-✅ Stroma Bot starting...
+🚀 Starting Stroma bot service...
+
+Config: ~/.local/share/stroma/config.toml
+Store: ~/.local/share/stroma/signal-store/
+📁 Using passphrase from: ~/.local/share/stroma/passphrase.txt
+
 ✅ Signal connected (ACI: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
 ✅ Embedded Freenet kernel initialized
 
@@ -137,31 +252,11 @@ $ stroma run --config config.toml
    No group exists yet. A member must initiate with:
    
    PM to bot: /create-group "Group Name"
-   
-   The bot will guide them through adding 2 more seed members.
 
 Listening for messages...
 ```
 
-**Optional: Assisted Bootstrap**
-
-To prompt a specific user to start the bootstrap:
-
-```bash
-stroma run --config config.toml --bootstrap-contact @FirstMember
-```
-
-This sends a PM to @FirstMember:
-```
-"👋 This Stroma bot is ready for setup. 
-
-To create your group, reply with:
-  /create-group "Your Group Name"
-
-You'll then add 2 more trusted people as seed members."
-```
-
-**Note**: The operator does NOT specify who the seed members are - that remains member-controlled.
+**Note**: The operator does NOT specify seed members or trust parameters - those are member-controlled via Signal commands and group consensus.
 
 ---
 
@@ -170,7 +265,7 @@ You'll then add 2 more trusted people as seed members."
 **Purpose**: Show bot and embedded kernel health
 
 ```bash
-stroma status [--config <PATH>]
+stroma status
 ```
 
 **Shows**: Bot state, kernel state, Signal connection, group info, member count, DVR health metric.
@@ -182,10 +277,10 @@ stroma status [--config <PATH>]
 **Purpose**: Verify config and state integrity without starting bot
 
 ```bash
-stroma verify --config <PATH>
+stroma verify
 ```
 
-**Checks**: Config file, Signal store, contract key, data directories, phone format.
+**Checks**: Config file, Signal store, contract key, data directories, passphrase file.
 
 ---
 
@@ -194,10 +289,130 @@ stroma verify --config <PATH>
 **Purpose**: Export Signal protocol store for secure backup
 
 ```bash
-stroma backup-store --config <PATH> --output <FILE> --encrypt
+stroma backup-store --output <FILE> [--passphrase-file <PATH>]
 ```
 
-**Warning**: Signal protocol store IS your cryptographic identity. If lost, ALL trust map data is unrecoverable.
+**Options:**
+- `--output`: Path to output backup file — REQUIRED
+- `--passphrase-file`: Path to passphrase file (needed to decrypt store)
+
+**Warning**: Signal protocol store + passphrase IS your cryptographic identity. Both are needed for recovery.
+
+---
+
+### `unregister` - Unregister Bot (NEW)
+
+**Purpose**: Clean up local data and optionally delete Signal account
+
+```bash
+stroma unregister \
+  [--store-path <PATH>] \
+  [--passphrase-file <PATH>] \
+  [--delete-account] \
+  [--yes]
+```
+
+**Options:**
+- `--store-path`: Path to Signal store (default: `~/.local/share/stroma/signal-store/`)
+- `--passphrase-file`: Path to passphrase file (to decrypt store for server deletion)
+- `--delete-account`: Delete account from Signal servers (primary device only)
+- `--yes` / `-y`: Skip confirmation prompt
+
+**What It Does:**
+
+**Without `--delete-account` (local cleanup only):**
+1. Deletes local Signal store
+2. Deletes config file
+3. Deletes passphrase file
+4. Bot identity remains on Signal servers
+
+**With `--delete-account` (full removal):**
+1. Authenticates with Signal servers
+2. Deletes account from Signal (unlinks all devices)
+3. Deletes all local data
+
+**UX Flow:**
+```
+$ stroma unregister
+
+⚠️  WARNING: This will delete local Stroma data!
+
+The following will be deleted:
+  • Signal store: ~/.local/share/stroma/signal-store/
+  • Config file: ~/.local/share/stroma/config.toml
+  • Passphrase file: ~/.local/share/stroma/passphrase.txt
+
+Note: Signal account will remain active on Signal servers.
+      Use --delete-account to also delete from Signal.
+
+Continue? [y/N]: y
+
+🗑️  Deleting local data...
+✅ Unregistration complete.
+```
+
+**With `--delete-account`:**
+```
+$ stroma unregister --delete-account
+
+⚠️  WARNING: This will PERMANENTLY delete the Signal account!
+
+This is IRREVERSIBLE. The phone number can be re-registered, but:
+  • All linked devices will be disconnected
+  • Message history will be lost
+  • Group memberships will be lost
+
+Continue? [y/N]: y
+
+🗑️  Deleting Signal account from servers...
+🗑️  Deleting local data...
+✅ Account deleted and local data removed.
+```
+
+**When to Use:**
+- Decommissioning a bot permanently
+- Starting fresh with a new identity
+- Troubleshooting registration issues
+
+---
+
+## Configuration Model
+
+### StromaConfig (Operator Settings ONLY)
+
+The `config.toml` file contains ONLY operator-level settings:
+
+```toml
+# Stroma Bot Configuration (Operator Settings)
+#
+# NOTE: Trust model parameters (min_vouch_threshold, max_flags, etc.)
+# are NOT configured here. They are controlled by GROUP CONSENSUS
+# via Signal Polls and stored in the Freenet contract.
+#
+# See: .beads/security-constraints.bead (Operator Least Privilege)
+
+[signal]
+store_path = "/home/stroma/.local/share/stroma/signal-store"
+device_name = "Stroma Bot"
+
+[freenet]
+listen_port = 0
+is_gateway = false
+gateways = ["gateway1.freenetproject.org:12345"]
+state_dir = "/home/stroma/.local/share/stroma/freenet-state"
+
+[logging]
+level = "info"
+file = "/var/log/stroma/bot.log"
+```
+
+**What's NOT in StromaConfig** (because it's group-controlled):
+- `min_vouch_threshold` — Group consensus
+- `max_flags` — Group consensus
+- `standing_ranges` — Group consensus
+- Any trust model parameters
+
+**Why**: Operator Least Privilege principle. Operators are service runners, not privileged admins who can control trust parameters.
 
 ---
 
@@ -228,12 +443,13 @@ stroma reset-standing @User     # Violates immutability
 
 **Configuration Commands:**
 ```bash
+stroma set-min-vouches 3        # Requires group vote via Signal Poll
 stroma set-config key=value     # Requires group vote
 stroma force-config update      # Bypasses consensus
 stroma federate-with <GROUP>    # Requires group vote
 ```
 
-**Why Forbidden**: Operator is service runner, not privileged admin. All trust operations (including bootstrap) go through Signal bot with Freenet verification.
+**Why Forbidden**: Operator is service runner, not privileged admin. All trust operations (including bootstrap) go through Signal bot with Freenet verification. Trust parameters are group-controlled via Signal Polls.
 
 ---
 

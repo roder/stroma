@@ -284,13 +284,15 @@ impl Manager<S, Registered> {
 
 When implementing Presage integration in Stroma:
 - ❌ DO NOT use bare SqliteStore (stores messages)
-- ✅ Use StromaStore wrapper (no-ops message persistence, encrypts with SQLCipher)
-- ✅ Store ONLY Signal protocol state (sessions, pre-keys)
+- ✅ Use StromaStore wrapper (dual-database, no-ops message persistence)
+  - signal.db: Signal protocol state (sessions, pre-keys, groups, contacts)
+  - stroma.db: Poll state, vote aggregates (ephemeral, zeroized on outcome)
+- ✅ Both databases encrypted with SAME passphrase (SQLCipher AES-256)
 - ✅ NO message history persistence
-- ✅ NO contact database
-- ✅ Encrypt protocol state file with operator passphrase
+- ✅ Poll state persisted to stroma_kv table in stroma.db (replaces in-memory POLL_STATE_CACHE)
+- ✅ Poll state MUST be zeroized when outcome determined (per security-constraints.bead)
 
-**Rationale:** Server seizure should NOT reveal message content or vetting conversations.
+**Rationale:** Server seizure should NOT reveal message content or vetting conversations. Poll state is ephemeral and zeroized after vote counting.
 
 **See**: `.beads/security-constraints.bead` for storage constraints
 

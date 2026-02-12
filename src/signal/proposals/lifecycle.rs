@@ -57,6 +57,15 @@ pub async fn create_proposal<C: SignalClient, F: FreenetClient>(
                 question,
             )
         }
+        ProposalSubcommand::Signal { key, value } => {
+            let question = format!("Change Signal {} to {}?", key, value);
+            (
+                ProposalType::Other {
+                    description: format!("Signal config: {} = {}", key, value),
+                },
+                question,
+            )
+        }
     };
 
     // 3. Create PollProposal struct

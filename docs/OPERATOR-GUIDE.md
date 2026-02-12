@@ -182,7 +182,26 @@ cargo build --release --target x86_64-unknown-linux-musl
 
 ## Configuration
 
-### Create Config File
+### Auto-Generated Configuration (Recommended)
+
+**Stroma auto-generates configuration** when you run `register` or `link-device`. In most cases, you don't need to create any config files manually.
+
+**Default paths:**
+
+| Item | Default Path | Notes |
+|------|--------------|-------|
+| Signal store | `~/.local/share/stroma/signal-store/` | Encrypted SQLCipher database |
+| Config file | `~/.local/share/stroma/config.toml` | Auto-generated |
+| Passphrase file | `~/.local/share/stroma/passphrase.txt` | Mode 0600, contains BIP-39 mnemonic |
+
+**What gets auto-generated:**
+1. **24-word BIP-39 passphrase** — Displayed prominently, saved to `passphrase.txt`
+2. **config.toml** — Minimal config with store path and logging settings
+3. **Signal store** — Encrypted with the passphrase
+
+### Manual Configuration (Advanced)
+
+If you need custom paths or settings, create `config.toml` manually:
 
 ```bash
 # Create config directory
@@ -190,12 +209,20 @@ mkdir -p ~/.config/stroma
 
 # Create config.toml
 cat > ~/.config/stroma/config.toml <<'EOF'
+# Stroma Bot Configuration (Operator Settings)
+#
+# NOTE: Trust model parameters (min_vouch_threshold, max_flags, etc.)
+# are NOT configured here. They are controlled by GROUP CONSENSUS
+# via Signal Polls and stored in the Freenet contract.
+#
+# See: .beads/security-constraints.bead (Operator Least Privilege)
+
 [signal]
 # Path to encrypted Signal store (CRITICAL - this IS your identity)
 # Created during device linking or registration, encrypted with your recovery phrase
-# Contains ACI keypair for all crypto operations, group config, profile keys
+# Contains Signal protocol state; Stroma keys derived from mnemonic at startup
 # Does NOT store message history (by design - server seizure protection)
-store_path = "/var/lib/stroma/signal-store.db"
+store_path = "/var/lib/stroma/signal-store"
 
 # Device name shown in Signal's linked devices list
 device_name = "Stroma Bot"
@@ -223,28 +250,41 @@ file = "/var/log/stroma/bot.log"
 EOF
 ```
 
+**What's NOT in StromaConfig** (because it's group-controlled):
+- `min_vouch_threshold` — Controlled by group consensus
+- `max_flags` — Controlled by group consensus  
+- Any trust model parameters — All in Freenet contract
+
 **Important Notes:**
-- **No phone number needed**: The bot links as a secondary device to YOUR existing Signal account via QR code
 - **Freenet is embedded**: No separate Freenet service to run - it's built into Stroma
 - **Contract key is automatic**: Created during member-initiated bootstrap, managed by the bot
+- **Trust parameters are group-controlled**: Operators cannot configure trust thresholds
 
-### Signal Store (CRITICAL for Recovery)
+### Cryptographic Recovery Requirements (CRITICAL)
 
-**Your encrypted Signal store IS your recovery identity.** No separate keypair needed. The store is encrypted with a 24-word recovery phrase generated during setup.
+**Your 24-word BIP-39 mnemonic is your root of trust.** Stroma uses:
 
-The bot uses the Signal account's **ACI (Account Identity) key** for ALL cryptographic operations:
-- Chunk encryption (AES-256-GCM key derived via HKDF)
-- State signatures (using ACI identity key)
-- Identity masking (HMAC key derived via HKDF)
-- Persistence network identification
+1. **signal.db** - presage protocol state (sessions, groups, contacts, profiles) - encrypted with mnemonic
+2. **stroma.db** - Stroma-specific data (poll state, vote aggregates) - encrypted with mnemonic
 
-**Note**: Group pepper is DEPRECATED. All cryptographic keys are now derived from the Signal ACI identity, simplifying backup to just the encrypted Signal store + your recovery phrase.
+Both databases are encrypted with the **SAME 24-word recovery phrase** (BIP-39) using SQLCipher AES-256.
+
+The bot derives **ALL cryptographic keys** from the BIP-39 mnemonic via `StromaKeyring`:
+- Identity masking key (HMAC-SHA256 for Signal ID hashing)
+- Voter pepper (poll deduplication)
+- Chunk encryption key (AES-256-GCM for persistence chunks)
+- Chunk signing key (Ed25519 for chunk authenticity)
+- State encryption key (AES-256-GCM for trust state)
+- State signing key (Ed25519 for trust state signatures)
+
+**Signal store is separate**: Signal protocol store handles protocol state (sessions, identity). The 24-word mnemonic handles all Stroma-specific cryptography.
 
 ```bash
-# Signal protocol store location (created during registration)
-/var/lib/stroma/signal-store/
+# Two things need backup:
+# 1. The 24-word BIP-39 mnemonic (root of all Stroma crypto)
+# 2. Signal protocol store (for protocol state)
 
-# CRITICAL: Backup this directory securely
+# Backup Signal store securely
 tar -czf /secure-backup/stroma-signal-store-$(date +%Y%m%d).tar.gz /var/lib/stroma/signal-store/
 
 # Store backup in:
@@ -252,13 +292,17 @@ tar -czf /secure-backup/stroma-signal-store-$(date +%Y%m%d).tar.gz /var/lib/stro
 # - Hardware security module (HSM)
 # - Secure cloud backup (encrypted)
 # - NOT on the same server as the bot
+
+# KEEP YOUR MNEMONIC PHRASE SECURE:
+# - Write it down on paper, store in fireproof safe
+# - Never store digitally on networked devices
+# - Consider splitting across multiple secure locations
 ```
 
-**If you lose this Signal store, you CANNOT recover your trust network.** The ACI identity key inside is the ONLY way to decrypt your fragments.
+**If you lose your mnemonic, you CANNOT recover your trust network.** The mnemonic derives ALL keys for chunk encryption. Signal store alone is not sufficient.
 
 **What's in the encrypted Signal store:**
-- ACI identity keypair (your cryptographic identity)
-- PNI identity keypair (phone number identity)
+- Signal ACI/PNI identity keypairs (for Signal protocol only)
 - Group configuration (member list, metadata — survives restart)
 - Profile keys (required for sealed sender)
 - Vote state during active polls (zeroized when poll completes)
@@ -269,6 +313,7 @@ tar -czf /secure-backup/stroma-signal-store-$(date +%Y%m%d).tar.gz /var/lib/stro
 **What's NOT stored (and doesn't need backup):**
 - Message history (ephemeral by design)
 - Contact database (not used)
+- Stroma cryptographic keys (derived at runtime from mnemonic)
 
 See [PERSISTENCE.md](PERSISTENCE.md) for details on the recovery process.
 
@@ -285,96 +330,153 @@ chunk_size = 65536
 replication_factor = 3
 ```
 
-**Note**: No separate keypair file or persistence identity needed — your encrypted Signal store (configured in `[signal].store_path`) IS your persistence identity. Encryption keys are derived from your Signal ACI identity via HKDF. The store itself is encrypted with your recovery phrase (SQLCipher AES-256). No heartbeat mechanism required. Replication Health is measured at write time based on successful chunk distribution acknowledgments.
+**Note**: Your 24-word BIP-39 mnemonic IS your persistence identity. All encryption keys for chunks are derived from the mnemonic via `StromaKeyring`. The `store_path` points to a directory containing both `signal.db` and `stroma.db`. Both stores are encrypted with your recovery phrase (SQLCipher AES-256). No heartbeat mechanism required. Replication Health is measured at write time based on successful chunk distribution acknowledgments.
 
 ## Signal Account Setup (One-Time)
 
-Before linking Stroma, you need a Signal account. **How you obtain the Signal account is your responsibility** — Stroma only needs to link to it as a secondary device.
+Stroma needs a Signal account to communicate. You have **two options**:
 
-### Step 1: Create or Prepare a Signal Account
-
-Choose how you want to set up the Signal account the bot will use:
-
-| Option | Description | Best For |
-|--------|-------------|----------|
-| **Dedicated phone** | Install Signal on a separate phone with its own number | Production (recommended) |
-| **VoIP service** | Register Signal using a virtual number (SMSPool, Twilio, Google Voice) | Testing (may be blocked) |
-| **Existing account** | Use your personal Signal account | Development only |
-
-**For production**, we recommend a dedicated Signal account (not your personal one). How you register that account is up to you:
-- Prepaid SIM card in a cheap phone
-- Dual-SIM phone with second number
-- Virtual number via SMSPool, Twilio, Google Voice, etc. (may be blocked by Signal)
+| Method | Command | Best For |
+|--------|---------|----------|
+| **Register (Primary)** | `stroma register --phone +1...` | Fresh phone number, VoIP numbers |
+| **Link Device (Secondary)** | `stroma link-device --device-name "Bot"` | Existing Signal account on phone |
 
 ---
 
-### Step 2: Link Stroma as Secondary Device
+### Option A: Register as Primary Device (Recommended for Production)
 
-Once you have a Signal account (on any phone), link Stroma to it:
+Use this when you have a phone number but **no existing Signal account** to link to.
 
 ```bash
-# 1. Start linking process
-stroma link-device \
-  --device-name "Stroma Bot" \
-  --servers production
+# Register with your phone number
+stroma register --phone +16137827274
 
-# 2. QR code appears in terminal
-# ┌───────────────────┐
-# │  █▀▀▀▀▀▀▀▀▀▀▀█   │
-# │  █ ▄▄▄▄▄ █▀█ █   │
-# │  ...QR CODE...   │
-# │  █▄▄▄▄▄▄▄▄▄▄▄█   │
-# └───────────────────┘
-# Alternatively, use the URL: sgnl://linkdevice?uuid=...
+# For VoIP numbers or voice verification:
+stroma register --phone +16137827274 --voice
 
-# 3. On your phone (the one with the Signal account):
-#    Signal → Settings → Linked Devices → Link New Device
-#    Scan the QR code
-
-# 4. Linking complete!
-# Output: "Device linked. ACI: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+# If Signal requires captcha:
+stroma register --phone +16137827274 --captcha "captcha-token-here"
 ```
 
-**After Linking**:
-- The bot inherits the Signal account's identity (ACI)
-- Contacts and groups sync from the primary device
-- **BACKUP the Signal store immediately** (see section above)
-- The bot can perform ALL operations needed for Stroma
+**What happens:**
+1. Stroma generates a 24-word BIP-39 passphrase
+2. Sends SMS/voice verification to your phone
+3. You enter the 6-digit code
+4. Creates encrypted Signal store and config
+5. Displays passphrase prominently for backup
+
+**After registration:**
+```
+✅ Registration successful!
+   ACI: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+   Store: ~/.local/share/stroma/signal-store/
+
+[... 24-word passphrase displayed ...]
+
+📁 SAVED TO: ~/.local/share/stroma/passphrase.txt
+📝 Created config: ~/.local/share/stroma/config.toml
+
+Next step: stroma run
+```
+
+---
+
+### Option B: Link as Secondary Device
+
+Use this when you **already have a Signal account** on your phone.
+
+```bash
+stroma link-device --device-name "Stroma Bot"
+```
+
+**What happens:**
+1. Stroma generates a 24-word BIP-39 passphrase  
+2. Displays QR code in terminal
+3. You scan QR with Signal app on your phone
+4. Bot receives identity from primary device
+5. Creates encrypted Signal store and config
+6. Displays passphrase prominently for backup
+
+```
+Scan this QR code with Signal on your phone:
+  Signal → Settings → Linked Devices → Link New Device
+
+┌───────────────────┐
+│  █▀▀▀▀▀▀▀▀▀▀▀█   │
+│  █ ▄▄▄▄▄ █▀█ █   │
+│  ...QR CODE...   │
+│  █▄▄▄▄▄▄▄▄▄▄▄█   │
+└───────────────────┘
+
+Or use URL: sgnl://linkdevice?uuid=...
+```
 
 ---
 
 ### Understanding the Device Model
 
-Signal supports **one primary device** (Android/iOS phone) with **up to 5 linked devices**:
-
-| Aspect | Primary Device | Linked Device (Stroma) |
-|--------|----------------|------------------------|
+| Aspect | Primary Device (register) | Linked Device (link-device) |
+|--------|---------------------------|----------------------------|
 | Registration | SMS/Voice verification | QR code scan |
-| Identity | Owns phone number | Shares identity |
-| Capabilities | Full (incl. link/unlink) | Full messaging & groups |
-| What Stroma uses | N/A | ✅ This one |
+| Identity | Owns phone number | Shares identity with primary |
+| Capabilities | Full (incl. link/unlink others) | Full messaging & groups |
+| Independence | Standalone | Requires primary to exist |
 
-**Key insight**: Linked devices have **full messaging and group management capabilities** — they can send messages, create groups, add/remove members, and perform admin operations. The only limitation is they cannot link/unlink other devices (which Stroma doesn't need).
+**Key insight**: Both methods give Stroma **full messaging and group management capabilities**.
 
 ---
 
-### Signal Account Considerations
-- **Prepaid SIM card** - Most reliable, works anywhere, ~$10-20/month
-- **Dual-SIM phone** - Use second slot for bot number
-- **VoIP service** (SMSPool, Twilio, Google Voice) - May be blocked by Signal
+### Phone Number Considerations
+
+| Source | Reliability | Notes |
+|--------|-------------|-------|
+| **Prepaid SIM** | Most reliable | ~$10-20/month, works anywhere |
+| **Dual-SIM phone** | Good | Use second slot for bot |
+| **VoIP** (SMSPool, Twilio) | Variable | May be blocked by Signal |
+| **Google Voice** | Variable | May be blocked by Signal |
 
 **Signal Terms of Service**:
 - Signal allows bots/automated clients
 - Avoid spamming or abusive behavior
 - Rate limit your messages (the bot does this automatically)
 
-**If Signal Bans Your Number**:
-1. Your trust network data is **safe** (fragments on persistence network)
-2. Get a new phone number
-3. Link new number as new device to existing Signal account (if possible)
-4. If account fully banned: This requires a new ACI identity, see "Signal Ban" in Disaster Recovery section
+---
 
-**CRITICAL**: Your encrypted Signal store contains the ACI identity key used to encrypt your persistence fragments. A NEW ACI identity CANNOT decrypt fragments encrypted with the OLD identity. Backup your Signal store + recovery phrase before any issues arise.
+### Critical: Backup Your Passphrase
+
+After `register` or `link-device`, you will see a **24-word BIP-39 passphrase**. This is displayed prominently:
+
+```
+═══════════════════════════════════════════════════════════════════════════════
+🔑 CRITICAL: Database Passphrase (SAVE THIS SECURELY)
+═══════════════════════════════════════════════════════════════════════════════
+
+   1-6   word word word word word word              
+   7-12  word word word word word word              
+  13-18  word word word word word word              
+  19-24  word word word word                        
+
+───────────────────────────────────────────────────────────────────────────────
+  Copy-paste version (single line):
+
+  word word word word word word word word...
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📁 SAVED TO: ~/.local/share/stroma/passphrase.txt
+```
+
+**CRITICAL**: 
+- This passphrase encrypts your Signal store AND derives all Stroma keys
+- Without it, you CANNOT recover your trust network
+- Signal account changes do NOT affect this passphrase
+- Backup securely: paper in safe, NOT on networked device
+
+**If Signal Bans Your Number**:
+1. Your trust network data is **safe** (passphrase unchanged)
+2. Get a new phone number
+3. Run `stroma register --phone +1newnum --passphrase-file /backup/passphrase.txt`
+4. Same passphrase = can decrypt old fragments!
 
 ## Bootstrap Process (Member-Initiated)
 
@@ -388,7 +490,10 @@ Stroma includes an **embedded Freenet kernel** - you don't need to install or ru
 ### Step 1: Start the Bot Service
 
 ```bash
-# Run bot - it will await member-initiated bootstrap
+# Run bot with defaults (uses auto-generated config)
+stroma run
+
+# Or with explicit config path
 stroma run --config /etc/stroma/config.toml
 
 # Bot starts in "awaiting bootstrap" state:
@@ -398,9 +503,15 @@ stroma run --config /etc/stroma/config.toml
 #    A member must initiate with: /create-group "Group Name"
 ```
 
+**Passphrase loading priority** (first match wins):
+1. `--passphrase-file /path/to/file` flag
+2. `STROMA_DB_PASSPHRASE` environment variable
+3. Default: `~/.local/share/stroma/passphrase.txt`
+4. Interactive prompt (stdin)
+
 **Optional**: Prompt a specific user to start bootstrap:
 ```bash
-stroma run --config /etc/stroma/config.toml --bootstrap-contact @FirstMember
+stroma run --bootstrap-contact @FirstMember
 ```
 
 ### Step 2: Member Initiates Bootstrap (Via Signal)
@@ -447,39 +558,63 @@ Once 3 seed members are added:
 ### Method 1: Container Deployment (Recommended)
 
 Container deployment requires a two-phase process:
-1. **Link device** (interactive, one-time) - Display QR code for you to scan with Signal
-2. **Run service** (daemonized) - Normal operation after linking
+1. **Register or Link** (interactive, one-time) - Set up Signal identity
+2. **Run service** (daemonized) - Normal operation
 
-#### Phase 1: Link Device (One-Time)
+#### Phase 1: Register or Link Device (One-Time)
 
-First, link the bot as a secondary device to your Signal account:
+**Option A: Register as primary device (fresh phone number):**
 
 ```bash
-# Create directories for persistent data
-mkdir -p ./stroma-data/signal-store
-mkdir -p ./stroma-data/freenet-state
+# Create directory for persistent data
+mkdir -p ./stroma-data
 
-# Run linking in interactive mode (displays QR code)
+# Register with phone number (interactive)
 docker run -it --rm \
-  -v $(pwd)/stroma-data/signal-store:/data/signal-store \
-  ghcr.io/roder/stroma:latest link-device --device-name "Stroma Bot"
+  -v $(pwd)/stroma-data:/data \
+  ghcr.io/roder/stroma:latest register \
+    --phone +16137827274 \
+    --store-path /data/signal-store
+
+# Enter verification code when prompted
+# Passphrase will be displayed and saved to /data/passphrase.txt
 ```
 
-This displays a QR code in your terminal. Open Signal on your phone:
+**Option B: Link as secondary device (existing Signal account):**
+
+```bash
+# Create directory for persistent data  
+mkdir -p ./stroma-data
+
+# Link device (displays QR code)
+docker run -it --rm \
+  -v $(pwd)/stroma-data:/data \
+  ghcr.io/roder/stroma:latest link-device \
+    --device-name "Stroma Bot" \
+    --store-path /data/signal-store
+```
+
+Scan the QR code with Signal on your phone:
 1. Go to **Settings** → **Linked Devices**
 2. Tap **Link New Device**
 3. Scan the QR code displayed in the terminal
 
-Once linked, the container exits. Your Signal identity is now stored in `./stroma-data/signal-store/`.
+**After either method:**
+- Signal store: `./stroma-data/signal-store/`
+- Passphrase: `./stroma-data/passphrase.txt`
+- Config: `./stroma-data/config.toml` (auto-generated)
 
-**⚠️ CRITICAL**: Back up `./stroma-data/signal-store/` immediately. This directory contains your ACI identity keypair — losing it means losing access to your trust network forever.
+**⚠️ CRITICAL**: Back up `./stroma-data/passphrase.txt` immediately! The passphrase encrypts your store AND derives all Stroma keys — losing it means losing access to your trust network forever.
 
-#### Phase 2: Create Configuration
+#### Phase 2: Configuration (Auto-Generated)
 
-Create `config.toml` with your settings:
+Stroma auto-generates `config.toml` during registration. For custom settings:
 
 ```bash
 cat > ./stroma-data/config.toml <<'EOF'
+# Stroma Bot Configuration (Operator Settings)
+# Trust parameters are GROUP-CONTROLLED via Freenet contract
+
 [signal]
 store_path = "/data/signal-store"
 device_name = "Stroma Bot"
@@ -550,29 +685,29 @@ docker-compose down
 docker run -d \
   --name stroma \
   --restart unless-stopped \
-  -v $(pwd)/stroma-data/signal-store:/data/signal-store \
-  -v $(pwd)/stroma-data/freenet-state:/data/freenet-state \
-  -v $(pwd)/stroma-data/config.toml:/data/config.toml:ro \
-  -v $(pwd)/stroma-data/logs:/data/logs \
+  -v $(pwd)/stroma-data:/data \
   --security-opt no-new-privileges:true \
   --cap-drop ALL \
   --read-only \
-  ghcr.io/roder/stroma:latest run --config /data/config.toml
+  ghcr.io/roder/stroma:latest run \
+    --config /data/config.toml \
+    --passphrase-file /data/passphrase.txt
 
 # Optional: prompt a specific user to start bootstrap
 docker run -d \
   --name stroma \
   --restart unless-stopped \
-  -v $(pwd)/stroma-data/signal-store:/data/signal-store \
-  -v $(pwd)/stroma-data/freenet-state:/data/freenet-state \
-  -v $(pwd)/stroma-data/config.toml:/data/config.toml:ro \
-  -v $(pwd)/stroma-data/logs:/data/logs \
-  ghcr.io/roder/stroma:latest run --config /data/config.toml --bootstrap-contact @FirstMember
+  -v $(pwd)/stroma-data:/data \
+  ghcr.io/roder/stroma:latest run \
+    --config /data/config.toml \
+    --passphrase-file /data/passphrase.txt \
+    --bootstrap-contact @FirstMember
 ```
 
 **Note**: 
 - Bootstrap is member-initiated via Signal commands (`/create-group`, `/add-seed`), not via CLI
 - The embedded Freenet node starts automatically — no separate Freenet service required
+- Passphrase is read from file (container-native pattern)
 
 ---
 
@@ -655,16 +790,25 @@ Each bot needs its own Signal account. You have several options:
 - If you have team members willing to link their accounts
 - Each person links the bot as a secondary device on their account
 
-#### Step 2: Link Each Bot Instance
+#### Step 2: Register or Link Each Bot Instance
 
-For each group, run the device linking process:
+For each group, run registration or linking:
 
 ```bash
 # Create directories for each group
-sudo mkdir -p /var/lib/stroma/{mission-control,activists-nyc,mutual-aid-sf}/signal-store
-sudo mkdir -p /var/lib/stroma/{mission-control,activists-nyc,mutual-aid-sf}/freenet-state
+sudo mkdir -p /var/lib/stroma/{mission-control,activists-nyc,mutual-aid-sf}
 
-# Link each bot (run one at a time, scan QR with the corresponding Signal account)
+# Option A: Register each bot with separate phone numbers
+stroma register --phone +16135551001 \
+  --store-path /var/lib/stroma/mission-control/signal-store
+
+stroma register --phone +16135551002 \
+  --store-path /var/lib/stroma/activists-nyc/signal-store
+
+stroma register --phone +16135551003 \
+  --store-path /var/lib/stroma/mutual-aid-sf/signal-store
+
+# Option B: Link each bot to separate Signal accounts (run one at a time)
 stroma link-device --device-name "Stroma: Mission Control" \
   --store-path /var/lib/stroma/mission-control/signal-store
 
@@ -675,7 +819,7 @@ stroma link-device --device-name "Stroma: Mutual Aid SF" \
   --store-path /var/lib/stroma/mutual-aid-sf/signal-store
 ```
 
-**⚠️ CRITICAL**: Back up each `signal-store` directory immediately after linking.
+**⚠️ CRITICAL**: Back up each `passphrase.txt` file immediately after registration/linking.
 
 #### Step 3: Create systemd Service Template
 
@@ -714,12 +858,17 @@ WantedBy=multi-user.target
 
 #### Step 4: Create Per-Group Configurations
 
+Config files are auto-generated during registration/linking, but for custom settings:
+
 ```bash
 # Create config directories
 sudo mkdir -p /etc/stroma/groups/{mission-control,activists-nyc,mutual-aid-sf}
 
 # Example config for mission-control
 cat > /etc/stroma/groups/mission-control/config.toml <<'EOF'
+# Stroma Bot Configuration (Operator Settings)
+# Trust parameters are GROUP-CONTROLLED via Freenet contract
+
 [signal]
 store_path = "/var/lib/stroma/mission-control/signal-store"
 device_name = "Stroma: Mission Control"
@@ -744,10 +893,11 @@ EOF
 # mutual-aid-sf uses /var/lib/stroma/mutual-aid-sf/...
 ```
 
-**Each config has its own:**
-- `signal.store_path` — Different Signal store per group (created during linking)
+**Each group has its own:**
+- `signal.store_path` — Different Signal store per group
 - `freenet.state_dir` — Different Freenet state directory per group
 - `logging.file` — Different log file per group
+- `passphrase.txt` — Different passphrase per group (in same directory as store)
 
 #### Step 5: Start All Services (Each Awaits Bootstrap)
 
@@ -986,10 +1136,15 @@ sudo systemctl restart stroma
 ### Bot Banned from Signal
 
 **Response:**
-1. Register new bot account with backup phone number
-2. Update config.toml with new phone number
-3. Restart service
-4. Bot will recover state from embedded Freenet kernel
+1. Get a new phone number
+2. Re-register with same passphrase:
+   ```bash
+   stroma register --phone +1newnum \
+     --passphrase-file /backup/passphrase.txt
+   ```
+3. Start service - bot recovers state from persistence network
+
+**Why this works**: Trust data is encrypted with your passphrase, NOT the Signal account. Same passphrase = can decrypt old fragments!
 
 **Prevention**: Follow Signal's terms of service, avoid spam-like behavior
 
@@ -1129,7 +1284,9 @@ sudo systemctl restart stroma
 **Recovery:**
 1. Set up new server
 2. Install Stroma (container or binary)
-3. Restore encrypted Signal store + recovery phrase from backup (CRITICAL — your only recovery path)
+3. Restore encrypted databases + recovery phrase from backup (CRITICAL — your only recovery path):
+   - `signal.db` - presage protocol state
+   - `stroma.db` - poll state and vote aggregates
 4. Restore `config.toml` from backup
 5. Start service
 6. Bot recovers trust state from Reciprocal Persistence Network
@@ -1137,10 +1294,25 @@ sudo systemctl restart stroma
 **Time to Recovery**: 30-60 minutes
 
 **Critical Requirements:**
-- ✅ MUST have encrypted Signal store backup + recovery phrase (contains ACI identity for decryption)
+- ✅ MUST have both encrypted databases backed up: `signal.db` AND `stroma.db`
+- ✅ MUST have 24-word recovery phrase (same passphrase for both databases)
 - ✅ MUST have `config.toml` backup (contract key needed)
 - ⚠️ Persistence network must have your fragments (other bots hold them)
-- ❌ Without Signal store backup, you CANNOT decrypt your fragments
+- ❌ Without database backups, you CANNOT decrypt your fragments
+
+**Backup Commands:**
+```bash
+# Backup both databases and recovery phrase
+cp /var/lib/stroma/signal.db /backup/signal.db
+cp /var/lib/stroma/stroma.db /backup/stroma.db
+cp /etc/stroma/recovery-phrase.txt /backup/recovery-phrase.txt
+cp /etc/stroma/config.toml /backup/config.toml
+
+# For containers
+docker cp stroma:/data/signal.db /backup/signal.db
+docker cp stroma:/data/stroma.db /backup/stroma.db
+docker cp stroma:/data/recovery-phrase.txt /backup/recovery-phrase.txt
+```
 
 ### Crash Recovery (Automatic)
 
@@ -1152,7 +1324,7 @@ The bot implements **automatic crash recovery** via the Reciprocal Persistence N
 1. **On startup**, bot detects it has no local state
 2. **Queries registry** to discover which bots hold its fragments
 3. **Fetches all chunks** from holders (tries primary, falls back to secondary if unavailable)
-4. **Reassembles and decrypts** state using ACI key from Signal protocol store
+4. **Reassembles and decrypts** state using mnemonic-derived key from StromaKeyring
 5. **Verifies signatures** to ensure data integrity
 6. **Resumes normal operation** with full trust map intact
 
@@ -1168,7 +1340,7 @@ Compute holders → Chunk[0] held by bot-A and bot-B
            ↓
 Fetch chunks → Try bot-A (success) ✅
            ↓
-Decrypt → Use ACI key from Signal store
+Decrypt → Use mnemonic-derived key from StromaKeyring
            ↓
 Verify → HMAC signature valid ✅
            ↓
@@ -1209,7 +1381,7 @@ journalctl -u stroma -f | grep -i recovery
 | Error | Cause | Action |
 |-------|-------|--------|
 | `ChunkFetchFailed` | All holders for a chunk are down | Wait and retry |
-| `DecryptionFailed` | Wrong ACI key | Restore correct Signal store backup |
+| `DecryptionFailed` | Wrong mnemonic | Verify correct mnemonic entered at startup |
 | `SignatureVerificationFailed` | Chunk tampered or corrupted | Contact holder to re-send chunk |
 | `OwnerNotInRegistry` | Bot never registered | Check bot initialization |
 | `InsufficientReplicas` | Network has <3 bots | Wait for more bots to join |
@@ -1256,10 +1428,10 @@ sudo systemctl start stroma
 1. Bot starts with fresh Freenet kernel
 2. Bot automatically triggers crash recovery (see above)
 3. Bot fetches encrypted fragments from other bots in persistence network
-4. Bot decrypts using ACI identity from Signal store
+4. Bot decrypts using mnemonic-derived key from StromaKeyring
 5. Trust state fully recovered
 
-**CRITICAL**: This only works if you have your Signal protocol store (contains ACI key for decryption).
+**CRITICAL**: This only works if you have your 24-word mnemonic (derives all decryption keys).
 
 **Time to Recovery**: 10-30 minutes (depends on network size and fragment availability)
 
@@ -1267,27 +1439,30 @@ sudo systemctl start stroma
 
 **Impact**: Bot cannot send/receive messages
 
-**MVP Recovery (Manual):**
+**MVP Recovery:**
 
 **Option A: If only phone number is banned (account survives)**
-1. Get new phone number
-2. Link new device to existing Signal account
-3. Update config if needed
-4. Restart bot — same ACI identity, can decrypt fragments
+```bash
+# Get new phone number, link to existing account
+stroma link-device --device-name "Stroma Bot" \
+  --passphrase-file /backup/passphrase.txt
+```
+Same passphrase = can decrypt old fragments
 
-**Option B: If account is fully terminated (new ACI identity required)**
-1. Register new Signal account (backup phone number)
-2. Update config.toml with new credentials
-3. Restart bot with NEW Signal store
-4. **CRITICAL**: New ACI identity CANNOT decrypt old fragments
-5. Trust network must be rebuilt from scratch (re-bootstrap)
+**Option B: If account is fully terminated (new Signal account required)**
+```bash
+# Register fresh with backup passphrase
+stroma register --phone +1newbackupnumber \
+  --passphrase-file /backup/passphrase.txt
+```
+**GOOD NEWS**: Same passphrase = can decrypt old fragments!
 
-**Why Option B requires rebuild**: Your persistence fragments are encrypted with a key derived from your ACI identity. A new Signal account = new ACI = new key. Old fragments cannot be decrypted.
+**Why this works**: Your persistence fragments are encrypted with keys derived from the 24-word passphrase, NOT the Signal account. A new Signal account doesn't change the passphrase, so old fragments can still be decrypted.
 
 **Prevention**: 
 - Follow Signal's terms of service
 - Avoid spam-like behavior
-- Keep Signal store backup secure (for Option A scenarios)
+- Keep passphrase backup secure
 
 **Note**: May require group notification and re-adding bot to Signal group
 
@@ -1296,6 +1471,32 @@ sudo systemctl start stroma
 In Phase 4+, Stroma will support automated bot identity rotation via the Shadow Handover Protocol. This will provide cryptographic succession that allows trust context to transfer to a new identity.
 
 See `.beads/federation-roadmap.bead` for protocol specification.
+
+---
+
+### Decommissioning a Bot
+
+**Use the `unregister` command to clean up:**
+
+**Local cleanup only (keep Signal account):**
+```bash
+stroma unregister
+```
+This removes:
+- Signal store
+- Config file  
+- Passphrase file
+
+**Full removal (delete Signal account too):**
+```bash
+stroma unregister --delete-account --yes
+```
+This also deletes the account from Signal servers.
+
+**When to use:**
+- Decommissioning a bot permanently
+- Starting fresh with a new identity
+- Troubleshooting registration issues
 
 ## Operator Audit Trail
 
@@ -1485,19 +1686,50 @@ docker run -d --name stroma-group-b -v data-b:/data ghcr.io/roder/stroma:latest
 ### Can I move the bot to a new server?
 Yes. Stop service, backup Signal protocol store and `config.toml`, move to new server, restore, restart. Bot will recover state from Reciprocal Persistence Network (other bots hold your encrypted fragments).
 
-### What if I lose the Signal protocol store?
-**Critical failure**. Your ACI identity key is used to:
-1. Derive the encryption key for your persistence fragments
-2. Derive the HMAC key for identity masking
+### What if I lose the passphrase?
+**Critical failure**. Your 24-word passphrase is used to:
+1. Encrypt the Signal protocol store (SQLCipher)
+2. Derive all Stroma cryptographic keys (via StromaKeyring)
+3. Encrypt persistence fragments
 
-Without it, you CANNOT decrypt your fragments or match member hashes. **Always backup your Signal protocol store!**
+Without it, you CANNOT:
+- Open your Signal store
+- Decrypt your fragments
+- Match member hashes
+
+**Always backup your passphrase securely!** It's saved to `passphrase.txt` during registration/linking.
+
+### What if I lose the Signal store but have the passphrase?
+You can recover:
+```bash
+# Re-register with same passphrase
+stroma register --phone +1yournum \
+  --passphrase-file /backup/passphrase.txt
+
+# Or re-link with same passphrase  
+stroma link-device --device-name "Bot" \
+  --passphrase-file /backup/passphrase.txt
+```
+Same passphrase = can decrypt old persistence fragments.
 
 ### Can I change the Signal account later?
-No (in MVP). Changing Signal accounts means a new ACI identity, which:
-1. Cannot decrypt fragments encrypted with the old identity
-2. Produces different hashes for the same members
+**Yes, with the same passphrase.** Changing Signal accounts is safe because:
+1. All Stroma keys derive from the 24-word passphrase, NOT Signal ACI
+2. Same passphrase = same hashes for members
+3. Same passphrase = can decrypt old fragments
 
-The Signal identity must remain constant for the group's lifetime. Phase 4+ Shadow Handover Protocol will address this limitation.
+The passphrase must remain constant for the group's lifetime. Signal account can change freely. Phase 4+ will add key rotation support via `key_epoch`.
+
+### Do I need to write a config file?
+**No.** Stroma auto-generates `config.toml` during registration/linking with sensible defaults:
+- Signal store at `~/.local/share/stroma/signal-store/`
+- Passphrase at `~/.local/share/stroma/passphrase.txt`
+- Config at `~/.local/share/stroma/config.toml`
+
+Only create a custom config if you need non-default paths or settings.
+
+### What's NOT in the config file?
+Trust parameters like `min_vouch_threshold` are **group-controlled** via Signal Polls and stored in the Freenet contract. Operators cannot configure trust settings — this enforces the "Operator Least Privilege" principle.
 
 ### How do I upgrade without downtime?
 Currently not supported in MVP. Brief downtime (< 5 minutes) acceptable for updates. Federation (Phase 4+) will enable zero-downtime updates.
@@ -1764,4 +1996,24 @@ curl -L https://github.com/roder/stroma/releases/download/v1.0.0/stroma-x86_64-m
 
 ---
 
-**Last Updated**: 2026-02-08
+**Last Updated**: 2026-02-12
+
+---
+
+## CLI Quick Reference
+
+| Command | Purpose | Example |
+|---------|---------|---------|
+| `register` | Register as primary device | `stroma register --phone +16137827274` |
+| `link-device` | Link as secondary device | `stroma link-device --device-name "Bot"` |
+| `run` | Run bot service | `stroma run` |
+| `status` | Check health | `stroma status` |
+| `verify` | Verify installation | `stroma verify` |
+| `backup-store` | Backup Signal store | `stroma backup-store --output backup.tar.gz` |
+| `unregister` | Clean up local data | `stroma unregister` |
+| `version` | Show version | `stroma version` |
+
+**Common flags:**
+- `--store-path PATH` — Custom Signal store location
+- `--passphrase-file PATH` — Read passphrase from file (container-native)
+- `--config PATH` — Custom config file location

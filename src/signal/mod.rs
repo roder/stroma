@@ -19,6 +19,7 @@ pub mod mock;
 pub mod pm;
 pub mod polls;
 pub mod proposals;
+pub mod registration;
 pub mod retry;
 pub mod stroma_store;
 pub mod traits;

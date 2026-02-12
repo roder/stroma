@@ -52,6 +52,7 @@ fn create_test_network(size: usize, avg_vouches: usize) -> TrustNetworkState {
         gap11_announcement_sent: false,
         active_proposals: HashMap::new(),
         audit_log: vec![],
+        key_epoch: 1,
     }
 }
 

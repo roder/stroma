@@ -1,5 +1,24 @@
+# Property-based testing configuration for Stroma
+#
+# Per testing-standards.bead § Property-Based Testing (CRITICAL):
+# Property tests must run with increased case counts for security-critical code.
+#
+# Default proptest configuration is 256 cases per test.
+# We increase to 1000 for critical paths (passphrase generation, trust logic, etc.)
+
 [default]
-# Property test configuration for trust-critical code
-# Increased case count for better coverage of edge cases
+# Number of test cases to run per property test
 cases = 1000
+
+# Maximum shrinking iterations when a failure is found
+# Higher values help find minimal failing cases
 max_shrink_iters = 10000
+
+# Timeout per test case (in milliseconds)
+# Set to 0 for no timeout
+timeout = 0
+
+# Fork mode for better isolation
+# "true" = each case runs in a separate process (slower but more isolated)
+# "false" = all cases run in same process (faster)
+fork = false
