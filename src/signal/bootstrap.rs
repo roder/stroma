@@ -130,7 +130,7 @@ impl<C: SignalClient> BootstrapManager<C> {
         &mut self,
         freenet: &impl FreenetClient,
         from: &ServiceId,
-        new_seed_username: &str,
+        new_seed: &ServiceId,
     ) -> SignalResult<()> {
         // Get current collecting state
         let (group_name, initiator, current_seeds, current_service_ids) = match &self.state {
@@ -172,7 +172,7 @@ impl<C: SignalClient> BootstrapManager<C> {
 
         // Hash new seed identity using secure HMAC
         let new_seed_hash: MemberHash =
-            mask_identity(new_seed_username, &self.identity_masking_key).into();
+            mask_identity(&new_seed.0, &self.identity_masking_key).into();
 
         // Check for duplicates
         if current_seeds.contains(&new_seed_hash) {
@@ -185,9 +185,9 @@ impl<C: SignalClient> BootstrapManager<C> {
         let mut updated_seeds = current_seeds;
         updated_seeds.push(new_seed_hash);
 
-        // Keep raw identity string for Signal group creation
+        // Keep raw ServiceId string for Signal group creation
         let mut updated_service_ids = current_service_ids;
-        updated_service_ids.push(new_seed_username.to_string());
+        updated_service_ids.push(new_seed.0.clone());
 
         let seed_count = updated_seeds.len();
 
@@ -203,7 +203,7 @@ impl<C: SignalClient> BootstrapManager<C> {
         if seed_count < 3 {
             let message = format!(
                 "✅ {} added as seed member #{}.\n   Need {} more seed member(s) to complete the group.",
-                new_seed_username,
+                new_seed.0,
                 seed_count,
                 3 - seed_count
             );
@@ -211,7 +211,7 @@ impl<C: SignalClient> BootstrapManager<C> {
         } else {
             let message = format!(
                 "✅ {} added as seed member #3.\n   Seed group complete! Creating Signal group and Freenet contract...",
-                new_seed_username
+                new_seed.0
             );
             self.signal.send_message(from, &message).await?;
 

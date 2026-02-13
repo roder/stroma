@@ -235,22 +235,26 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                             .await?;
                     }
                     Command::AddSeed { ref username } => {
+                        let service_id = self.client.resolve_identifier(username).await?;
                         self.bootstrap_manager
-                            .handle_add_seed(&self.freenet, &message.sender, username)
+                            .handle_add_seed(&self.freenet, &message.sender, &service_id)
                             .await?;
                     }
                     Command::Invite {
                         ref username,
                         ref context,
                     } => {
-                        self.handle_invite(&message.sender, username, context.as_deref())
+                        let invitee_id = self.client.resolve_identifier(username).await?;
+                        self.handle_invite(&message.sender, &invitee_id, context.as_deref())
                             .await?;
                     }
                     Command::Vouch { ref username } => {
-                        self.handle_vouch(&message.sender, username).await?;
+                        let target_id = self.client.resolve_identifier(username).await?;
+                        self.handle_vouch(&message.sender, &target_id).await?;
                     }
                     Command::RejectIntro { ref username } => {
-                        self.handle_reject_intro(&message.sender, username).await?;
+                        let invitee_id = self.client.resolve_identifier(username).await?;
+                        self.handle_reject_intro(&message.sender, &invitee_id).await?;
                     }
                     _ => {
                         // Other commands go through normal handler
@@ -288,7 +292,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     async fn handle_invite(
         &mut self,
         sender: &ServiceId,
-        username: &str,
+        invitee: &ServiceId,
         context: Option<&str>,
     ) -> SignalResult<()> {
         use super::matchmaker::BlindMatchmaker;
@@ -305,7 +309,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             None => {
                 // Bootstrap phase: allow invitations before contract setup
                 return self
-                    .handle_invite_bootstrap(sender, username, context)
+                    .handle_invite_bootstrap(sender, invitee, context)
                     .await;
             }
         };
@@ -315,7 +319,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             Err(FreenetError::ContractNotFound) => {
                 // Bootstrap phase
                 return self
-                    .handle_invite_bootstrap(sender, username, context)
+                    .handle_invite_bootstrap(sender, invitee, context)
                     .await;
             }
             Err(e) => {
@@ -346,7 +350,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         // Phase 1: Query Freenet state for previous flags (GAP-10)
         // Check if invitee already has history in the system
         let invitee_hash: MemberHash =
-            mask_identity(username, &self.config.identity_masking_key).into();
+            mask_identity(&invitee.0, &self.config.identity_masking_key).into();
         let is_ejected = state.ejected.contains(&invitee_hash);
         let has_previous_flags = is_ejected || state.flags.contains_key(&invitee_hash);
         let previous_flag_count = if has_previous_flags {
@@ -359,10 +363,10 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             0
         };
 
-        // Create ephemeral vetting session
+        // Create ephemeral vetting session (keyed by invitee's ServiceId)
         let result = self.vetting_sessions.create_session(
-            ServiceId(username.to_string()), // TODO: resolve username to actual ServiceId
-            username.to_string(),
+            invitee.clone(),
+            invitee.0.clone(),
             inviter_hash,
             sender.clone(),
             context.map(|s| s.to_string()),
@@ -371,7 +375,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         );
 
         if let Err(e) = result {
-            let response = format!("❌ Cannot invite {}: {}", username, e);
+            let response = format!("❌ Cannot invite {}: {}", invitee.0, e);
             return self.client.send_message(sender, &response).await;
         }
 
@@ -406,7 +410,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                 Some(assessor_id) => {
                     // Assign assessor to session
                     if let Err(e) = self.vetting_sessions.assign_assessor(
-                        username,
+                        &invitee.0,
                         assessor,
                         assessor_id.clone(),
                     ) {
@@ -416,7 +420,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
                     // Send PM to assessor with assessment request
                     let assessment_msg = msg_assessment_request(
-                        username,
+                        &invitee.0,
                         context,
                         has_previous_flags,
                         previous_flag_count,
@@ -427,13 +431,13 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
                     // Send confirmation PM to inviter (no assessor identity revealed)
                     let inviter_msg =
-                        msg_inviter_confirmation(username, has_previous_flags, previous_flag_count);
+                        msg_inviter_confirmation(&invitee.0, has_previous_flags, previous_flag_count);
                     self.client.send_message(sender, &inviter_msg).await
                 }
                 None => {
                     // Assessor not in resolver - this shouldn't happen
                     // Send stalled notification to inviter
-                    let stall_msg = msg_no_candidates(username);
+                    let stall_msg = msg_no_candidates(&invitee.0);
                     self.client.send_message(sender, &stall_msg).await
                 }
             }
@@ -442,7 +446,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             // Bootstrap exception: Network is small
             let response = format!(
                 "✅ Invitation for {} recorded as first vouch.\n\nContext: {}\n\nNote: Network is small (bootstrap phase). They'll join once they receive one more vouch from any member.",
-                username,
+                invitee.0,
                 context.unwrap_or("(no context provided)")
             );
             self.client.send_message(sender, &response).await
@@ -453,7 +457,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     async fn handle_invite_bootstrap(
         &mut self,
         sender: &ServiceId,
-        username: &str,
+        invitee: &ServiceId,
         context: Option<&str>,
     ) -> SignalResult<()> {
         // Hash inviter's ServiceId to MemberHash using mnemonic-derived key
@@ -462,8 +466,8 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
         // Create ephemeral vetting session (bootstrap: no previous flags)
         let result = self.vetting_sessions.create_session(
-            ServiceId(username.to_string()),
-            username.to_string(),
+            invitee.clone(),
+            invitee.0.clone(),
             inviter_hash,
             sender.clone(),
             context.map(|s| s.to_string()),
@@ -472,14 +476,14 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         );
 
         if let Err(e) = result {
-            let response = format!("❌ Cannot invite {}: {}", username, e);
+            let response = format!("❌ Cannot invite {}: {}", invitee.0, e);
             return self.client.send_message(sender, &response).await;
         }
 
         // Bootstrap phase: simple confirmation, no cross-cluster matching yet
         let response = format!(
             "✅ Invitation for {} recorded as first vouch.\n\nContext: {}\n\nNote: Network is small (bootstrap phase). They'll join once they receive one more vouch from any member.",
-            username,
+            invitee.0,
             context.unwrap_or("(no context provided)")
         );
         self.client.send_message(sender, &response).await
@@ -488,7 +492,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     /// Handle /vouch command
     ///
     /// Records second vouch and admits member if threshold met.
-    async fn handle_vouch(&mut self, sender: &ServiceId, username: &str) -> SignalResult<()> {
+    async fn handle_vouch(&mut self, sender: &ServiceId, target: &ServiceId) -> SignalResult<()> {
         use crate::matchmaker::cluster_detection::detect_clusters;
         use std::collections::BTreeSet;
 
@@ -521,14 +525,14 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             return self.client.send_message(sender, response).await;
         }
 
-        // 4. Check if vetting session exists for username and clone needed data
+        // 4. Check if vetting session exists for target and clone needed data
         let (invitee_id, inviter_hash, inviter_id) =
-            match self.vetting_sessions.get_session(username) {
+            match self.vetting_sessions.get_session(&target.0) {
                 Some(s) => (s.invitee_id.clone(), s.inviter, s.inviter_id.clone()),
                 None => {
                     let response = format!(
                     "❌ No active vetting session for {}. They must be invited first with /invite.",
-                    username
+                    target.0
                 );
                     return self.client.send_message(sender, &response).await;
                 }
@@ -541,7 +545,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         if voucher_hash == inviter_hash {
             let response = format!(
                 "❌ You already vouched for {} when you invited them. A second vouch from a different member is required.",
-                username
+                target.0
             );
             return self.client.send_message(sender, &response).await;
         }
@@ -562,7 +566,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             if !is_cross_cluster {
                 let response = format!(
                     "❌ Cross-cluster vouching required: {} was invited by someone in your cluster. A vouch from a member in a different cluster is needed.",
-                    username
+                    target.0
                 );
                 return self.client.send_message(sender, &response).await;
             }
@@ -730,19 +734,19 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             }
 
             // 15. Delete ephemeral vetting session
-            let _session = self.vetting_sessions.admit(username).ok();
+            let _session = self.vetting_sessions.admit(&target.0).ok();
 
             // 16. Notify voucher (sender)
             let response = format!(
                 "✅ Your vouch for {} has been recorded. They now have {} effective vouch(es) and met all requirements.\n\n🎉 {} has been admitted to the group!",
-                username, effective_vouches, username
+                target.0, effective_vouches, target.0
             );
             self.client.send_message(sender, &response).await?;
 
             // 17. Notify inviter
             let inviter_response = format!(
                 "🎉 Great news! {} has been admitted to the group after receiving the required vouches.",
-                username
+                target.0
             );
             self.client
                 .send_message(&inviter_id, &inviter_response)
@@ -756,12 +760,12 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             let response = if standing < 0 {
                 format!(
                     "✅ Your vouch for {} has been recorded.\n\nHowever, they currently have negative standing ({}). They need more vouches to overcome flags before admission.",
-                    username, standing
+                    target.0, standing
                 )
             } else {
                 format!(
                     "✅ Your vouch for {} has been recorded.\n\nThey now have {} effective vouch(es). {} more vouch(es) needed to reach the {}-vouch threshold.",
-                    username, effective_vouches, vouches_needed, min_threshold
+                    target.0, effective_vouches, vouches_needed, min_threshold
                 )
             };
 
@@ -775,19 +779,19 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     async fn handle_reject_intro(
         &mut self,
         sender: &ServiceId,
-        username: &str,
+        invitee: &ServiceId,
     ) -> SignalResult<()> {
         use super::matchmaker::BlindMatchmaker;
 
         // Get the vetting session for the invitee
-        let session = match self.vetting_sessions.get_session_mut(username) {
+        let session = match self.vetting_sessions.get_session_mut(&invitee.0) {
             Some(s) => s,
             None => {
                 return self
                     .client
                     .send_message(
                         sender,
-                        &format!("❌ No active vetting session found for {}", username),
+                        &format!("❌ No active vetting session found for {}", invitee.0),
                     )
                     .await;
             }
@@ -841,7 +845,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                 sender,
                 &format!(
                     "✅ You have declined the assessment for {}.\n\nI'll find another assessor.",
-                    username
+                    invitee.0
                 ),
             )
             .await?;
@@ -900,7 +904,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                 Some(validator_id) => {
                     // Get session data for PM (extract values to avoid borrow conflict)
                     let (context, has_previous_flags, previous_flag_count) = {
-                        let session = self.vetting_sessions.get_session(username).unwrap();
+                        let session = self.vetting_sessions.get_session(&invitee.0).unwrap();
                         (
                             session.context.clone(),
                             session.has_previous_flags,
@@ -910,7 +914,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
                     // Assign validator to session
                     if let Err(e) = self.vetting_sessions.assign_assessor(
-                        username,
+                        &invitee.0,
                         validator_hash,
                         validator_id.clone(),
                     ) {
@@ -925,7 +929,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
                     // Send PM to new assessor with assessment request
                     let assessment_msg = msg_assessment_request(
-                        username,
+                        &invitee.0,
                         context.as_deref(),
                         has_previous_flags,
                         previous_flag_count,
@@ -940,14 +944,14 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                             &inviter_id,
                             &format!(
                                 "✅ New assessor assigned for {}. Assessment in progress.",
-                                invitee_username
+                                invitee.0
                             ),
                         )
                         .await?;
                 }
                 None => {
                     // Validator not in resolver - shouldn't happen, but handle gracefully
-                    let session = self.vetting_sessions.get_session_mut(username).unwrap();
+                    let session = self.vetting_sessions.get_session_mut(&invitee.0).unwrap();
                     session.status = VettingStatus::Stalled;
 
                     self.client
@@ -955,7 +959,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                             &inviter_id,
                             &format!(
                                 "❌ Vetting stalled: Selected assessor for {} not reachable.\n\nThe invitation remains open - they'll be matched when the network topology changes.",
-                                invitee_username
+                                invitee.0
                             ),
                         )
                         .await?;
@@ -964,7 +968,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         } else {
             // No available validators - stalled
             // Update session status and notify inviter
-            let session = self.vetting_sessions.get_session_mut(username).unwrap();
+            let session = self.vetting_sessions.get_session_mut(&invitee.0).unwrap();
             session.status = VettingStatus::Stalled;
 
             self.client
