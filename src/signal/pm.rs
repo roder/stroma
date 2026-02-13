@@ -57,6 +57,42 @@ pub enum Command {
 /// Context for command handlers.
 ///
 /// Provides access to Signal client, Freenet client, group manager, and config.
+/// A user identifier that can be a UUID, username, or phone number
+#[derive(Debug, Clone, PartialEq)]
+pub enum Identifier {
+    /// Raw UUID (e.g., "a1b2c3d4-5678-90ab-cdef-1234567890ab")
+    Uuid(String),
+    /// Signal username (e.g., "matt.42" or "@matt.42")
+    Username(String),
+    /// Phone number in E.164 format (e.g., "+15551234567")
+    Phone(String),
+}
+
+/// Parse a user identifier from a string.
+///
+/// Detection rules (in order):
+/// 1. Valid UUID format → Identifier::Uuid
+/// 2. Starts with '+' and all digits → Identifier::Phone
+/// 3. Otherwise → Identifier::Username
+///
+/// The '@' prefix is stripped if present (usernames can be entered as "@matt.42" or "matt.42").
+pub fn parse_identifier(input: &str) -> Identifier {
+    let input = input.strip_prefix('@').unwrap_or(input);
+
+    // Try parsing as UUID first
+    if uuid::Uuid::parse_str(input).is_ok() {
+        return Identifier::Uuid(input.to_string());
+    }
+
+    // Check for phone number pattern (+ followed by digits)
+    if input.starts_with('+') && input[1..].chars().all(|c| c.is_ascii_digit()) {
+        return Identifier::Phone(input.to_string());
+    }
+
+    // Default to username
+    Identifier::Username(input.to_string())
+}
+
 pub struct BotContext<'a, S: SignalClient, F: FreenetClient> {
     pub signal: &'a S,
     pub freenet: &'a F,

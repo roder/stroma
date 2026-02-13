@@ -511,6 +511,45 @@ impl SignalClient for LibsignalClient {
         ))
     }
 
+    async fn resolve_identifier(&self, identifier: &str) -> SignalResult<ServiceId> {
+        use crate::signal::pm::{parse_identifier, Identifier};
+
+        let parsed = parse_identifier(identifier);
+
+        match parsed {
+            Identifier::Uuid(uuid_str) => {
+                // Validate UUID format
+                uuid::Uuid::parse_str(&uuid_str).map_err(|e| {
+                    SignalError::InvalidMessage(format!("Invalid UUID '{}': {}", uuid_str, e))
+                })?;
+                Ok(ServiceId(uuid_str))
+            }
+            Identifier::Username(username) => {
+                let manager = self.manager.as_ref().ok_or_else(|| {
+                    SignalError::NotImplemented(
+                        "resolve_identifier (username): no Manager configured".to_string(),
+                    )
+                })?;
+
+                let mut mgr = manager.lock().await;
+                let aci = mgr.resolve_username(&username).await.map_err(|e| {
+                    SignalError::Network(format!("resolve_username failed: {:?}", e))
+                })?;
+
+                match aci {
+                    Some(aci) => Ok(ServiceId(aci.service_id_string())),
+                    None => Err(SignalError::InvalidMessage(format!(
+                        "Username '{}' not found on Signal",
+                        username
+                    ))),
+                }
+            }
+            Identifier::Phone(_phone) => Err(SignalError::NotImplemented(
+                "Phone number resolution not yet implemented (Phase 2)".to_string(),
+            )),
+        }
+    }
+
     async fn receive_messages(&self) -> SignalResult<Vec<Message>> {
         let rx = self.message_rx.as_ref().ok_or_else(|| {
             SignalError::NotImplemented(

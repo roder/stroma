@@ -173,6 +173,16 @@ pub trait SignalClient: Clone {
     /// Set announcements-only mode (true = only admins can send messages)
     async fn set_announcements_only(&self, group: &GroupId, enabled: bool) -> SignalResult<()>;
 
+    /// Resolve a user identifier (UUID, username, or phone number) to a ServiceId.
+    ///
+    /// Accepts:
+    /// - Raw UUIDs: "a1b2c3d4-5678-90ab-cdef-1234567890ab"
+    /// - Usernames: "matt.42" or "@matt.42"
+    /// - Phone numbers: "+15551234567" (Phase 2, not yet implemented)
+    ///
+    /// Returns error if the identifier cannot be resolved or is invalid.
+    async fn resolve_identifier(&self, identifier: &str) -> SignalResult<ServiceId>;
+
     /// Receive messages (blocking until message arrives)
     async fn receive_messages(&self) -> SignalResult<Vec<Message>>;
 
