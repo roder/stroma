@@ -61,7 +61,7 @@ toml = "0.8"
 
 # Logging
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Database (for stroma.db - separate from presage's signal.db)
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "macros"] }
@@ -127,9 +127,12 @@ paste = { path = "patches/paste" }
 # Uses local wrapper crate that provides rustls-pemfile API on top of rustls-pki-types
 rustls-pemfile = { path = "patches/rustls-pemfile" }
 
-# Replace unmaintained bincode with maintained bincode2 fork (RUSTSEC-2025-0141)
-# Uses local wrapper crate that provides bincode v1 API (including Options trait and Deserializer)
-bincode = { path = "patches/bincode" }
+# DISABLED: bincode2 wrapper breaks zkgroup SystemParams deserialization.
+# zkgroup hardcodes constants serialized with bincode v1 format, and bincode2
+# uses a different binary format that can't deserialize them.
+# See: uid_encryption.rs SYSTEM_HARDCODED panic
+# bincode = { path = "patches/bincode" }
+
 
 [profile.release]
 lto = true              # Link-time optimization

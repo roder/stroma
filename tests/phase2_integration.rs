@@ -136,7 +136,7 @@ mod test_mocks {
         }
     }
 
-    #[async_trait]
+    #[async_trait(?Send)]
     impl SignalClient for MockSignalClient {
         async fn send_message(
             &self,
@@ -164,8 +164,20 @@ mod test_mocks {
             Ok(())
         }
 
-        async fn create_group(&self, _name: &str) -> stroma::signal::traits::SignalResult<GroupId> {
-            Ok(GroupId(vec![1, 2, 3]))
+        async fn create_group(
+            &self,
+            _name: &str,
+            _members: &[ServiceId],
+        ) -> stroma::signal::traits::SignalResult<(GroupId, Vec<ServiceId>)> {
+            Ok((GroupId(vec![1, 2, 3]), vec![]))
+        }
+
+        async fn send_group_invite(
+            &self,
+            _group: &GroupId,
+            _member: &ServiceId,
+        ) -> stroma::signal::traits::SignalResult<()> {
+            Ok(())
         }
 
         async fn add_group_member(

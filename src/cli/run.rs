@@ -2,8 +2,12 @@ use super::config::{
     default_config_path, default_passphrase_path, default_store_path, StromaConfig,
 };
 use super::passphrase::{read_passphrase, PassphraseSource};
+use presage::Manager;
 use std::path::PathBuf;
 use stroma::crypto::StromaKeyring;
+use stroma::freenet::MockFreenetClient;
+use stroma::signal::traits::{GroupId, ServiceId};
+use stroma::signal::{BotConfig, LibsignalClient, StromaBot, StromaStore};
 
 /// Run the bot service
 ///
@@ -39,6 +43,57 @@ pub async fn execute(
     bootstrap_contact: Option<String>,
     passphrase_file: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize tracing with security-hardened log filtering.
+    //
+    // SECURITY: External crates (presage, libsignal-service, sqlx) log cleartext
+    // Signal UUIDs at DEBUG/INFO level. Per security-constraints.bead §1:
+    //   "NEVER log Signal IDs to disk, console, or any output"
+    //
+    // In RELEASE builds: We hardcode a WARN cap on external crates that
+    // RUST_LOG cannot override. RUST_LOG only controls stroma's own log level.
+    //
+    // In DEBUG builds: RUST_LOG controls all crates (no security cap) to enable
+    // development troubleshooting with full presage/libsignal traces.
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+
+    #[cfg(not(debug_assertions))]
+    {
+        // RELEASE BUILD: Security cap enforced - external crates limited to WARN
+        use tracing_subscriber::filter::Targets;
+
+        let security_cap = Targets::new()
+            .with_target("presage", tracing::Level::WARN)
+            .with_target("libsignal_service", tracing::Level::WARN)
+            .with_target("libsignal_protocol", tracing::Level::WARN)
+            .with_target("sqlx", tracing::Level::WARN)
+            .with_target("websocket", tracing::Level::WARN)
+            .with_default(tracing::Level::TRACE);
+
+        // Use try_init to avoid panic when called multiple times (e.g., in tests)
+        let _ = tracing_subscriber::registry()
+            .with(tracing_subscriber::fmt::layer())
+            .with(env_filter)
+            .with(security_cap)
+            .try_init();
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        // DEBUG BUILD: No security cap - RUST_LOG controls everything
+        eprintln!("⚠️  DEBUG BUILD: Log security caps disabled.");
+        eprintln!("   External crates may log cleartext Signal UUIDs.");
+        eprintln!("   Use release builds for production.\n");
+
+        // Use try_init to avoid panic when called multiple times (e.g., in tests)
+        let _ = tracing_subscriber::registry()
+            .with(tracing_subscriber::fmt::layer())
+            .with(env_filter)
+            .try_init();
+    }
+
     println!("🚀 Starting Stroma bot service...");
     println!();
 
@@ -108,33 +163,85 @@ pub async fn execute(
     // - State encryption/signing
     let keyring = StromaKeyring::from_mnemonic(&passphrase)?;
 
-    // TODO: Wire keyring into BotConfig
-    // When StromaBot is instantiated, create BotConfig with:
-    //   - identity_masking_key: *keyring.identity_masking_key()
-    //   - voter_pepper: *keyring.voter_pepper()
-    //
-    // The bot will then pass these keys to:
-    //   - MemberResolver (identity_masking_key)
-    //   - BootstrapManager (identity_masking_key)
-    //   - PollManager (voter_pepper)
+    println!();
+    println!("🔓 Opening encrypted store...");
 
-    // Ensure keyring is not optimized away (will be used when bot is implemented)
-    let _ = keyring.identity_masking_key();
+    // Open StromaStore (creates signal.db + stroma.db)
+    let store = StromaStore::open(store_path.as_path(), passphrase.clone()).await?;
 
-    // TODO: Implement actual bot service
-    // This will:
-    // 1. Load configuration from config_path
-    // 2. Initialize Signal connection with passphrase-encrypted store
-    // 3. Start embedded Freenet kernel
-    // 4. Create BotConfig with keyring-derived keys
-    // 5. Enter await bootstrap or normal operation mode
-    // 6. Process Signal messages and update Freenet state
+    println!("📱 Loading registration data...");
 
-    println!("❌ Bot service not yet implemented");
-    println!("The bot would now:");
-    println!("  ✅ Connect to Signal");
-    println!("  ✅ Initialize embedded Freenet kernel");
-    println!("  ⏳ Await member-initiated bootstrap...");
+    // Load registered Manager
+    let manager = Manager::load_registered(store.clone()).await.map_err(|e| {
+        format!(
+            "Not registered. Run 'stroma register' or 'stroma link-device' first.\nError: {:?}",
+            e
+        )
+    })?;
+
+    // Extract service_id from registration data
+    let reg_data = manager.registration_data();
+    let service_id = ServiceId(reg_data.service_ids.aci.to_string());
+
+    println!("✅ Registered as: {}", service_id.0);
+    println!();
+
+    // Create LibsignalClient with Manager (clones Manager for receive loop)
+    let mut client = LibsignalClient::with_manager(service_id, store, manager);
+
+    // Build BotConfig with keyring-derived keys
+    // group_id will be set during /create-group bootstrap
+    let config = BotConfig {
+        group_id: GroupId(vec![]), // Set during bootstrap
+        min_vouch_threshold: 2,
+        identity_masking_key: *keyring.identity_masking_key(),
+        voter_pepper: *keyring.voter_pepper(),
+        contract_hash: None, // Freenet not yet available
+    };
+
+    // Create MockFreenetClient (real Freenet not yet integrated)
+    let freenet = MockFreenetClient::new();
+
+    println!("✅ Bot is running and connected to Signal");
+    println!();
+    println!("📬 Awaiting messages...");
+    println!();
+    println!("To initiate bootstrap:");
+    println!("  1. Send a PM to this bot from your Signal account");
+    println!("  2. Send: /create-group \"Your Group Name\"");
+    println!("  3. Follow the bot's instructions to add seed members");
+    println!();
+    println!("Press Ctrl+C to stop.");
+    println!();
+
+    // Run bot with graceful shutdown on Ctrl+C
+    // Use LocalSet because presage Manager is !Send
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            // Start the persistent receive_messages stream (must be inside LocalSet
+            // because it uses spawn_local). This creates a single websocket for
+            // receiving that stays open, avoiding 4409 "Connected elsewhere" errors.
+            client
+                .start_receive_loop()
+                .await
+                .map_err(|e| format!("Failed to start receive loop: {}", e))?;
+
+            // Create bot AFTER receive loop starts (client is moved into bot)
+            let mut bot = StromaBot::new(client, freenet, config)?;
+
+            tokio::select! {
+                result = bot.run() => {
+                    result?;
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    println!();
+                    println!("🛑 Shutting down gracefully...");
+                }
+            }
+            Ok::<(), Box<dyn std::error::Error>>(())
+        })
+        .await?;
 
     Ok(())
 }
@@ -160,14 +267,17 @@ mod tests {
         std::env::set_var("STROMA_DB_PASSPHRASE", TEST_MNEMONIC);
         let result = execute(
             Some(config_path.to_string_lossy().to_string()),
-            None,
+            Some(store_path.to_string_lossy().to_string()),
             None,
             None,
         )
         .await;
         std::env::remove_var("STROMA_DB_PASSPHRASE");
 
-        assert!(result.is_ok());
+        // Should fail because no registration data exists
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("Not registered") || err_msg.contains("register"));
     }
 
     #[tokio::test]
@@ -182,14 +292,17 @@ mod tests {
         std::env::set_var("STROMA_DB_PASSPHRASE", TEST_MNEMONIC);
         let result = execute(
             Some(config_path.to_string_lossy().to_string()),
-            None,
+            Some(store_path.to_string_lossy().to_string()),
             Some("@alice".to_string()),
             None,
         )
         .await;
         std::env::remove_var("STROMA_DB_PASSPHRASE");
 
-        assert!(result.is_ok());
+        // Should fail because no registration data exists
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("Not registered") || err_msg.contains("register"));
     }
 
     #[tokio::test]
@@ -211,8 +324,9 @@ mod tests {
         .await;
         std::env::remove_var("STROMA_DB_PASSPHRASE");
 
-        assert!(result.is_ok());
-        // Config should now exist
+        // Should fail because no registration data exists
+        assert!(result.is_err());
+        // Config should have been created before the error
         assert!(config_path.exists());
     }
 
@@ -232,13 +346,16 @@ mod tests {
 
         let result = execute(
             Some(config_path.to_string_lossy().to_string()),
-            None,
+            Some(store_path.to_string_lossy().to_string()),
             None,
             Some(passphrase_path.to_string_lossy().to_string()),
         )
         .await;
 
-        assert!(result.is_ok());
+        // Should fail because no registration data exists
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("Not registered") || err_msg.contains("register"));
     }
 
     #[tokio::test]
@@ -264,6 +381,9 @@ mod tests {
         )
         .await;
 
-        assert!(result.is_ok());
+        // Should fail because no registration data exists
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("Not registered") || err_msg.contains("register"));
     }
 }

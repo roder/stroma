@@ -68,7 +68,7 @@ async fn test_scenario_1_bootstrap_flow() {
     let seed3 = create_test_member(3);
 
     // Step a) Create group
-    let group = signal_client.create_group("Test Group").await.unwrap();
+    let (group, _pending) = signal_client.create_group("Test Group", &[]).await.unwrap();
     assert!(matches!(group, GroupId(_)));
 
     // Step b) Add seeds to group
@@ -168,7 +168,7 @@ async fn test_scenario_2_full_admission_flow() {
         ..Default::default()
     };
 
-    let group = signal_client.create_group("Test Group").await.unwrap();
+    let (group, _pending) = signal_client.create_group("Test Group", &[]).await.unwrap();
     signal_client
         .add_group_member(&group, &create_test_service_id("alice"))
         .await
@@ -341,7 +341,7 @@ async fn test_scenario_3_standing_and_ejection() {
 
     // Initialize state
     let mut state = TrustNetworkState::new();
-    let group = signal_client.create_group("Test Group").await.unwrap();
+    let (group, _pending) = signal_client.create_group("Test Group", &[]).await.unwrap();
     signal_client
         .add_group_member(&group, &create_test_service_id("target"))
         .await
@@ -704,7 +704,7 @@ async fn test_scenario_5_reentry_with_previous_flags() {
     let voucher4 = create_test_member(9);
 
     let mut state = TrustNetworkState::new();
-    let _group = signal_client.create_group("Test Group").await.unwrap();
+    let (_group, _pending) = signal_client.create_group("Test Group", &[]).await.unwrap();
 
     // Step a) Member ejected with 3 flags
     let ejection_delta = StateDelta {

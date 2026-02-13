@@ -19,6 +19,7 @@ use super::{
 };
 use crate::freenet::contract::MemberHash;
 use crate::identity::mask_identity;
+use tracing::warn;
 
 /// Stroma bot configuration
 ///
@@ -135,10 +136,28 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             tokio::select! {
                 _ = signal_interval.tick() => {
                     // Receive messages from Signal
-                    let messages = self.client.receive_messages().await?;
+                    let messages = match self.client.receive_messages().await {
+                        Ok(msgs) => msgs,
+                        Err(e) => {
+                            warn!("Error receiving messages, will retry: {}", e);
+                            continue;
+                        }
+                    };
 
                     for message in messages {
-                        self.handle_message(message).await?;
+                        let sender = message.sender.clone();
+                        match self.handle_message(message).await {
+                            Ok(()) => {}
+                            Err(e) => {
+                                // Log the error and notify the sender, but do NOT exit.
+                                // A daemon must survive individual message handling failures.
+                                warn!("Error handling message from {:?}: {}", sender, e);
+                                let _ = self.client.send_message(
+                                    &sender,
+                                    &format!("⚠️ Error processing your command: {}", e),
+                                ).await;
+                            }
+                        }
                     }
                 }
                 Some(change) = async {

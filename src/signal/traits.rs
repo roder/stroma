@@ -94,16 +94,37 @@ pub enum SignalError {
 ///
 /// This trait enables 100% test coverage by allowing MockSignalClient
 /// to replace real Presage Manager in tests.
-#[async_trait]
-pub trait SignalClient: Send + Sync + Clone {
+///
+/// Uses `#[async_trait(?Send)]` because presage Manager produces !Send futures.
+/// All implementations must run on a tokio::task::LocalSet.
+#[async_trait(?Send)]
+pub trait SignalClient: Clone {
     /// Send text message to a recipient
     async fn send_message(&self, recipient: &ServiceId, text: &str) -> SignalResult<()>;
 
     /// Send message to a group
     async fn send_group_message(&self, group: &GroupId, text: &str) -> SignalResult<()>;
 
-    /// Create a new group
-    async fn create_group(&self, name: &str) -> SignalResult<GroupId>;
+    /// Create a new group with initial members
+    ///
+    /// Members are specified as ServiceIds. The implementation looks up profile keys
+    /// from the presage store. Members without profile keys are added as pending
+    /// invites (matching Signal Desktop behavior).
+    ///
+    /// Returns the GroupId and a list of pending member ServiceIds that need
+    /// group invite DMs sent separately (via `send_group_invite`).
+    async fn create_group(
+        &self,
+        name: &str,
+        members: &[ServiceId],
+    ) -> SignalResult<(GroupId, Vec<ServiceId>)>;
+
+    /// Send a group invite DM to a pending member.
+    ///
+    /// This sends a DataMessage with GroupContextV2 so the recipient's Signal
+    /// client displays the group invite. Should be called after `create_group`
+    /// returns, when the websocket connection is healthy.
+    async fn send_group_invite(&self, group: &GroupId, member: &ServiceId) -> SignalResult<()>;
 
     /// Add member to group
     async fn add_group_member(&self, group: &GroupId, member: &ServiceId) -> SignalResult<()>;

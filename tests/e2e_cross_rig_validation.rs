@@ -86,7 +86,7 @@ impl MockSignalClient {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl SignalClient for MockSignalClient {
     async fn send_message(&self, _recipient: &ServiceId, _text: &str) -> SignalResult<()> {
         Ok(())
@@ -96,8 +96,16 @@ impl SignalClient for MockSignalClient {
         Ok(())
     }
 
-    async fn create_group(&self, _name: &str) -> SignalResult<GroupId> {
-        Ok(GroupId(vec![1, 2, 3, 4]))
+    async fn create_group(
+        &self,
+        _name: &str,
+        _members: &[ServiceId],
+    ) -> SignalResult<(GroupId, Vec<ServiceId>)> {
+        Ok((GroupId(vec![1, 2, 3, 4]), vec![]))
+    }
+
+    async fn send_group_invite(&self, _group: &GroupId, _member: &ServiceId) -> SignalResult<()> {
+        Ok(())
     }
 
     async fn add_group_member(&self, _group: &GroupId, _member: &ServiceId) -> SignalResult<()> {

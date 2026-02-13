@@ -3,7 +3,7 @@ mod cli;
 use clap::Parser;
 use cli::Cli;
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread")]
 async fn main() {
     let cli = Cli::parse();
 
