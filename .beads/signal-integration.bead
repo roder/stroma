@@ -130,29 +130,64 @@ All vetting/vouching occurs in **1-on-1 PMs** with bot (prevents metadata leakag
 
 ### Store Architecture (Security Critical)
 
-**Implementation**: `src/signal/stroma_store.rs` (planned, replaces `src/signal/store.rs`)
+**Implementation**: `src/signal/stroma_store.rs` (COMPLETE - dual-database architecture)
 
 - ❌ **NEVER use bare `SqliteStore`** - it stores message history (server seizure risk)
-- ✅ **ALWAYS use `StromaStore`** - wraps encrypted `SqliteStore`, no-ops message/sticker persistence
-- Persists: protocol state, group config, profile keys (survives restart)
-- Never persists: message content, conversation history, sticker packs
-- Encrypted with 24-word BIP-39 passphrase (SQLCipher AES-256)
+- ✅ **ALWAYS use `StromaStore`** - dual-database wrapper, no-ops message/sticker persistence
 
-**Current Status**: `StromaStore` wrapper is planned. Old `StromaProtocolStore` to be removed (never implemented `presage::Store` trait).
+**Dual-Database Architecture:**
+
+1. **signal.db** - presage SqliteStore (protocol state, groups, contacts, profiles)
+2. **stroma.db** - Stroma-specific data (poll state, vote aggregates, ephemeral data)
+
+Both databases are encrypted with the **SAME 24-word BIP-39 passphrase** (SQLCipher AES-256).
+
+**What's Persisted:**
+- signal.db: protocol state, group config, profile keys (survives restart)
+- stroma.db: poll state, HMAC'd voter dedup maps, vote aggregates (ephemeral)
+
+**What's Never Persisted:**
+- Message content, conversation history, sticker packs
+
+**Current Status**: `StromaStore` wrapper is COMPLETE. Old `StromaProtocolStore` removed.
 
 ```rust
-// src/signal/stroma_store.rs (planned structure)
-pub struct StromaStore(SqliteStore);  // Newtype wrapper
+// src/signal/stroma_store.rs (implemented structure)
+pub struct StromaStore {
+    signal_store: SqliteStore,  // presage's encrypted protocol store
+    stroma_db: SqlitePool,      // separate encrypted SQLite for poll state
+}
 
 impl StromaStore {
-    pub async fn open(path: &str, passphrase: &str) -> Result<Self> {
-        let inner = SqliteStore::open_with_passphrase(path, Some(passphrase), OnNewIdentity::Trust).await?;
-        Ok(Self(inner))
+    pub async fn open(path: &Path, passphrase: String) -> Result<Self> {
+        // Open both databases with SAME passphrase
+        let signal_store = SqliteStore::open_with_passphrase(
+            path.join("signal.db"),
+            Some(&passphrase),
+            OnNewIdentity::Trust,
+        ).await?;
+        
+        let stroma_db = SqlitePoolOptions::new()
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(path.join("stroma.db"))
+                    .create_if_missing(true)
+                    .pragma("key", passphrase)  // Same passphrase
+            )
+            .await?;
+        
+        sqlx::migrate!("./src/signal/stroma_store_migrations").run(&stroma_db).await?;
+        Ok(Self { signal_store, stroma_db })
     }
+    
+    // KV methods for poll state
+    pub async fn store_data(&self, key: &str, value: &[u8]) -> Result<(), StoreError>;
+    pub async fn retrieve_data(&self, key: &str) -> Result<Option<Vec<u8>>, StoreError>;
+    pub async fn delete_data(&self, key: &str) -> Result<(), StoreError>;
 }
 
 impl presage::Store for StromaStore {
-    // Delegates: protocol state, groups, contacts, profiles -> SqliteStore
+    // Delegates: protocol state, groups, contacts, profiles -> signal_store
     // No-ops: save_message -> Ok(()), message -> Ok(None), stickers -> no-op
 }
 ```
@@ -192,8 +227,18 @@ pub trait SignalClient: Send + Sync + Clone {
     async fn create_group(&self, name: &str) -> SignalResult<GroupId>;
     async fn add_group_member(&self, group: &GroupId, member: &ServiceId) -> SignalResult<()>;
     async fn remove_group_member(&self, group: &GroupId, member: &ServiceId) -> SignalResult<()>;
-    async fn create_poll(&self, group: &GroupId, poll: &Poll) -> SignalResult<u64>;
+    
+    // Poll support (multi-option, up to 10 options)
+    async fn create_poll(&self, group: &GroupId, question: &str, options: Vec<String>, allow_multiple: bool) -> SignalResult<u64>;
     async fn terminate_poll(&self, group: &GroupId, poll_timestamp: u64) -> SignalResult<()>;
+    
+    // Group settings support (for /propose signal)
+    async fn get_group_info(&self, group: &GroupId) -> SignalResult<GroupInfo>;
+    async fn set_group_name(&self, group: &GroupId, name: &str) -> SignalResult<()>;
+    async fn set_group_description(&self, group: &GroupId, description: &str) -> SignalResult<()>;
+    async fn set_disappearing_messages(&self, group: &GroupId, seconds: u32) -> SignalResult<()>;
+    async fn set_announcements_only(&self, group: &GroupId, enabled: bool) -> SignalResult<()>;
+    
     async fn receive_messages(&self) -> SignalResult<Vec<Message>>;
     fn service_id(&self) -> &ServiceId;
 }

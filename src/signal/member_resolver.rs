@@ -3,7 +3,7 @@
 //! CRITICAL SECURITY CONSTRAINTS:
 //! - Transient only (RAM, NEVER persisted to disk)
 //! - Rebuilt on bot startup from Signal group roster
-//! - Uses HMAC with bot ACI-derived key (pepper)
+//! - Uses HMAC with mnemonic-derived masking key
 //! - NO cleartext Signal IDs stored or logged
 //! - Updated on member add/remove from group
 //!
@@ -28,8 +28,8 @@ use zeroize::Zeroize;
 /// - Never persisted to disk or logged
 #[derive(Debug)]
 pub struct MemberResolver {
-    /// Bot's ACI-derived key for HMAC (pepper)
-    pepper: Vec<u8>,
+    /// Identity masking key from StromaKeyring (mnemonic-derived)
+    identity_masking_key: [u8; 32],
 
     /// Forward mapping: MemberHash -> ServiceId
     /// Used to resolve validator selection to Signal PM recipient
@@ -41,13 +41,13 @@ pub struct MemberResolver {
 }
 
 impl MemberResolver {
-    /// Create new resolver with bot's ACI-derived key
+    /// Create new resolver with mnemonic-derived identity masking key
     ///
     /// # Arguments
-    /// * `pepper` - Bot's ACI-derived key for HMAC (from BotConfig)
-    pub fn new(pepper: Vec<u8>) -> Self {
+    /// * `identity_masking_key` - Key from `StromaKeyring::identity_masking_key()`
+    pub fn new(identity_masking_key: [u8; 32]) -> Self {
         Self {
-            pepper,
+            identity_masking_key,
             hash_to_id: HashMap::new(),
             id_to_hash: HashMap::new(),
         }
@@ -55,7 +55,7 @@ impl MemberResolver {
 
     /// Add member and compute bidirectional mapping
     ///
-    /// Computes MemberHash from ServiceId using HMAC with bot's ACI-derived key.
+    /// Computes MemberHash from ServiceId using HMAC with mnemonic-derived key.
     /// Creates both forward and reverse mappings for O(1) lookup in either direction.
     ///
     /// # Arguments
@@ -70,8 +70,8 @@ impl MemberResolver {
     /// - One-way: cannot reverse MemberHash to ServiceId without this mapping
     pub fn add_member(&mut self, service_id: ServiceId) -> MemberHash {
         // Compute MemberHash using HMAC (same as identity masking)
-        let masked = mask_identity(&service_id.0, &self.pepper);
-        let member_hash = MemberHash::from_bytes(masked.as_bytes());
+        let masked = mask_identity(&service_id.0, &self.identity_masking_key);
+        let member_hash: MemberHash = masked.into();
 
         // Store bidirectional mappings
         self.hash_to_id.insert(member_hash, service_id.clone());
@@ -146,7 +146,7 @@ impl MemberResolver {
     ///
     /// # Security
     /// - Old mappings are cleared and zeroized before rebuilding
-    /// - Each ServiceId is hashed using HMAC with bot's ACI key
+    /// - Each ServiceId is hashed using HMAC with mnemonic-derived identity masking key
     pub fn rebuild_from_roster(&mut self, roster: Vec<ServiceId>) {
         // Clear existing mappings (zeroizes ServiceId strings)
         self.clear();
@@ -186,13 +186,13 @@ mod tests {
         ServiceId(format!("{}@signal.org", name))
     }
 
-    fn test_pepper() -> Vec<u8> {
-        b"test-aci-derived-pepper-32bytes!".to_vec()
+    fn test_masking_key() -> [u8; 32] {
+        *b"test-identity-masking-key-32b!!!"
     }
 
     #[test]
     fn test_add_member() {
-        let mut resolver = MemberResolver::new(test_pepper());
+        let mut resolver = MemberResolver::new(test_masking_key());
 
         let alice_id = test_service_id("alice");
         let alice_hash = resolver.add_member(alice_id.clone());
@@ -205,7 +205,7 @@ mod tests {
 
     #[test]
     fn test_determinism() {
-        let mut resolver = MemberResolver::new(test_pepper());
+        let mut resolver = MemberResolver::new(test_masking_key());
 
         let alice_id = test_service_id("alice");
         let hash1 = resolver.add_member(alice_id.clone());
@@ -220,7 +220,7 @@ mod tests {
 
     #[test]
     fn test_remove_member() {
-        let mut resolver = MemberResolver::new(test_pepper());
+        let mut resolver = MemberResolver::new(test_masking_key());
 
         let alice_id = test_service_id("alice");
         let alice_hash = resolver.add_member(alice_id.clone());
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn test_rebuild_from_roster() {
-        let mut resolver = MemberResolver::new(test_pepper());
+        let mut resolver = MemberResolver::new(test_masking_key());
 
         // Initial roster
         let alice_id = test_service_id("alice");
@@ -263,7 +263,7 @@ mod tests {
 
     #[test]
     fn test_bidirectional_consistency() {
-        let mut resolver = MemberResolver::new(test_pepper());
+        let mut resolver = MemberResolver::new(test_masking_key());
 
         let alice_id = test_service_id("alice");
         let bob_id = test_service_id("bob");
@@ -286,7 +286,7 @@ mod tests {
 
     #[test]
     fn test_different_service_ids_produce_different_hashes() {
-        let mut resolver = MemberResolver::new(test_pepper());
+        let mut resolver = MemberResolver::new(test_masking_key());
 
         let alice_id = test_service_id("alice");
         let bob_id = test_service_id("bob");
@@ -299,25 +299,25 @@ mod tests {
     }
 
     #[test]
-    fn test_different_pepper_produces_different_hashes() {
-        let pepper1 = b"pepper-1-32-bytes-long-padding!!".to_vec();
-        let pepper2 = b"pepper-2-32-bytes-long-padding!!".to_vec();
+    fn test_different_key_produces_different_hashes() {
+        let key1 = *b"masking-key-1-32-bytes-padding!!";
+        let key2 = *b"masking-key-2-32-bytes-padding!!";
 
-        let mut resolver1 = MemberResolver::new(pepper1);
-        let mut resolver2 = MemberResolver::new(pepper2);
+        let mut resolver1 = MemberResolver::new(key1);
+        let mut resolver2 = MemberResolver::new(key2);
 
         let alice_id = test_service_id("alice");
 
         let hash1 = resolver1.add_member(alice_id.clone());
         let hash2 = resolver2.add_member(alice_id);
 
-        // Same ServiceId with different pepper should produce different hashes
+        // Same ServiceId with different key should produce different hashes
         assert_ne!(hash1, hash2);
     }
 
     #[test]
     fn test_clear_removes_all_mappings() {
-        let mut resolver = MemberResolver::new(test_pepper());
+        let mut resolver = MemberResolver::new(test_masking_key());
 
         let alice_id = test_service_id("alice");
         let bob_id = test_service_id("bob");
@@ -336,7 +336,7 @@ mod tests {
 
     #[test]
     fn test_contains_member() {
-        let mut resolver = MemberResolver::new(test_pepper());
+        let mut resolver = MemberResolver::new(test_masking_key());
 
         let alice_id = test_service_id("alice");
         let bob_id = test_service_id("bob");

@@ -20,6 +20,15 @@ impl fmt::Display for GroupId {
     }
 }
 
+/// Group information (metadata and settings)
+#[derive(Debug, Clone)]
+pub struct GroupInfo {
+    pub name: String,
+    pub description: Option<String>,
+    pub disappearing_messages_timer: Option<u32>, // seconds, 0 = off
+    pub announcements_only: bool,
+}
+
 /// Signal message content
 #[derive(Debug, Clone)]
 pub struct Message {
@@ -102,8 +111,23 @@ pub trait SignalClient: Send + Sync + Clone {
     /// Remove member from group
     async fn remove_group_member(&self, group: &GroupId, member: &ServiceId) -> SignalResult<()>;
 
-    /// Create poll in group
-    async fn create_poll(&self, group: &GroupId, poll: &Poll) -> SignalResult<u64>;
+    /// Create poll in group with up to 10 options
+    ///
+    /// # Arguments
+    /// * `group` - Group to create poll in
+    /// * `question` - Poll question
+    /// * `options` - Answer options (up to 10)
+    /// * `allow_multiple` - Whether voters can select multiple options
+    ///
+    /// # Returns
+    /// * Poll timestamp (needed for voting/terminating)
+    async fn create_poll(
+        &self,
+        group: &GroupId,
+        question: &str,
+        options: Vec<String>,
+        allow_multiple: bool,
+    ) -> SignalResult<u64>;
 
     /// Terminate a poll (closes voting)
     ///
@@ -112,6 +136,21 @@ pub trait SignalClient: Send + Sync + Clone {
     /// - Prevents late votes after timeout
     /// - Visual feedback in Signal UI (shows as closed)
     async fn terminate_poll(&self, group: &GroupId, poll_timestamp: u64) -> SignalResult<()>;
+
+    /// Get group information (name, description, settings)
+    async fn get_group_info(&self, group: &GroupId) -> SignalResult<GroupInfo>;
+
+    /// Set group name (1-32 characters)
+    async fn set_group_name(&self, group: &GroupId, name: &str) -> SignalResult<()>;
+
+    /// Set group description (0-480 characters, empty string to clear)
+    async fn set_group_description(&self, group: &GroupId, description: &str) -> SignalResult<()>;
+
+    /// Set disappearing messages timer (0 = off, otherwise seconds)
+    async fn set_disappearing_messages(&self, group: &GroupId, seconds: u32) -> SignalResult<()>;
+
+    /// Set announcements-only mode (true = only admins can send messages)
+    async fn set_announcements_only(&self, group: &GroupId, enabled: bool) -> SignalResult<()>;
 
     /// Receive messages (blocking until message arrives)
     async fn receive_messages(&self) -> SignalResult<Vec<Message>>;

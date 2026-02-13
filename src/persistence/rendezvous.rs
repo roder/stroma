@@ -16,7 +16,7 @@
 //! - **No Owner Influence**: Owner cannot game the algorithm
 //! - **Adversarial Holders**: All holders are untrusted adversaries
 //! - **Chunk Privacy**: Holders cannot read encrypted chunks
-//! - **Recovery Resistance**: Need ALL chunks + ACI key to reconstruct
+//! - **Recovery Resistance**: Need ALL chunks + mnemonic-derived key to reconstruct
 //!
 //! ## References
 //!

@@ -1,6 +1,6 @@
 # Threat Model & Problem Statement
 
-**Last Updated**: 2026-02-01  
+**Last Updated**: 2026-02-12  
 **Canonical Source**: `.beads/security-constraints.bead`
 
 This document provides the high-level threat model for Stroma. For implementation details and immutable constraints, see the canonical beads.
@@ -40,7 +40,7 @@ This document provides the high-level threat model for Stroma. For implementatio
 - State can be reconstructed only with peer cooperation
 
 **Layer 2: Cryptographic Privacy**
-- All identities HMAC-hashed (Signal ACI-derived key, not separate pepper)
+- All identities HMAC-hashed (mnemonic-derived key via StromaKeyring)
 - Memory contains only hashes (zeroization of cleartext)
 - ZK-proofs verify trust without revealing vouchers
 - Memory dumps reveal nothing useful
@@ -80,12 +80,12 @@ This document provides the high-level threat model for Stroma. For implementatio
    - **Attack**: Register fake bots to become chunk holders (DoS recovery)
    - **Attack**: Refuse to return chunks during recovery
    - **Attack**: Collude with other holders to reconstruct state
-   - **Defense**: Need ALL chunks + ACI private key to reconstruct
-   - **Defense**: AES-256-GCM encryption (even with all chunks, can't decrypt without ACI key)
+   - **Defense**: Need ALL chunks + mnemonic-derived key to reconstruct
+   - **Defense**: AES-256-GCM encryption (even with all chunks, can't decrypt without mnemonic)
    - **Defense**: Deterministic holder selection per-chunk (spreads chunks across many bots)
    - **Defense**: Challenge-response verification (prove chunk possession)
    - **Defense**: 3 copies per chunk (any 1 of 3 sufficient for that chunk)
-   - **Result**: Even if adversary holds all chunks, they can't read trust map (need ACI key)
+   - **Result**: Even if adversary holds all chunks, they can't read trust map (need mnemonic)
    - **Result**: Larger states = more chunks = more distribution = harder to seize
    - **Note**: Holder identities are computable (rendezvous hashing), but security comes from encryption, not obscurity
    - **See**: `.beads/persistence-model.bead`, `docs/PERSISTENCE.md`

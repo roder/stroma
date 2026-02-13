@@ -1,0 +1,3 @@
+# .config/nextest.toml
+[profile.default]
+leak-timeout = "500ms"

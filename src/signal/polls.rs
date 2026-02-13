@@ -3,14 +3,14 @@
 //! Uses native Signal polls for voting on proposals.
 //! Structured voting with multiple choice options.
 //!
+//! Voter deduplication uses HMAC with mnemonic-derived pepper from StromaKeyring.
+//!
 //! See: .beads/signal-integration.bead § Voting: Native Signal Polls
 
 use super::stroma_store::StromaStore;
 use super::traits::*;
-use hkdf::Hkdf;
 use ring::hmac;
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
 use std::collections::HashMap;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -28,8 +28,8 @@ pub struct PollManager<C: SignalClient> {
     voter_selections: HashMap<u64, HashMap<String, Vec<u32>>>,
     /// Encrypted store for persistence (optional)
     store: Option<StromaStore>,
-    /// HMAC pepper derived from operator ACI (zeroized on drop)
-    pepper: VoterPepper,
+    /// HMAC pepper for voter deduplication (from StromaKeyring, zeroized on drop)
+    voter_pepper: VoterPepper,
 }
 
 /// Proposal being voted on
@@ -60,25 +60,23 @@ impl<C: SignalClient> PollManager<C> {
     /// # Arguments
     /// * `client` - Signal client
     /// * `group_id` - Group ID for polls
-    /// * `aci_key` - Operator's ACI key for deriving HMAC pepper (32 bytes)
+    /// * `voter_pepper` - Voter dedup pepper from `StromaKeyring::voter_pepper()`
     /// * `store` - Optional encrypted store for persistence
     pub fn new(
         client: C,
         group_id: GroupId,
-        aci_key: &[u8],
+        voter_pepper: &[u8; 32],
         store: Option<StromaStore>,
-    ) -> Result<Self, SignalError> {
-        let pepper = derive_voter_pepper(aci_key)?;
-
-        Ok(Self {
+    ) -> Self {
+        Self {
             client,
             group_id,
             active_polls: HashMap::new(),
             vote_aggregates: HashMap::new(),
             voter_selections: HashMap::new(),
             store,
-            pepper,
-        })
+            voter_pepper: VoterPepper(*voter_pepper),
+        }
     }
 
     /// Initialize vote aggregate for a new poll.
@@ -105,9 +103,10 @@ impl<C: SignalClient> PollManager<C> {
         question: String,
         options: Vec<String>,
     ) -> SignalResult<u64> {
-        let poll = Poll { question, options };
-
-        let poll_id = self.client.create_poll(&self.group_id, &poll).await?;
+        let poll_id = self
+            .client
+            .create_poll(&self.group_id, &question, options, false)
+            .await?;
         self.active_polls.insert(poll_id, proposal);
 
         Ok(poll_id)
@@ -132,7 +131,7 @@ impl<C: SignalClient> PollManager<C> {
         let poll_id = vote.poll_id;
 
         // HMAC the voter ACI for privacy-preserving deduplication
-        let voter_hmac = hmac_voter_identity(voter_aci, &self.pepper);
+        let voter_hmac = hmac_voter_identity(voter_aci, &self.voter_pepper);
 
         // Get or create aggregate for this poll
         let aggregate = self
@@ -310,22 +309,8 @@ struct PollState {
     voter_selections: HashMap<u64, HashMap<String, Vec<u32>>>,
 }
 
-/// Derive HMAC pepper from operator ACI key
-///
-/// Uses HKDF-SHA256 with context separation:
-/// - Salt: "stroma-voter-dedup-v1"
-/// - Info: "hmac-pepper"
-fn derive_voter_pepper(aci_key: &[u8]) -> Result<VoterPepper, SignalError> {
-    const SALT: &[u8] = b"stroma-voter-dedup-v1";
-    const INFO: &[u8] = b"hmac-pepper";
-
-    let hkdf = Hkdf::<Sha256>::new(Some(SALT), aci_key);
-    let mut pepper = [0u8; 32];
-    hkdf.expand(INFO, &mut pepper)
-        .map_err(|e| SignalError::Store(format!("Pepper derivation failed: {}", e)))?;
-
-    Ok(VoterPepper(pepper))
-}
+// NOTE: Voter pepper is now provided directly by StromaKeyring::voter_pepper().
+// No local key derivation needed.
 
 /// Compute HMAC of voter ACI for privacy-preserving deduplication
 ///
@@ -372,6 +357,10 @@ mod tests {
     use super::*;
     use crate::signal::mock::MockSignalClient;
 
+    fn test_voter_pepper() -> [u8; 32] {
+        *b"test-voter-pepper-32-bytes-pad!!" // 32 bytes exactly
+    }
+
     #[tokio::test]
     async fn test_create_poll() {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
@@ -380,8 +369,7 @@ mod tests {
 
         client.add_group_member(&group, &member).await.unwrap();
 
-        let aci_key = [42u8; 32];
-        let mut manager = PollManager::new(client, group, &aci_key, None).unwrap();
+        let mut manager = PollManager::new(client, group, &test_voter_pepper(), None);
 
         let proposal = PollProposal {
             proposal_type: ProposalType::ConfigChange {
@@ -410,8 +398,7 @@ mod tests {
     fn test_poll_outcome_passed() {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let group = GroupId(vec![1, 2, 3]);
-        let aci_key = [42u8; 32];
-        let manager = PollManager::new(client, group, &aci_key, None).unwrap();
+        let manager = PollManager::new(client, group, &test_voter_pepper(), None);
 
         let proposal = PollProposal {
             proposal_type: ProposalType::ConfigChange {
@@ -449,8 +436,7 @@ mod tests {
     fn test_poll_outcome_failed() {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let group = GroupId(vec![1, 2, 3]);
-        let aci_key = [42u8; 32];
-        let manager = PollManager::new(client, group, &aci_key, None).unwrap();
+        let manager = PollManager::new(client, group, &test_voter_pepper(), None);
 
         let proposal = PollProposal {
             proposal_type: ProposalType::ConfigChange {
@@ -488,8 +474,7 @@ mod tests {
     fn test_poll_outcome_quorum_not_met() {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let group = GroupId(vec![1, 2, 3]);
-        let aci_key = [42u8; 32];
-        let manager = PollManager::new(client, group, &aci_key, None).unwrap();
+        let manager = PollManager::new(client, group, &test_voter_pepper(), None);
 
         let proposal = PollProposal {
             proposal_type: ProposalType::ConfigChange {
@@ -521,8 +506,7 @@ mod tests {
     async fn test_voter_deduplication() {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let group = GroupId(vec![1, 2, 3]);
-        let aci_key = [42u8; 32];
-        let mut manager = PollManager::new(client, group, &aci_key, None).unwrap();
+        let mut manager = PollManager::new(client, group, &test_voter_pepper(), None);
 
         let poll_id = 1;
         manager.init_vote_aggregate(poll_id, 10);
@@ -568,8 +552,7 @@ mod tests {
     async fn test_zeroize_poll() {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let group = GroupId(vec![1, 2, 3]);
-        let aci_key = [42u8; 32];
-        let mut manager = PollManager::new(client, group, &aci_key, None).unwrap();
+        let mut manager = PollManager::new(client, group, &test_voter_pepper(), None);
 
         let poll_id = 1;
 

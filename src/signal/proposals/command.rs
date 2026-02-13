@@ -3,6 +3,7 @@
 //! Syntax:
 //! - /propose config <key> <value> [--timeout <duration>]
 //! - /propose stroma <key> <value> [--timeout <duration>]
+//! - /propose signal <key> <value> [--timeout <duration>]
 //!
 //! Duration format: Nh (hours), e.g., 48h, 72h
 //! Min: 1h, Max: 168h (1 week)
@@ -23,6 +24,8 @@ pub enum ProposalSubcommand {
     Config { key: String, value: String },
     /// Change stroma config (app-level settings).
     Stroma { key: String, value: String },
+    /// Change Signal group settings (e.g., name, description, disappearing_messages).
+    Signal { key: String, value: String },
 }
 
 /// Parse /propose command arguments.
@@ -30,6 +33,7 @@ pub enum ProposalSubcommand {
 /// Expected formats:
 /// - /propose config min_vouches 3 --timeout 48h
 /// - /propose stroma name "New Name"
+/// - /propose signal disappearing_messages 7d --timeout 48h
 ///
 /// Returns Ok(ProposeArgs) or Err(error message).
 pub fn parse_propose_args(subcommand: &str, args: &[String]) -> Result<ProposeArgs, String> {
@@ -57,9 +61,24 @@ pub fn parse_propose_args(subcommand: &str, args: &[String]) -> Result<ProposeAr
             let remaining = &args[2..];
             (ProposalSubcommand::Stroma { key, value }, remaining)
         }
+        "signal" => {
+            if args.len() < 2 {
+                return Err(
+                    "Usage: /propose signal <key> <value> [--timeout <duration>]".to_string(),
+                );
+            }
+            let key = args[0].clone();
+            let value = args[1].clone();
+
+            // Validate Signal-specific keys
+            validate_signal_key_value(&key, &value)?;
+
+            let remaining = &args[2..];
+            (ProposalSubcommand::Signal { key, value }, remaining)
+        }
         _ => {
             return Err(format!(
-                "Unknown proposal type: {}. Use 'config' or 'stroma'.",
+                "Unknown proposal type: {}. Use 'config', 'stroma', or 'signal'.",
                 subcommand
             ));
         }
@@ -126,6 +145,52 @@ fn parse_duration(s: &str) -> Result<Duration, String> {
     } else {
         Err(format!("Duration must end with 'h' (hours). Got: {}", s))
     }
+}
+
+/// Validate Signal group setting key and value.
+///
+/// Ensures:
+/// - Key is a valid Signal setting
+/// - Value is in the correct format for that key
+fn validate_signal_key_value(key: &str, value: &str) -> Result<(), String> {
+    match key {
+        "name" => {
+            if value.is_empty() || value.len() > 32 {
+                return Err(format!(
+                    "Group name must be 1-32 characters. Got: {} chars",
+                    value.len()
+                ));
+            }
+        }
+        "description" => {
+            if value.len() > 480 {
+                return Err(format!(
+                    "Group description must be 0-480 characters. Got: {} chars",
+                    value.len()
+                ));
+            }
+        }
+        "disappearing_messages" => {
+            // Use humantime crate to validate duration
+            use super::duration_parse::parse_duration_to_secs;
+            parse_duration_to_secs(value)?;
+        }
+        "announcements_only" => {
+            value.parse::<bool>().map_err(|_| {
+                format!(
+                    "announcements_only must be 'true' or 'false'. Got: {}",
+                    value
+                )
+            })?;
+        }
+        _ => {
+            return Err(format!(
+                "Unknown Signal setting: {}. Valid keys: name, description, disappearing_messages, announcements_only",
+                key
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -207,6 +272,69 @@ mod tests {
         let result = parse_propose_args("config", &["min_vouches".to_string()]);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Usage"));
+    }
+
+    #[test]
+    fn test_parse_signal_name() {
+        let result = parse_propose_args(
+            "signal",
+            &["name".to_string(), "New Group Name".to_string()],
+        );
+        assert!(result.is_ok());
+        let args = result.unwrap();
+        assert!(matches!(args.subcommand, ProposalSubcommand::Signal { .. }));
+    }
+
+    #[test]
+    fn test_parse_signal_disappearing_messages() {
+        let result = parse_propose_args(
+            "signal",
+            &["disappearing_messages".to_string(), "7d".to_string()],
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_signal_name_too_long() {
+        let long_name = "a".repeat(33);
+        let result = parse_propose_args("signal", &["name".to_string(), long_name]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("1-32 characters"));
+    }
+
+    #[test]
+    fn test_signal_description_too_long() {
+        let long_desc = "a".repeat(481);
+        let result = parse_propose_args("signal", &["description".to_string(), long_desc]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("0-480 characters"));
+    }
+
+    #[test]
+    fn test_signal_invalid_duration() {
+        let result = parse_propose_args(
+            "signal",
+            &["disappearing_messages".to_string(), "invalid".to_string()],
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_signal_invalid_announcements_only() {
+        let result = parse_propose_args(
+            "signal",
+            &["announcements_only".to_string(), "maybe".to_string()],
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("'true' or 'false'"));
+    }
+
+    #[test]
+    fn test_signal_unknown_key() {
+        let result =
+            parse_propose_args("signal", &["unknown_key".to_string(), "value".to_string()]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown Signal setting"));
     }
 }
 

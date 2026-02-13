@@ -11,13 +11,13 @@
 //!
 //! - **Fallback**: If primary holder unavailable, try other replicas
 //! - **Resilience**: Need any 1 of 3 copies per chunk (1 local + 2 remote)
-//! - **Security**: All chunks encrypted, signed, require ACI key
+//! - **Security**: All chunks encrypted, signed, require mnemonic-derived key
 //! - **Verification**: Signature verification prevents tampering
 //!
 //! ## Recovery Requirements
 //!
 //! To recover state, you need:
-//! 1. Signal protocol store backup (contains ACI key)
+//! 1. 24-word BIP-39 mnemonic (derives all encryption keys via StromaKeyring)
 //! 2. At least 1 copy of each chunk available
 //! 3. Network access to registry and holders
 //!

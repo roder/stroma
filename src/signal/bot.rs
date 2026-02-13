@@ -18,21 +18,51 @@ use super::{
     vetting::{VettingSessionManager, VettingStatus},
 };
 use crate::freenet::contract::MemberHash;
+use crate::identity::mask_identity;
 
 /// Stroma bot configuration
+///
+/// # Key Derivation
+///
+/// The `identity_masking_key` and `voter_pepper` should be derived from the
+/// operator's BIP-39 mnemonic via `StromaKeyring`. Do NOT use hardcoded values
+/// in production.
+///
+/// ```rust,ignore
+/// let keyring = StromaKeyring::from_mnemonic(&mnemonic)?;
+/// let config = BotConfig {
+///     identity_masking_key: *keyring.identity_masking_key(),
+///     voter_pepper: *keyring.voter_pepper(),
+///     ..Default::default()
+/// };
+/// ```
 pub struct BotConfig {
     pub group_id: GroupId,
     pub min_vouch_threshold: u32,
-    pub pepper: Vec<u8>,
+    /// Key for HMAC-SHA256 identity masking (from `StromaKeyring::identity_masking_key()`)
+    pub identity_masking_key: [u8; 32],
+    /// Pepper for voter deduplication (from `StromaKeyring::voter_pepper()`)
+    pub voter_pepper: [u8; 32],
     pub contract_hash: Option<crate::freenet::traits::ContractHash>,
 }
 
 impl Default for BotConfig {
+    /// Creates a BotConfig with test keys.
+    ///
+    /// # Warning
+    ///
+    /// These are INSECURE test keys. In production, derive keys from
+    /// `StromaKeyring::from_mnemonic()`.
     fn default() -> Self {
+        // Test keys - 32 bytes each (NOT for production use)
+        let test_identity_key = *b"test-identity-masking-key-32b!!!";
+        let test_voter_pepper = *b"test-voter-pepper-key-32-bytes!!";
+
         Self {
             group_id: GroupId(vec![]),
             min_vouch_threshold: 2,
-            pepper: b"default-pepper".to_vec(),
+            identity_masking_key: test_identity_key,
+            voter_pepper: test_voter_pepper,
             contract_hash: None,
         }
     }
@@ -55,18 +85,18 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     pub fn new(client: C, freenet: F, config: BotConfig) -> Result<Self, SignalError> {
         let group_manager = GroupManager::new(client.clone(), config.group_id.clone());
 
-        // Derive HMAC pepper from operator ACI (using config.pepper as seed)
-        // In production, this would be the actual operator's Signal ACI key
-        // Ensure we have 32 bytes by taking first 32 or padding with zeros
-        let mut aci_seed = [0u8; 32];
-        let copy_len = config.pepper.len().min(32);
-        aci_seed[..copy_len].copy_from_slice(&config.pepper[..copy_len]);
-
-        let poll_manager =
-            PollManager::new(client.clone(), config.group_id.clone(), &aci_seed, None)?;
-        let bootstrap_manager = BootstrapManager::new(client.clone(), config.pepper.clone());
+        // Use mnemonic-derived keys from BotConfig
+        // - identity_masking_key: for HMAC-SHA256 identity masking
+        // - voter_pepper: for poll voter deduplication
+        let poll_manager = PollManager::new(
+            client.clone(),
+            config.group_id.clone(),
+            &config.voter_pepper,
+            None,
+        );
+        let bootstrap_manager = BootstrapManager::new(client.clone(), config.identity_masking_key);
         let vetting_sessions = VettingSessionManager::new();
-        let member_resolver = MemberResolver::new(config.pepper.clone());
+        let member_resolver = MemberResolver::new(config.identity_masking_key);
         let persistence_manager = crate::persistence::WriteBlockingManager::new();
 
         Ok(Self {
@@ -284,8 +314,9 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             }
         };
 
-        // Hash inviter's ServiceId to MemberHash
-        let inviter_hash = MemberHash::from_identity(&sender.0, &self.config.pepper);
+        // Hash inviter's ServiceId to MemberHash using mnemonic-derived key
+        let inviter_hash: MemberHash =
+            mask_identity(&sender.0, &self.config.identity_masking_key).into();
 
         // Verify sender is a member
         if !state.members.contains(&inviter_hash) {
@@ -295,7 +326,8 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
         // Phase 1: Query Freenet state for previous flags (GAP-10)
         // Check if invitee already has history in the system
-        let invitee_hash = MemberHash::from_identity(username, &self.config.pepper);
+        let invitee_hash: MemberHash =
+            mask_identity(username, &self.config.identity_masking_key).into();
         let is_ejected = state.ejected.contains(&invitee_hash);
         let has_previous_flags = is_ejected || state.flags.contains_key(&invitee_hash);
         let previous_flag_count = if has_previous_flags {
@@ -405,10 +437,9 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         username: &str,
         context: Option<&str>,
     ) -> SignalResult<()> {
-        use crate::freenet::contract::MemberHash;
-
-        // Hash inviter's ServiceId to MemberHash
-        let inviter_hash = MemberHash::from_identity(&sender.0, &self.config.pepper);
+        // Hash inviter's ServiceId to MemberHash using mnemonic-derived key
+        let inviter_hash: MemberHash =
+            mask_identity(&sender.0, &self.config.identity_masking_key).into();
 
         // Create ephemeral vetting session (bootstrap: no previous flags)
         let result = self.vetting_sessions.create_session(
@@ -439,12 +470,12 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     ///
     /// Records second vouch and admits member if threshold met.
     async fn handle_vouch(&mut self, sender: &ServiceId, username: &str) -> SignalResult<()> {
-        use crate::freenet::contract::MemberHash;
         use crate::matchmaker::cluster_detection::detect_clusters;
         use std::collections::BTreeSet;
 
-        // 1. Hash sender's ServiceId to MemberHash
-        let voucher_hash = MemberHash::from_identity(&sender.0, &self.config.pepper);
+        // 1. Hash sender's ServiceId to MemberHash using mnemonic-derived key
+        let voucher_hash: MemberHash =
+            mask_identity(&sender.0, &self.config.identity_masking_key).into();
 
         // 2. Get current Freenet state
         let contract = match &self.config.contract_hash {
@@ -484,7 +515,8 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                 }
             };
 
-        let invitee_hash = MemberHash::from_identity(&invitee_id.0, &self.config.pepper);
+        let invitee_hash: MemberHash =
+            mask_identity(&invitee_id.0, &self.config.identity_masking_key).into();
 
         // 5. Verify sender isn't the inviter (can't vouch twice)
         if voucher_hash == inviter_hash {
@@ -766,8 +798,9 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                 .await;
         }
 
-        // Hash sender's ServiceId to MemberHash
-        let sender_hash = MemberHash::from_identity(&sender.0, &self.config.pepper);
+        // Hash sender's ServiceId to MemberHash using mnemonic-derived key
+        let sender_hash: MemberHash =
+            mask_identity(&sender.0, &self.config.identity_masking_key).into();
 
         // Add sender to excluded candidates
         session.excluded_candidates.insert(sender_hash);
@@ -1040,6 +1073,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
                                 // Execute proposal
                                 if let Some(proposal) = self.poll_manager.get_proposal(poll_id) {
+                                    // Execute Freenet state changes (for Config/Federation)
                                     crate::signal::proposals::execute_proposal(
                                         &self.freenet,
                                         contract,
@@ -1047,6 +1081,29 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                                         current_config,
                                     )
                                     .await?;
+
+                                    // Execute Signal group settings (for Signal config)
+                                    if let crate::signal::polls::ProposalType::Other {
+                                        description,
+                                    } = &proposal.proposal_type
+                                    {
+                                        if description.starts_with("Signal config: ") {
+                                            let config_part = description
+                                                .strip_prefix("Signal config: ")
+                                                .unwrap();
+                                            if let Some((key, value)) =
+                                                config_part.split_once(" = ")
+                                            {
+                                                execute_signal_setting(
+                                                    &self.client,
+                                                    &self.config.group_id,
+                                                    key,
+                                                    value,
+                                                )
+                                                .await?;
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1231,6 +1288,38 @@ pub enum StateChange {
     },
 }
 
+/// Execute Signal group setting change.
+///
+/// Applies the setting change via SignalClient trait methods.
+async fn execute_signal_setting(
+    client: &impl crate::signal::traits::SignalClient,
+    group: &crate::signal::traits::GroupId,
+    key: &str,
+    value: &str,
+) -> crate::signal::traits::SignalResult<()> {
+    use crate::signal::proposals::parse_duration_to_secs;
+    use crate::signal::traits::SignalError;
+
+    match key {
+        "name" => client.set_group_name(group, value).await,
+        "description" => client.set_group_description(group, value).await,
+        "disappearing_messages" => {
+            let seconds = parse_duration_to_secs(value).map_err(SignalError::InvalidMessage)?;
+            client.set_disappearing_messages(group, seconds).await
+        }
+        "announcements_only" => {
+            let enabled = value.parse::<bool>().map_err(|_| {
+                SignalError::InvalidMessage(format!("Invalid bool value: {}", value))
+            })?;
+            client.set_announcements_only(group, enabled).await
+        }
+        _ => Err(SignalError::InvalidMessage(format!(
+            "Unknown Signal setting: {}",
+            key
+        ))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1274,8 +1363,8 @@ mod tests {
         let config = BotConfig {
             group_id: group.clone(),
             min_vouch_threshold: 2,
-            pepper: b"test-pepper".to_vec(),
             contract_hash: None,
+            ..Default::default()
         };
         let mut bot = StromaBot::new(client.clone(), freenet, config).unwrap();
 
@@ -1308,8 +1397,8 @@ mod tests {
         let config = BotConfig {
             group_id: group.clone(),
             min_vouch_threshold: 2,
-            pepper: b"test-pepper".to_vec(),
             contract_hash: None,
+            ..Default::default()
         };
         let mut bot = StromaBot::new(client.clone(), freenet, config).unwrap();
 
@@ -1336,8 +1425,7 @@ mod tests {
         let config = BotConfig {
             group_id: GroupId(vec![1, 2, 3]),
             min_vouch_threshold: 2,
-            pepper: b"test-pepper".to_vec(),
-            contract_hash: None,
+            ..Default::default()
         };
         let bot = StromaBot::new(client, freenet, config).unwrap();
 
@@ -1379,8 +1467,7 @@ mod tests {
         let config = BotConfig {
             group_id: group.clone(),
             min_vouch_threshold: 2,
-            pepper: b"test-pepper".to_vec(),
-            contract_hash: None,
+            ..Default::default()
         };
         let mut bot = StromaBot::new(client.clone(), freenet, config).unwrap();
 
@@ -1616,8 +1703,7 @@ mod tests {
         let config = BotConfig {
             group_id: GroupId(vec![1, 2, 3]),
             min_vouch_threshold: 2,
-            pepper: b"test-pepper".to_vec(),
-            contract_hash: None,
+            ..Default::default()
         };
         let bot = StromaBot::new(client, freenet, config).unwrap();
 
@@ -1643,8 +1729,7 @@ mod tests {
         let config = BotConfig {
             group_id: GroupId(vec![1, 2, 3]),
             min_vouch_threshold: 2,
-            pepper: b"test-pepper".to_vec(),
-            contract_hash: None,
+            ..Default::default()
         };
         let bot = StromaBot::new(client, freenet, config).unwrap();
 
@@ -1670,8 +1755,7 @@ mod tests {
         let config = BotConfig {
             group_id: GroupId(vec![1, 2, 3]),
             min_vouch_threshold: 2,
-            pepper: b"test-pepper".to_vec(),
-            contract_hash: None,
+            ..Default::default()
         };
         let bot = StromaBot::new(client, freenet, config).unwrap();
 
@@ -1701,8 +1785,7 @@ mod tests {
         let config = BotConfig {
             group_id: GroupId(vec![1, 2, 3]),
             min_vouch_threshold: 2,
-            pepper: b"test-pepper".to_vec(),
-            contract_hash: None,
+            ..Default::default()
         };
         let bot = StromaBot::new(client, freenet, config).unwrap();
 

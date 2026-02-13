@@ -50,6 +50,8 @@ This guide explains Stroma's architecture, technical stack, and development work
 | **Identity Hashing** | ring (HMAC-SHA256) | Group-scoped masking |
 | **Memory Hygiene** | zeroize | Immediate buffer purging |
 | **Signal Integration** | Presage + libsignal-service-rs | High-level API + protocol (StromaStore wrapper, encrypted) |
+| **Database** | sqlx 0.8+ | Async SQLite with SQLCipher (stroma.db for poll state) |
+| **Duration Parsing** | humantime 2.1+ | Human-readable durations (e.g., "7 days") |
 | **Async Runtime** | tokio 1.35+ | Event-driven execution |
 | **CLI Framework** | clap 4+ | Operator interface |
 | **Supply Chain** | cargo-deny, cargo-crev | Security audits |
@@ -103,7 +105,7 @@ rustup target add x86_64-unknown-linux-musl
 src/
 ├── main.rs                          # Event loop, CLI entry point
 ├── lib.rs                           # Library root, module declarations
-├── identity.rs                      # HMAC identity masking with ACI-derived key, zeroization
+├── identity.rs                      # HMAC identity masking with mnemonic-derived key, zeroization
 ├── cli/                             # Operator CLI (service management only)
 │   ├── mod.rs
 │   ├── link_device.rs               # Link to Signal account (one-time)
@@ -132,7 +134,9 @@ src/
 │   ├── traits.rs                    # SignalClient trait abstraction
 │   ├── client.rs                    # LibsignalClient (100% stubbed, wiring TODO)
 │   ├── mock.rs                      # MockSignalClient for tests
-│   ├── stroma_store.rs              # StromaStore wrapper (encrypted SqliteStore, no-ops messages)
+│   ├── stroma_store.rs              # StromaStore wrapper (dual-database: signal.db + stroma.db)
+│   ├── stroma_store_migrations/    # SQL migrations for stroma.db
+│   │   └── 001_create_stroma_kv.sql # Poll state key-value storage
 │   ├── linking.rs                   # link_secondary_device() (stubbed)
 │   ├── bot.rs                       # StromaBot: command dispatch, run loop
 │   ├── group.rs                     # Group management (add/remove members)
@@ -146,6 +150,7 @@ src/
 │   └── proposals/                   # Proposal system
 │       ├── mod.rs
 │       ├── command.rs               # /propose argument parsing
+│       ├── duration_parse.rs        # Human-readable duration parsing (humantime)
 │       ├── lifecycle.rs             # Proposal creation, monitoring, execution
 │       └── executor.rs              # Config change application
 ├── gatekeeper/                      # Admission & Ejection Protocol
@@ -234,15 +239,16 @@ Stroma uses a two-layer architecture to ensure trust state durability:
 ```rust
 /// Encrypted trust state ready for chunking
 pub struct EncryptedTrustNetworkState {
-    ciphertext: Vec<u8>,           // AES-256-GCM (key from Signal ACI)
-    signature: Vec<u8>,            // Signed with Signal ACI identity key
-    bot_pubkey: Vec<u8>,           // Signal ACI public key
+    ciphertext: Vec<u8>,           // AES-256-GCM (key from StromaKeyring)
+    signature: Vec<u8>,            // Signed with mnemonic-derived signing key
+    signing_pubkey: Vec<u8>,       // Derived from mnemonic
     member_merkle_root: Hash,      // Public for ZK-proofs
     version: u64,                  // Monotonic, anti-replay
     previous_hash: Hash,           // Chain integrity
     timestamp: Timestamp,
+    key_epoch: u64,                // Rotation tracking
 }
-// Note: No separate keypair file - uses Signal ACI identity from protocol store
+// Note: All keys derived from 24-word BIP-39 mnemonic via StromaKeyring
 
 /// A single chunk of encrypted state (Q12: 64KB constant)
 pub const CHUNK_SIZE: usize = 64 * 1024; // 64KB
@@ -269,7 +275,7 @@ pub struct RegistryEntry {
 
 ALL persistence peers are treated as adversaries:
 - Cannot read trust map (AES-256-GCM encrypted)
-- Cannot reconstruct state (need ALL chunks + ACI key)
+- Cannot reconstruct state (need ALL chunks + mnemonic-derived key)
 - Can compute whose chunks they hold (deterministic assignment)
 - Security comes from encryption, not obscurity
 
@@ -794,9 +800,12 @@ let messages = manager.receive_messages().await?;
 **CRITICAL SECURITY REQUIREMENT:**
 
 Never use bare `SqliteStore` - it persists ALL messages to disk. Use `StromaStore` wrapper which:
-- ✅ Delegates protocol state, groups, profiles to encrypted SqliteStore (SQLCipher AES-256)
+- ✅ Uses dual-database architecture:
+  - `signal.db`: protocol state, groups, profiles (presage SqliteStore with SQLCipher AES-256)
+  - `stroma.db`: poll state, vote aggregates (separate SQLite with SQLCipher AES-256)
+- ✅ Both databases encrypted with the SAME passphrase
 - ✅ No-ops `save_message` — messages are never written to disk
-- ✅ Group configuration survives restarts
+- ✅ Poll state and group configuration survive restarts
 - ✅ Passphrase generated as 24-word BIP-39 recovery phrase
 
 See `docs/SIGNAL-STORAGE-SECURITY.md` for full threat model.
@@ -1175,49 +1184,51 @@ async fn proposal_monitoring_stream(
 
 ```rust
 use ring::hmac;
-use hkdf::Hkdf;
-use sha2::Sha256;
-use libsignal_protocol::IdentityKeyPair;
+use stroma::crypto::StromaKeyring;
+use stroma::identity::mask_identity;
 
-/// Derive HMAC key from Signal ACI identity (replaces group pepper)
-fn derive_identity_masking_key(aci_identity: &IdentityKeyPair) -> [u8; 32] {
-    let hk = Hkdf::<Sha256>::new(
-        Some(b"stroma-identity-masking-v1"),
-        aci_identity.private_key().serialize().as_slice()
-    );
-    let mut key = [0u8; 32];
-    hk.expand(b"hmac-sha256-key", &mut key).unwrap();
-    key
-}
+// All keys derived from 24-word BIP-39 mnemonic
+let keyring = StromaKeyring::from_mnemonic(&passphrase)?;
 
-pub fn mask_identity(signal_id: &str, aci_identity: &IdentityKeyPair) -> Hash {
-    // Use HMAC-SHA256 with ACI-derived key (NOT deterministic hashing)
-    let key_bytes = derive_identity_masking_key(aci_identity);
-    let key = hmac::Key::new(hmac::HMAC_SHA256, &key_bytes);
-    let tag = hmac::sign(&key, signal_id.as_bytes());
-    
-    Hash::from_bytes(tag.as_ref())
-    
-    // signal_id is borrowed, but owned data must be zeroized:
-    // signal_id_owned.zeroize();
-}
+// Key hierarchy from StromaKeyring:
+// BIP-39 Mnemonic (24 words)
+//         │
+//         ▼
+// bip39::to_seed("")  → [u8; 64] master seed
+//         │
+//         ▼
+// HKDF-SHA256(salt="stroma-master-v1", seed)
+//         │
+//         ├─► HKDF expand("identity-masking-v1") → identity_masking_key
+//         ├─► HKDF expand("voter-dedup-v1")      → voter_pepper
+//         └─► ... (other keys)
+
+// Mask identity using mnemonic-derived key
+let masked = mask_identity(&signal_id, keyring.identity_masking_key());
+signal_id.zeroize(); // Zeroize immediately after use
 ```
 
-**Critical**: Different bots → different hashes for same person (enables PSI-CA privacy). All crypto keys derived from Signal ACI identity.
+**Critical**: Different bots → different hashes for same person (enables PSI-CA privacy). All crypto keys derived from 24-word BIP-39 mnemonic via `StromaKeyring`.
+
+**Why Mnemonic (not Signal ACI):**
+- **Stable root**: Mnemonic never changes (ACI can change on re-registration/ban)
+- **Operator control**: Mnemonic entered at startup, not managed by Signal
+- **Rotation support**: `key_epoch` tracks derivation generation for migration
 
 #### Immediate Zeroization (REQUIRED)
 
 ```rust
 use zeroize::{Zeroize, ZeroizeOnDrop};
-use libsignal_protocol::IdentityKeyPair;
+use stroma::crypto::StromaKeyring;
+use stroma::identity::mask_identity;
 
 #[derive(ZeroizeOnDrop)]
 struct SensitiveData {
     signal_id: String,
 }
 
-fn process_sensitive_data(mut data: SensitiveData, aci_identity: &IdentityKeyPair) -> Hash {
-    let hash = mask_identity(&data.signal_id, aci_identity);
+fn process_sensitive_data(mut data: SensitiveData, masking_key: &[u8; 32]) -> Hash {
+    let hash = mask_identity(&data.signal_id, masking_key);
     
     // Explicit zeroization
     data.signal_id.zeroize();
@@ -1225,6 +1236,11 @@ fn process_sensitive_data(mut data: SensitiveData, aci_identity: &IdentityKeyPai
     hash
     // data dropped here, ZeroizeOnDrop ensures cleanup
 }
+
+// StromaKeyring also implements Drop for zeroization
+let keyring = StromaKeyring::from_mnemonic(&passphrase)?;
+let masked = process_sensitive_data(data, keyring.identity_masking_key());
+// keyring zeroized when dropped
 ```
 
 #### Bot Storage (CRITICAL - Server Seizure Protection)
@@ -1238,8 +1254,10 @@ fn process_sensitive_data(mut data: SensitiveData, aci_identity: &IdentityKeyPai
 ```rust
 use crate::signal::StromaStore;
 
-// StromaStore wraps SqliteStore with SQLCipher encryption
-// Delegates: protocol state, groups, contacts, profiles
+// StromaStore dual-database architecture:
+// - signal.db: protocol state, groups, contacts, profiles (presage SqliteStore)
+// - stroma.db: poll state, vote aggregates (separate SQLite database)
+// Both encrypted with SQLCipher using the SAME passphrase
 // No-ops: save_message -> Ok(()), stickers -> no-op
 let store = StromaStore::open(db_path, &passphrase).await?;
 let manager = Manager::load_registered(store).await?;
@@ -1793,4 +1811,4 @@ This project uses **Gastown** - multi-agent coordination with specialized roles:
 
 **Status**: Technology validation complete (Spike Week 1 & 2). Ready for Phase 0 implementation.
 
-**Last Updated**: 2026-02-08
+**Last Updated**: 2026-02-12

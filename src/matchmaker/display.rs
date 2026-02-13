@@ -5,7 +5,7 @@
 //! - Bot maintains transient in-memory mapping (Signal ID → hash)
 //! - Mapping is reconstructible on restart (HMAC-based)
 //!
-//! The bot's ACI-derived key provides namespace isolation.
+//! The bot's mnemonic-derived key provides namespace isolation.
 
 use crate::freenet::contract::MemberHash;
 use crate::matchmaker::strategic_intro::Introduction;

@@ -1,7 +1,7 @@
 # Contract Encryption Model (IMMUTABLE)
 
 **Status**: Pinned - Cannot be modified without explicit unpinning ceremony
-**Last Updated**: 2026-01-31
+**Last Updated**: 2026-02-12
 **Applies To**: State encryption, persistence fragments, Agent-Crypto
 
 ---
@@ -51,9 +51,9 @@ pub struct EncryptedTrustNetworkState {
     ciphertext: Vec<u8>,           // AES-256-GCM encrypted trust state
     nonce: [u8; 12],               // GCM nonce (unique per encryption)
     
-    // Authority (uses Signal ACI identity)
-    signature: Vec<u8>,            // Signature by Signal ACI identity key
-    aci_pubkey: Vec<u8>,           // Signal ACI public key for verification
+    // Authority (mnemonic-derived signing key)
+    signature: Vec<u8>,            // Ed25519 signature using state_signing_key
+    signing_pubkey: Vec<u8>,       // Public key for verification
     
     // Public commitment (for ZK-proof verification)
     member_merkle_root: Hash,      // Generated on-demand from BTreeSet
@@ -62,6 +62,9 @@ pub struct EncryptedTrustNetworkState {
     version: u64,                  // Monotonic, increments on each write
     previous_hash: Hash,           // Chain integrity
     timestamp: Timestamp,          // When state was created
+    
+    // Key epoch (rotation tracking)
+    key_epoch: u64,                // Which derivation generation created this state
 }
 ```
 
@@ -71,12 +74,13 @@ pub struct EncryptedTrustNetworkState {
 |-------|-------------|-----------|
 | `ciphertext` | AES-256-GCM | Industry standard authenticated encryption |
 | `nonce` | Random, never reuse | GCM security requires unique nonce |
-| `signature` | Signal ACI identity | Signs using bot's Signal identity key |
-| `aci_pubkey` | From Signal protocol store | Identifies authoritative writer (ACI public key) |
+| `signature` | Mnemonic-derived signing key | Signs using `state_signing_key` from StromaKeyring |
+| `signing_pubkey` | Derived from StromaKeyring | Identifies authoritative writer |
 | `member_merkle_root` | Generated on demand | Public for ZK-proofs, doesn't leak membership |
 | `version` | Strictly monotonic | Anti-replay, recovery ordering |
 | `previous_hash` | Hash of previous state | Chain integrity detection |
 | `timestamp` | Wall clock time | Debugging, freshness hints |
+| `key_epoch` | From StromaKeyring | Tracks which key generation created this state |
 
 ---
 
@@ -128,25 +132,28 @@ fn decrypt_state(ciphertext: &[u8], nonce: &[u8; 12], key: &[u8; 32]) -> Result<
 
 ## Signature Algorithm (FIXED)
 
-### Signal ACI Identity Key
+### Mnemonic-Derived Signing Key
 
-The bot signs state using its Signal ACI identity key (from the protocol store):
+The bot signs state using `state_signing_key` derived from the mnemonic:
 
 ```rust
-use libsignal_protocol::IdentityKeyPair;
+use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer, Verifier};
+use stroma::crypto::StromaKeyring;
 
-fn sign_state(state_hash: &Hash, aci_identity: &IdentityKeyPair) -> Vec<u8> {
-    // Sign using Signal ACI private key
-    aci_identity.private_key()
-        .calculate_signature(state_hash.as_bytes())
-        .to_vec()
+fn sign_state(state_hash: &Hash, signing_key: &[u8; 32]) -> Vec<u8> {
+    let key = SigningKey::from_bytes(signing_key);
+    key.sign(state_hash.as_bytes()).to_bytes().to_vec()
 }
 
-fn verify_signature(state_hash: &Hash, signature: &[u8], aci_pubkey: &[u8]) -> bool {
-    // Verify using Signal ACI public key
-    let pubkey = libsignal_protocol::PublicKey::deserialize(aci_pubkey).ok()?;
-    pubkey.verify_signature(state_hash.as_bytes(), signature).is_ok()
+fn verify_signature(state_hash: &Hash, signature: &[u8], pubkey: &[u8; 32]) -> bool {
+    let verifying_key = VerifyingKey::from_bytes(pubkey).ok()?;
+    let sig = Signature::from_slice(signature).ok()?;
+    verifying_key.verify(state_hash.as_bytes(), &sig).is_ok()
 }
+
+// Usage with StromaKeyring:
+let keyring = StromaKeyring::from_mnemonic(&passphrase)?;
+let signature = sign_state(&state_hash, keyring.state_signing_key());
 ```
 
 ### What Gets Signed
@@ -176,68 +183,68 @@ fn compute_state_hash(state: &EncryptedTrustNetworkState) -> Hash {
 
 ## Key Derivation (REQUIRED)
 
-### Signal ACI Identity as Cryptographic Foundation
+### BIP-39 Mnemonic as Cryptographic Foundation
 
-**No separate keypair or group pepper needed.** The bot uses the Signal account's **ACI (Account Identity) key** for ALL cryptographic operations.
+**All keys are derived from the 24-word BIP-39 mnemonic** via `StromaKeyring`.
 
 | Purpose | Key Source | HKDF Info |
 |---------|------------|-----------|
-| Signing | Signal ACI identity key (Ed25519-compatible) | (direct use) |
-| Encryption | HKDF from ACI private key | `"aes-256-gcm-key"` |
-| Identity Masking | HKDF from ACI private key | `"hmac-sha256-key"` |
-| Bot Identity | ACI public key | (direct use) |
+| Identity Masking | StromaKeyring | `"identity-masking-v1"` |
+| Voter Dedup | StromaKeyring | `"voter-dedup-v1"` |
+| Chunk Encryption | StromaKeyring | `"chunk-encryption-v1"` |
+| Chunk Signing | StromaKeyring | `"chunk-signing-v1"` |
+| State Encryption | StromaKeyring | `"state-encryption-v1"` |
+| State Signing | StromaKeyring | `"state-signing-v1"` |
 
 ```rust
-use libsignal_protocol::IdentityKeyPair;
-use hkdf::Hkdf;
-use sha2::Sha256;
+use stroma::crypto::StromaKeyring;
 
-/// Derive encryption key from Signal ACI identity
-fn derive_encryption_key(aci_identity: &IdentityKeyPair) -> [u8; 32] {
-    let hk = Hkdf::<Sha256>::new(
-        Some(b"stroma-state-encryption-v1"),
-        aci_identity.private_key().serialize().as_slice()
-    );
-    let mut key = [0u8; 32];
-    hk.expand(b"aes-256-gcm-key", &mut key).unwrap();
-    key
-}
+// At bot startup: derive all keys from 24-word BIP-39 mnemonic
+let keyring = StromaKeyring::from_mnemonic(&passphrase)?;
 
-/// Derive identity masking key from Signal ACI identity
-/// This REPLACES the "group pepper" — single source for all crypto
-fn derive_identity_masking_key(aci_identity: &IdentityKeyPair) -> [u8; 32] {
-    let hk = Hkdf::<Sha256>::new(
-        Some(b"stroma-identity-masking-v1"),
-        aci_identity.private_key().serialize().as_slice()
-    );
-    let mut key = [0u8; 32];
-    hk.expand(b"hmac-sha256-key", &mut key).unwrap();
-    key
-}
+// Use derived keys for cryptographic operations
+let state_encryption_key = keyring.state_encryption_key();
+let chunk_encryption_key = keyring.chunk_encryption_key();
+let identity_masking_key = keyring.identity_masking_key();
 
-fn sign_state(state_hash: &Hash, aci_identity: &IdentityKeyPair) -> Vec<u8> {
-    // Sign using Signal's identity key
-    aci_identity.private_key().calculate_signature(state_hash.as_bytes())
-}
+// Key hierarchy (from crypto/keyring.rs):
+// BIP-39 Mnemonic (24 words)
+//         │
+//         ▼
+// bip39::to_seed("")  → [u8; 64] master seed
+//         │
+//         ▼
+// HKDF-SHA256(salt="stroma-master-v1", seed)
+//         │
+//         ├─► HKDF expand("identity-masking-v1") → identity_masking_key
+//         ├─► HKDF expand("voter-dedup-v1")      → voter_pepper
+//         ├─► HKDF expand("chunk-encryption-v1") → chunk_encryption_key
+//         ├─► HKDF expand("chunk-signing-v1")    → chunk_signing_key
+//         ├─► HKDF expand("state-encryption-v1") → state_encryption_key
+//         └─► HKDF expand("state-signing-v1")    → state_signing_key
 ```
 
-### Why Use Signal ACI Key for Everything
+### Why Use Mnemonic (not Signal ACI)
 
 | Benefit | Explanation |
 |---------|-------------|
-| **Simpler backup** | Signal store backup covers everything |
-| **No extra secrets** | No separate keypair or group pepper to manage |
-| **Already secure** | Signal keys stored in secure protocol store |
-| **Single identity** | Signal identity = persistence identity = masking identity |
+| **Stable root** | Mnemonic never changes (ACI can change on re-registration/ban) |
+| **Operator control** | Mnemonic is entered at startup, not managed by Signal |
+| **Rotation support** | `key_epoch` tracks derivation generation for migration |
 | **Consistent derivation** | All keys derived from same source via HKDF |
+| **Separate concerns** | Mnemonic for Stroma crypto, Signal store for protocol state |
 
-**Key Insight**: Operators only need to back up their Signal protocol store. The ACI identity keypair inside is used for:
-1. State encryption (AES-256-GCM key via HKDF)
-2. State signing (Ed25519 signature)
-3. Identity masking (HMAC-SHA256 key via HKDF)
-4. Bot identification in persistence network
+**Key Insight**: Operators need to back up:
+1. **Mnemonic** (24 words) - root of all Freenet chunk encryption/signing
+2. **Signal store** - for protocol state recovery (sessions, identity, etc.)
 
-**Group pepper is DEPRECATED**: Previously, identity masking used a separate "group pepper." This is now replaced by an ACI-derived key. Same security properties, simpler key management.
+**Rotation Strategy**:
+- `StromaKeyring.epoch()` returns current derivation generation (default: 1)
+- `TrustNetworkState.key_epoch` tracks which epoch created the MemberHashes
+- Domain strings include "v1" suffix for future versioning
+- On rotation: increment epoch, re-invite members with new hashes
+
+**Signal ACI is DEPRECATED for key derivation**: Previously, some keys were derived from Signal ACI. This is now replaced by mnemonic-derived keys for stability across Signal account changes.
 
 ---
 
@@ -247,25 +254,28 @@ fn sign_state(state_hash: &Hash, aci_identity: &IdentityKeyPair) -> Vec<u8> {
 
 ```rust
 impl EncryptedTrustNetworkState {
-    pub fn new(plaintext: &TrustState, previous: Option<&Self>, aci_identity: &IdentityKeyPair) -> Self {
+    pub fn new(plaintext: &TrustState, previous: Option<&Self>, keyring: &StromaKeyring) -> Self {
         let version = previous.map(|p| p.version + 1).unwrap_or(1);
         let previous_hash = previous.map(|p| p.hash()).unwrap_or(Hash::zero());
         
-        let key = derive_encryption_key(aci_identity);
-        let (ciphertext, nonce) = encrypt_state(&serialize(plaintext), &key).unwrap();
+        let (ciphertext, nonce) = encrypt_state(
+            &serialize(plaintext),
+            keyring.state_encryption_key()
+        ).unwrap();
         
         let mut state = Self {
             ciphertext,
             nonce,
             signature: Vec::new(),
-            aci_pubkey: aci_identity.public_key().serialize().to_vec(),
+            signing_pubkey: derive_pubkey(keyring.state_signing_key()),
             member_merkle_root: plaintext.compute_merkle_root(),
             version,
             previous_hash,
             timestamp: now(),
+            key_epoch: keyring.epoch(),
         };
         
-        state.signature = sign_state(&state.hash(), aci_identity);
+        state.signature = sign_state(&state.hash(), keyring.state_signing_key());
         state
     }
 }
@@ -358,8 +368,8 @@ Holder-X,Y (chunk 0), Holder-Z,W (chunk 1), ... Holder-P,Q (chunk 7)
 | Layer | Protection |
 |-------|------------|
 | Encryption | Holders can't read even if they have all chunks |
-| Distribution | Need ALL chunks + ACI key to reconstruct |
-| Combined | Defense in depth: need encryption key AND all chunks |
+| Distribution | Need ALL chunks + mnemonic-derived key to reconstruct |
+| Combined | Defense in depth: need mnemonic AND all chunks |
 
 ---
 
@@ -429,11 +439,11 @@ pub struct EncryptedTrustNetworkState {
 - Generate random nonces for each encryption
 - Use authenticated encryption (GCM, not CBC)
 - Verify signature before decryption
-- Derive encryption key from Signal ACI identity via HKDF
+- Derive all keys from BIP-39 mnemonic via StromaKeyring
 - Include version in signed hash
 - Keep merkle root unencrypted (public commitment)
-- Zeroize sensitive key material after use
-- Use Signal protocol store as single source of cryptographic identity
+- Zeroize sensitive key material after use (StromaKeyring implements Drop)
+- Back up mnemonic separately from Signal store
 
 ---
 
@@ -442,7 +452,8 @@ pub struct EncryptedTrustNetworkState {
 ```toml
 [dependencies]
 ring = "0.17"               # AES-256-GCM, HKDF
-libsignal-protocol = "0.1"  # Signal ACI identity key operations
+bip39 = "2"                 # BIP-39 mnemonic parsing and seed derivation
+ed25519-dalek = "2"         # State signing
 zeroize = "1.7"             # Secure key erasure
 ```
 
@@ -460,11 +471,15 @@ zeroize = "1.7"             # Secure key erasure
 
 Encryption makes the adversarial peer model safe:
 
-1. **Encrypt** trust state with AES key derived from Signal ACI identity
-2. **Sign** the encrypted state using Signal ACI identity key
+1. **Encrypt** trust state with AES key derived from mnemonic (via StromaKeyring)
+2. **Sign** the encrypted state using mnemonic-derived signing key
 3. **Chunk** the encrypted state into 64KB pieces
 4. **Distribute** 2 replicas per chunk to deterministic holders
 
-Peers hold encrypted chunks. Even with all chunks, they cannot decrypt without the bot's Signal protocol store (which contains the ACI identity key). Need ALL chunks + ACI key to reconstruct.
+Peers hold encrypted chunks. Even with all chunks, they cannot decrypt without the 24-word mnemonic (which derives all keys). Need ALL chunks + mnemonic to reconstruct.
 
-**Key Simplification**: No separate keypair file needed. The Signal protocol store IS the cryptographic identity.
+**Key Hierarchy**: All cryptographic keys derive from the BIP-39 mnemonic via `StromaKeyring`. Operators must securely back up:
+1. **24-word mnemonic** - root of all Freenet encryption/signing
+2. **Signal store** - for protocol state (sessions, identity) - separate concern
+
+**Rotation Support**: `key_epoch` field tracks which derivation generation created the state, enabling future key rotation without full membership re-bootstrapping.

@@ -19,52 +19,60 @@ These constraints are **NON-NEGOTIABLE**. Any code that violates these constrain
 
 ### HMAC-Based Identity Masking (REQUIRED)
 
-**Use Signal ACI-derived key for identity masking** — no separate group pepper needed.
+**Use mnemonic-derived key for identity masking** via `StromaKeyring`.
 
 ```rust
 // ✅ REQUIRED PATTERN
-use ring::hmac;
-use hkdf::Hkdf;
-use sha2::Sha256;
-use zeroize::Zeroize;
-use libsignal_protocol::IdentityKeyPair;
+use stroma::crypto::StromaKeyring;
+use stroma::identity::mask_identity;
 
-/// Derive HMAC key from Signal ACI identity
-/// This replaces the "group pepper" — single cryptographic identity for everything
-fn derive_identity_masking_key(aci_identity: &IdentityKeyPair) -> [u8; 32] {
-    let hk = Hkdf::<Sha256>::new(
-        Some(b"stroma-identity-masking-v1"),
-        aci_identity.private_key().serialize().as_slice()
-    );
-    let mut key = [0u8; 32];
-    hk.expand(b"hmac-sha256-key", &mut key).unwrap();
-    key
-}
+// At bot startup: derive all keys from 24-word BIP-39 mnemonic
+let keyring = StromaKeyring::from_mnemonic(&passphrase)?;
 
-pub fn mask_identity(signal_id: &str, aci_identity: &IdentityKeyPair) -> Hash {
-    // Derive HMAC key from Signal ACI identity
-    let hmac_key_bytes = derive_identity_masking_key(aci_identity);
-    let key = hmac::Key::new(hmac::HMAC_SHA256, &hmac_key_bytes);
-    let tag = hmac::sign(&key, signal_id.as_bytes());
-    
-    // Zeroize derived key immediately
-    // (hmac_key_bytes is on stack, will be overwritten)
-    
-    Hash::from_bytes(tag.as_ref())
-}
+// Use the keyring's identity masking key for all identity hashing
+let masked = mask_identity(signal_id, keyring.identity_masking_key());
+
+// The mask_identity function uses HMAC-SHA256 with HKDF internally:
+// 1. HKDF-SHA256 derives a sub-key from the masking key
+// 2. HMAC-SHA256 computes the hash: HMAC(sub_key, signal_id)
+// 3. Result is a MaskedIdentity that converts to MemberHash
 ```
 
 **Key Requirements:**
-- Use HMAC-SHA256 (ring crate)
-- Derive HMAC key from Signal ACI identity via HKDF (replaces group pepper)
-- NOT deterministic hashing (same ID = different hash with different bot)
-- Single cryptographic identity: Signal ACI used for encryption, signing, AND identity masking
+- Use HMAC-SHA256 (ring crate) via `identity::mask_identity()`
+- Derive all keys from 24-word BIP-39 mnemonic via `StromaKeyring`
+- NOT deterministic hashing (same ID = different hash with different bot/mnemonic)
+- Single cryptographic root: mnemonic used for all key derivation
 
-**Why Signal ACI (not separate group pepper):**
-- Simpler backup: Signal store backup covers everything
-- No extra secrets: No separate pepper file to manage
-- Already secure: Signal keys stored in encrypted StromaStore (SQLCipher)
-- Consistent identity: One key derivation source for all crypto operations
+**Key Hierarchy (from `crypto::keyring`):**
+```
+BIP-39 Mnemonic (24 words)
+        │
+        ▼
+bip39::to_seed("")  → [u8; 64] master seed
+        │
+        ▼
+HKDF-SHA256(salt="stroma-master-v1", seed)
+        │
+        ├─► HKDF expand("identity-masking-v1") → identity_masking_key
+        ├─► HKDF expand("voter-dedup-v1")      → voter_pepper
+        ├─► HKDF expand("chunk-encryption-v1") → chunk_encryption_key
+        ├─► HKDF expand("chunk-signing-v1")    → chunk_signing_key
+        ├─► HKDF expand("state-encryption-v1") → state_encryption_key
+        └─► HKDF expand("state-signing-v1")    → state_signing_key
+```
+
+**Why Mnemonic (not Signal ACI):**
+- Stable root: Mnemonic never changes (ACI can change on re-registration/ban)
+- Operator control: Mnemonic is entered at startup, not managed by Signal
+- Rotation support: `key_epoch` tracks derivation generation for migration
+- Already secure: Mnemonic encrypts StromaStore (SQLCipher) via PBKDF2
+
+**Rotation Strategy:**
+- `StromaKeyring.epoch()` returns current derivation generation (default: 1)
+- `TrustNetworkState.key_epoch` tracks which epoch created the MemberHashes
+- On rotation: increment epoch, re-invite members with new hashes
+- Domain strings include "v1" suffix for future versioning
 
 ### Immediate Zeroization (MANDATORY)
 - ✅ **ALWAYS** use `zeroize` crate for sensitive buffers
@@ -75,21 +83,20 @@ pub fn mask_identity(signal_id: &str, aci_identity: &IdentityKeyPair) -> Hash {
 ```rust
 // ✅ REQUIRED PATTERN
 use zeroize::{Zeroize, ZeroizeOnDrop};
+use stroma::identity::mask_identity;
 
 #[derive(ZeroizeOnDrop)]
 struct SensitiveData {
     signal_id: String,
-    aci_identity: IdentityKeyPair,  // Signal ACI identity (replaces pepper)
 }
 
 impl SensitiveData {
-    fn process(&mut self, aci_identity: &IdentityKeyPair) -> Hash {
-        // Process data using ACI-derived key
-        let hash = mask_identity(&self.signal_id, aci_identity);
+    fn process(&mut self, masking_key: &[u8; 32]) -> MaskedIdentity {
+        // Process data using mnemonic-derived key
+        let hash = mask_identity(&self.signal_id, masking_key);
         
         // Explicit zeroization of cleartext
         self.signal_id.zeroize();
-        // Note: aci_identity is not zeroized here - managed by Signal store
         
         hash
     }
@@ -331,10 +338,10 @@ fn can_vouch_forbidden(member: &Member) -> bool {
 async fn process_invite(
     inviter_hash: Hash,
     invitee: SignalId,
-    aci_identity: &IdentityKeyPair,
+    masking_key: &[u8; 32],
 ) -> Result<(), Error> {
-    // Hash invitee identity immediately (using ACI-derived key)
-    let invitee_hash = mask_identity(&invitee, aci_identity);
+    // Hash invitee identity immediately (using mnemonic-derived key)
+    let invitee_hash = mask_identity(&invitee, masking_key);
     invitee.zeroize(); // Zeroize immediately
     
     // Record invitation as FIRST VOUCH
@@ -416,7 +423,7 @@ async fn bot_event_loop(freenet: &FreenetClient, signal: &SignalClient) {
 - ❌ **NEVER** store trust map in centralized database
 
 **Layer 2: Cryptographic Privacy**
-- ✅ All identities HMAC-hashed (ACI-derived key)
+- ✅ All identities HMAC-hashed (mnemonic-derived key)
 - ✅ Memory contains only hashes (immediate zeroization)
 - ✅ ZK-proofs verify trust without revealing vouchers
 - ❌ **NEVER** store cleartext identifiers anywhere
@@ -797,7 +804,7 @@ let store = StromaProtocolStore::new(path, passphrase);
 
 ### Correct Patterns
 
-- ✅ **ALWAYS** encrypt with key derived from Signal ACI identity
+- ✅ **ALWAYS** encrypt with keys derived from BIP-39 mnemonic (via StromaKeyring)
 - ✅ **ALWAYS** use 64KB chunks with 3 copies each (1 local + 2 remote)
 - ✅ **ALWAYS** use deterministic holder selection per-chunk (rendezvous hashing)
 - ✅ **ALWAYS** keep registry minimal (O(N) bot list, not per-chunk relationships)
@@ -907,13 +914,14 @@ Bot-A's perspective (500KB state = 8 chunks):
 
 ### Recovery Requires Signal Store Backup
 
-**No separate keypair file needed.** The Signal protocol store IS the cryptographic identity.
+**The 24-word BIP-39 mnemonic is the root of all cryptographic identity.**
 
-- ❌ **NEVER** create a separate keypair file (use Signal ACI key)
-- ❌ **NEVER** proceed without Signal store backup in operator docs
-- ✅ **ALWAYS** warn operator: Signal store is ONLY recovery path
-- ✅ **ALWAYS** document Signal store backup procedure prominently
-- ✅ **ALWAYS** derive encryption keys from Signal ACI via HKDF
+- ❌ **NEVER** store the mnemonic in plaintext (enter at startup, zeroize after key derivation)
+- ❌ **NEVER** proceed without mnemonic backup warning in operator docs
+- ✅ **ALWAYS** warn operator: mnemonic is ONLY recovery path for Freenet chunks
+- ✅ **ALWAYS** document mnemonic backup procedure prominently
+- ✅ **ALWAYS** derive all keys from mnemonic via StromaKeyring (HKDF-SHA256)
+- ✅ **ALWAYS** backup Signal store separately (for protocol state recovery)
 
 **See**: `.beads/contract-encryption.bead` for crypto details.
 

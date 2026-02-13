@@ -123,9 +123,9 @@ Stroma serves three audiences. Choose your path:
 Stroma provides three layers that work together seamlessly:
 
 ### 1. Signal Bot Interface
-Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/propose`, `/status`, `/mesh`
+Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/propose`, `/status`, `/mesh` (including `/mesh settings` for configuration discovery)
 
-**What members see**: Natural language responses, trust standing, network health, voting  
+**What members see**: Natural language responses, trust standing, network health, voting, configurable settings  
 **What's hidden**: All crypto, Freenet state, Merkle trees, ZK-proofs
 
 → **[Complete User Guide](docs/USER-GUIDE.md)** - Commands, workflows, examples

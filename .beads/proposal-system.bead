@@ -30,28 +30,66 @@ The proposal system has two phases:
 /propose <subcommand> [args] [--timeout <duration>]
 ```
 
+### Discovery: `/mesh settings`
+
+**New command added**: `/mesh settings` shows all available configuration keys with:
+- Current values
+- Valid ranges/options
+- Key descriptions
+- Usage examples
+
+This addresses the discoverability problem where users didn't know what keys were available.
+
+**Example output:**
+```
+⚙️ Available Configuration Keys
+
+📋 Stroma Settings (/propose stroma <key> <value>):
+  min_vouches: 2 (range: 1-10) - Minimum vouches for standing
+  ...
+
+📡 Signal Settings (/propose signal <key> <value>):
+  name: "Group Name" (1-32 chars) - Group display name
+  disappearing_messages: off (off, 1h, 1d, 7d, 14d, 30d, 90d) - Message timer
+  ...
+```
+
 ### Subcommands
 
-**1. Signal Group Settings (config)**
+**1. Signal Group Settings (signal)**
 ```
-/propose config <setting> <value> [--timeout duration]
+/propose signal <setting> <value> [--timeout duration]
 
 Examples:
-/propose config name "New Group Name"
-/propose config description "Trust-based activist network"
-/propose config disappearing_messages 24h
-/propose config disappearing_messages 24h --timeout 72h
+/propose signal name "New Group Name"
+/propose signal description "Trust-based activist network"
+/propose signal disappearing_messages 7d
+/propose signal announcements_only true --timeout 72h
 ```
+
+**Available Signal Keys:**
+- `name` (1-32 chars) - Group display name
+- `description` (0-480 chars) - Group description
+- `disappearing_messages` (off, 1h, 1d, 7d, 14d, 30d, 90d) - Message retention timer
+- `announcements_only` (true/false) - Only admins can send messages
 
 **2. Stroma Trust Settings (stroma)**
 ```
 /propose stroma <setting> <value> [--timeout duration]
 
 Examples:
-/propose stroma min_vouch_threshold 3
+/propose stroma min_vouches 3
 /propose stroma config_change_threshold 0.80
-/propose stroma default_poll_timeout 72h
+/propose stroma default_poll_timeout_secs 259200
 ```
+
+**Available Stroma Keys:**
+- `min_vouches` (1-10) - Minimum vouches for full standing
+- `max_flags` (1-10) - Maximum flags before ejection
+- `open_membership` (true/false) - Whether new members can join
+- `default_poll_timeout_secs` (3600-604800) - Default timeout in seconds
+- `config_change_threshold` (0.50-1.00) - Vote threshold
+- `min_quorum` (0.25-1.00) - Minimum participation
 
 **3. Federation (federate)** *(deferred to Phase 4+)*
 ```
@@ -480,12 +518,22 @@ The proposal system must expose all configurable keys from both Signal's group A
 
 | Key | Type | Values | Description |
 |-----|------|--------|-------------|
-| `disappearing_messages` | duration | off, 1d, 7d, 14d, 30d, 90d | Message expiration timer |
-| `group_name` | string | 1-32 chars | Display name of the group |
-| `group_description` | string | 0-480 chars | Group description |
-| `add_members` | permission | all_members, only_admins | Who can add new members |
-| `edit_attributes` | permission | all_members, only_admins | Who can edit group info |
-| `announcements_only` | bool | true/false | Only admins can send messages |
+| `name` | string | 1-32 chars | Display name of the group (implemented) |
+| `description` | string | 0-480 chars | Group description (implemented) |
+| `disappearing_messages` | duration | off, 1h, 1d, 7d, 14d, 30d, 90d | Message expiration timer (implemented) |
+| `announcements_only` | bool | true/false | Only admins can send messages (implemented) |
+| `add_members` | permission | all_members, only_admins | Who can add new members (future) |
+| `edit_attributes` | permission | all_members, only_admins | Who can edit group info (future) |
+
+**Implementation Status:**
+- ✅ Implemented keys: `name`, `description`, `disappearing_messages`, `announcements_only`
+- ⏳ Future keys: `add_members`, `edit_attributes` (require AccessControl enum mapping)
+
+**Validation:**
+- `name`: Validated in `src/signal/proposals/command.rs` (1-32 chars)
+- `description`: Validated in `src/signal/proposals/command.rs` (0-480 chars)
+- `disappearing_messages`: Parsed via `humantime` crate in `src/signal/proposals/duration_parse.rs`
+- `announcements_only`: Bool parsing with error on invalid values
 
 ### Data Model Changes
 
@@ -623,18 +671,28 @@ When multiple options receive the same highest vote count:
 
 | Component | File | Status |
 |-----------|------|--------|
-| Command parsing | `src/signal/proposals/command.rs` | ✅ Complete |
-| Poll creation | `src/signal/proposals/lifecycle.rs` | ✅ Complete |
-| Config execution | `src/signal/proposals/executor.rs` | ✅ Complete |
+| Command parsing | `src/signal/proposals/command.rs` | ✅ Complete (signal, stroma subcommands) |
+| Duration parsing | `src/signal/proposals/duration_parse.rs` | ✅ Complete (humantime support) |
+| Poll creation | `src/signal/proposals/lifecycle.rs` | ✅ Complete (multi-option API ready) |
+| Config execution | `src/signal/proposals/executor.rs` | ✅ Complete (Signal + Stroma) |
+| Signal execution | `src/signal/bot.rs` | ✅ Complete (execute_signal_setting) |
 | Poll management | `src/signal/polls.rs` | ✅ Complete |
 | Freenet storage | `src/freenet/trust_contract.rs` | ✅ Complete |
+| Settings discovery | `src/signal/pm.rs` | ✅ Complete (/mesh settings) |
 
-**Current syntax**: `/propose config <key> <value> [--timeout <duration>]`
+**Current syntax**: 
+- `/propose signal <key> <value> [--timeout <duration>]`
+- `/propose stroma <key> <value> [--timeout <duration>]`
+
+**Implemented Signal keys:**
+- ✅ `name` (1-32 chars) - Group display name
+- ✅ `description` (0-480 chars) - Group description
+- ✅ `disappearing_messages` (off, 1h, 1d, 7d, etc.) - Message timer
+- ✅ `announcements_only` (true/false) - Admin-only messages
 
 **Current limitations**:
-- Binary Approve/Reject only (hardcoded in `lifecycle.rs:88`)
-- Single value per proposal
-- No `--key` or `--proposal` flags (positional args only)
+- Binary Approve/Reject only (multi-option API ready but not wired)
+- Single value per proposal (multi-value via `--value` flags planned for post-UAT)
 - Federation deferred (returns `NotImplemented`)
 
 ### Post-UAT: Multi-Option Proposals — NOT STARTED

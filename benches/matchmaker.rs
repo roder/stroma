@@ -56,6 +56,7 @@ fn create_clustered_network(cluster_count: usize, cluster_size: usize) -> TrustN
         gap11_announcement_sent: false,
         active_proposals: HashMap::new(),
         audit_log: vec![],
+        key_epoch: 1,
     }
 }
 
@@ -92,6 +93,7 @@ fn create_single_cluster_network(size: usize) -> TrustNetworkState {
         gap11_announcement_sent: false,
         active_proposals: HashMap::new(),
         audit_log: vec![],
+        key_epoch: 1,
     }
 }
 

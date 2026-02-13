@@ -7,14 +7,14 @@
 //! - **Encryption**: AES-256-GCM with key derived from Signal ACI via HKDF
 //! - **Chunk Size**: 64KB (validated in Q12 spike)
 //! - **Replication**: 1 local + 2 remote replicas per chunk
-//! - **Signature**: HMAC-SHA256 using ACI identity key for verification
+//! - **Signature**: HMAC-SHA256 using mnemonic-derived signing key for verification
 //!
 //! ## Security Properties
 //!
 //! - Chunks are encrypted BEFORE distribution (holders cannot read)
-//! - Need ALL chunks + ACI key to reconstruct (single chunk = useless ciphertext)
+//! - Need ALL chunks + mnemonic-derived key to reconstruct (single chunk = useless ciphertext)
 //! - Signature verification prevents tampering
-//! - Key derivation uses HKDF-SHA256 from Signal ACI
+//! - Key derivation uses HKDF-SHA256 from BIP-39 mnemonic via StromaKeyring
 //!
 //! ## References
 //!
@@ -93,7 +93,8 @@ pub enum ChunkError {
 ///
 /// * `owner` - Owner's contract hash
 /// * `state` - Bot state to encrypt (plaintext bytes)
-/// * `aci_key` - Signal ACI key (32 bytes)
+/// * `aci_key` - Chunk encryption key from `StromaKeyring::chunk_encryption_key()` (32 bytes).
+///   Note: parameter named `aci_key` for backwards compatibility, will be renamed.
 ///
 /// # Returns
 ///
@@ -102,9 +103,9 @@ pub enum ChunkError {
 /// # Security
 ///
 /// - Uses AES-256-GCM with random nonce per encryption
-/// - Derives encryption key via HKDF-SHA256 from ACI
+/// - Derives encryption key via HKDF-SHA256 from mnemonic (via StromaKeyring)
 /// - Signs each chunk with derived HMAC key
-/// - Chunks are useless without ALL chunks + ACI key
+/// - Chunks are useless without ALL chunks + mnemonic-derived key
 pub fn encrypt_and_chunk(
     owner: &str,
     state: &[u8],
@@ -112,11 +113,11 @@ pub fn encrypt_and_chunk(
 ) -> Result<Vec<Chunk>, ChunkError> {
     if aci_key.len() != 32 {
         return Err(ChunkError::KeyDerivationFailed(
-            "ACI key must be 32 bytes".to_string(),
+            "Encryption key must be 32 bytes".to_string(),
         ));
     }
 
-    // Derive encryption key from ACI using HKDF
+    // Derive encryption key using HKDF
     let encryption_key = derive_key(aci_key, ENCRYPTION_CONTEXT)?;
     let signing_key = derive_key(aci_key, SIGNING_CONTEXT)?;
 
@@ -162,14 +163,15 @@ pub fn encrypt_and_chunk(
 /// 2. Verify all chunks present (no gaps)
 /// 3. Verify signature on each chunk
 /// 4. Concatenate chunk data
-/// 5. Derive encryption key from ACI
+/// 5. Derive encryption key from mnemonic-derived key
 /// 6. Decrypt ciphertext with AES-256-GCM
 /// 7. Return plaintext state
 ///
 /// # Arguments
 ///
 /// * `chunks` - All chunks for this state (order doesn't matter)
-/// * `aci_key` - Signal ACI key for decryption (32 bytes)
+/// * `aci_key` - Chunk encryption key from `StromaKeyring::chunk_encryption_key()` (32 bytes).
+///   Note: parameter named `aci_key` for backwards compatibility, will be renamed.
 ///
 /// # Returns
 ///
@@ -183,7 +185,7 @@ pub fn encrypt_and_chunk(
 pub fn decrypt_and_reassemble(chunks: &[Chunk], aci_key: &[u8]) -> Result<Vec<u8>, ChunkError> {
     if aci_key.len() != 32 {
         return Err(ChunkError::KeyDerivationFailed(
-            "ACI key must be 32 bytes".to_string(),
+            "Encryption key must be 32 bytes".to_string(),
         ));
     }
 
@@ -258,16 +260,16 @@ pub fn decrypt_and_reassemble(chunks: &[Chunk], aci_key: &[u8]) -> Result<Vec<u8
     Ok(plaintext)
 }
 
-/// Derive a key from ACI using HKDF-SHA256.
+/// Derive a sub-key using HKDF-SHA256.
 ///
 /// # Arguments
 ///
-/// * `aci_key` - Signal ACI key (input keying material)
+/// * `aci_key` - Master key (input keying material) from `StromaKeyring`
 /// * `context` - Context string for key separation
 ///
 /// # Returns
 ///
-/// 32-byte derived key
+/// 32-byte derived sub-key
 fn derive_key(aci_key: &[u8], context: &[u8]) -> Result<Vec<u8>, ChunkError> {
     use hkdf::Hkdf;
     use sha2::Sha256;

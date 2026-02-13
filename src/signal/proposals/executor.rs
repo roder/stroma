@@ -186,10 +186,10 @@ async fn execute_federation_proposal<F: FreenetClient>(
     ))
 }
 
-/// Execute other proposal types (e.g., Stroma-specific config).
+/// Execute other proposal types (e.g., Stroma-specific config, Signal group settings).
 ///
 /// Handles proposal types that don't fit ConfigChange or Federation.
-/// Currently, Stroma config changes are parsed from description.
+/// Parses description to distinguish between Stroma and Signal configs.
 async fn execute_other_proposal<F: FreenetClient>(
     _freenet: &F,
     _contract: &ContractHash,
@@ -202,6 +202,17 @@ async fn execute_other_proposal<F: FreenetClient>(
         if let Some((_key, _value)) = config_part.split_once(" = ") {
             // Stroma config changes would be applied to a separate Stroma state
             // For now, return success as the Stroma integration is not complete
+            return Ok(());
+        }
+    }
+
+    // Parse description for Signal config format: "Signal config: key = value"
+    if description.starts_with("Signal config: ") {
+        let config_part = description.strip_prefix("Signal config: ").unwrap();
+        if let Some((_key, _value)) = config_part.split_once(" = ") {
+            // Signal config changes are NOT applied in executor.rs
+            // They are applied directly in bot.rs via SignalClient trait methods
+            // This function only returns Ok to mark the proposal as executed
             return Ok(());
         }
     }
@@ -303,6 +314,7 @@ mod tests {
             gap11_announcement_sent: false,
             active_proposals: Default::default(),
             audit_log: vec![],
+            key_epoch: 1,
         };
 
         let freenet = MockFreenetClient::new(initial_state);
@@ -367,6 +379,7 @@ mod tests {
             gap11_announcement_sent: false,
             active_proposals: Default::default(),
             audit_log: vec![],
+            key_epoch: 1,
         };
 
         let freenet = MockFreenetClient::new(initial_state);
