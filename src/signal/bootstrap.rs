@@ -33,6 +33,9 @@ pub enum BootstrapState {
         group_name: String,
         initiator: MemberHash,
         seeds: Vec<MemberHash>, // Includes initiator + additional seeds
+        /// Raw identity strings kept for Signal group creation (as pending invites).
+        /// Stored as Vec<String> to avoid Serialize/Deserialize on ServiceId.
+        seed_service_ids: Vec<String>,
     },
 
     /// Bootstrap complete, normal operation
@@ -104,6 +107,7 @@ impl<C: SignalClient> BootstrapManager<C> {
             group_name: trimmed_name.to_string(),
             initiator: initiator_hash,
             seeds: vec![initiator_hash],
+            seed_service_ids: vec![initiator.0.clone()],
         };
 
         // Send instructions to initiator
@@ -129,12 +133,18 @@ impl<C: SignalClient> BootstrapManager<C> {
         new_seed_username: &str,
     ) -> SignalResult<()> {
         // Get current collecting state
-        let (group_name, initiator, current_seeds) = match &self.state {
+        let (group_name, initiator, current_seeds, current_service_ids) = match &self.state {
             BootstrapState::CollectingSeeds {
                 group_name,
                 initiator,
                 seeds,
-            } => (group_name.clone(), *initiator, seeds.clone()),
+                seed_service_ids,
+            } => (
+                group_name.clone(),
+                *initiator,
+                seeds.clone(),
+                seed_service_ids.clone(),
+            ),
             BootstrapState::AwaitingInitiation => {
                 return Err(SignalError::InvalidMessage(
                     "No bootstrap in progress. Use /create-group first.".to_string(),
@@ -175,6 +185,10 @@ impl<C: SignalClient> BootstrapManager<C> {
         let mut updated_seeds = current_seeds;
         updated_seeds.push(new_seed_hash);
 
+        // Keep raw identity string for Signal group creation
+        let mut updated_service_ids = current_service_ids;
+        updated_service_ids.push(new_seed_username.to_string());
+
         let seed_count = updated_seeds.len();
 
         // Update state
@@ -182,6 +196,7 @@ impl<C: SignalClient> BootstrapManager<C> {
             group_name: group_name.clone(),
             initiator,
             seeds: updated_seeds.clone(),
+            seed_service_ids: updated_service_ids.clone(),
         };
 
         // Notify initiator
@@ -200,14 +215,10 @@ impl<C: SignalClient> BootstrapManager<C> {
             );
             self.signal.send_message(from, &message).await?;
 
-            // Complete bootstrap
-            self.complete_bootstrap(freenet, group_name, updated_seeds)
+            // Complete bootstrap with both hashes (for Freenet) and ServiceIds (for Signal group)
+            self.complete_bootstrap(freenet, group_name, updated_seeds, &updated_service_ids)
                 .await?;
         }
-
-        // TODO: Notify new seed member
-        // For now, we'd need to map MemberHash back to ServiceId, which isn't implemented yet
-        // This will be handled in the integration with actual Signal client
 
         Ok(())
     }
@@ -218,15 +229,29 @@ impl<C: SignalClient> BootstrapManager<C> {
         freenet: &impl FreenetClient,
         group_name: String,
         seed_hashes: Vec<MemberHash>,
+        seed_service_id_strings: &[String],
     ) -> SignalResult<()> {
         assert_eq!(seed_hashes.len(), 3, "Must have exactly 3 seed members");
+        assert_eq!(
+            seed_service_id_strings.len(),
+            3,
+            "Must have exactly 3 seed ServiceIds"
+        );
 
-        // 1. Create Signal group
-        let group_id = self.signal.create_group(&group_name).await?;
+        // Convert raw strings to ServiceIds for the Signal API
+        let seed_service_ids: Vec<ServiceId> = seed_service_id_strings
+            .iter()
+            .map(|s| ServiceId(s.clone()))
+            .collect();
 
-        // TODO: Add all 3 seed members to Signal group
-        // This requires mapping MemberHash back to ServiceId, which we'll implement
-        // when integrating with actual Signal client
+        // 1. Create Signal group with all seed members
+        // Members without profile keys will be added as pending invites.
+        // pending_members contains ServiceIds that need invite DMs sent separately
+        // (after the websocket recovers from the group creation).
+        let (group_id, pending_members) = self
+            .signal
+            .create_group(&group_name, &seed_service_ids)
+            .await?;
 
         // 2. Create Freenet contract with triangle vouching
         let mut state = TrustNetworkState::new();
@@ -289,9 +314,25 @@ impl<C: SignalClient> BootstrapManager<C> {
             Type /help for all commands.",
             group_name
         );
+        // 5. Send group announcement and invite DMs
         self.signal.send_group_message(&group_id, &message).await?;
 
-        // 5. Transition to complete state
+        for member in &pending_members {
+            match self.signal.send_group_invite(&group_id, member).await {
+                Ok(()) => {
+                    tracing::info!(member = %member.0, "group invite DM sent");
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        member = %member.0,
+                        "failed to send group invite DM: {}",
+                        e
+                    );
+                }
+            }
+        }
+
+        // 6. Transition to complete state
         self.state = BootstrapState::Complete {
             group_id,
             group_name,

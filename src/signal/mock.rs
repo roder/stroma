@@ -98,7 +98,7 @@ impl MockSignalClient {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl SignalClient for MockSignalClient {
     async fn send_message(&self, recipient: &ServiceId, text: &str) -> SignalResult<()> {
         let mut state = self.state.lock().unwrap();
@@ -124,7 +124,11 @@ impl SignalClient for MockSignalClient {
         Ok(())
     }
 
-    async fn create_group(&self, name: &str) -> SignalResult<GroupId> {
+    async fn create_group(
+        &self,
+        name: &str,
+        members: &[ServiceId],
+    ) -> SignalResult<(GroupId, Vec<ServiceId>)> {
         let mut state = self.state.lock().unwrap();
         let group_id = state.next_group_id;
         state.next_group_id += 1;
@@ -132,8 +136,8 @@ impl SignalClient for MockSignalClient {
         // Create group ID from counter
         let group = GroupId(group_id.to_le_bytes().to_vec());
 
-        // Initialize empty member list
-        state.group_members.insert(group.clone(), Vec::new());
+        // Initialize member list with provided members
+        state.group_members.insert(group.clone(), members.to_vec());
 
         // Initialize group info with defaults
         state.group_info.insert(
@@ -146,7 +150,13 @@ impl SignalClient for MockSignalClient {
             },
         );
 
-        Ok(group)
+        // Mock: no pending members (all members are "full" in tests)
+        Ok((group, vec![]))
+    }
+
+    async fn send_group_invite(&self, _group: &GroupId, _member: &ServiceId) -> SignalResult<()> {
+        // Mock: no-op
+        Ok(())
     }
 
     async fn add_group_member(&self, group: &GroupId, member: &ServiceId) -> SignalResult<()> {
@@ -358,7 +368,7 @@ mod tests {
     #[tokio::test]
     async fn test_group_settings() {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
-        let group = client.create_group("Test Group").await.unwrap();
+        let (group, _pending) = client.create_group("Test Group", &[]).await.unwrap();
 
         // Check initial state
         let info = client.get_group_info(&group).await.unwrap();

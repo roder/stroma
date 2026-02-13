@@ -1,4 +1,5 @@
-use super::passphrase::{determine_passphrase_source, read_passphrase};
+use super::config::default_passphrase_path;
+use super::passphrase::{read_passphrase, PassphraseSource};
 use presage::manager::RegistrationType;
 use presage::Manager;
 use std::io::{self, Write};
@@ -37,8 +38,23 @@ pub async fn execute(
 
     println!("🔓 Opening encrypted store...");
 
-    // Read passphrase for existing store
-    let source = determine_passphrase_source(passphrase_file);
+    // Determine passphrase source
+    // Priority: --passphrase-file > env var > default passphrase file > stdin
+    let source = if let Some(file) = passphrase_file {
+        PassphraseSource::File(file)
+    } else if std::env::var("STROMA_DB_PASSPHRASE").is_ok() {
+        PassphraseSource::EnvVar
+    } else {
+        // Check for default passphrase file adjacent to store
+        let default_passphrase = default_passphrase_path(&store_path_buf);
+        if default_passphrase.exists() {
+            println!("📁 Using passphrase from: {}", default_passphrase.display());
+            PassphraseSource::File(default_passphrase.to_string_lossy().to_string())
+        } else {
+            PassphraseSource::Stdin
+        }
+    };
+
     let passphrase = read_passphrase(
         source,
         Some("Enter database passphrase (or paste from password vault): "),

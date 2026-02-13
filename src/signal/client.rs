@@ -18,16 +18,30 @@ use presage::model::messages::Received;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tracing::{debug, error, info, warn};
 
 /// Production Signal client implementation
 ///
 /// When constructed with a presage Manager (`with_manager`), delegates
 /// operations to the real Signal Protocol. Without a Manager (`new`),
 /// uses in-memory stubs suitable for testing.
+///
+/// ## Websocket Architecture
+///
+/// The Manager is cloned: one copy runs a persistent `receive_messages` stream
+/// in a background `spawn_local` task, feeding messages to an mpsc channel.
+/// The other copy (behind `Arc<Mutex>`) handles sends (create_group, send_message, etc).
+/// Both share the underlying store via Arc, avoiding the 4409 "Connected elsewhere"
+/// error that occurred when receive_messages recreated websockets every poll cycle.
 pub struct LibsignalClient {
     service_id: ServiceId,
     store: StromaStore,
+    /// Manager for send operations (create_group, send_message, etc.)
     manager: Option<Arc<Mutex<Manager<StromaStore, Registered>>>>,
+    /// Cloned Manager for the receive loop (consumed by start_receive_loop)
+    manager_for_receive: Option<Manager<StromaStore, Registered>>,
+    /// Channel receiver for incoming messages (populated by background receive task)
+    message_rx: Option<Arc<std::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Message>>>>,
     /// Maps group ID to master key bytes
     group_keys: Arc<Mutex<HashMap<GroupId, [u8; 32]>>>,
     /// Tracks group members in-memory
@@ -41,24 +55,78 @@ impl LibsignalClient {
             service_id,
             store,
             manager: None,
+            manager_for_receive: None,
+            message_rx: None,
             group_keys: Arc::new(Mutex::new(HashMap::new())),
             group_members: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     /// Create client with a presage Manager (for production)
+    ///
+    /// The manager is cloned: the original is used for sends, the clone
+    /// is reserved for the persistent receive_messages stream.
     pub fn with_manager(
         service_id: ServiceId,
         store: StromaStore,
         manager: Manager<StromaStore, Registered>,
     ) -> Self {
+        let manager_for_receive = manager.clone();
         Self {
             service_id,
             store,
             manager: Some(Arc::new(Mutex::new(manager))),
+            manager_for_receive: Some(manager_for_receive),
+            message_rx: None,
             group_keys: Arc::new(Mutex::new(HashMap::new())),
             group_members: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Start the background receive loop.
+    ///
+    /// Must be called from within a `tokio::task::LocalSet` context (uses `spawn_local`).
+    /// Consumes the receive Manager clone and spawns a background task that feeds
+    /// incoming messages to an mpsc channel. Call this once before the bot event loop.
+    pub async fn start_receive_loop(&mut self) -> SignalResult<()> {
+        let mut manager = self.manager_for_receive.take().ok_or_else(|| {
+            SignalError::NotImplemented(
+                "start_receive_loop: no Manager available (already started or test mode)"
+                    .to_string(),
+            )
+        })?;
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        self.message_rx = Some(Arc::new(std::sync::Mutex::new(rx)));
+
+        info!("starting persistent receive_messages stream");
+
+        tokio::task::spawn_local(async move {
+            use futures::StreamExt;
+
+            let stream = match manager.receive_messages().await {
+                Ok(s) => s,
+                Err(e) => {
+                    error!("failed to start receive_messages stream: {:?}", e);
+                    return;
+                }
+            };
+
+            futures::pin_mut!(stream);
+
+            while let Some(received) = stream.next().await {
+                if let Some(msg) = convert_received(received) {
+                    if tx.send(msg).is_err() {
+                        debug!("message channel closed, stopping receive loop");
+                        break;
+                    }
+                }
+            }
+
+            warn!("receive_messages stream ended");
+        });
+
+        Ok(())
     }
 }
 
@@ -68,43 +136,15 @@ impl Clone for LibsignalClient {
             service_id: self.service_id.clone(),
             store: self.store.clone(),
             manager: self.manager.as_ref().map(Arc::clone),
+            manager_for_receive: None, // Clone doesn't get the receive manager
+            message_rx: self.message_rx.as_ref().map(Arc::clone),
             group_keys: Arc::clone(&self.group_keys),
             group_members: Arc::clone(&self.group_members),
         }
     }
 }
 
-/// Run a !Send presage Manager future on a blocking thread.
-///
-/// Presage Manager methods produce futures that capture `ThreadRng` and non-Send
-/// protocol store trait objects. This helper moves the async work to a blocking
-/// thread where Send constraints don't apply.
-async fn run_manager_op<F, T>(
-    manager: &Arc<Mutex<Manager<StromaStore, Registered>>>,
-    op: F,
-) -> Result<T, SignalError>
-where
-    F: FnOnce(
-            &mut Manager<StromaStore, Registered>,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = T> + '_>>
-        + Send
-        + 'static,
-    T: Send + 'static,
-{
-    let manager = Arc::clone(manager);
-    let handle = tokio::runtime::Handle::current();
-
-    tokio::task::spawn_blocking(move || {
-        handle.block_on(async {
-            let mut mgr = manager.lock().await;
-            op(&mut mgr).await
-        })
-    })
-    .await
-    .map_err(|e| SignalError::Network(format!("Manager task failed: {:?}", e)))
-}
-
-#[async_trait]
+#[async_trait(?Send)]
 impl SignalClient for LibsignalClient {
     async fn send_message(&self, recipient: &ServiceId, text: &str) -> SignalResult<()> {
         let manager = self.manager.as_ref().ok_or_else(|| {
@@ -131,18 +171,14 @@ impl SignalClient for LibsignalClient {
             )
             .ok_or_else(|| SignalError::Protocol(format!("Invalid service ID: {}", recipient.0)))?;
 
-        run_manager_op(manager, move |mgr| {
-            Box::pin(async move {
-                mgr.send_message(
-                    presage_service_id,
-                    ContentBody::DataMessage(data_message),
-                    timestamp,
-                )
-                .await
-                .map_err(|e| SignalError::Network(format!("send_message failed: {:?}", e)))
-            })
-        })
-        .await??;
+        let mut mgr = manager.lock().await;
+        mgr.send_message(
+            presage_service_id,
+            ContentBody::DataMessage(data_message),
+            timestamp,
+        )
+        .await
+        .map_err(|e| SignalError::Network(format!("send_message failed: {:?}", e)))?;
 
         Ok(())
     }
@@ -173,33 +209,61 @@ impl SignalClient for LibsignalClient {
             ..Default::default()
         };
 
-        run_manager_op(manager, move |mgr| {
-            Box::pin(async move {
-                mgr.send_message_to_group(
-                    &master_key,
-                    ContentBody::DataMessage(data_message),
-                    timestamp,
-                )
-                .await
-                .map_err(|e| SignalError::Network(format!("send_group_message failed: {:?}", e)))
-            })
-        })
-        .await??;
+        let mut mgr = manager.lock().await;
+        mgr.send_message_to_group(
+            &master_key,
+            ContentBody::DataMessage(data_message),
+            timestamp,
+        )
+        .await
+        .map_err(|e| SignalError::Network(format!("send_group_message failed: {:?}", e)))?;
 
         Ok(())
     }
 
-    async fn create_group(&self, name: &str) -> SignalResult<GroupId> {
+    async fn create_group(
+        &self,
+        name: &str,
+        members: &[ServiceId],
+    ) -> SignalResult<(GroupId, Vec<ServiceId>)> {
         if let Some(manager) = &self.manager {
-            let name = name.to_string();
-            let master_key = run_manager_op(manager, move |mgr| {
-                Box::pin(async move {
-                    mgr.create_group(name, vec![])
+            use presage::store::ContentsStore;
+
+            let mut mgr = manager.lock().await;
+
+            // Look up profile keys for each member (None if not found)
+            let mut members_with_keys = Vec::new();
+            for member in members {
+                let uuid: uuid::Uuid = member.0.parse().map_err(|e| {
+                    SignalError::InvalidMessage(format!("Invalid UUID '{}': {}", member.0, e))
+                })?;
+                let aci: presage::libsignal_service::protocol::Aci = uuid.into();
+                let service_id: presage::libsignal_service::protocol::ServiceId = aci.into();
+
+                // Try contacts first, then profile_keys store
+                let profile_key: Option<presage::libsignal_service::zkgroup::profiles::ProfileKey> =
+                    if let Some(pk) = mgr
+                        .store()
+                        .contact_by_id(&uuid)
                         .await
-                        .map_err(|e| SignalError::Network(format!("create_group failed: {:?}", e)))
-                })
-            })
-            .await??;
+                        .ok()
+                        .flatten()
+                        .and_then(|c| <Vec<u8> as TryInto<[u8; 32]>>::try_into(c.profile_key).ok())
+                        .map(presage::libsignal_service::zkgroup::profiles::ProfileKey::create)
+                    {
+                        Some(pk)
+                    } else {
+                        mgr.store().profile_key(&service_id).await.ok().flatten()
+                    };
+
+                // None = member will be added as pending invite (no profile key needed)
+                members_with_keys.push((aci, profile_key));
+            }
+
+            let (master_key, pending_sids) = mgr
+                .create_group(name, members_with_keys)
+                .await
+                .map_err(|e| SignalError::Network(format!("create_group failed: {:?}", e)))?;
 
             let group_id = GroupId(master_key.to_vec());
 
@@ -208,11 +272,20 @@ impl SignalClient for LibsignalClient {
                 keys.insert(group_id.clone(), master_key);
             }
             {
-                let mut members = self.group_members.lock().await;
-                members.insert(group_id.clone(), HashSet::new());
+                let mut member_set = self.group_members.lock().await;
+                let set = member_set.entry(group_id.clone()).or_default();
+                for m in members {
+                    set.insert(m.clone());
+                }
             }
 
-            Ok(group_id)
+            // Convert presage ServiceIds to stroma ServiceIds
+            let pending_members: Vec<ServiceId> = pending_sids
+                .iter()
+                .map(|sid| ServiceId(sid.service_id_string()))
+                .collect();
+
+            Ok((group_id, pending_members))
         } else {
             // Stub: in-memory only (for tests without Manager)
             let group_id = GroupId(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
@@ -222,10 +295,41 @@ impl SignalClient for LibsignalClient {
                 keys.insert(group_id.clone(), master_key);
             }
             {
-                let mut members = self.group_members.lock().await;
-                members.insert(group_id.clone(), HashSet::new());
+                let mut member_set = self.group_members.lock().await;
+                let set = member_set.entry(group_id.clone()).or_default();
+                for m in members {
+                    set.insert(m.clone());
+                }
             }
-            Ok(group_id)
+            Ok((group_id, vec![]))
+        }
+    }
+
+    async fn send_group_invite(&self, group: &GroupId, member: &ServiceId) -> SignalResult<()> {
+        if let Some(manager) = &self.manager {
+            let master_key = {
+                let keys = self.group_keys.lock().await;
+                *keys.get(group).ok_or_else(|| {
+                    SignalError::GroupNotFound(format!("Group not found: {}", group))
+                })?
+            };
+
+            let uuid: uuid::Uuid = member.0.parse().map_err(|e| {
+                SignalError::InvalidMessage(format!("Invalid UUID '{}': {}", member.0, e))
+            })?;
+            let aci: presage::libsignal_service::protocol::Aci = uuid.into();
+
+            let mut mgr = manager.lock().await;
+            mgr.send_group_invite_dm(&master_key, aci)
+                .await
+                .map_err(|e| {
+                    SignalError::Network(format!("send_group_invite_dm failed: {:?}", e))
+                })?;
+
+            Ok(())
+        } else {
+            // Stub: no-op for tests without Manager
+            Ok(())
         }
     }
 
@@ -299,16 +403,11 @@ impl SignalClient for LibsignalClient {
             })?
         };
 
-        let question = question.to_string();
-
-        run_manager_op(manager, move |mgr| {
-            Box::pin(async move {
-                mgr.send_poll(&master_key, question, options, allow_multiple)
-                    .await
-                    .map_err(|e| SignalError::Network(format!("create_poll failed: {:?}", e)))
-            })
-        })
-        .await?
+        let mut mgr = manager.lock().await;
+        Ok(mgr
+            .send_poll(&master_key, question, options, allow_multiple)
+            .await
+            .map_err(|e| SignalError::Network(format!("create_poll failed: {:?}", e)))?)
     }
 
     async fn terminate_poll(&self, group: &GroupId, poll_timestamp: u64) -> SignalResult<()> {
@@ -323,14 +422,10 @@ impl SignalClient for LibsignalClient {
             })?
         };
 
-        run_manager_op(manager, move |mgr| {
-            Box::pin(async move {
-                mgr.terminate_poll(&master_key, poll_timestamp)
-                    .await
-                    .map_err(|e| SignalError::Network(format!("terminate_poll failed: {:?}", e)))
-            })
-        })
-        .await??;
+        let mut mgr = manager.lock().await;
+        mgr.terminate_poll(&master_key, poll_timestamp)
+            .await
+            .map_err(|e| SignalError::Network(format!("terminate_poll failed: {:?}", e)))?;
 
         Ok(())
     }
@@ -347,29 +442,25 @@ impl SignalClient for LibsignalClient {
             })?
         };
 
-        run_manager_op(manager, move |mgr| {
-            Box::pin(async move {
-                use presage::store::ContentsStore;
-                // Fetch group from store
-                let presage_group: presage::model::groups::Group = mgr
-                    .store()
-                    .group(master_key)
-                    .await
-                    .map_err(|e| SignalError::Store(format!("Failed to get group: {:?}", e)))?
-                    .ok_or_else(|| SignalError::GroupNotFound("Group not in store".to_string()))?;
+        use presage::store::ContentsStore;
 
-                Ok::<GroupInfo, SignalError>(GroupInfo {
-                    name: presage_group.title,
-                    description: presage_group.description,
-                    disappearing_messages_timer: presage_group
-                        .disappearing_messages_timer
-                        .map(|t| t.duration),
-                    // TODO: Update when presage Group struct includes announcements_only field
-                    announcements_only: false,
-                })
-            })
+        let mgr = manager.lock().await;
+        let presage_group: presage::model::groups::Group = mgr
+            .store()
+            .group(master_key)
+            .await
+            .map_err(|e| SignalError::Store(format!("Failed to get group: {:?}", e)))?
+            .ok_or_else(|| SignalError::GroupNotFound("Group not in store".to_string()))?;
+
+        Ok(GroupInfo {
+            name: presage_group.title,
+            description: presage_group.description,
+            disappearing_messages_timer: presage_group
+                .disappearing_messages_timer
+                .map(|t| t.duration),
+            // TODO: Update when presage Group struct includes announcements_only field
+            announcements_only: false,
         })
-        .await?
     }
 
     async fn set_group_name(&self, group: &GroupId, name: &str) -> SignalResult<()> {
@@ -384,16 +475,10 @@ impl SignalClient for LibsignalClient {
             })?
         };
 
-        let name = name.to_string();
-
-        run_manager_op(manager, move |mgr| {
-            Box::pin(async move {
-                mgr.update_group_title(&master_key, name)
-                    .await
-                    .map_err(|e| SignalError::Network(format!("set_group_name failed: {:?}", e)))
-            })
-        })
-        .await??;
+        let mut mgr = manager.lock().await;
+        mgr.update_group_title(&master_key, name)
+            .await
+            .map_err(|e| SignalError::Network(format!("set_group_name failed: {:?}", e)))?;
 
         Ok(())
     }
@@ -427,39 +512,18 @@ impl SignalClient for LibsignalClient {
     }
 
     async fn receive_messages(&self) -> SignalResult<Vec<Message>> {
-        let manager = self.manager.as_ref().ok_or_else(|| {
-            SignalError::NotImplemented("receive_messages: no Manager configured".to_string())
+        let rx = self.message_rx.as_ref().ok_or_else(|| {
+            SignalError::NotImplemented(
+                "receive_messages: receive loop not started (call start_receive_loop first)"
+                    .to_string(),
+            )
         })?;
 
-        use futures::StreamExt;
-
-        let manager = Arc::clone(manager);
-        let handle = tokio::runtime::Handle::current();
-
-        let messages = tokio::task::spawn_blocking(move || {
-            handle.block_on(async {
-                let mut mgr = manager.lock().await;
-                let stream = mgr.receive_messages().await.map_err(|e| {
-                    SignalError::Network(format!("receive_messages failed: {:?}", e))
-                })?;
-
-                let mut messages = Vec::new();
-                futures::pin_mut!(stream);
-                while let Some(received) = stream.next().await {
-                    if let Some(msg) = convert_received(received) {
-                        messages.push(msg);
-                    }
-                    if !messages.is_empty() {
-                        break;
-                    }
-                }
-
-                Ok::<_, SignalError>(messages)
-            })
-        })
-        .await
-        .map_err(|e| SignalError::Network(format!("receive task failed: {:?}", e)))??;
-
+        let mut messages = Vec::new();
+        let mut rx_guard = rx.lock().unwrap();
+        while let Ok(msg) = rx_guard.try_recv() {
+            messages.push(msg);
+        }
         Ok(messages)
     }
 
@@ -519,10 +583,10 @@ mod tests {
         let client = create_test_client("create_group").await;
         let group_name = "Test Group";
 
-        let result = client.create_group(group_name).await;
+        let result = client.create_group(group_name, &[]).await;
 
         assert!(result.is_ok(), "create_group should succeed");
-        let group_id = result.unwrap();
+        let (group_id, _pending) = result.unwrap();
         assert!(!group_id.0.is_empty(), "GroupId should not be empty");
     }
 
@@ -530,7 +594,7 @@ mod tests {
     async fn test_add_group_member() {
         let client = create_test_client("add_group_member").await;
         let group_name = "Test Group";
-        let group_id = client.create_group(group_name).await.unwrap();
+        let (group_id, _pending) = client.create_group(group_name, &[]).await.unwrap();
         let member_id = ServiceId("member-aci".to_string());
 
         let result = client.add_group_member(&group_id, &member_id).await;
@@ -542,7 +606,7 @@ mod tests {
     async fn test_remove_group_member() {
         let client = create_test_client("remove_group_member").await;
         let group_name = "Test Group";
-        let group_id = client.create_group(group_name).await.unwrap();
+        let (group_id, _pending) = client.create_group(group_name, &[]).await.unwrap();
         let member_id = ServiceId("member-aci".to_string());
 
         client
@@ -560,7 +624,7 @@ mod tests {
         let client = create_test_client("create_group_empty_name").await;
         let group_name = "";
 
-        let result = client.create_group(group_name).await;
+        let result = client.create_group(group_name, &[]).await;
 
         assert!(
             result.is_ok(),
@@ -590,7 +654,7 @@ mod tests {
     async fn test_remove_nonexistent_member() {
         let client = create_test_client("remove_nonexistent_member").await;
         let group_name = "Test Group";
-        let group_id = client.create_group(group_name).await.unwrap();
+        let (group_id, _pending) = client.create_group(group_name, &[]).await.unwrap();
         let member_id = ServiceId("nonexistent-member".to_string());
 
         let result = client.remove_group_member(&group_id, &member_id).await;
@@ -623,7 +687,7 @@ mod tests {
     #[tokio::test]
     async fn test_send_group_message_not_implemented() {
         let client = create_test_client("send_group_message_not_impl").await;
-        let group_id = client.create_group("Test Group").await.unwrap();
+        let (group_id, _pending) = client.create_group("Test Group", &[]).await.unwrap();
 
         let result = client.send_group_message(&group_id, "hello group").await;
 
@@ -638,7 +702,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_poll_not_implemented() {
         let client = create_test_client("create_poll_not_impl").await;
-        let group_id = client.create_group("Test Group").await.unwrap();
+        let (group_id, _pending) = client.create_group("Test Group", &[]).await.unwrap();
 
         let result = client
             .create_poll(
@@ -660,7 +724,7 @@ mod tests {
     #[tokio::test]
     async fn test_terminate_poll_not_implemented() {
         let client = create_test_client("terminate_poll_not_impl").await;
-        let group_id = client.create_group("Test Group").await.unwrap();
+        let (group_id, _pending) = client.create_group("Test Group", &[]).await.unwrap();
 
         let result = client.terminate_poll(&group_id, 12345).await;
 
@@ -698,7 +762,7 @@ mod tests {
         let client = create_test_client("clone_shares_state").await;
         let cloned = client.clone();
 
-        let group_id = client.create_group("Shared Group").await.unwrap();
+        let (group_id, _pending) = client.create_group("Shared Group", &[]).await.unwrap();
 
         let member = ServiceId("new-member".to_string());
         let result = cloned.add_group_member(&group_id, &member).await;
