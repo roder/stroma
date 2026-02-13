@@ -552,12 +552,12 @@ impl SignalClient for LibsignalClient {
                 })?;
 
                 let mut mgr = manager.lock().await;
-                let aci = mgr.resolve_phone_number(&phone).await.map_err(|e| {
+                let service_id = mgr.resolve_phone_number(&phone).await.map_err(|e| {
                     SignalError::Network(format!("resolve_phone_number failed: {:?}", e))
                 })?;
 
-                match aci {
-                    Some(aci) => Ok(ServiceId(aci.service_id_string())),
+                match service_id {
+                    Some(id) => Ok(ServiceId(id.service_id_string())),
                     None => Err(SignalError::InvalidMessage(format!(
                         "Phone number '{}' not found on Signal",
                         phone
