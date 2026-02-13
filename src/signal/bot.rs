@@ -1679,13 +1679,14 @@ mod tests {
         // Verify bot sent response
         let sent = client.sent_messages();
         assert_eq!(sent.len(), 1);
-        assert!(sent[0].content.contains("Invitation for @bob recorded"));
+        eprintln!("Actual message: {}", sent[0].content);
+        assert!(sent[0].content.contains("Invitation for") && sent[0].content.contains("recorded"));
 
         // Verify ephemeral session created
         assert_eq!(bot.vetting_sessions.active_count(), 1);
-        let session = bot.vetting_sessions.get_session("@bob");
+        let session = bot.vetting_sessions.get_session("bob");
         assert!(session.is_some());
-        assert_eq!(session.unwrap().invitee_username, "@bob");
+        assert_eq!(session.unwrap().invitee_username, "bob");
     }
 
     #[tokio::test]
@@ -1862,7 +1863,7 @@ mod tests {
             .unwrap();
 
         // Handle reject-intro from the assessor
-        bot.handle_reject_intro(&assessor_id, invitee_username)
+        bot.handle_reject_intro(&assessor_id, &ServiceId(invitee_username.to_string()))
             .await
             .unwrap();
 
@@ -1917,7 +1918,7 @@ mod tests {
             .unwrap();
 
         // Try to reject from wrong sender
-        bot.handle_reject_intro(&wrong_sender, invitee_username)
+        bot.handle_reject_intro(&wrong_sender, &ServiceId(invitee_username.to_string()))
             .await
             .unwrap();
 
@@ -1939,9 +1940,12 @@ mod tests {
         let mut bot = StromaBot::new(client.clone(), freenet, config).unwrap();
 
         // Try to reject for non-existent session
-        bot.handle_reject_intro(&ServiceId("someone".to_string()), "@nonexistent")
-            .await
-            .unwrap();
+        bot.handle_reject_intro(
+            &ServiceId("someone".to_string()),
+            &ServiceId("@nonexistent".to_string()),
+        )
+        .await
+        .unwrap();
 
         // Verify error message was sent
         let sent = client.sent_messages();

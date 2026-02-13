@@ -177,6 +177,11 @@ impl SignalClient for MockSignalClient {
         Ok(())
     }
 
+    async fn resolve_identifier(&self, identifier: &str) -> SignalResult<ServiceId> {
+        // Test stub: treat as direct ServiceId
+        Ok(ServiceId(identifier.to_string()))
+    }
+
     async fn receive_messages(&self) -> SignalResult<Vec<Message>> {
         Ok(Vec::new())
     }

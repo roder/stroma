@@ -444,7 +444,9 @@ mod tests {
 
         let from = ServiceId("alice".to_string());
         let freenet = MockFreenetClient::new();
-        let result = manager.handle_add_seed(&freenet, &from, "@bob").await;
+        let result = manager
+            .handle_add_seed(&freenet, &from, &ServiceId("@bob".to_string()))
+            .await;
 
         assert!(result.is_err());
     }
@@ -463,7 +465,9 @@ mod tests {
         // Try to add seed as someone else
         let other = ServiceId("eve".to_string());
         let freenet = MockFreenetClient::new();
-        let result = manager.handle_add_seed(&freenet, &other, "@bob").await;
+        let result = manager
+            .handle_add_seed(&freenet, &other, &ServiceId("@bob".to_string()))
+            .await;
 
         assert!(matches!(result, Err(SignalError::Unauthorized)));
     }
@@ -481,7 +485,9 @@ mod tests {
             .unwrap();
 
         // Add first seed
-        let result = manager.handle_add_seed(&freenet, &initiator, "@bob").await;
+        let result = manager
+            .handle_add_seed(&freenet, &initiator, &ServiceId("@bob".to_string()))
+            .await;
         assert!(result.is_ok());
 
         match manager.state() {
@@ -493,7 +499,7 @@ mod tests {
 
         // Add second seed
         let result = manager
-            .handle_add_seed(&freenet, &initiator, "@charlie")
+            .handle_add_seed(&freenet, &initiator, &ServiceId("@charlie".to_string()))
             .await;
         assert!(result.is_ok());
 
@@ -515,12 +521,14 @@ mod tests {
 
         // Add seed
         manager
-            .handle_add_seed(&freenet, &initiator, "@bob")
+            .handle_add_seed(&freenet, &initiator, &ServiceId("@bob".to_string()))
             .await
             .unwrap();
 
         // Try to add same seed again
-        let result = manager.handle_add_seed(&freenet, &initiator, "@bob").await;
+        let result = manager
+            .handle_add_seed(&freenet, &initiator, &ServiceId("@bob".to_string()))
+            .await;
         assert!(result.is_err());
     }
 
@@ -550,11 +558,11 @@ mod tests {
             .unwrap();
 
         manager
-            .handle_add_seed(&freenet, &initiator, "@bob")
+            .handle_add_seed(&freenet, &initiator, &ServiceId("@bob".to_string()))
             .await
             .unwrap();
         manager
-            .handle_add_seed(&freenet, &initiator, "@charlie")
+            .handle_add_seed(&freenet, &initiator, &ServiceId("@charlie".to_string()))
             .await
             .unwrap();
 
@@ -596,11 +604,11 @@ mod tests {
             .unwrap();
 
         manager
-            .handle_add_seed(&freenet, &initiator, "@bob")
+            .handle_add_seed(&freenet, &initiator, &ServiceId("@bob".to_string()))
             .await
             .unwrap();
         manager
-            .handle_add_seed(&freenet, &initiator, "@charlie")
+            .handle_add_seed(&freenet, &initiator, &ServiceId("@charlie".to_string()))
             .await
             .unwrap();
 
