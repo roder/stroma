@@ -247,7 +247,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                         }
                         
                         self.bootstrap_manager
-                            .handle_add_seed(&self.freenet, &message.sender, &service_id)
+                            .handle_add_seed(&self.freenet, &message.sender, &service_id, username)
                             .await?;
                     }
                     Command::Invite {
@@ -259,7 +259,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                         // Reject PNI - groups require ACI
                         if invitee_id.0.starts_with("PNI:") {
                             return Err(SignalError::InvalidMessage(format!(
-                                "Cannot invite user: Account '{}' has privacy settings that prevent ACI disclosure. \
+                                "Cannot invite user: Account '{}' due to privacy settings. \
                                  Ask them to share their Signal username instead, or adjust privacy settings.",
                                 username
                             )));
@@ -274,7 +274,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                         // Reject PNI - trust operations require ACI
                         if target_id.0.starts_with("PNI:") {
                             return Err(SignalError::InvalidMessage(format!(
-                                "Cannot vouch: Account '{}' has privacy settings that prevent ACI disclosure. \
+                                "Cannot vouch: Account '{}' due to privacy settings. \
                                  Ask them to share their Signal username instead.",
                                 username
                             )));
@@ -288,7 +288,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                         // Reject PNI - trust operations require ACI
                         if invitee_id.0.starts_with("PNI:") {
                             return Err(SignalError::InvalidMessage(format!(
-                                "Cannot reject intro: Account '{}' has privacy settings that prevent ACI disclosure. \
+                                "Cannot reject intro: Account '{}' due to privacy settings. \
                                  Ask them to share their Signal username instead.",
                                 username
                             )));
