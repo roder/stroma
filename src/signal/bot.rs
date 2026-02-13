@@ -236,6 +236,16 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                     }
                     Command::AddSeed { ref username } => {
                         let service_id = self.client.resolve_identifier(username).await?;
+                        
+                        // Reject PNI - groups require ACI
+                        if service_id.0.starts_with("PNI:") {
+                            return Err(SignalError::InvalidMessage(format!(
+                                "Cannot add user: Account '{}' has privacy settings that prevent ACI disclosure. \
+                                 Ask them to share their Signal username instead, or adjust privacy settings.",
+                                username
+                            )));
+                        }
+                        
                         self.bootstrap_manager
                             .handle_add_seed(&self.freenet, &message.sender, &service_id)
                             .await?;
@@ -245,15 +255,45 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                         ref context,
                     } => {
                         let invitee_id = self.client.resolve_identifier(username).await?;
+                        
+                        // Reject PNI - groups require ACI
+                        if invitee_id.0.starts_with("PNI:") {
+                            return Err(SignalError::InvalidMessage(format!(
+                                "Cannot invite user: Account '{}' has privacy settings that prevent ACI disclosure. \
+                                 Ask them to share their Signal username instead, or adjust privacy settings.",
+                                username
+                            )));
+                        }
+                        
                         self.handle_invite(&message.sender, &invitee_id, context.as_deref())
                             .await?;
                     }
                     Command::Vouch { ref username } => {
                         let target_id = self.client.resolve_identifier(username).await?;
+                        
+                        // Reject PNI - trust operations require ACI
+                        if target_id.0.starts_with("PNI:") {
+                            return Err(SignalError::InvalidMessage(format!(
+                                "Cannot vouch: Account '{}' has privacy settings that prevent ACI disclosure. \
+                                 Ask them to share their Signal username instead.",
+                                username
+                            )));
+                        }
+                        
                         self.handle_vouch(&message.sender, &target_id).await?;
                     }
                     Command::RejectIntro { ref username } => {
                         let invitee_id = self.client.resolve_identifier(username).await?;
+                        
+                        // Reject PNI - trust operations require ACI
+                        if invitee_id.0.starts_with("PNI:") {
+                            return Err(SignalError::InvalidMessage(format!(
+                                "Cannot reject intro: Account '{}' has privacy settings that prevent ACI disclosure. \
+                                 Ask them to share their Signal username instead.",
+                                username
+                            )));
+                        }
+                        
                         self.handle_reject_intro(&message.sender, &invitee_id).await?;
                     }
                     _ => {

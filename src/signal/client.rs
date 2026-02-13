@@ -518,10 +518,11 @@ impl SignalClient for LibsignalClient {
 
         match parsed {
             Identifier::Uuid(uuid_str) => {
-                // Validate UUID format
-                uuid::Uuid::parse_str(&uuid_str).map_err(|e| {
-                    SignalError::InvalidMessage(format!("Invalid UUID '{}': {}", uuid_str, e))
-                })?;
+                // Validate ServiceId format (supports both plain UUIDs and prefixed forms like "PNI:..." or "ACI:...")
+                presage::libsignal_service::protocol::ServiceId::parse_from_service_id_string(&uuid_str)
+                    .ok_or_else(|| {
+                        SignalError::InvalidMessage(format!("Invalid ServiceId '{}'", uuid_str))
+                    })?;
                 Ok(ServiceId(uuid_str))
             }
             Identifier::Username(username) => {
