@@ -36,6 +36,7 @@ allow = [
     "MPL-2.0",              # Mozilla Public License 2.0 (weak copyleft)
     "Zlib",                 # zlib License (OSI approved, FSF Free/Libre, from foldhash via presage)
     "AGPL-3.0-or-later",    # Project license
+    "AGPL-3.0-only",        # Signal libraries (libsignal-net, attest, usernames, etc.)
     "Zlib",                 # Zlib license (permissive, from foldhash via Freenet)
     "CDLA-Permissive-2.0",  # Community Data License Agreement (permissive, from webpki-roots)
 ]
