@@ -71,7 +71,7 @@ pub enum Identifier {
 /// Parse a user identifier from a string.
 ///
 /// Detection rules (in order):
-/// 1. Valid UUID format → Identifier::Uuid
+/// 1. Valid UUID format (including PNI:/ACI: prefixed forms) → Identifier::Uuid
 /// 2. Starts with '+' and all digits → Identifier::Phone
 /// 3. Otherwise → Identifier::Username
 ///
@@ -79,8 +79,9 @@ pub enum Identifier {
 pub fn parse_identifier(input: &str) -> Identifier {
     let input = input.strip_prefix('@').unwrap_or(input);
 
-    // Try parsing as UUID first
-    if uuid::Uuid::parse_str(input).is_ok() {
+    // Try parsing as ServiceId (supports plain UUIDs and "PNI:..."/"ACI:..." forms)
+    use presage::libsignal_service::protocol::ServiceId;
+    if ServiceId::parse_from_service_id_string(input).is_some() {
         return Identifier::Uuid(input.to_string());
     }
 
