@@ -544,9 +544,26 @@ impl SignalClient for LibsignalClient {
                     ))),
                 }
             }
-            Identifier::Phone(_phone) => Err(SignalError::NotImplemented(
-                "Phone number resolution not yet implemented (Phase 2)".to_string(),
-            )),
+            Identifier::Phone(phone) => {
+                let manager = self.manager.as_ref().ok_or_else(|| {
+                    SignalError::NotImplemented(
+                        "resolve_identifier (phone): no Manager configured".to_string(),
+                    )
+                })?;
+
+                let mut mgr = manager.lock().await;
+                let aci = mgr.resolve_phone_number(&phone).await.map_err(|e| {
+                    SignalError::Network(format!("resolve_phone_number failed: {:?}", e))
+                })?;
+
+                match aci {
+                    Some(aci) => Ok(ServiceId(aci.service_id_string())),
+                    None => Err(SignalError::InvalidMessage(format!(
+                        "Phone number '{}' not found on Signal",
+                        phone
+                    ))),
+                }
+            }
         }
     }
 
