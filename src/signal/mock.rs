@@ -278,6 +278,28 @@ impl SignalClient for MockSignalClient {
         Ok(())
     }
 
+    async fn resolve_identifier(&self, identifier: &str) -> SignalResult<ServiceId> {
+        use crate::signal::pm::{parse_identifier, Identifier};
+
+        let parsed = parse_identifier(identifier);
+
+        match parsed {
+            Identifier::Uuid(uuid_str) => {
+                uuid::Uuid::parse_str(&uuid_str).map_err(|e| {
+                    SignalError::InvalidMessage(format!("Invalid UUID '{}': {}", uuid_str, e))
+                })?;
+                Ok(ServiceId(uuid_str))
+            }
+            Identifier::Username(username) => {
+                // Mock: For tests, treat usernames as direct service IDs
+                Ok(ServiceId(username))
+            }
+            Identifier::Phone(_phone) => Err(SignalError::NotImplemented(
+                "Phone number resolution not yet implemented".to_string(),
+            )),
+        }
+    }
+
     async fn receive_messages(&self) -> SignalResult<Vec<Message>> {
         let mut state = self.state.lock().unwrap();
         let messages = state.incoming_messages.drain(..).collect();
