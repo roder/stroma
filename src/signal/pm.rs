@@ -76,6 +76,9 @@ pub enum Identifier {
 /// 3. Otherwise → Identifier::Username
 ///
 /// The '@' prefix is stripped if present (usernames can be entered as "@matt.42" or "matt.42").
+///
+/// Phone number validation is handled by presage's resolve_phone_number() method,
+/// which uses the phonenumber crate to parse and validate E.164 format.
 pub fn parse_identifier(input: &str) -> Identifier {
     let input = input.strip_prefix('@').unwrap_or(input);
 
@@ -86,6 +89,7 @@ pub fn parse_identifier(input: &str) -> Identifier {
     }
 
     // Check for phone number pattern (+ followed by digits)
+    // Detailed validation happens in presage's resolve_phone_number()
     if input.starts_with('+') && input[1..].chars().all(|c| c.is_ascii_digit()) {
         return Identifier::Phone(input.to_string());
     }
