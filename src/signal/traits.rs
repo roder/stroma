@@ -30,12 +30,15 @@ pub struct GroupInfo {
 }
 
 /// Message source (DM or group context)
+///
+/// Per Stroma architecture, bot belongs to ONE Signal group only.
+/// When message is from group context, bot responds to its configured group.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MessageSource {
     /// Direct message (1-on-1 PM)
     DirectMessage,
-    /// Message from a group
-    Group(GroupId),
+    /// Message from a group context (bot will respond to its configured group)
+    Group,
 }
 
 /// Signal message content

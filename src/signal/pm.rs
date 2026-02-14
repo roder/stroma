@@ -84,8 +84,26 @@ impl Command {
                 "Flag a member for trust violation",
             )),
             Command::Propose { .. } => Some((
-                "/propose <subcommand> [args...]",
-                "Propose a group decision (config change, Signal settings, etc.)",
+                "/propose <subcommand> <key> <value> [--timeout <duration>]",
+                "Propose a group decision via consensus vote\n\
+                 \n\
+                 Subcommands:\n\
+                 • signal - Change Signal group settings (name, description, disappearing messages, etc.)\n\
+                 • stroma - Change Stroma trust settings (min_vouches, thresholds, quorum, etc.)\n\
+                 \n\
+                 Examples:\n\
+                 • /propose signal name \"New Group Name\"\n\
+                 • /propose signal disappearing_messages 7d --timeout 48h\n\
+                 • /propose stroma min_vouches 3\n\
+                 • /propose stroma config_change_threshold 0.80 --timeout 72h\n\
+                 \n\
+                 Voting:\n\
+                 • Creates a Signal poll with Approve/Reject options\n\
+                 • Requires quorum (% members who must vote) and threshold (% approval needed)\n\
+                 • Executes automatically if approved after timeout\n\
+                 \n\
+                 Discovery:\n\
+                 • Use /mesh settings to see all available configuration keys and their current values",
             )),
             Command::Status { .. } => {
                 Some(("/status", "View your personal trust standing and role"))
@@ -339,17 +357,17 @@ pub fn parse_command(text: &str) -> Command {
     }
 }
 
-/// Send response to appropriate destination based on message source
+/// Send response to sender (DM)
+///
+/// PM handlers always respond via DM for privacy.
+/// Group-aware routing is handled in bot.rs for informational commands.
 async fn send_response(
     client: &impl SignalClient,
-    source: &MessageSource,
+    _source: &MessageSource,
     sender: &ServiceId,
     text: &str,
 ) -> SignalResult<()> {
-    match source {
-        MessageSource::DirectMessage => client.send_message(sender, text).await,
-        MessageSource::Group(group_id) => client.send_group_message(group_id, text).await,
-    }
+    client.send_message(sender, text).await
 }
 
 /// Handle PM command
