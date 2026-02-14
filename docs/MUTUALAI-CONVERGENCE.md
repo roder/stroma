@@ -795,6 +795,54 @@ MutualAI's own development can proceed independently, designing the PoI claim ty
 
 ---
 
+## Where MutualAI Was Stuck, Stroma Succeeds
+
+MutualAI Phase 1 was 98% complete -- but the missing 2% was load-bearing. The honest assessment from MutualAI's own exit plan: multi-node Raft consensus was not working. Nodes operated as isolated followers with independent blockchains, different block hashes, and no leader election. 5 of 6 critical requirements were unmet.
+
+The deeper problem wasn't Raft itself. It was that MutualAI was building *infrastructure* when it wanted to build *intelligence*. The months spent on libp2p networking, cluster formation, block building, and consensus algorithms were all in service of a problem that wasn't the point: getting anonymous nodes to agree on state.
+
+Stroma reframes the problem entirely. The question isn't "how do anonymous nodes agree?" It's "how do trusted people coordinate?" That's a simpler problem with a simpler answer: Signal Polls among vouched members, with state in Freenet. The infrastructure layer that MutualAI struggled with -- trust, admission, privacy, networking, consensus -- is exactly what Stroma sets out to solve, and solves in a way that's both simpler (no Raft, no libp2p) and stronger (cross-cluster vouching, HMAC-masked identities, seizure-resistant state).
+
+With Stroma as the foundation, MutualAI's scope collapses to what it always wanted to be:
+
+1. **PoI claim types** (already 90% done in `crates/pouw`)
+2. **Git social connector** (a git hook that submits commits as `/record-impact`)
+3. **RAG indexer** (reads PoI claims from Freenet, indexes for the LLM)
+4. **LLM core** (self-hosted model that consumes RAG, proposes via Signal)
+5. **AI agent** (vouched into the Stroma group, participates as a member)
+
+No blockchain. No networking layer. No consensus algorithm. No cluster management. Just the intelligence layer, on top of the trust layer.
+
+---
+
+## The Bootstrap: The Codebase Improving the Codebase
+
+The first community isn't hypothetical. It's the development team building this software. The first mutual aid network is the contributors themselves. The first Proof of Impact claims are the git commits that make the system exist.
+
+```
+Developer writes code -> git commit (Proof of Impact)
+    -> RAG indexes the commit (what changed, why, what it connects to)
+    -> AI model sees: "The PoI contract schema was added but has no tests"
+    -> AI proposes: /propose "Add property tests for PoI merge semantics"
+    -> Contributors vote in Signal Poll
+    -> Someone writes the tests -> git commit (new PoI claim)
+    -> RAG updates -> AI sees the gap is closed -> looks for the next gap
+```
+
+The organism's first act of self-awareness is building itself. The first loop iteration is the codebase improving the codebase. This isn't just a bootstrap strategy -- it's the purest possible demonstration of the philosophy. The system's first proof of impact is its own existence.
+
+From there, the roadmap is scale and repetition -- the self-referential loop:
+
+1. **The dev team** uses the system to build the system (git commits as PoI, AI suggesting improvements)
+2. **The first community group** uses the system for real coordination (food distribution, logistics, housing)
+3. **Federation** connects groups across communities (cross-group PoI matching, AI agents bridging needs)
+4. **Trust topology** shapes how each community grows (phyllotaxis for some, mycelial for others)
+5. **The loop deepens** -- each iteration's PoI data trains better AI models, which propose better actions, which produce more impact, which strengthens more trust
+
+Each step is the same pattern at a larger scale. The loop doesn't change. The organism grows.
+
+---
+
 ## The Experiment
 
 The system is the hypothesis. The running of it is the experiment. What emerges is the discovery.
