@@ -1,0 +1,30 @@
+# Stroma + MutualAI Convergence
+
+**Canonical Source**: `.beads/convergence-insight.bead`
+
+Stroma is the foundation layer of a larger system. The trust network is substrate, not product.
+
+## Core Insight
+
+Stroma's architecture (identity masking, `/propose` governance, Freenet contracts, trust topology, federation) serves double duty: trust management for Signal groups AND the foundation for trust-gated collective intelligence (MutualAI convergence).
+
+Nothing in Stroma needs to change to support this. The architecture was already right.
+
+## Key Documents
+
+- `.beads/convergence-insight.bead` -- The foundational insight and design decisions
+- `docs/MUTUALAI-CONVERGENCE.md` -- Full technical convergence vision (800+ lines)
+- `docs/TRUST-TOPOLOGY-PLATFORM.md` -- Trust topology as platform for natural patterns
+
+## When This Matters
+
+When making architectural decisions, consider:
+1. Does this decision serve trust management AND collective intelligence substrate?
+2. Does the `/propose` system remain general enough to handle Decision Windows?
+3. Does `GroupConfig` remain extensible for `poi_contract` and topology fields?
+4. Do Freenet contracts follow append-only set patterns that could serve as PoI ledgers?
+5. Is the interface between Stroma and potential consumers minimal (contract hash + Signal group)?
+
+## The Principle
+
+Creating the conditions for existence is emergence from dualistic tension. The six dualities in `philosophical-foundations.bead` are the generative source. The system holds space for tensions rather than resolving them. What emerges is discovered, not designed.
