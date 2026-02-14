@@ -240,7 +240,7 @@ impl SignalClient for LibsignalClient {
         };
 
         use presage::libsignal_service::content::ContentBody;
-        use presage::proto::DataMessage;
+        use presage::proto::{DataMessage, GroupContextV2};
 
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -250,6 +250,11 @@ impl SignalClient for LibsignalClient {
         let data_message = DataMessage {
             body: Some(text.to_string()),
             timestamp: Some(timestamp),
+            group_v2: Some(GroupContextV2 {
+                master_key: Some(master_key.to_vec()),
+                revision: Some(0),
+                ..Default::default()
+            }),
             ..Default::default()
         };
 
