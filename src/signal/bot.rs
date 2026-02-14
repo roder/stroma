@@ -417,6 +417,9 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                     Command::Help => {
                         self.handle_help(&message.sender, &message.source).await?;
                     }
+                    Command::DebugGroups => {
+                        self.handle_debug_groups(&message.sender).await?;
+                    }
                     _ => {
                         // Other commands go through normal handler
                         handle_pm_command(
@@ -1144,6 +1147,58 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         }
 
         Ok(())
+    }
+
+    /// Handle /debug-groups command (temporary - will be removed)
+    ///
+    /// Lists all Signal groups the bot is a member of. Used to extract group_id
+    /// for manual addition to config.toml after bootstrap with old code.
+    async fn handle_debug_groups(&self, sender: &ServiceId) -> SignalResult<()> {
+        let groups = self.client.list_groups().await?;
+
+        let mut response = String::from("🔍 Debug: Groups I'm a member of\n\n");
+
+        if groups.is_empty() {
+            response.push_str("No groups found.\n\n");
+            response.push_str("This means either:\n");
+            response.push_str("1. Bootstrap hasn't been completed yet\n");
+            response.push_str("2. The bot was restarted and group info is not persisted\n");
+        } else {
+            response.push_str(&format!("Found {} group(s):\n\n", groups.len()));
+            for (i, (group_id, member_count)) in groups.iter().enumerate() {
+                let group_id_hex = hex::encode(&group_id.0);
+                response.push_str(&format!(
+                    "{}. Group ID: {}\n   Members: {}\n   Configured: {}\n\n",
+                    i + 1,
+                    group_id_hex,
+                    member_count,
+                    if group_id == &self.config.group_id {
+                        "✅ YES (this is my group)"
+                    } else {
+                        "❌ NO (should leave this group)"
+                    }
+                ));
+            }
+
+            if !self.config.group_id.0.is_empty() {
+                response.push_str(&format!(
+                    "Current config.group_id: {}\n\n",
+                    hex::encode(&self.config.group_id.0)
+                ));
+            } else {
+                response.push_str("⚠️ Current config.group_id is EMPTY\n\n");
+                response.push_str("To fix: Add this to config.toml under [signal] section:\n");
+                if let Some((first_group, _)) = groups.first() {
+                    response.push_str(&format!(
+                        "group_id = \"{}\"\n\n",
+                        hex::encode(&first_group.0)
+                    ));
+                }
+                response.push_str("Then restart the bot.");
+            }
+        }
+
+        self.client.send_message(sender, &response).await
     }
 
     /// Handle /help command

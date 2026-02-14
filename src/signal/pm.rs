@@ -53,6 +53,9 @@ pub enum Command {
     /// Show help
     Help,
 
+    /// Debug: Show group info (temporary - will be removed)
+    DebugGroups,
+
     /// Unknown command
     Unknown(String),
 }
@@ -121,6 +124,10 @@ impl Command {
                 "Decline an assessment invitation (assessor only)",
             )),
             Command::Help => Some(("/help", "Show this help message")),
+            Command::DebugGroups => Some((
+                "/debug-groups",
+                "DEBUG: List all groups and show group_id (temporary command)",
+            )),
             Command::Unknown(_) => None,
         }
     }
@@ -353,6 +360,8 @@ pub fn parse_command(text: &str) -> Command {
 
         "/help" => Command::Help,
 
+        "/debug-groups" => Command::DebugGroups,
+
         _ => Command::Unknown(text.to_string()),
     }
 }
@@ -470,6 +479,17 @@ pub async fn handle_pm_command<F: crate::freenet::FreenetClient>(
                 source,
                 sender,
                 "Help command is handled by the bot.",
+            )
+            .await
+        }
+
+        Command::DebugGroups => {
+            // Temporary debug command - handled in StromaBot
+            send_response(
+                client,
+                source,
+                sender,
+                "Debug command is handled by the bot (requires client access).",
             )
             .await
         }

@@ -410,6 +410,11 @@ mod tests {
         fn service_id(&self) -> &ServiceId {
             &self.service_id
         }
+
+        async fn list_groups(&self) -> crate::signal::SignalResult<Vec<(GroupId, usize)>> {
+            // Mock: No groups
+            Ok(vec![])
+        }
     }
 
     fn test_member(id: u8) -> MemberHash {
