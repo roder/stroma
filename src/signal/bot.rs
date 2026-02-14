@@ -125,9 +125,10 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
     /// Send response to appropriate destination with defensive group_id validation
     ///
-    /// Per Stroma architecture, bot should be 1:1 with group. However, during
-    /// bootstrap or failure scenarios, group_id may not be configured yet.
-    /// This helper defensively handles that case.
+    /// Per Stroma architecture, bot should be 1:1 with group. This method:
+    /// 1. Validates group messages are from the correct group
+    /// 2. Falls back to DM if group_id not configured or wrong group
+    /// 3. Provides helpful error messages
     async fn send_response(
         &self,
         source: &MessageSource,
@@ -136,7 +137,8 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     ) -> SignalResult<()> {
         match source {
             MessageSource::DirectMessage => self.client.send_message(sender, text).await,
-            MessageSource::Group => {
+            MessageSource::Group(message_group_id) => {
+                // Validate we have a configured group
                 if self.config.group_id.0.is_empty() {
                     // Bootstrap incomplete - fall back to DM
                     warn!(
@@ -147,12 +149,32 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                         Please complete bootstrap with /create-group first.",
                         text
                     );
-                    self.client.send_message(sender, &fallback_msg).await
-                } else {
-                    self.client
-                        .send_group_message(&self.config.group_id, text)
-                        .await
+                    return self.client.send_message(sender, &fallback_msg).await;
                 }
+
+                // Validate message is from the correct group (1:1 invariant)
+                if message_group_id != &self.config.group_id {
+                    warn!(
+                        "Rejecting group message from wrong group: {} (configured: {})",
+                        hex::encode(&message_group_id.0),
+                        hex::encode(&self.config.group_id.0)
+                    );
+                    let error_msg = format!(
+                        "⚠️ I received your command from a different group than I'm configured for.\n\n\
+                        I only respond to my configured group: {}...\n\
+                        Your message came from: {}...\n\n\
+                        This bot follows a strict 1:1 bot-to-group architecture. \
+                        Please send commands in the correct group or via direct message.",
+                        &hex::encode(&self.config.group_id.0)[..16],
+                        &hex::encode(&message_group_id.0)[..16]
+                    );
+                    return self.client.send_message(sender, &error_msg).await;
+                }
+
+                // Valid group message - respond to the group
+                self.client
+                    .send_group_message(&self.config.group_id, text)
+                    .await
             }
         }
     }
@@ -333,16 +355,24 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
     /// Handle incoming message
     async fn handle_message(&mut self, message: Message) -> SignalResult<()> {
-        // Defensive: Validate message is from correct group (1:1 bot-to-group invariant)
-        // If group_id is configured and message is from a group, it must match our group
-        if !self.config.group_id.0.is_empty() && matches!(message.source, MessageSource::Group) {
-            // Group is configured - this bot belongs to a specific group
-            // We can't validate which group the message came from without extracting it,
-            // but we've already enforced leaving other groups in on_bootstrap_complete().
-            // If we somehow receive a message from another group, it's a protocol violation.
-
-            // For now, log and process (defensive - trust our cleanup logic)
-            // Future: Extract actual group ID from message and validate it matches
+        // Defensive: Validate group messages are from the configured group (1:1 invariant)
+        if let MessageSource::Group(ref msg_group_id) = message.source {
+            if !self.config.group_id.0.is_empty() && msg_group_id != &self.config.group_id {
+                // Message from wrong group - ignore it
+                warn!(
+                    "Ignoring message from wrong group: {} (configured: {})",
+                    hex::encode(&msg_group_id.0),
+                    hex::encode(&self.config.group_id.0)
+                );
+                let error_msg = format!(
+                    "⚠️ I only respond to my configured group.\n\n\
+                    Configured: {}...\n\
+                    Your message from: {}...",
+                    &hex::encode(&self.config.group_id.0)[..16],
+                    &hex::encode(&msg_group_id.0)[..16]
+                );
+                return self.client.send_message(&message.sender, &error_msg).await;
+            }
         }
 
         match message.content {
@@ -362,6 +392,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
                 if requires_dm && !matches!(message.source, MessageSource::DirectMessage) {
                     let error_msg = "❌ Trust operations must be sent via direct message (DM) for privacy. Please message me directly.";
+                    // send_response will validate group and send appropriate error
                     return self
                         .send_response(&message.source, &message.sender, error_msg)
                         .await;
