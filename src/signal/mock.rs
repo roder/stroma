@@ -325,6 +325,13 @@ impl SignalClient for MockSignalClient {
         }
         Ok(groups)
     }
+
+    async fn leave_group(&self, group: &GroupId) -> SignalResult<()> {
+        let mut state = self.state.lock().unwrap();
+        state.group_members.remove(group);
+        state.group_info.remove(group);
+        Ok(())
+    }
 }
 
 #[cfg(test)]

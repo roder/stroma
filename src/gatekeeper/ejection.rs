@@ -415,6 +415,10 @@ mod tests {
             // Mock: No groups
             Ok(vec![])
         }
+
+        async fn leave_group(&self, _group: &GroupId) -> crate::signal::traits::SignalResult<()> {
+            Ok(())
+        }
     }
 
     fn test_member(id: u8) -> MemberHash {

@@ -194,6 +194,10 @@ impl SignalClient for MockSignalClient {
         // Mock: No groups
         Ok(vec![])
     }
+
+    async fn leave_group(&self, _group: &GroupId) -> stroma::signal::traits::SignalResult<()> {
+        Ok(())
+    }
 }
 
 // === Integration Tests ===

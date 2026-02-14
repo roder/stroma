@@ -6,7 +6,7 @@ use presage::Manager;
 use std::path::PathBuf;
 use stroma::crypto::StromaKeyring;
 use stroma::freenet::MockFreenetClient;
-use stroma::signal::traits::{GroupId, ServiceId};
+use stroma::signal::traits::{GroupId, ServiceId, SignalClient};
 use stroma::signal::{BotConfig, LibsignalClient, StromaBot, StromaStore};
 
 /// Run the bot service
@@ -206,6 +206,34 @@ pub async fn execute(
         // Not yet bootstrapped - will be set during /create-group
         GroupId(vec![])
     };
+
+    // Enforce 1:1 bot-to-group invariant on startup
+    // If group_id is configured, leave all other groups
+    if !group_id.0.is_empty() {
+        println!("🧹 Enforcing 1:1 bot-to-group invariant...");
+        let all_groups = client.list_groups().await?;
+        let mut left_count = 0;
+
+        for (other_group_id, _) in all_groups {
+            if other_group_id != group_id {
+                println!(
+                    "   Leaving group: {}...",
+                    &hex::encode(&other_group_id.0)[..16]
+                );
+                match client.leave_group(&other_group_id).await {
+                    Ok(()) => left_count += 1,
+                    Err(e) => println!("   ⚠️ Failed to leave group: {}", e),
+                }
+            }
+        }
+
+        if left_count > 0 {
+            println!("   ✅ Left {} other group(s)", left_count);
+        } else {
+            println!("   ✅ Already in single group only");
+        }
+        println!();
+    }
 
     let config = BotConfig {
         group_id,

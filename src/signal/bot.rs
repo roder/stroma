@@ -188,8 +188,37 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         }
 
         // 3. Leave all other Signal groups (enforce 1:1 bot-to-group invariant)
-        // TODO: Requires SignalClient method to list all groups
-        warn!("TODO: Leave all other Signal groups (not yet implemented)");
+        let all_groups = self.client.list_groups().await?;
+        let mut left_count = 0;
+
+        for (other_group_id, _) in all_groups {
+            if other_group_id != group_id {
+                info!(
+                    "Leaving group {} (not my configured group)",
+                    hex::encode(&other_group_id.0)
+                );
+                match self.client.leave_group(&other_group_id).await {
+                    Ok(()) => {
+                        left_count += 1;
+                        info!("✅ Left group: {}", hex::encode(&other_group_id.0));
+                    }
+                    Err(e) => {
+                        warn!(
+                            "⚠️ Failed to leave group {}: {}",
+                            hex::encode(&other_group_id.0),
+                            e
+                        );
+                    }
+                }
+            }
+        }
+
+        if left_count > 0 {
+            info!(
+                "✅ Enforced 1:1 bot-to-group invariant: left {} other group(s)",
+                left_count
+            );
+        }
 
         Ok(())
     }
