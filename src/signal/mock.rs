@@ -433,6 +433,7 @@ mod tests {
 
         let message = Message {
             sender: sender.clone(),
+            source: MessageSource::DirectMessage,
             content: MessageContent::Text("/status".to_string()),
             timestamp: 1234567890,
         };

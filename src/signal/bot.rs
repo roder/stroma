@@ -227,6 +227,29 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             MessageContent::Text(text) => {
                 let command = parse_command(&text);
 
+                // Security: Trust operations MUST be in DMs (privacy-first architecture)
+                let requires_dm = matches!(
+                    command,
+                    Command::CreateGroup { .. }
+                        | Command::AddSeed { .. }
+                        | Command::Invite { .. }
+                        | Command::Vouch { .. }
+                        | Command::Flag { .. }
+                        | Command::RejectIntro { .. }
+                );
+
+                if requires_dm && !matches!(message.source, MessageSource::DirectMessage) {
+                    let error_msg = "❌ Trust operations must be sent via direct message (DM) for privacy. Please message me directly.";
+                    return match &message.source {
+                        MessageSource::DirectMessage => {
+                            self.client.send_message(&message.sender, error_msg).await
+                        }
+                        MessageSource::Group(group_id) => {
+                            self.client.send_group_message(group_id, error_msg).await
+                        }
+                    };
+                }
+
                 // Route commands to appropriate handlers
                 match command {
                     Command::CreateGroup { ref group_name } => {
@@ -298,7 +321,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                             .await?;
                     }
                     Command::Help => {
-                        self.handle_help(&message.sender).await?;
+                        self.handle_help(&message.sender, &message.source).await?;
                     }
                     _ => {
                         // Other commands go through normal handler
@@ -309,6 +332,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                             &self.config,
                             &self.persistence_manager,
                             &message.sender,
+                            &message.source,
                             command,
                         )
                         .await?;
@@ -1029,7 +1053,11 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     }
 
     /// Handle /help command
-    async fn handle_help(&mut self, sender: &ServiceId) -> SignalResult<()> {
+    async fn handle_help(
+        &mut self,
+        sender: &ServiceId,
+        source: &MessageSource,
+    ) -> SignalResult<()> {
         use crate::signal::pm::Command;
 
         // Generate help text dynamically from Command enum
@@ -1063,7 +1091,15 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
         help_text.push_str("\n💡 Tip: Use @username or username.## for Signal usernames, +15551234567 for phone numbers.");
 
-        self.client.send_message(sender, &help_text).await?;
+        // Respond to appropriate destination
+        match source {
+            MessageSource::DirectMessage => {
+                self.client.send_message(sender, &help_text).await?;
+            }
+            MessageSource::Group(group_id) => {
+                self.client.send_group_message(group_id, &help_text).await?;
+            }
+        }
         Ok(())
     }
 
@@ -1449,6 +1485,7 @@ mod tests {
 
         let message = Message {
             sender: ServiceId("user1".to_string()),
+            source: MessageSource::DirectMessage,
             content: MessageContent::Text("/status".to_string()),
             timestamp: 1234567890,
         };
@@ -1752,6 +1789,7 @@ mod tests {
 
         let message = Message {
             sender: ServiceId("alice".to_string()),
+            source: MessageSource::DirectMessage,
             content: MessageContent::Text("/invite @bob Great activist".to_string()),
             timestamp: 1234567890,
         };
@@ -2043,9 +2081,12 @@ mod tests {
         let mut bot = StromaBot::new(client.clone(), freenet, config).unwrap();
 
         // Send help command
-        bot.handle_help(&ServiceId("user1".to_string()))
-            .await
-            .unwrap();
+        bot.handle_help(
+            &ServiceId("user1".to_string()),
+            &MessageSource::DirectMessage,
+        )
+        .await
+        .unwrap();
 
         // Verify help message was sent
         let sent = client.sent_messages();

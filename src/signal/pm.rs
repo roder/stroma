@@ -339,7 +339,21 @@ pub fn parse_command(text: &str) -> Command {
     }
 }
 
+/// Send response to appropriate destination based on message source
+async fn send_response(
+    client: &impl SignalClient,
+    source: &MessageSource,
+    sender: &ServiceId,
+    text: &str,
+) -> SignalResult<()> {
+    match source {
+        MessageSource::DirectMessage => client.send_message(sender, text).await,
+        MessageSource::Group(group_id) => client.send_group_message(group_id, text).await,
+    }
+}
+
 /// Handle PM command
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_pm_command<F: crate::freenet::FreenetClient>(
     client: &impl SignalClient,
     freenet: &F,
@@ -347,34 +361,37 @@ pub async fn handle_pm_command<F: crate::freenet::FreenetClient>(
     config: &crate::signal::bot::BotConfig,
     persistence_manager: &crate::persistence::WriteBlockingManager,
     sender: &ServiceId,
+    source: &MessageSource,
     command: Command,
 ) -> SignalResult<()> {
     match command {
         Command::CreateGroup { group_name: _ } => {
             // Bootstrap commands handled by BootstrapManager
-            client
-                .send_message(
-                    sender,
-                    "Bootstrap commands must be handled by BootstrapManager. This is a stub.",
-                )
-                .await
+            send_response(
+                client,
+                source,
+                sender,
+                "Bootstrap commands must be handled by BootstrapManager. This is a stub.",
+            )
+            .await
         }
 
         Command::AddSeed { username: _ } => {
             // Bootstrap commands handled by BootstrapManager
-            client
-                .send_message(
-                    sender,
-                    "Bootstrap commands must be handled by BootstrapManager. This is a stub.",
-                )
-                .await
+            send_response(
+                client,
+                source,
+                sender,
+                "Bootstrap commands must be handled by BootstrapManager. This is a stub.",
+            )
+            .await
         }
 
         Command::Invite { username, context } => {
-            handle_invite(client, sender, &username, context.as_deref()).await
+            handle_invite(client, source, sender, &username, context.as_deref()).await
         }
 
-        Command::Vouch { username } => handle_vouch(client, sender, &username).await,
+        Command::Vouch { username } => handle_vouch(client, source, sender, &username).await,
 
         Command::Flag { username, reason } => {
             handle_flag(
@@ -382,6 +399,7 @@ pub async fn handle_pm_command<F: crate::freenet::FreenetClient>(
                 freenet,
                 group_manager,
                 config,
+                source,
                 sender,
                 &username,
                 reason.as_deref(),
@@ -390,11 +408,11 @@ pub async fn handle_pm_command<F: crate::freenet::FreenetClient>(
         }
 
         Command::Propose { subcommand, args } => {
-            handle_propose(client, sender, &subcommand, &args).await
+            handle_propose(client, source, sender, &subcommand, &args).await
         }
 
         Command::Status { username } => {
-            handle_status(client, freenet, config, sender, username.as_deref()).await
+            handle_status(client, freenet, config, source, sender, username.as_deref()).await
         }
 
         Command::Mesh { subcommand } => {
@@ -403,6 +421,7 @@ pub async fn handle_pm_command<F: crate::freenet::FreenetClient>(
                 freenet,
                 config,
                 persistence_manager,
+                source,
                 sender,
                 subcommand.as_deref(),
             )
@@ -410,38 +429,48 @@ pub async fn handle_pm_command<F: crate::freenet::FreenetClient>(
         }
 
         Command::Audit { subcommand } => {
-            handle_audit(client, freenet, config, sender, &subcommand).await
+            handle_audit(client, freenet, config, source, sender, &subcommand).await
         }
 
         Command::RejectIntro { username: _ } => {
             // RejectIntro requires access to VettingSessionManager
             // This is handled in StromaBot::handle_message instead
-            client
-                .send_message(
-                    sender,
-                    "This command must be handled by the bot's vetting session manager.",
-                )
-                .await
+            send_response(
+                client,
+                source,
+                sender,
+                "This command must be handled by the bot's vetting session manager.",
+            )
+            .await
         }
 
         Command::Help => {
             // Help requires access to all commands
             // This is handled in StromaBot::handle_message instead
-            client
-                .send_message(sender, "Help command is handled by the bot.")
-                .await
+            send_response(
+                client,
+                source,
+                sender,
+                "Help command is handled by the bot.",
+            )
+            .await
         }
 
         Command::Unknown(text) => {
-            client
-                .send_message(sender, &format!("Unknown command: {}", text))
-                .await
+            send_response(
+                client,
+                source,
+                sender,
+                &format!("Unknown command: {}", text),
+            )
+            .await
         }
     }
 }
 
 async fn handle_invite(
     client: &impl SignalClient,
+    source: &MessageSource,
     sender: &ServiceId,
     username: &str,
     context: Option<&str>,
@@ -459,11 +488,12 @@ async fn handle_invite(
         "✅ Invitation for {} recorded as first vouch.\n\nContext: {}\n\nI'm now reaching out to a member from a different cluster for the cross-cluster vouch. You'll be notified when the vetting process progresses.",
         username, context_str
     );
-    client.send_message(sender, &response).await
+    send_response(client, source, sender, &response).await
 }
 
 async fn handle_vouch(
     client: &impl SignalClient,
+    source: &MessageSource,
     sender: &ServiceId,
     username: &str,
 ) -> SignalResult<()> {
@@ -481,14 +511,16 @@ async fn handle_vouch(
         "✅ Vouch for {} recorded.\n\nTheir standing has been updated. If they've reached the 2-vouch threshold, they'll be automatically added to the Signal group.",
         username
     );
-    client.send_message(sender, &response).await
+    send_response(client, source, sender, &response).await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_flag<F: crate::freenet::FreenetClient>(
     client: &impl SignalClient,
     freenet: &F,
     _group_manager: &GroupManager<impl SignalClient>,
     config: &crate::signal::bot::BotConfig,
+    source: &MessageSource,
     sender: &ServiceId,
     username: &str,
     reason: Option<&str>,
@@ -703,11 +735,12 @@ async fn handle_flag<F: crate::freenet::FreenetClient>(
         response.push_str("No ejection triggered.");
     }
 
-    client.send_message(sender, &response).await
+    send_response(client, source, sender, &response).await
 }
 
 async fn handle_propose(
     client: &impl SignalClient,
+    source: &MessageSource,
     sender: &ServiceId,
     subcommand: &str,
     args: &[String],
@@ -718,7 +751,7 @@ async fn handle_propose(
     let propose_args = match parse_propose_args(subcommand, args) {
         Ok(args) => args,
         Err(err) => {
-            return client.send_message(sender, &format!("❌ {}", err)).await;
+            return send_response(client, source, sender, &format!("❌ {}", err)).await;
         }
     };
 
@@ -734,13 +767,14 @@ async fn handle_propose(
         "✅ Proposal created: {:?}{}",
         propose_args.subcommand, timeout_str
     );
-    client.send_message(sender, &response).await
+    send_response(client, source, sender, &response).await
 }
 
 async fn handle_status<F: crate::freenet::FreenetClient>(
     client: &impl SignalClient,
     freenet: &F,
     config: &crate::signal::bot::BotConfig,
+    source: &MessageSource,
     sender: &ServiceId,
     username: Option<&str>,
 ) -> SignalResult<()> {
@@ -753,7 +787,7 @@ async fn handle_status<F: crate::freenet::FreenetClient>(
     // GAP-04: /status shows own vouchers only, rejects third-party queries
     if username.is_some() {
         let response = "Third-party status queries are not allowed. Use /status (without username) to see your own standing.";
-        return client.send_message(sender, response).await;
+        return send_response(client, source, sender, response).await;
     }
 
     // Hash sender's ServiceId to MemberHash using mnemonic-derived key
@@ -880,7 +914,7 @@ async fn handle_status<F: crate::freenet::FreenetClient>(
         }
     ));
 
-    client.send_message(sender, &response).await
+    send_response(client, source, sender, &response).await
 }
 
 async fn handle_mesh<F: crate::freenet::FreenetClient>(
@@ -888,27 +922,29 @@ async fn handle_mesh<F: crate::freenet::FreenetClient>(
     freenet: &F,
     config: &crate::signal::bot::BotConfig,
     persistence_manager: &crate::persistence::WriteBlockingManager,
+    source: &MessageSource,
     sender: &ServiceId,
     subcommand: Option<&str>,
 ) -> SignalResult<()> {
     match subcommand {
-        None => handle_mesh_overview(client, freenet, config, sender).await,
-        Some("strength") => handle_mesh_strength(client, freenet, config, sender).await,
+        None => handle_mesh_overview(client, freenet, config, source, sender).await,
+        Some("strength") => handle_mesh_strength(client, freenet, config, source, sender).await,
         Some("replication") => {
-            handle_mesh_replication(client, persistence_manager, sender).await
+            handle_mesh_replication(client, persistence_manager, source, sender).await
         }
-        Some("config") => handle_mesh_config(client, freenet, config, sender).await,
-        Some("settings") => handle_mesh_settings(client, freenet, config, sender).await,
+        Some("config") => handle_mesh_config(client, freenet, config, source, sender).await,
+        Some("settings") => handle_mesh_settings(client, freenet, config, source, sender).await,
         Some(unknown) => {
-            client
-                .send_message(
-                    sender,
-                    &format!(
-                        "Unknown /mesh subcommand: {}.\n\nAvailable: /mesh, /mesh strength, /mesh replication, /mesh config, /mesh settings",
-                        unknown
-                    ),
-                )
-                .await
+            send_response(
+                client,
+                source,
+                sender,
+                &format!(
+                    "Unknown /mesh subcommand: {}.\n\nAvailable: /mesh, /mesh strength, /mesh replication, /mesh config, /mesh settings",
+                    unknown
+                ),
+            )
+            .await
         }
     }
 }
@@ -917,6 +953,7 @@ async fn handle_mesh_overview<F: crate::freenet::FreenetClient>(
     client: &impl SignalClient,
     freenet: &F,
     config: &crate::signal::bot::BotConfig,
+    source: &MessageSource,
     sender: &ServiceId,
 ) -> SignalResult<()> {
     use crate::freenet::traits::FreenetError;
@@ -1039,13 +1076,14 @@ async fn handle_mesh_overview<F: crate::freenet::FreenetClient>(
 
     response.push_str("\n\nFor detailed metrics: /mesh strength, /mesh replication, /mesh config");
 
-    client.send_message(sender, &response).await
+    send_response(client, source, sender, &response).await
 }
 
 async fn handle_mesh_strength<F: crate::freenet::FreenetClient>(
     client: &impl SignalClient,
     freenet: &F,
     config: &crate::signal::bot::BotConfig,
+    source: &MessageSource,
     sender: &ServiceId,
 ) -> SignalResult<()> {
     use crate::freenet::traits::FreenetError;
@@ -1189,12 +1227,13 @@ async fn handle_mesh_strength<F: crate::freenet::FreenetClient>(
         }
     }
 
-    client.send_message(sender, &response).await
+    send_response(client, source, sender, &response).await
 }
 
 async fn handle_mesh_replication(
     client: &impl SignalClient,
     persistence_manager: &crate::persistence::WriteBlockingManager,
+    source: &MessageSource,
     sender: &ServiceId,
 ) -> SignalResult<()> {
     use crate::persistence::WriteBlockingState;
@@ -1273,13 +1312,14 @@ async fn handle_mesh_replication(
         .push_str("across multiple bots. Recovery uses the reciprocal persistence network.\n\n");
     response.push_str("Technical details: docs/PERSISTENCE.md");
 
-    client.send_message(sender, &response).await
+    send_response(client, source, sender, &response).await
 }
 
 async fn handle_mesh_config<F: crate::freenet::FreenetClient>(
     client: &impl SignalClient,
     freenet: &F,
     config: &crate::signal::bot::BotConfig,
+    source: &MessageSource,
     sender: &ServiceId,
 ) -> SignalResult<()> {
     use crate::freenet::traits::FreenetError;
@@ -1364,13 +1404,14 @@ async fn handle_mesh_config<F: crate::freenet::FreenetClient>(
 
     response.push_str("\n💡 Configuration changes require operator approval via /propose.");
 
-    client.send_message(sender, &response).await
+    send_response(client, source, sender, &response).await
 }
 
 async fn handle_mesh_settings<F: crate::freenet::FreenetClient>(
     client: &impl SignalClient,
     freenet: &F,
     config: &crate::signal::bot::BotConfig,
+    source: &MessageSource,
     sender: &ServiceId,
 ) -> SignalResult<()> {
     use crate::freenet::traits::FreenetError;
@@ -1505,13 +1546,15 @@ async fn handle_mesh_settings<F: crate::freenet::FreenetClient>(
 
     response.push_str("💡 Example: /propose signal disappearing_messages 7d --timeout 48h");
 
-    client.send_message(sender, &response).await
+    send_response(client, source, sender, &response).await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_audit<F: crate::freenet::FreenetClient>(
     client: &impl SignalClient,
     freenet: &F,
     config: &crate::signal::bot::BotConfig,
+    source: &MessageSource,
     sender: &ServiceId,
     subcommand: &str,
 ) -> SignalResult<()> {
@@ -1590,7 +1633,7 @@ async fn handle_audit<F: crate::freenet::FreenetClient>(
                 format_audit_log(&entries)
             };
 
-            client.send_message(sender, &response).await
+            send_response(client, source, sender, &response).await
         }
         "bootstrap" => {
             // Show only bootstrap actions
@@ -1609,7 +1652,7 @@ async fn handle_audit<F: crate::freenet::FreenetClient>(
                 format_audit_log(&entries)
             };
 
-            client.send_message(sender, &response).await
+            send_response(client, source, sender, &response).await
         }
         _ => {
             client
@@ -1807,7 +1850,14 @@ mod tests {
         let client = MockSignalClient::new(ServiceId("bot".to_string()));
         let sender = ServiceId("user1".to_string());
 
-        let result = handle_invite(&client, &sender, "@alice", Some("context")).await;
+        let result = handle_invite(
+            &client,
+            &MessageSource::DirectMessage,
+            &sender,
+            "@alice",
+            Some("context"),
+        )
+        .await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
@@ -1850,7 +1900,15 @@ mod tests {
         let state_bytes = to_cbor(&test_state).unwrap();
         freenet.put_state(contract_hash, ContractState { data: state_bytes });
 
-        let result = handle_status(&client, &freenet, &config, &sender, None).await;
+        let result = handle_status(
+            &client,
+            &freenet,
+            &config,
+            &MessageSource::DirectMessage,
+            &sender,
+            None,
+        )
+        .await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
@@ -1881,7 +1939,15 @@ mod tests {
         let state_bytes = to_cbor(&test_state).unwrap();
         freenet.put_state(contract_hash, ContractState { data: state_bytes });
 
-        let result = handle_status(&client, &freenet, &config, &sender, Some("@alice")).await;
+        let result = handle_status(
+            &client,
+            &freenet,
+            &config,
+            &MessageSource::DirectMessage,
+            &sender,
+            Some("@alice"),
+        )
+        .await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
@@ -1924,7 +1990,15 @@ mod tests {
         let state_bytes = to_cbor(&test_state).unwrap();
         freenet.put_state(contract_hash, ContractState { data: state_bytes });
 
-        let result = handle_audit(&client, &freenet, &config, &sender, "operator").await;
+        let result = handle_audit(
+            &client,
+            &freenet,
+            &config,
+            &MessageSource::DirectMessage,
+            &sender,
+            "operator",
+        )
+        .await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
@@ -1969,7 +2043,15 @@ mod tests {
         let state_bytes = to_cbor(&test_state).unwrap();
         freenet.put_state(contract_hash, ContractState { data: state_bytes });
 
-        let result = handle_audit(&client, &freenet, &config, &sender, "bootstrap").await;
+        let result = handle_audit(
+            &client,
+            &freenet,
+            &config,
+            &MessageSource::DirectMessage,
+            &sender,
+            "bootstrap",
+        )
+        .await;
         assert!(result.is_ok());
 
         let sent = client.sent_messages();
@@ -2024,6 +2106,7 @@ mod tests {
             &freenet,
             &config,
             &persistence_manager,
+            &MessageSource::DirectMessage,
             &sender,
             None,
         )
@@ -2071,6 +2154,7 @@ mod tests {
             &freenet,
             &config,
             &persistence_manager,
+            &MessageSource::DirectMessage,
             &sender,
             Some("strength"),
         )
@@ -2102,6 +2186,7 @@ mod tests {
             &freenet,
             &config,
             &persistence_manager,
+            &MessageSource::DirectMessage,
             &sender,
             Some("replication"),
         )
@@ -2129,6 +2214,7 @@ mod tests {
             &freenet,
             &config,
             &persistence_manager2,
+            &MessageSource::DirectMessage,
             &sender,
             Some("replication"),
         )
@@ -2158,6 +2244,7 @@ mod tests {
             &freenet,
             &config,
             &persistence_manager3,
+            &MessageSource::DirectMessage,
             &sender,
             Some("replication"),
         )
@@ -2201,6 +2288,7 @@ mod tests {
             &freenet,
             &config,
             &persistence_manager,
+            &MessageSource::DirectMessage,
             &sender,
             Some("config"),
         )
@@ -2230,6 +2318,7 @@ mod tests {
             &freenet,
             &config,
             &persistence_manager,
+            &MessageSource::DirectMessage,
             &sender,
             Some("unknown"),
         )
