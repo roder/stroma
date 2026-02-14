@@ -500,7 +500,12 @@ mod tests {
 
         // Add second seed
         let result = manager
-            .handle_add_seed(&freenet, &initiator, &ServiceId("@charlie".to_string()), "@charlie")
+            .handle_add_seed(
+                &freenet,
+                &initiator,
+                &ServiceId("@charlie".to_string()),
+                "@charlie",
+            )
             .await;
         assert!(result.is_ok());
 
@@ -563,7 +568,12 @@ mod tests {
             .await
             .unwrap();
         manager
-            .handle_add_seed(&freenet, &initiator, &ServiceId("@charlie".to_string()), "@charlie")
+            .handle_add_seed(
+                &freenet,
+                &initiator,
+                &ServiceId("@charlie".to_string()),
+                "@charlie",
+            )
             .await
             .unwrap();
 
@@ -609,7 +619,12 @@ mod tests {
             .await
             .unwrap();
         manager
-            .handle_add_seed(&freenet, &initiator, &ServiceId("@charlie".to_string()), "@charlie")
+            .handle_add_seed(
+                &freenet,
+                &initiator,
+                &ServiceId("@charlie".to_string()),
+                "@charlie",
+            )
             .await
             .unwrap();
 
