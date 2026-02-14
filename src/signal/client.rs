@@ -83,6 +83,50 @@ impl LibsignalClient {
         }
     }
 
+    /// Load existing groups from presage store
+    ///
+    /// Populates group_keys and group_members from persisted group data.
+    /// Should be called after construction to restore state after restart.
+    pub async fn load_groups_from_store(&mut self) -> SignalResult<()> {
+        use presage::store::ContentsStore;
+        use tracing::info;
+
+        let manager = self.manager.as_ref().ok_or_else(|| {
+            SignalError::NotImplemented("load_groups_from_store: no Manager configured".to_string())
+        })?;
+
+        let mgr = manager.lock().await;
+        let groups = mgr.store().groups().await.map_err(|e| {
+            SignalError::Store(format!("Failed to load groups from store: {:?}", e))
+        })?;
+
+        let mut group_keys = self.group_keys.lock().await;
+        let mut group_members = self.group_members.lock().await;
+
+        for group_result in groups {
+            let (master_key, group) = group_result
+                .map_err(|e| SignalError::Store(format!("Failed to load group: {:?}", e)))?;
+
+            let group_id = GroupId(master_key.to_vec());
+
+            group_keys.insert(group_id.clone(), master_key);
+
+            // Initialize empty member set (will be populated as we see members)
+            group_members.entry(group_id.clone()).or_default();
+
+            info!(
+                "Loaded group from store: {} ({} members in revision {})",
+                hex::encode(master_key),
+                group.members.len(),
+                group.revision
+            );
+        }
+
+        info!("Loaded {} group(s) from presage store", group_keys.len());
+
+        Ok(())
+    }
+
     /// Start the background receive loop.
     ///
     /// Must be called from within a `tokio::task::LocalSet` context (uses `spawn_local`).
