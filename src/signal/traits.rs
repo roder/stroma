@@ -201,4 +201,10 @@ pub trait SignalClient: Clone {
 
     /// Get bot's own service ID
     fn service_id(&self) -> &ServiceId;
+
+    /// List all groups bot is a member of (for debugging/cleanup)
+    ///
+    /// Returns list of (GroupId, member_count) tuples.
+    /// Used to enforce 1:1 bot-to-group invariant and find group_id after bootstrap.
+    async fn list_groups(&self) -> SignalResult<Vec<(GroupId, usize)>>;
 }

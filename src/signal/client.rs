@@ -589,6 +589,19 @@ impl SignalClient for LibsignalClient {
     fn service_id(&self) -> &ServiceId {
         &self.service_id
     }
+
+    async fn list_groups(&self) -> SignalResult<Vec<(GroupId, usize)>> {
+        let keys = self.group_keys.lock().await;
+        let members = self.group_members.lock().await;
+
+        let mut groups = Vec::new();
+        for (group_id, _master_key) in keys.iter() {
+            let member_count = members.get(group_id).map(|m| m.len()).unwrap_or(0);
+            groups.push((group_id.clone(), member_count));
+        }
+
+        Ok(groups)
+    }
 }
 
 /// Convert presage Received message to our Message type

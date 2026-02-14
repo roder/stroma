@@ -316,6 +316,15 @@ impl SignalClient for MockSignalClient {
     fn service_id(&self) -> &ServiceId {
         &self.service_id
     }
+
+    async fn list_groups(&self) -> SignalResult<Vec<(GroupId, usize)>> {
+        let state = self.state.lock().unwrap();
+        let mut groups = Vec::new();
+        for (group_id, members) in &state.group_members {
+            groups.push((group_id.clone(), members.len()));
+        }
+        Ok(groups)
+    }
 }
 
 #[cfg(test)]

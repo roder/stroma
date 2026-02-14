@@ -189,6 +189,11 @@ impl SignalClient for MockSignalClient {
     fn service_id(&self) -> &ServiceId {
         &self.service_id
     }
+
+    async fn list_groups(&self) -> stroma::signal::traits::SignalResult<Vec<(GroupId, usize)>> {
+        // Mock: No groups
+        Ok(vec![])
+    }
 }
 
 // === Integration Tests ===
