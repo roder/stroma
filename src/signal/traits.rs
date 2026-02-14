@@ -29,10 +29,20 @@ pub struct GroupInfo {
     pub announcements_only: bool,
 }
 
+/// Message source (DM or group context)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MessageSource {
+    /// Direct message (1-on-1 PM)
+    DirectMessage,
+    /// Message from a group
+    Group(GroupId),
+}
+
 /// Signal message content
 #[derive(Debug, Clone)]
 pub struct Message {
     pub sender: ServiceId,
+    pub source: MessageSource,
     pub content: MessageContent,
     pub timestamp: u64,
 }
