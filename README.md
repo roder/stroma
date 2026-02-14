@@ -81,6 +81,15 @@ See [TODO.md](docs/todo/TODO.md) for the complete implementation checklist.
 ### For Operators
 - **[Operator Guide](docs/OPERATOR-GUIDE.md)** -- Installation, configuration, maintenance
 
+### For Security Researchers & Auditors
+- **[Threat Model](docs/THREAT-MODEL.md)** -- Primary threat (trust map seizure), three-layer defense, secondary threats, accepted risks
+- **[Security CI/CD](docs/SECURITY-CI-CD.md)** -- Automated security checks: supply chain (cargo-deny), static analysis (CodeQL), coverage enforcement, unsafe block detection
+- **[Threat Model Audit](docs/THREAT-MODEL-AUDIT.md)** -- Audit findings and verification results
+- **[Trust Model](docs/TRUST-MODEL.md)** -- Standing formula, ejection triggers, vouch invalidation math
+- **[Vouch Invalidation Logic](docs/VOUCH-INVALIDATION-LOGIC.md)** -- Why a single member's action can never cause a 2-point swing
+- **[Algorithms](docs/ALGORITHMS.md)** -- DVR calculation, cluster detection (Tarjan's), complexity analysis
+- **Architectural constraints**: `.beads/security-constraints.bead`, `.beads/philosophical-foundations.bead`
+
 ### For Developers
 - **[Developer Guide](docs/DEVELOPER-GUIDE.md)** -- Architecture, modules, contracts
 - **[Algorithms](docs/ALGORITHMS.md)** -- DVR matchmaking, cluster detection, complexity analysis
