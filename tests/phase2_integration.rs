@@ -299,6 +299,10 @@ mod test_mocks {
             // Mock: No groups
             Ok(vec![])
         }
+
+        async fn leave_group(&self, _group: &GroupId) -> stroma::signal::traits::SignalResult<()> {
+            Ok(())
+        }
     }
 
     // Placeholder types for Phase 2 features (to be implemented)

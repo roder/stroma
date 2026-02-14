@@ -207,4 +207,9 @@ pub trait SignalClient: Clone {
     /// Returns list of (GroupId, member_count) tuples.
     /// Used to enforce 1:1 bot-to-group invariant and find group_id after bootstrap.
     async fn list_groups(&self) -> SignalResult<Vec<(GroupId, usize)>>;
+
+    /// Leave a Signal group
+    ///
+    /// Removes bot from the group. Used to enforce 1:1 bot-to-group invariant.
+    async fn leave_group(&self, group: &GroupId) -> SignalResult<()>;
 }
