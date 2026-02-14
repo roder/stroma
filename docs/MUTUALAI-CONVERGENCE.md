@@ -153,18 +153,135 @@ The PoI ledger is:
 - **Immutable**: Set-union merge means claims can never be removed
 - **Distributed**: Freenet replicates across all subscribing peers
 
+#### PoI Contract Schema (Technical Detail)
+
+The Proof of Impact Freenet contract follows Stroma's existing contract design patterns: CBOR serialization, `ComposableState` trait, commutative deltas.
+
+```rust
+/// A single Proof of Impact claim.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct SignedClaim {
+    /// Who performed the action (Stroma MemberHash -- HMAC-masked, not cleartext)
+    pub actor: MemberHash,
+    /// What happened (blake3 hash of the claim content)
+    pub content_hash: [u8; 32],
+    /// When it was recorded (unix timestamp in seconds)
+    pub timestamp: u64,
+    /// Human-readable impact type (e.g., "food_distribution", "logistics", "coordination")
+    pub impact_type: String,
+    /// Optional: cross-reference to a confirming claim (mutual attestation)
+    pub confirms: Option<[u8; 32]>,  // content_hash of the claim being confirmed
+    /// Actor's trust standing at time of claim (snapshot from Stroma contract)
+    pub standing_at_claim: i64,
+    /// Ed25519 signature over the canonical CBOR encoding of all above fields
+    pub signature: Vec<u8>,
+}
+
+/// The full PoI ledger state.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ProofOfImpactState {
+    /// The append-only set of claims. BTreeSet ensures deterministic ordering.
+    pub claims: BTreeSet<SignedClaim>,
+    /// Reference to the Stroma trust contract (for standing verification)
+    pub trust_contract: ContractHash,
+    /// Schema version for forward compatibility
+    pub schema_version: u64,
+}
+
+/// Delta for the PoI contract. Only additions -- removals are rejected.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PoIDelta {
+    pub claims_added: Vec<SignedClaim>,
+    // No claims_removed field. The contract rejects any delta containing removals.
+}
+```
+
+The `ComposableState` merge for `ProofOfImpactState` is set union on `claims`. Two peers that independently receive different claims will converge to the same state containing both. Order of delta application doesn't matter (commutative monoid). The `validate_state` function in the Wasm contract enforces:
+
+1. Every claim's `signature` verifies against the `actor`'s public key (derived from the trust contract)
+2. Every claim's `standing_at_claim` was non-negative at the recorded `timestamp`
+3. No claim in the incoming delta duplicates an existing claim (idempotent)
+4. The delta contains only additions (no field for removals exists in the type)
+
+This gives the same guarantees as a blockchain -- immutability, verifiability, public transparency -- through algebraic properties of the merge function rather than through hash-chain consensus.
+
+#### Wire Format: Mapping from MutualAI's PoUW
+
+MutualAI's existing `PoUWProposalPing` wire format:
+
+```proto
+message PoUWProposalPing {
+  bytes actor_commitment = 1;  // blake3(pubkey) -- becomes MemberHash
+  uint64 nonce = 2;            // replay protection -- retained
+  uint64 ts = 3;               // unix millis -- retained as timestamp
+  bytes window_id = 4;         // decision window -- maps to proposal poll_id
+  bytes h_proposal = 5;        // canonical hash -- becomes content_hash
+  bytes sig = 6;               // ed25519 -- retained as signature
+}
+```
+
+The mapping is direct:
+- `actor_commitment` (blake3 of pubkey) becomes `actor` (`MemberHash`, HMAC-SHA256 of Signal ID). Both are one-way hashes that identify without revealing. The Stroma bot maintains the mapping in ephemeral memory.
+- `nonce` + `ts` provide replay protection in both systems.
+- `window_id` maps to Stroma's proposal `poll_id` -- Decision Windows become time-bounded Signal Polls.
+- `h_proposal` becomes `content_hash` -- the canonical hash of what happened.
+- `sig` remains Ed25519 in both. The Stroma bot signs on behalf of the actor using the actor's MemberHash-scoped key.
+
+The serialization changes from protobuf to CBOR (Stroma's standard), but the semantic content is preserved.
+
 ### 3. AI Agents as Vouched Community Members
 
 AI agents in the converged system are not special. They are members -- vouched in through the same mechanism as humans. A human `/invite`s their AI agent. An assessor from a different cluster evaluates it. If vouched, the AI gets a `MemberHash`, a trust standing, and can be flagged and ejected like any other member.
 
 This creates a new kind of AI alignment: **alignment through social accountability.** The community decides whether an AI agent is trustworthy using the same mechanism it uses for humans. An AI that proposes harmful actions gets flagged. An AI that consistently produces useful work builds standing. The trust model doesn't care whether you're carbon or silicon -- it cares whether the community trusts you.
 
-Signal group configurations could include:
-- **Human-majority groups**: A community organizing group where 1-2 AI agents participate, proposing logistics, surfacing needs, recording impact. Humans lead, AI assists.
-- **AI-majority groups**: A coordination group where multiple AI agents (each vouched by different human sponsors from different clusters) deliberate on resource matching and logistics. Humans can observe and intervene.
-- **Mixed groups**: Federation planning groups where human delegates work alongside AI agents that RAG each group's PoI ledger to find collaboration opportunities.
+#### AI Agent Admission Flow (Concrete)
 
-In all cases, the interaction protocol is identical: Signal messages, `/propose` for decisions, Signal Polls for votes.
+```
+1. Human sponsor sends PM to Stroma bot:
+   /invite @logistics-ai "Our community's logistics coordinator AI.
+   Self-hosted Llama model, trained on our PoI history. Sponsored by me."
+
+2. Bot hashes the AI agent's Signal ID -> MemberHash
+   Bot records the invite as first vouch from sponsor
+   Bot's Blind Matchmaker selects an assessor from a DIFFERENT cluster
+
+3. Assessor (human, from different cluster) receives PM:
+   "Someone has invited @logistics-ai to the group.
+   Context: Community logistics coordinator AI, self-hosted Llama.
+   Please evaluate whether this agent should join."
+
+4. Assessor evaluates:
+   - Reviews the AI's model manifest (MutualAI's crates/model verification)
+   - Tests the AI's responses in a 1-on-1 Signal conversation
+   - Checks: Is it self-hosted? What data does it access? Who controls it?
+   - Decides whether to vouch
+
+5. If vouched: /vouch @logistics-ai
+   Bot verifies cross-cluster requirement (sponsor and assessor in different clusters)
+   AI agent admitted. Gets MemberHash, standing = +2, role = Bridge.
+   AI agent can now: /propose, /record-impact, vote in Signal Polls,
+   participate in group chat, be flagged, be ejected.
+
+6. Ongoing accountability:
+   - AI's standing is subject to the same rules as any member
+   - If flagged: standing decreases, possible ejection
+   - If sponsor leaves group: AI loses a vouch (may need replacement)
+   - AI builds reputation through PoI claims (verifiable track record)
+   - Community can /flag the AI if it misbehaves
+```
+
+The key constraint: every AI agent has at least one human sponsor who staked their reputation on it (the invite counts as first vouch). Cross-cluster assessment means a second human, from a different part of the network, independently decided the AI was trustworthy. No AI agent exists without human accountability chains.
+
+#### Signal Group Configurations
+
+- **Human-majority groups**: A community organizing group where 1-2 AI agents participate, proposing logistics, surfacing needs, recording impact. Humans lead, AI assists. The AI might post: "Based on this week's PoI claims, the community kitchen is running low on volunteers for Thursday. I can propose a coordination call."
+
+- **AI-majority groups**: A coordination group where multiple AI agents (each vouched by different human sponsors from different clusters) deliberate on resource matching and logistics. Humans can observe and intervene. Example: 5 logistics AIs from different federated groups, matching surplus food with needs across a metro area, proposing delivery routes via `/propose`, with results recorded as PoI.
+
+- **Mixed groups**: Federation planning groups where human delegates work alongside AI agents that RAG each group's PoI ledger to find collaboration opportunities. The AI surfaces cross-group patterns: "Group A has had surplus produce 3 weeks running. Group C has unmet food needs. Overlap: 2 shared members. Recommend federation proposal."
+
+In all cases, the interaction protocol is identical: Signal messages, `/propose` for decisions, Signal Polls for votes. The trust model is the alignment mechanism.
 
 ### 4. Trust Topology Shapes Collective Action
 
@@ -178,11 +295,79 @@ Different trust topologies produce different collective action dynamics:
 
 The topology doesn't just shape trust -- it shapes **how the group thinks collectively** and **how resources flow through the network.**
 
-A group organizing food distribution chooses mycelial topology. The health metric is flow capacity: can resources reach every member regardless of individual failures? Strategic introductions connect members who would create new flow paths, not just new structural bridges. The message: "The network suggests you connect with someone in a part of the web that's currently thin on connections to your area."
+#### Mycelial Topology: Technical Detail
+
+The mycelial topology is the most directly relevant to MutualAI's mutual aid mission. Unlike DVR (which optimizes for structural resilience against infiltration) or phyllotaxis (which optimizes for growth), mycelial optimizes for **resource flow**.
+
+In nature, the Wood Wide Web (mycorrhizal fungal network) distributes nutrients through a forest by local gradient -- resources flow from high concentration to low concentration through shared fungal connections. When a tree is stressed, neighboring trees send it carbon and nitrogen through the network. When a connection dies, the network reroutes.
+
+**Health metric**: Flow capacity (minimum cut) rather than DVR or FDS.
+
+| Status | Flow Capacity | Meaning |
+|--------|--------------|---------|
+| Red | Critical bottlenecks | Aid can't reach some members if any single node goes down |
+| Yellow | Thin paths exist | Rerouting possible but fragile -- one more failure could isolate members |
+| Green | Rich connectivity | Aid flows freely regardless of individual failures |
+
+**Strategic introductions**: Connect members who would create new *flow paths*, not just structural bridges. The algorithm considers: if member X goes offline, can resources still reach every other member? If not, who should connect to whom to create redundant paths?
+
+**PoI-informed topology**: The mycelial matchmaker reads the PoI ledger to identify actual resource flows. If food consistently moves from farmer A to kitchen C through driver B, but there's no direct connection between A and C, the topology suggests that introduction -- because the resource flow already exists, it just needs a trust path to match.
+
+**Gradient-based distribution**: PoI claims about needs (food, housing, energy) create "low points" in the network. PoI claims about surplus create "high points." The mycelial topology ensures trust connections exist along the gradient so resources can flow downhill. The AI agents (RAGing the PoI ledger) identify the gradients; the topology shapes the paths.
+
+#### Stigmergy: The Purest Emergence
+
+Stigmergy deserves special mention because it's the topology that requires the *least* algorithmic intervention. In an ant colony, no individual ant knows the plan. Each ant follows simple rules: deposit pheromone when you find food, follow stronger pheromone trails. Complex behavior emerges from accumulated individual actions.
+
+In a stigmergic Stroma group with MutualAI:
+- There are **no algorithmic introductions** at all
+- Members' vouch patterns and PoI trails are the "pheromones"
+- When many members vouch for the same person, that person becomes a natural hub (stronger trail)
+- When many PoI claims reference the same type of work, that work becomes a natural focus
+- The topology is whatever emerges from the accumulated traces of trust and impact
+
+This is the experimental control case: what happens when you provide trust infrastructure and collective intelligence but impose *zero* structure on how they organize? The answer is the purest test of whether mutual arising actually works.
 
 The topology platform stops being abstract and becomes **materially useful** -- deterministic trust patterns (Stroma) combined with non-deterministic collective intelligence (MutualAI), creating self-organizing ways of producing real-world impact, in non-hierarchical, voluntary ways.
 
-### 5. Proof of Impact Strengthens Vouches
+### 5. Decision Windows Map to Stroma Proposals
+
+MutualAI's Decision Windows are time-bounded intervals where PoUW claims are collected and ratified. In the converged system, they map directly to Stroma's proposal lifecycle:
+
+| MutualAI Concept | Stroma Equivalent | Mechanism |
+|-------------------|-------------------|-----------|
+| Decision Window opens | `/propose` creates a Signal Poll | Bot posts poll with timeout |
+| Claims collected during window | PoI claims submitted via `/record-impact` | Claims accumulated in bot memory |
+| Window finalization (leader builds Merkle root) | Poll timeout + outcome check | Bot terminates poll, checks quorum + threshold |
+| Endorsement quorum | `min_quorum` (default 50%) | % of members who must vote |
+| Approval threshold | `config_change_threshold` (default 70%) | % of votes needed to pass |
+| Finalized window committed to chain | Approved claims written to PoI Freenet contract | Bot appends `SignedClaim` set to contract |
+
+MutualAI's deterministic slotting (`blake3("pouw.ping" || opens_at_le_bytes)[0..16]`) can still be used to generate window IDs for the PoI ledger -- ensuring all nodes derive the same window identifier without coordination. But the *consensus* within each window is now a Signal Poll, not Raft.
+
+The proposal lifecycle from Stroma's existing `src/signal/proposals/lifecycle.rs` handles: create poll -> monitor state stream -> terminate on timeout -> check outcome (quorum + threshold) -> execute if passed -> mark checked. This is exactly the Decision Window lifecycle, already implemented.
+
+### 6. Trust-Weighted Proof of Impact
+
+A PoI claim's influence is weighted by the author's trust standing at the time of the claim. This is captured in the `standing_at_claim` field of `SignedClaim`:
+
+```
+Impact Weight = base_impact * (1 + standing_bonus(standing_at_claim))
+
+where standing_bonus:
+  standing 0-1:  0.0x  (minimum -- just admitted, no bonus)
+  standing 2-3:  0.25x (Bridge with some history)
+  standing 4-6:  0.50x (established Validator)
+  standing 7+:   1.0x  (deeply trusted, maximum bonus)
+```
+
+This means a Validator with standing +5 who distributes food generates a higher-weighted PoI than a newly admitted Bridge with standing +2. The weight isn't about hierarchy -- it reflects the community's accumulated trust in that actor, earned through vouches from independent clusters.
+
+Trust-weighted PoI prevents gaming: a newly admitted member can't flood the ledger with low-quality claims to build reputation quickly. They need to build trust (vouches) first, which requires real relationships with existing members.
+
+The weights are configurable per group via `/propose stroma poi_weight_curve <curve>` -- groups with flatter hierarchies can use linear or no weighting; groups prioritizing experienced contributors can steepen the curve.
+
+### 7. Proof of Impact Strengthens Vouches
 
 When MutualAI's PoI ledger exists alongside Stroma's trust model, vouches become **evidence-based**:
 
@@ -222,6 +407,64 @@ Stroma federation connects groups through shared members. MutualAI on federated 
 8. Execution is recorded on the PoI ledger. The farmer, driver, and kitchen all earn verifiable reputation. The trust graph strengthens.
 
 No central coordinator. No platform extracting value. No identity exposure. Just trusted humans and AI agents, coordinating across federated trust networks, with resources flowing through mycelial topology to where they're needed.
+
+#### Cross-Federation PoI Visibility (Technical Detail)
+
+When Stroma groups federate, their PoI ledgers become mutually visible:
+
+- Each group has its own PoI Freenet contract (separate ledger, separate contract hash)
+- Federation means each group's bot subscribes to the other's PoI contract (read-only)
+- The AI agents in each group can RAG the federated PoI data
+- Cross-group proposals reference claims from both ledgers
+
+The PoI contracts are **public by design** -- anyone with the contract hash can read them. Federation doesn't grant special access; it just means the bot is *actively subscribing* and the AI agents are *actively indexing* the federated ledger.
+
+Privacy is maintained because PoI claims contain `MemberHash` (not cleartext identities). A member's impact history is pseudonymous -- visible as a consistent hash across claims, but not linkable to their Signal identity without the group's masking key.
+
+Cross-group PoI matching works because the AI agents in each group can identify complementary patterns without knowing who the actors are:
+- Group A's ledger shows repeated "surplus produce" claims from hash `0xabc...`
+- Group C's ledger shows repeated "food needed" claims from hash `0xdef...`
+- The AI proposes a logistics plan referencing both claim hashes
+- The groups vote independently on whether to coordinate
+- Execution creates new PoI claims in both ledgers, cross-referencing each other
+
+---
+
+## Security Properties of the Converged System
+
+The convergence inherits all of Stroma's security properties and adds new ones from the PoI layer:
+
+**What an adversary who seizes the bot server gets:**
+- Encrypted SQLite databases (Stroma's protocol state)
+- Cryptographic hashes of member identities (not cleartext)
+- The PoI Freenet contract hash (which is public anyway)
+- No message history, no vetting conversations, no raw Signal IDs
+
+**What an adversary who reads the PoI Freenet contract gets:**
+- All Proof of Impact claims (public by design)
+- Pseudonymous impact history per MemberHash
+- Timestamps, impact types, cross-references between claims
+- Cannot link MemberHash to real identity without the group's HMAC masking key
+- Cannot determine who vouched for whom (trust graph is in a separate, private contract)
+
+**What an adversary cannot do:**
+- Write false PoI claims (requires vouched membership + positive standing)
+- Delete existing PoI claims (append-only contract, set-union merge)
+- Impersonate a member (claims are signed with member-specific keys)
+- Correlate PoI activity with Signal identity (HMAC is one-way)
+- Manipulate the trust topology (separate contract, private, Stroma-governed)
+- Override governance (Signal Polls + Freenet consensus, no admin backdoor)
+
+**The MutualAI "Do No Harm" principle as protocol enforcement:**
+
+MutualAI's founding principle "Do No Harm" is not just an ethical guideline in the converged system -- it's enforced by Stroma's trust model:
+- An AI agent that proposes harmful actions gets `/flag`ged by community members
+- Flags reduce standing: `Standing = Effective_Vouches - Regular_Flags`
+- Standing < 0 or Effective_Vouches < 2 triggers immediate ejection
+- The AI agent's human sponsor also faces accountability (their vouch for the AI is a reputation stake)
+- Ejection is immediate, no grace periods -- but re-entry is possible if the agent is fixed and re-vouched
+
+The community IS the alignment mechanism. Harmful behavior is rejected at the social layer, not just the technical layer.
 
 ---
 
@@ -299,6 +542,76 @@ The model gets better at proposing useful actions because it's trained on what a
 The model is trained on **its own community's data**, not on the internet at large. It's grounded in the specific trust relationships, impact history, and resource flows of the people it serves. Every community's AI becomes a reflection of that community -- its patterns, its needs, its strengths. Not a general-purpose oracle, but a **community intelligence** that knows its own organism from the inside.
 
 The organism knows itself. It acts on that knowledge. The actions change what it knows. It grows.
+
+### Social Connectors: The Intelligence Intake
+
+MutualAI's social connectors are the organism's sensory organs -- how it perceives the world beyond the Signal group. They bridge the internal trust network to the broader social ecosystem.
+
+**MutualAI's 3-tier latency model** maps naturally to the converged architecture:
+
+| Tier | Latency | Medium | Role in Convergence |
+|------|---------|--------|---------------------|
+| **Low latency** | Seconds | Signal (via Stroma bot) | Trust operations, governance, PoI recording. Human and AI interaction. |
+| **Medium latency** | Minutes | Freenet state stream | Trust state, topology, PoI ledger. Machine-to-machine state sync. |
+| **High latency** | Hours-days | Mastodon, Matrix, Git | Social intelligence intake. Community needs, opportunities, discourse. |
+
+The RAG system ingests from all three tiers:
+
+- **Signal messages** (via the Stroma bot's ephemeral memory): What are members talking about? What needs are expressed? What proposals are under discussion? (Note: message content is never persisted -- the RAG indexes semantic summaries, not transcripts.)
+- **Freenet PoI ledger** (via contract subscription): What impact has actually happened? What patterns emerge from weeks/months of claims? Who consistently delivers? Where are the gaps?
+- **Freenet trust state** (via contract subscription): Who is trusted? How is the topology shaped? Where are the thin paths? Which clusters need bridging?
+- **Mastodon/Fediverse** (via ActivityPub ingestion): What are aligned communities discussing? What needs are expressed publicly? Where are there opportunities for cross-community coordination?
+- **Matrix rooms** (via bridge): What directed collaboration is happening? What working groups exist? What's the status of ongoing projects?
+- **Git repositories** (via hooks): What code is being written? What issues are filed? What documentation exists? (For tech-oriented mutual aid -- mesh networking, software tools, infrastructure.)
+
+Each social connector is a **plugin** -- MutualAI's planned `social_connector` crate provides a trait abstraction:
+
+```rust
+#[async_trait]
+pub trait SocialConnector: Send + Sync {
+    /// Ingest new signals from the external network
+    async fn poll(&self) -> Vec<SocialSignal>;
+    
+    /// Publish an outbound message (AI suggestion, coordination request)
+    async fn publish(&self, message: &OutboundMessage) -> Result<(), ConnectorError>;
+    
+    /// Connector identity (e.g., "mastodon", "matrix", "git")
+    fn connector_type(&self) -> &str;
+}
+```
+
+The AI model consumes the RAG index and produces proposals that flow back through Signal (via `/propose`) or outbound through social connectors (e.g., posting a coordination request to Mastodon, filing a Git issue for infrastructure work).
+
+### The RAG Knowledge Base: What the AI Knows
+
+The RAG system is the organism's memory -- a continuously updated index of everything the community has done, decided, and discussed.
+
+**Data sources** (all read-only -- the RAG never writes to Freenet or Signal):
+
+| Source | Data | Update Frequency |
+|--------|------|------------------|
+| PoI Freenet contract | All Proof of Impact claims | Real-time (Freenet state stream) |
+| Trust state contract | Membership, vouches, standing, topology | Real-time (Freenet state stream) |
+| Topology contract | Ring assignments, flow paths, health metrics | Real-time (Freenet state stream) |
+| Signal group (ephemeral) | Semantic summaries of discussions | As messages arrive (never persisted raw) |
+| Mastodon/ActivityPub | Public posts from aligned communities | Polling interval (configurable) |
+| Matrix rooms | Collaboration discussions | Bridge events |
+| Git repositories | Commits, issues, documentation | Webhook / polling |
+
+**What the AI model can query**:
+- "What food surplus has been reported in the last 2 weeks?"
+- "Which members have the highest PoI count for logistics work?"
+- "What needs are unmet in Group C (federated)?"
+- "What's the current flow capacity of the mycelial topology?"
+- "Are there any members at risk of ejection (standing near 0)?"
+
+**What the AI model cannot access**:
+- Raw Signal messages (only semantic summaries)
+- Cleartext Signal IDs (only MemberHash)
+- Vouch relationships of other members (only its own, per Stroma privacy model)
+- Flagging details (only aggregate standing scores)
+
+The privacy boundary is enforced by the Stroma bot: the AI agent receives only what a regular member would see. No privileged access. No side channels.
 
 ---
 
@@ -403,6 +716,58 @@ MutualAI's founding principles map directly to Stroma's dualities:
 | **Balance & Sustainability** | Fluidity vs Stability | Continuous trust evaluation + persistent network. Long-term optimization through self-reinforcing feedback loops. |
 
 Both projects talk about **mutual arising**. Both reject hierarchy. Both treat identity as relational and fluid. The philosophical foundations are not just compatible -- they're the same foundation expressed in different domains. Stroma expresses it through trust topology. MutualAI expresses it through collective intelligence. The convergence expresses it through an organism that creates itself.
+
+---
+
+## Stroma Integration Points (Existing Code)
+
+The convergence leverages Stroma's existing architecture. These are the specific touchpoints in the current codebase:
+
+| Stroma Component | File | Role in Convergence |
+|------------------|------|---------------------|
+| `GroupConfig` | `src/freenet/trust_contract.rs` | Add `poi_contract: Option<ContractHash>` field (like existing `federation_contracts`) |
+| `ProposalSubcommand::Stroma` | `src/signal/proposals/command.rs` | Handle `poi_contract` key in `/propose stroma` |
+| `execute_other_proposal()` | `src/signal/proposals/executor.rs` | Execute PoI contract activation after group vote |
+| `TrustNetworkState` | `src/freenet/trust_contract.rs` | Source of membership + standing data for PoI claim validation |
+| `FreenetClient` trait | `src/freenet/traits.rs` | Read/write to PoI contract using existing Freenet interface |
+| `StromaBot::handle_message()` | `src/signal/bot.rs` | Route `/record-impact` command to PoI handler |
+| `MemberResolver` | `src/signal/member_resolver.rs` | Resolve MemberHash for PoI claim construction (ephemeral, zeroizing) |
+| `TrustGraph` | `src/matchmaker/graph_analysis.rs` | Topology data consumed by MutualAI's RAG system |
+| `suggest_introductions()` | `src/matchmaker/strategic_intro.rs` | Extended for mycelial topology (flow-based introductions) |
+| `BlindMatchmaker` | `src/signal/matchmaker.rs` | Assessor selection for AI agent admission (unchanged) |
+| `PollManager` | `src/signal/polls.rs` | Decision Window finalization as Signal Poll |
+
+The PoI Freenet contract would be a new contract definition following the patterns in `src/freenet/trust_contract.rs` and `.beads/freenet-contract-design.bead` -- CBOR serialization, `ComposableState` trait, set-union merge, `#[serde(default)]` for backward compatibility.
+
+## MutualAI Components That Carry Forward
+
+From MutualAI's existing codebase at `crates/`:
+
+| Crate | Lines | What Carries Forward |
+|-------|-------|---------------------|
+| `crates/pouw` | ~1,200 | PoUW claim types, validation logic, replay protection, hashing. Rename to PoI types. Wire format maps to `SignedClaim`. |
+| `crates/identity` | ~800 | Ed25519 keypairs, actor commitments. Absorbed into Stroma's `MemberHash` (HMAC-SHA256). The blake3 actor commitment concept survives as `content_hash` in PoI claims. |
+| `crates/model` | ~400 | AI model manifests and verification stubs. Becomes the model verification system for vouched AI agents. Assessors can inspect model manifests during vetting. |
+| `crates/cli` | ~1,500 | CLI architecture (client/server, daemon mode). Informs MutualAI's standalone process design. |
+| `crates/telemetry` | ~600 | Structured logging, metrics. Carries forward for MutualAI process monitoring. |
+| `crates/explorer` | ~800 | Web UI for data visualization. Adapts to read from Freenet PoI contract instead of local blockchain. |
+
+| Crate | Lines | Why It's Removed |
+|-------|-------|-----------------|
+| `crates/blockchain` | ~3,000 | Raft consensus, block building, chain storage. Replaced by Stroma `/propose` + Freenet append-only contract. |
+| `crates/network` | ~2,500 | libp2p, gossipsub, peer management. Replaced by Freenet (anonymous, distributed). |
+| `crates/coordination` | ~1,000 | mDNS, cluster formation, health checks. Replaced by Stroma federation discovery (Social Anchor Hashing). |
+
+**Net reduction**: ~6,500 lines of infrastructure code removed. Replaced by Stroma's existing trust/governance/state layer plus a ~500-line Freenet contract definition.
+
+**New MutualAI components** (planned, not yet built):
+
+| Component | Role | Dependency |
+|-----------|------|------------|
+| `social_connector` | Plugin-based bridges to Mastodon, Matrix, Git | Independent of Stroma |
+| `rag` | Knowledge base indexing PoI ledger, trust topology, social signals | Reads from Freenet contracts |
+| `llm_core` | Self-hosted LLM with community-trained weights | Consumes RAG index |
+| `ai_handler` | Trait abstraction for LLM integration | Interface between RAG and LLM |
 
 ---
 
