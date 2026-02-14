@@ -6,7 +6,7 @@ use presage::Manager;
 use std::path::PathBuf;
 use stroma::crypto::StromaKeyring;
 use stroma::freenet::MockFreenetClient;
-use stroma::signal::traits::{GroupId, ServiceId, SignalClient};
+use stroma::signal::traits::{GroupId, ServiceId};
 use stroma::signal::{BotConfig, LibsignalClient, StromaBot, StromaStore};
 
 /// Run the bot service
@@ -188,13 +188,6 @@ pub async fn execute(
     // Create LibsignalClient with Manager (clones Manager for receive loop)
     let mut client = LibsignalClient::with_manager(service_id, store, manager);
 
-    // Load existing groups from presage store (restores group_keys after restart)
-    println!("📦 Loading groups from store...");
-    client
-        .load_groups_from_store()
-        .await
-        .map_err(|e| format!("Failed to load groups from store: {}", e))?;
-
     // Build BotConfig with keyring-derived keys
     // Load group_id from config if already bootstrapped
     let group_id = if let Some(group_id_hex) = &stroma_config.signal.group_id {
@@ -207,32 +200,21 @@ pub async fn execute(
         GroupId(vec![])
     };
 
-    // Enforce 1:1 bot-to-group invariant on startup
-    // If group_id is configured, leave all other groups
+    // Load groups from presage store
+    // If group_id is configured, only load that specific group (1:1 invariant)
+    // If not configured, load all groups (bootstrap mode - user might be in test groups)
     if !group_id.0.is_empty() {
-        println!("🧹 Enforcing 1:1 bot-to-group invariant...");
-        let all_groups = client.list_groups().await?;
-        let mut left_count = 0;
-
-        for (other_group_id, _) in all_groups {
-            if other_group_id != group_id {
-                println!(
-                    "   Leaving group: {}...",
-                    &hex::encode(&other_group_id.0)[..16]
-                );
-                match client.leave_group(&other_group_id).await {
-                    Ok(()) => left_count += 1,
-                    Err(e) => println!("   ⚠️ Failed to leave group: {}", e),
-                }
-            }
-        }
-
-        if left_count > 0 {
-            println!("   ✅ Left {} other group(s)", left_count);
-        } else {
-            println!("   ✅ Already in single group only");
-        }
-        println!();
+        println!("📦 Loading configured group from store...");
+        client
+            .load_specific_group(&group_id)
+            .await
+            .map_err(|e| format!("Failed to load configured group: {}", e))?;
+    } else {
+        println!("📦 Loading groups from store (bootstrap mode)...");
+        client
+            .load_groups_from_store()
+            .await
+            .map_err(|e| format!("Failed to load groups from store: {}", e))?;
     }
 
     let config = BotConfig {

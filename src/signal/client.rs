@@ -83,10 +83,63 @@ impl LibsignalClient {
         }
     }
 
+    /// Load a specific group from presage store by GroupId
+    ///
+    /// Use this when group_id is configured to avoid loading unwanted test groups.
+    /// Enforces 1:1 bot-to-group invariant by only loading the configured group.
+    pub async fn load_specific_group(&mut self, group_id: &GroupId) -> SignalResult<()> {
+        use presage::store::ContentsStore;
+        use tracing::info;
+
+        let manager = self.manager.as_ref().ok_or_else(|| {
+            SignalError::NotImplemented("load_specific_group: no Manager configured".to_string())
+        })?;
+
+        // Convert GroupId to master_key bytes for presage API
+        let master_key: [u8; 32] = group_id
+            .0
+            .clone()
+            .try_into()
+            .map_err(|_| SignalError::Protocol("Invalid group_id length".to_string()))?;
+
+        let mgr = manager.lock().await;
+
+        // Load specific group from store
+        let group_result =
+            mgr.store().group(master_key).await.map_err(|e| {
+                SignalError::Store(format!("Failed to load group from store: {:?}", e))
+            })?;
+
+        if let Some(group) = group_result {
+            let mut group_keys = self.group_keys.lock().await;
+            let mut group_members = self.group_members.lock().await;
+
+            group_keys.insert(group_id.clone(), master_key);
+            group_members.entry(group_id.clone()).or_default();
+
+            info!(
+                "Loaded configured group: {} ({} members in revision {})",
+                hex::encode(master_key),
+                group.members.len(),
+                group.revision
+            );
+        } else {
+            return Err(SignalError::GroupNotFound(format!(
+                "Configured group not found in store: {}",
+                group_id
+            )));
+        }
+
+        Ok(())
+    }
+
     /// Load existing groups from presage store
     ///
     /// Populates group_keys and group_members from persisted group data.
     /// Should be called after construction to restore state after restart.
+    ///
+    /// Note: Prefer load_specific_group() when group_id is known (1:1 invariant).
+    /// This method loads ALL groups, which may include unwanted test groups.
     pub async fn load_groups_from_store(&mut self) -> SignalResult<()> {
         use presage::store::ContentsStore;
         use tracing::info;
