@@ -2,7 +2,9 @@
 
 **For Group Members**
 
-This guide explains how to use Stroma as a member of a trust network. You interact with Stroma through a bot in Signal - the messaging app you already use.
+> **Pre-alpha**: This guide describes Stroma's designed behavior. The trust model, commands, and protocol logic are implemented and tested against mocks. Real Signal and Freenet integration is in progress. See [TODO.md](todo/TODO.md) for current status.
+
+This guide explains how to use Stroma as a member of a trust network. You interact with Stroma through a bot in Signal -- the messaging app you already use.
 
 ## Key Concepts
 
@@ -453,7 +455,7 @@ If ejected, you can re-enter by:
 ### You Don't See (Hidden Complexity)
 - Freenet contracts and ComposableState
 - HMAC hashing and zeroization
-- STARK proof generation/verification
+- ZK-proof circuits (STARK AIR definitions, hash-based commitments)
 - Merkle Tree generation
 - Summary-delta synchronization
 - State stream monitoring
@@ -466,43 +468,45 @@ The bot abstracts all technical complexity. You just use simple Signal commands.
 
 **The Real Threat**: What happens if a state-level adversary or compromised operator tries to seize the trust map to identify members?
 
-**Three-Layer Defense**:
+**Three-Layer Defense** (designed):
 
-1. **No Single Place to Seize**
-   - Trust map stored across distributed Freenet network (not one server)
-   - Adversary would need to seize multiple peers to reconstruct
+1. **Decentralized Storage** (Freenet -- in progress)
+   - Trust state will live across Freenet's peer-to-peer network, not on a single server
+   - Adversary would need to compromise multiple peers to reconstruct the full map
+   - Currently: trust state is in encrypted local databases while Freenet integration is completed
 
-2. **Only Hashes, Not Identities**
-   - Your Signal ID is hashed immediately (can't be reversed)
-   - Bot memory contains only hashes, never cleartext
-   - Even if server compromised, adversary only gets hashes
+2. **Only Hashes, Not Identities** (implemented)
+   - Your Signal ID is hashed immediately via HMAC-SHA256 with an operator-derived key (BIP-39 mnemonic, HKDF)
+   - The original ID is zeroized from memory after hashing
+   - Even if the server is compromised, the adversary gets hashes -- not identities
 
-3. **No Signal Metadata**
-   - All vetting in 1-on-1 private messages (not group chat)
-   - Operator can't manually export or query trust map
+3. **Metadata Isolation** (implemented)
+   - All vetting happens in 1-on-1 private messages (not group chat)
+   - The bot stores no message history -- encrypted SQLite holds only protocol state
+   - Operator cannot manually export or query the trust map
    - No logs of why people trust each other
 
-**Result**: Even if adversary compromises the bot or server, they only get:
-- Hashes (not your real identity)
-- Group size and connection patterns (not who you actually are)
-- Vouch counts (not relationship details)
+**Result**: Even if an adversary compromises the bot server, they get:
+- Encrypted databases with cryptographic hashes (not real identities)
+- Connection patterns (not who you actually are)
+- No message history, no vetting conversations, no relationship context
 
 ### What's Protected
-- **Your Identity**: Never stored in cleartext, always hashed
-- **Trust Relationships**: Distributed across network, can't be seized from one place
-- **Vetting Conversations**: Deleted after admission (ephemeral)
-- **Group Metadata**: All operations in 1-on-1 PMs (not group chat)
+- **Your Identity**: Never stored in cleartext -- hashed via HMAC-SHA256, originals zeroized
+- **Trust Relationships**: Stored as hashes in encrypted databases; Freenet distribution planned
+- **Vetting Conversations**: Deleted after admission (ephemeral, never persisted)
+- **Message History**: Not stored -- the bot's SQLite store no-ops all message persistence
 
 ## Common Questions
 
 ### Can the operator see who I am?
-No. The operator sees only hashed identifiers, not your real Signal ID. Even if coerced, they can't reveal your identity.
+No. The operator sees only hashed identifiers, not your real Signal ID. The hash is one-way (HMAC-SHA256) -- it cannot be reversed to recover the original identity.
 
 ### Can the operator add/remove people?
-No. Only the bot can add/remove people, and only based on Freenet contract state. Operator can't manually override this.
+No. Only the bot can add/remove members, and only based on contract state (Freenet when live, local encrypted database during pre-alpha). The operator has no commands for membership management.
 
 ### What if the server is seized by police/government?
-They would only get hashes (not identities) and connection patterns (not relationship details). Your real identity remains protected because it's never stored in cleartext.
+They would get encrypted SQLite databases containing cryptographic hashes (not identities) and connection patterns (not relationship details). Your real identity is never stored in cleartext. No message history is retained. Once Freenet integration is live, even the local databases become secondary to the distributed state.
 
 ### What if my voucher leaves the group?
 You need an immediate replacement vouch to stay in. Bot monitors this automatically and will notify you.
@@ -552,5 +556,7 @@ A network can have high connection density but low resilience if all connections
 ---
 
 **See Also:**
-- [Trust Model Deep Dive](TRUST-MODEL.md) - Mathematical details and edge cases
-- [Federation Overview](FEDERATION.md) - Future multi-group connections (Phase 4+)
+- [How It Works](HOW-IT-WORKS.md) -- Plain-language protocol explanation
+- [Trust Model](TRUST-MODEL.md) -- Mathematical details and edge cases
+- [Threat Model](THREAT-MODEL.md) -- Security design, attack resistance, accepted risks
+- [Federation](FEDERATION.md) -- Future multi-group connections (Phase 4+)

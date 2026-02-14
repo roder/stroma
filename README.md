@@ -175,7 +175,7 @@ Operator deployment is not yet available. See [Operator Guide](docs/OPERATOR-GUI
 
 Stroma's development follows three horizons:
 
-**Now** (Phases 0-3): Wire the validated mock layer to real Signal and Freenet networks. Reach UAT.
+**Now** (Phases 0-3): [TODO](docs/todo/TODO.md) -- Wire the validated mock layer to real Signal and Freenet networks. Reach UAT. 
 
 **Next** (Phases 4-5): [Federation](docs/FEDERATION.md) -- connect groups through shared members. Emergent discovery via Social Anchor Hashing. Trust that spans communities.
 
