@@ -236,7 +236,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                     }
                     Command::AddSeed { ref username } => {
                         let service_id = self.client.resolve_identifier(username).await?;
-                        
+
                         // Reject PNI - groups require ACI
                         if service_id.0.starts_with("PNI:") {
                             return Err(SignalError::InvalidMessage(format!(
@@ -245,7 +245,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                                 username
                             )));
                         }
-                        
+
                         self.bootstrap_manager
                             .handle_add_seed(&self.freenet, &message.sender, &service_id, username)
                             .await?;
@@ -255,7 +255,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                         ref context,
                     } => {
                         let invitee_id = self.client.resolve_identifier(username).await?;
-                        
+
                         // Reject PNI - groups require ACI
                         if invitee_id.0.starts_with("PNI:") {
                             return Err(SignalError::InvalidMessage(format!(
@@ -264,13 +264,13 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                                 username
                             )));
                         }
-                        
+
                         self.handle_invite(&message.sender, &invitee_id, context.as_deref())
                             .await?;
                     }
                     Command::Vouch { ref username } => {
                         let target_id = self.client.resolve_identifier(username).await?;
-                        
+
                         // Reject PNI - trust operations require ACI
                         if target_id.0.starts_with("PNI:") {
                             return Err(SignalError::InvalidMessage(format!(
@@ -279,12 +279,12 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                                 username
                             )));
                         }
-                        
+
                         self.handle_vouch(&message.sender, &target_id).await?;
                     }
                     Command::RejectIntro { ref username } => {
                         let invitee_id = self.client.resolve_identifier(username).await?;
-                        
+
                         // Reject PNI - trust operations require ACI
                         if invitee_id.0.starts_with("PNI:") {
                             return Err(SignalError::InvalidMessage(format!(
@@ -293,8 +293,12 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                                 username
                             )));
                         }
-                        
-                        self.handle_reject_intro(&message.sender, &invitee_id).await?;
+
+                        self.handle_reject_intro(&message.sender, &invitee_id)
+                            .await?;
+                    }
+                    Command::Help => {
+                        self.handle_help(&message.sender).await?;
                     }
                     _ => {
                         // Other commands go through normal handler
@@ -348,9 +352,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             Some(hash) => *hash,
             None => {
                 // Bootstrap phase: allow invitations before contract setup
-                return self
-                    .handle_invite_bootstrap(sender, invitee, context)
-                    .await;
+                return self.handle_invite_bootstrap(sender, invitee, context).await;
             }
         };
 
@@ -358,9 +360,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             Ok(state) => state.data,
             Err(FreenetError::ContractNotFound) => {
                 // Bootstrap phase
-                return self
-                    .handle_invite_bootstrap(sender, invitee, context)
-                    .await;
+                return self.handle_invite_bootstrap(sender, invitee, context).await;
             }
             Err(e) => {
                 let response = format!("❌ Failed to query Freenet: {}", e);
@@ -470,8 +470,11 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                         .await?;
 
                     // Send confirmation PM to inviter (no assessor identity revealed)
-                    let inviter_msg =
-                        msg_inviter_confirmation(&invitee.0, has_previous_flags, previous_flag_count);
+                    let inviter_msg = msg_inviter_confirmation(
+                        &invitee.0,
+                        has_previous_flags,
+                        previous_flag_count,
+                    );
                     self.client.send_message(sender, &inviter_msg).await
                 }
                 None => {
@@ -1022,6 +1025,45 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                 .await?;
         }
 
+        Ok(())
+    }
+
+    /// Handle /help command
+    async fn handle_help(&mut self, sender: &ServiceId) -> SignalResult<()> {
+        use crate::signal::pm::Command;
+
+        // Generate help text dynamically from Command enum
+        let mut help_text = String::from("🤖 Stroma Bot Commands\n\n");
+
+        // Group commands by category
+        help_text.push_str("⚙️ Bootstrap Commands:\n");
+        for (syntax, description) in Command::all_commands().iter().take(2) {
+            help_text.push_str(&format!("  {} - {}\n", syntax, description));
+        }
+
+        help_text.push_str("\n🤝 Trust Operations:\n");
+        for (syntax, description) in Command::all_commands().iter().skip(2).take(4) {
+            help_text.push_str(&format!("  {} - {}\n", syntax, description));
+        }
+
+        help_text.push_str("\n📊 Governance:\n");
+        for (syntax, description) in Command::all_commands().iter().skip(6).take(1) {
+            help_text.push_str(&format!("  {} - {}\n", syntax, description));
+        }
+
+        help_text.push_str("\n📈 Information:\n");
+        for (syntax, description) in Command::all_commands().iter().skip(7).take(3) {
+            help_text.push_str(&format!("  {} - {}\n", syntax, description));
+        }
+
+        help_text.push_str("\n❓ Meta:\n");
+        for (syntax, description) in Command::all_commands().iter().skip(10).take(1) {
+            help_text.push_str(&format!("  {} - {}\n", syntax, description));
+        }
+
+        help_text.push_str("\n💡 Tip: Use @username or username.## for Signal usernames, +15551234567 for phone numbers.");
+
+        self.client.send_message(sender, &help_text).await?;
         Ok(())
     }
 
@@ -1991,5 +2033,130 @@ mod tests {
         let sent = client.sent_messages();
         assert!(!sent.is_empty());
         assert!(sent[0].content.contains("No active vetting session"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_help_generates_dynamic_output() {
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
+        let config = BotConfig::default();
+        let mut bot = StromaBot::new(client.clone(), freenet, config).unwrap();
+
+        // Send help command
+        bot.handle_help(&ServiceId("user1".to_string()))
+            .await
+            .unwrap();
+
+        // Verify help message was sent
+        let sent = client.sent_messages();
+        assert_eq!(sent.len(), 1);
+
+        let help_text = &sent[0].content;
+
+        // Verify structure
+        assert!(help_text.contains("🤖 Stroma Bot Commands"));
+
+        // Verify command categories
+        assert!(help_text.contains("⚙️ Bootstrap Commands:"));
+        assert!(help_text.contains("🤝 Trust Operations:"));
+        assert!(help_text.contains("📊 Governance:"));
+        assert!(help_text.contains("📈 Information:"));
+        assert!(help_text.contains("❓ Meta:"));
+
+        // Verify key commands are present
+        assert!(help_text.contains("/create-group"));
+        assert!(help_text.contains("/add-seed"));
+        assert!(help_text.contains("/invite"));
+        assert!(help_text.contains("/vouch"));
+        assert!(help_text.contains("/flag"));
+        assert!(help_text.contains("/reject-intro"));
+        assert!(help_text.contains("/propose"));
+        assert!(help_text.contains("/status"));
+        assert!(help_text.contains("/mesh"));
+        assert!(help_text.contains("/audit"));
+        assert!(help_text.contains("/help"));
+
+        // Verify descriptions are included
+        assert!(help_text.contains("Invite someone"));
+        assert!(help_text.contains("Vouch for"));
+        assert!(help_text.contains("Flag a member"));
+        assert!(help_text.contains("View your personal trust standing"));
+        assert!(help_text.contains("View network overview"));
+
+        // Verify tip is included
+        assert!(help_text.contains("💡 Tip"));
+    }
+
+    #[test]
+    fn test_command_help_text_coverage() {
+        use crate::signal::pm::Command;
+
+        // Verify all commands (except Unknown) have help text
+        let bootstrap_cmds = [
+            Command::CreateGroup {
+                group_name: String::new(),
+            },
+            Command::AddSeed {
+                username: String::new(),
+            },
+        ];
+
+        let trust_cmds = [
+            Command::Invite {
+                username: String::new(),
+                context: None,
+            },
+            Command::Vouch {
+                username: String::new(),
+            },
+            Command::Flag {
+                username: String::new(),
+                reason: None,
+            },
+            Command::RejectIntro {
+                username: String::new(),
+            },
+        ];
+
+        let governance_cmds = [Command::Propose {
+            subcommand: String::new(),
+            args: vec![],
+        }];
+
+        let info_cmds = [
+            Command::Status { username: None },
+            Command::Mesh { subcommand: None },
+            Command::Audit {
+                subcommand: String::new(),
+            },
+        ];
+
+        let meta_cmds = [Command::Help];
+
+        // All non-Unknown commands should have help text
+        for cmd in bootstrap_cmds
+            .iter()
+            .chain(trust_cmds.iter())
+            .chain(governance_cmds.iter())
+            .chain(info_cmds.iter())
+            .chain(meta_cmds.iter())
+        {
+            assert!(
+                cmd.help_text().is_some(),
+                "Command {:?} should have help text",
+                cmd
+            );
+        }
+
+        // Unknown should not have help text
+        assert!(Command::Unknown("test".to_string()).help_text().is_none());
+
+        // Verify all_commands() returns expected count
+        let all_cmds = Command::all_commands();
+        assert_eq!(
+            all_cmds.len(),
+            11,
+            "all_commands() should return 11 commands (excluding Unknown)"
+        );
     }
 }

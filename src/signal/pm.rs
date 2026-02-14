@@ -50,8 +50,122 @@ pub enum Command {
     /// Decline assessment invitation (assessor rejects intro)
     RejectIntro { username: String },
 
+    /// Show help
+    Help,
+
     /// Unknown command
     Unknown(String),
+}
+
+impl Command {
+    /// Get command syntax and description for help text
+    ///
+    /// Returns (command_syntax, description) tuple.
+    /// Only includes user-facing commands (excludes Unknown).
+    pub fn help_text(&self) -> Option<(&'static str, &'static str)> {
+        match self {
+            Command::CreateGroup { .. } => Some((
+                "/create-group <name>",
+                "Create new Signal group (bootstrap only)",
+            )),
+            Command::AddSeed { .. } => {
+                Some(("/add-seed <username>", "Add seed member (bootstrap only)"))
+            }
+            Command::Invite { .. } => Some((
+                "/invite <username> [context]",
+                "Invite someone (counts as your first vouch for them)",
+            )),
+            Command::Vouch { .. } => Some((
+                "/vouch <username>",
+                "Vouch for an invitee or existing member",
+            )),
+            Command::Flag { .. } => Some((
+                "/flag <username> [reason]",
+                "Flag a member for trust violation",
+            )),
+            Command::Propose { .. } => Some((
+                "/propose <subcommand> [args...]",
+                "Propose a group decision (config change, Signal settings, etc.)",
+            )),
+            Command::Status { .. } => {
+                Some(("/status", "View your personal trust standing and role"))
+            }
+            Command::Mesh { .. } => Some((
+                "/mesh [subcommand]",
+                "View network overview (subcommands: strength, replication, config, settings)",
+            )),
+            Command::Audit { .. } => Some((
+                "/audit <subcommand>",
+                "Audit operator actions (subcommands: operator, bootstrap)",
+            )),
+            Command::RejectIntro { .. } => Some((
+                "/reject-intro <username>",
+                "Decline an assessment invitation (assessor only)",
+            )),
+            Command::Help => Some(("/help", "Show this help message")),
+            Command::Unknown(_) => None,
+        }
+    }
+
+    /// Get all available commands for help listing
+    ///
+    /// Returns a list of all command variants with their help text.
+    /// Excludes Unknown and includes empty instances for pattern matching.
+    pub fn all_commands() -> Vec<(&'static str, &'static str)> {
+        vec![
+            // Bootstrap commands
+            Command::CreateGroup {
+                group_name: String::new(),
+            }
+            .help_text()
+            .unwrap(),
+            Command::AddSeed {
+                username: String::new(),
+            }
+            .help_text()
+            .unwrap(),
+            // Trust operations
+            Command::Invite {
+                username: String::new(),
+                context: None,
+            }
+            .help_text()
+            .unwrap(),
+            Command::Vouch {
+                username: String::new(),
+            }
+            .help_text()
+            .unwrap(),
+            Command::Flag {
+                username: String::new(),
+                reason: None,
+            }
+            .help_text()
+            .unwrap(),
+            Command::RejectIntro {
+                username: String::new(),
+            }
+            .help_text()
+            .unwrap(),
+            // Governance
+            Command::Propose {
+                subcommand: String::new(),
+                args: vec![],
+            }
+            .help_text()
+            .unwrap(),
+            // Information
+            Command::Status { username: None }.help_text().unwrap(),
+            Command::Mesh { subcommand: None }.help_text().unwrap(),
+            Command::Audit {
+                subcommand: String::new(),
+            }
+            .help_text()
+            .unwrap(),
+            // Meta
+            Command::Help.help_text().unwrap(),
+        ]
+    }
 }
 
 /// Context for command handlers.
@@ -219,6 +333,8 @@ pub fn parse_command(text: &str) -> Command {
             }
         }
 
+        "/help" => Command::Help,
+
         _ => Command::Unknown(text.to_string()),
     }
 }
@@ -305,6 +421,14 @@ pub async fn handle_pm_command<F: crate::freenet::FreenetClient>(
                     sender,
                     "This command must be handled by the bot's vetting session manager.",
                 )
+                .await
+        }
+
+        Command::Help => {
+            // Help requires access to all commands
+            // This is handled in StromaBot::handle_message instead
+            client
+                .send_message(sender, "Help command is handled by the bot.")
                 .await
         }
 
