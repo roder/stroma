@@ -113,6 +113,40 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         })
     }
 
+    /// Send response to appropriate destination with defensive group_id validation
+    ///
+    /// Per Stroma architecture, bot should be 1:1 with group. However, during
+    /// bootstrap or failure scenarios, group_id may not be configured yet.
+    /// This helper defensively handles that case.
+    async fn send_response(
+        &self,
+        source: &MessageSource,
+        sender: &ServiceId,
+        text: &str,
+    ) -> SignalResult<()> {
+        match source {
+            MessageSource::DirectMessage => self.client.send_message(sender, text).await,
+            MessageSource::Group => {
+                if self.config.group_id.0.is_empty() {
+                    // Bootstrap incomplete - fall back to DM
+                    warn!(
+                        "Group message received but group_id not configured - falling back to DM"
+                    );
+                    let fallback_msg = format!(
+                        "{}\n\n⚠️ Note: I received your command in a group, but I'm not fully configured yet. \
+                        Please complete bootstrap with /create-group first.",
+                        text
+                    );
+                    self.client.send_message(sender, &fallback_msg).await
+                } else {
+                    self.client
+                        .send_group_message(&self.config.group_id, text)
+                        .await
+                }
+            }
+        }
+    }
+
     /// Run bot event loop
     ///
     /// Receives Signal messages and processes commands.
@@ -240,16 +274,9 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
                 if requires_dm && !matches!(message.source, MessageSource::DirectMessage) {
                     let error_msg = "❌ Trust operations must be sent via direct message (DM) for privacy. Please message me directly.";
-                    return match &message.source {
-                        MessageSource::DirectMessage => {
-                            self.client.send_message(&message.sender, error_msg).await
-                        }
-                        MessageSource::Group => {
-                            self.client
-                                .send_group_message(&self.config.group_id, error_msg)
-                                .await
-                        }
-                    };
+                    return self
+                        .send_response(&message.source, &message.sender, error_msg)
+                        .await;
                 }
 
                 // Route commands to appropriate handlers
@@ -1093,18 +1120,8 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
         help_text.push_str("\n💡 Tip: Use @username or username.## for Signal usernames, +15551234567 for phone numbers.");
 
-        // Respond to appropriate destination
-        // Per Stroma architecture: bot belongs to ONE group (self.config.group_id)
-        match source {
-            MessageSource::DirectMessage => {
-                self.client.send_message(sender, &help_text).await?;
-            }
-            MessageSource::Group => {
-                self.client
-                    .send_group_message(&self.config.group_id, &help_text)
-                    .await?;
-            }
-        }
+        // Respond using defensive helper (handles unconfigured group_id)
+        self.send_response(source, sender, &help_text).await?;
         Ok(())
     }
 
