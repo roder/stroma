@@ -695,12 +695,15 @@ fn convert_received(received: Received) -> Option<Message> {
             {
                 if let Some(body) = &dm.body {
                     // Determine message source (DM vs group)
-                    // Note: Per Stroma architecture, bot belongs to ONE group only.
-                    // We just need to detect if message is from a group context,
-                    // not extract the specific GroupId (bot will respond to its configured group).
-                    let source = if dm.group_v2.is_some() {
+                    // For group messages, extract and include the actual GroupId
+                    let source = if let Some(group_v2) = &dm.group_v2 {
                         // Message is from a group context
-                        MessageSource::Group
+                        if let Some(master_key_bytes) = &group_v2.master_key {
+                            MessageSource::Group(GroupId(master_key_bytes.clone()))
+                        } else {
+                            // Group message without master key - treat as DM (shouldn't happen)
+                            MessageSource::DirectMessage
+                        }
                     } else {
                         // Message is a direct message (1-on-1 PM)
                         MessageSource::DirectMessage
