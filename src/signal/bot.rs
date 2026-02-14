@@ -244,8 +244,10 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                         MessageSource::DirectMessage => {
                             self.client.send_message(&message.sender, error_msg).await
                         }
-                        MessageSource::Group(group_id) => {
-                            self.client.send_group_message(group_id, error_msg).await
+                        MessageSource::Group => {
+                            self.client
+                                .send_group_message(&self.config.group_id, error_msg)
+                                .await
                         }
                     };
                 }
@@ -1092,12 +1094,15 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         help_text.push_str("\n💡 Tip: Use @username or username.## for Signal usernames, +15551234567 for phone numbers.");
 
         // Respond to appropriate destination
+        // Per Stroma architecture: bot belongs to ONE group (self.config.group_id)
         match source {
             MessageSource::DirectMessage => {
                 self.client.send_message(sender, &help_text).await?;
             }
-            MessageSource::Group(group_id) => {
-                self.client.send_group_message(group_id, &help_text).await?;
+            MessageSource::Group => {
+                self.client
+                    .send_group_message(&self.config.group_id, &help_text)
+                    .await?;
             }
         }
         Ok(())
