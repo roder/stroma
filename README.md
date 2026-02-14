@@ -1,399 +1,210 @@
 # Stroma
 
-> **⚠️ PRE-ALPHA**: Architecture validated, implementation in progress. Not yet functional.
+> **Pre-alpha**: Architecture validated through two spike weeks (14 questions resolved). Mock-layer logic complete (~31,600 lines, 502+ tests). Real Signal and Freenet integration in progress. Not yet functional against live networks.
 
 **Signal groups where trust is verified by many, exposed to none.**
 
-## Mission
-
-Build federations of human networks connected by trust while preserving individual anonymity.
-
-## Goals
-
-- Create a Signal Messenger bot that maintains groups with fully-vetted members
-- Use minimal real-world vouches to create resilient mesh networks of trust
-- Bridge disparate groups that have overlapping trusted members for novel connections across trust networks 
-
 ## The Problem
 
-Activists are subject to repression and repression prevents coordination. How can an activist know the members of a Signal group can be trusted?  
+Activists are subject to repression and repression prevents coordination. How can an activist know the members of a Signal group can be trusted? And how can the group know they can trust you?
 
-On the other hand, anonymity is security, but how can the group know they can trust you?
-
-This creates a fundamental tension: **verification requires exposure, but exposure creates vulnerability.**
+**Verification requires exposure, but exposure creates vulnerability.**
 
 Traditional solutions create new problems:
-- **Invite links**: Anyone with the link can join - no vetting, no trust verification
-- **Admin gatekeepers**: One person controls who gets in - single point of failure, creates hierarchy
-- **Trusting strangers**: Members join without vetting - how do you know they won't leak the group or infiltrate it?
-- **Large groups become cliques**: Peer circles form, newcomers isolated on the periphery
+- **Invite links**: Anyone with the link can join -- no vetting, no trust
+- **Admin gatekeepers**: One person controls who gets in -- single point of failure, creates hierarchy
+- **Trusting strangers**: Members join without vetting -- no way to detect infiltration
+- **Large groups become cliques**: Peer circles form, newcomers isolated at the periphery
 
 ## How Stroma Solves This
 
-Stroma resolves the tension between verification and anonymity through **distributed trust verification with cryptographic privacy**. 
-
 **The core principle**: You can only join if two members from **different parts of the network** vouch for you, while ensuring member identities are protected even if an adversary seizes the server.
 
-### What This Means:
-- **No strangers**: Every member is personally vouched for by at least 2 people already in the group
-- **No gatekeepers**: No single person controls entry - trust is distributed across the network
-- **No cliques**: Vouches must come from different peer circles (not your buddy vouching for your other buddy)
-- **No hierarchy**: Trust emerges from relationships, not authority or admin power
-- **No identity exposure**: Even if the bot server is compromised, the adversary only gets cryptographic hashes — not real identities
+- **No strangers**: Every member is personally vouched for by at least 2 people in the group
+- **No gatekeepers**: No single person controls entry -- trust is distributed across relationships
+- **No cliques**: Vouches must come from different peer circles (cross-cluster requirement)
+- **No hierarchy**: Trust emerges from relationships, not authority
+- **No identity exposure**: Even if the bot server is seized, the adversary gets cryptographic hashes -- not identities
 
-### How It Works (Simple):
+### How It Works
 
-1. **Someone invites you**: A member sends `/invite @YourName` to the bot (private message only)
-   - Their invitation counts as your first vouch
-   - Bot hashes your Signal ID immediately (never stores cleartext)
-   - Vetting process begins
+1. **Someone invites you**: A member sends `/invite @YourName` to the bot (private message). Their invitation counts as your first vouch. The bot hashes your Signal ID immediately and never stores the original.
 
-2. **You get vetted**: The bot suggests you chat with a second member from a different part of the network
-   - Bot facilitates introduction (suggests a well-connected member from a different peer circle)
-   - You have a brief conversation to establish trust
-   - Bot doesn't participate - just makes strategic matchmaking suggestion
+2. **You get vetted**: The bot selects a member from a different part of the network to assess you. This assessor reaches out to you independently -- the bot only facilitates the introduction.
 
-3. **Second vouch**: After your conversation, the member vouches for you
-   - They send `/vouch @YourName` to the bot (private message)
-   - Bot verifies: (a) voucher is a member, (b) voucher is from a **different peer circle** than the inviter
-   - Same peer circle vouches are rejected — diversity is mandatory to prevent coordinated infiltration
-   - **Bootstrap exception**: For small groups (3-5 members) where everyone knows each other, diversity requirement is suspended
+3. **Second vouch**: After meeting you, the assessor vouches for you. The bot verifies the voucher is from a different peer circle than the inviter. Same-circle vouches are rejected.
 
-4. **You're admitted**: The bot adds you to the Signal group
-   - You're now a Bridge (2 effective vouches from members in different peer circles)
-   - Your trust standing is positive (Standing = Effective_Vouches - Regular_Flags >= 0)
-   - Bot welcomes you and immediately deletes all vetting session data (ephemeral)
+4. **You're admitted**: The bot adds you to the Signal group. You're a Bridge (2 vouches from different clusters). All vetting session data is deleted immediately.
 
-5. **You stay connected**: Keep building relationships in the group
-   - If a voucher leaves → their vouch is lost; if you drop below 2 effective vouches, immediate ejection
-   - If a voucher flags you → their vouch is invalidated; if you drop below 2 effective vouches, immediate ejection
-   - Build 3+ connections to become a Validator (more resilient to voucher departures, helps with network optimization)
+5. **Trust is continuous**: If a voucher leaves or flags you and your effective vouches drop below 2, you're removed immediately. No grace periods. But you can always re-enter by getting 2 new cross-cluster vouches -- no permanent bans.
 
-### The Magic: Trust Map 
+### Trust Map Protection
 
-The bot acts as a **"Blind Matchmaker"** - it optimizes the trust mesh using graph algorithms while maintaining complete anonymity. The critical innovation: **the trust map never exists in any form that could be seized or exposed.**
+The bot knows the trust graph, but that graph **never exists in a form that could be seized**:
 
-**For non-technical users**: It feels like a helpful bot managing your Signal group. You use simple commands like `/invite @friend` or `/status` in private messages. The bot handles everything automatically - vetting newcomers, monitoring trust standing, suggesting strategic introductions, and keeping the group secure. All technical complexity is hidden. You don't need to understand cryptography any more than you need to understand TCP/IP to use the internet securely (but you can - this project is open-source).
- 
-**For privacy advocates & security auditors**: **Trust map protection** via three independent defense layers:
-1. **No centralized storage**: Trust map in decentralized Freenet network (distributed across peers, no single seizure point)
-2. **Cryptographic privacy**: All identities hashed (HMAC-SHA256 with ACI-derived key — each bot's Signal identity), trust verified with ZK-proofs (STARKs), memory zeroized, minimal protocol-only store (~100KB encrypted file, NO message history)
-3. **Metadata isolation**: All vetting in 1-on-1 PMs (no Signal group metadata), bot operator least-privilege (service runner only), vetting conversations ephemeral (never persisted to disk)
-Together: **Even if adversary seizes the bot server, they get: small encrypted file (~100KB protocol state), hashes (not identities), topology (not relationship context), NO vetting conversations, NO message history.**
+1. **Decentralized storage**: Trust state lives in Freenet's peer-to-peer network -- no single server to raid
+2. **Cryptographic privacy**: All identities masked via HMAC-SHA256 with operator-derived keys (BIP-39 mnemonic, HKDF-SHA256 key derivation). Memory zeroized after hashing. Encrypted SQLite databases with no message history stored.
+3. **Metadata isolation**: All vetting happens in 1-on-1 PMs. Bot operator has no special privileges. Vetting conversations are ephemeral.
 
-**For developers & contributors**: Built on embedded [freenet-core](https://github.com/freenet/freenet-core) kernel (in-process, not external service). Contracts use ComposableState trait for mergeable state with CRDT-like semantics. Set-based membership (BTreeSet) with on-demand Merkle Tree generation for ZK-proof verification. Internal cluster detection via Bridge Removal algorithm (Tarjan's) achieving optimal mesh topology. Matchmaking uses DVR optimization (Distinct Validators, non-overlapping voucher sets) with MST fallback. Bot-side STARK proof verification. Persistence via Reciprocal Network with registry-based discovery, PoW Sybil resistance, challenge-response verification, rendezvous hashing, 64KB chunks, 1% spot checks, and contract distribution. External federation via Private Set Intersection with Cardinality (PSI-CA) and Social Anchor Hashing (emergent discovery). See [ALGORITHMS.md](docs/ALGORITHMS.md) for MST implementation and complexity, [freenet-contract-design.mdc](.beads/freenet-contract-design.bead) for patterns.
+**If an adversary seizes the bot server**: they get encrypted databases, cryptographic hashes (not identities), and no message history.
 
 ## Why "Stroma"?
 
-In biology, stroma is the supportive tissue that holds organs together. In your group, Stroma is the underlying trust network that holds the community together - invisible but essential.
+In biology, stroma is the supportive tissue that holds organs together -- invisible but essential. In your group, Stroma is the trust network that holds the community together.
 
 ---
 
-## Documentation Guide
+## Current Status
 
-Stroma serves three audiences. Choose your path:
+| Layer | Status | Detail |
+|-------|--------|--------|
+| **Trust model** | Complete | Standing, vouching, flagging, ejection, cross-cluster enforcement, DVR health, persistence |
+| **Signal integration** | In progress | Polls UAT-validated on live Signal. Group CRUD, message routing in progress. |
+| **Freenet integration** | Mocked | Architecture validated. In-memory mock; embedded kernel blocked on upstream visibility fix. |
+| **ZK-proofs** | Scaffolded | Winterfell AIR circuits defined. Phase 0 uses simplified hash-based commitments. Full STARK proving planned. |
+| **Federation** | Designed | Social anchor computation works locally. Discovery, PSI-CA, cross-mesh vouching are Phase 4+. |
+| **Persistence** | Complete (mock) | Reciprocal network architecture validated. Chunking, encryption, registry, rendezvous hashing all implemented against mocks. |
 
-### 👥 For End Users (Group Members)
-**You want to use Stroma in your Signal group.**
+**Next milestone**: UAT -- bot links to real Signal account, creates group, runs full admission flow against live networks.
 
-- **[How It Works](docs/HOW-IT-WORKS.md)** - **Start here:** Plain-language explanation of the trust protocol
-- **[User Guide](docs/USER-GUIDE.md)** - Bot commands, daily workflows, trust management
-- **[Trust Model Explained](docs/TRUST-MODEL.md)** - How vouching, flagging, and standing work
-- **Quick Start**: Install Signal → Get invited by a member → Chat with assessor → Join group
-
-### 🔧 For Operators (Bot Runners)
-**You want to run a Stroma bot for your community.**
-
-- **[Operator Guide](docs/OPERATOR-GUIDE.md)** - Installation, configuration, maintenance
-- **Prerequisites**: Linux server, Signal account, Rust 1.93+, freenet-core
-
-### 💻 For Developers (Contributors)
-**You want to understand or contribute to Stroma.**
-
-- **[Developer Guide](docs/DEVELOPER-GUIDE.md)** - Architecture, technical stack, contract design
-- **[Algorithms](docs/ALGORITHMS.md)** - **MST matchmaking, PSI-CA federation, complexity analysis**
-- **[Trust Model Technical](docs/TRUST-MODEL.md)** - Vouch invalidation, ejection triggers, mesh health
-- **[Federation Roadmap](docs/FEDERATION.md)** - Future vision and design
-- **[TODO Checklist](docs/todo/TODO.md)** - Implementation roadmap and task tracking
+See [TODO.md](docs/todo/TODO.md) for the complete implementation checklist.
 
 ---
 
-## Quick Overview
+## Documentation
 
-Stroma provides three layers that work together seamlessly:
+### For End Users
+- **[How It Works](docs/HOW-IT-WORKS.md)** -- Plain-language explanation of the trust protocol
+- **[User Guide](docs/USER-GUIDE.md)** -- Bot commands, daily workflows, trust management
+- **[Trust Model](docs/TRUST-MODEL.md)** -- Vouching, flagging, standing, ejection
 
-### 1. Signal Bot Interface
-Members interact via simple commands: `/invite`, `/vouch`, `/flag`, `/propose`, `/status`, `/mesh` (including `/mesh settings` for configuration discovery)
+### For Operators
+- **[Operator Guide](docs/OPERATOR-GUIDE.md)** -- Installation, configuration, maintenance
 
-**What members see**: Natural language responses, trust standing, network health, voting, configurable settings  
-**What's hidden**: All crypto, Freenet state, Merkle trees, ZK-proofs
-
-→ **[Complete User Guide](docs/USER-GUIDE.md)** - Commands, workflows, examples
-
-### 2. Trust Logic (Rust Bot)
-- **Architecture**: One bot per group (1:1 relationship)
-- **Implementation**: Presage (high-level Rust API wrapping libsignal-service-rs)
-- **Protocol Gatekeeper**: Enforces 2-vouch requirement with ZK-proofs
-- **Blind Matchmaker**: Suggests strategic introductions across different peer circles  
-- **Health Monitor**: Continuous trust standing checks via Freenet state stream
-- **Consensus Enforcer**: Executes only contract-approved actions (no autonomous decisions)
-- **Diplomat**: Discovers and proposes federation (Future)
-
-→ **[Trust Model Deep Dive](docs/TRUST-MODEL.md)** - Vouching, flagging, ejection math
-
-### 3. Decentralized State (Embedded Freenet Kernel)
-- **Embedded kernel**: Runs in-process with bot (single binary, no external service)
-- **No central server**: State exists across peer-to-peer network
-- **Eventual consistency**: Summary-delta synchronization (no consensus algorithms)
-- **Set-based membership**: BTreeSet with on-demand Merkle Tree generation
-- **Anonymous routing**: Dark mode (no IP exposure)
-- **Durability**: Reciprocal Persistence Network — validated architecture with:
-  - Registry-based bot discovery 
-  - PoW Sybil resistance (>90% fake bot detection)
-  - Challenge-response verification (Q9: SHA-256 proofs, 128 bytes)
-  - Rendezvous hashing for deterministic holders
-  - 64KB chunks with 3 copies each (1 local + 2 remote replicas)
-  - 1% spot check fairness verification
-  - Contract-based distribution 
-
-→ **[Developer Guide](docs/DEVELOPER-GUIDE.md)** - Architecture, contract design, tech stack
-→ **[Persistence](docs/PERSISTENCE.md)** - State durability & recovery
+### For Developers
+- **[Developer Guide](docs/DEVELOPER-GUIDE.md)** -- Architecture, modules, contracts
+- **[Algorithms](docs/ALGORITHMS.md)** -- DVR matchmaking, cluster detection, complexity analysis
+- **[Federation](docs/FEDERATION.md)** -- North star design for cross-group trust
+- **[Trust Topology Platform](docs/TRUST-TOPOLOGY-PLATFORM.md)** -- Long-horizon vision: trust shaped by natural patterns
 
 ---
 
-## Core Concepts
+## Architecture
 
-### Trust Model
-- **Requirement**: 2 vouches from members in **different peer circles** to join (diversity mandatory to prevent coordinated infiltration)
-- **Bootstrap Exception**: Small groups (3-5 members) where everyone knows each other; diversity enforced once multiple peer circles exist
-- **Standing**: `Effective_Vouches - Regular_Flags` (must stay ≥ 0)
-- **Vouch Invalidation**: If voucher flags you, their vouch is invalidated
-- **Ejection**: Immediate when Standing < 0 OR Effective_Vouches < 2
-- **Re-entry**: Get 2 new cross-cluster vouches, no cooldown
+### Three Layers, Single Binary
 
-→ **[Full Trust Model](docs/TRUST-MODEL.md)** with examples and edge cases
+```
+Signal           Rust Bot              Freenet
+(user interface) (trust logic)         (decentralized state)
+                                       
+/invite -------> Gatekeeper ---------> Contract state
+/vouch --------> Blind Matchmaker      Set-based membership
+/flag ---------> Health Monitor        Mergeable deltas
+/propose ------> Consensus Enforcer    Anonymous routing
+/mesh ---------> DVR Calculator        Persistence network
+```
 
-### Trust Health: Distinct Validator Ratio (DVR)
-Trust health is measured by **Distinct Validator Ratio** — the fraction of maximum possible Validators with non-overlapping voucher sets. This graph-theory-grounded metric directly measures resilience against coordinated attacks.
+1. **Signal** -- Members interact via simple commands in private messages. All crypto is hidden.
+2. **Rust Bot** -- Enforces trust thresholds, selects assessors, monitors standing, executes consensus. One bot per group.
+3. **Freenet** -- Decentralized state with eventual consistency. No central server. Anonymous routing (dark mode).
 
-**Formula**: `DVR = Distinct_Validators / (N / 4)` where N = network size
+### Core Concepts
 
-**Three-tier status**:
-- 🔴 **Unhealthy** (0-33%): Trust concentrated — actively suggest improvements
-- 🟡 **Developing** (33-66%): Growing toward optimal
-- 🟢 **Healthy** (66-100%): **THE GOAL** - strong distributed trust
+**Trust standing**: `Effective_Vouches - Regular_Flags` (must stay >= 0). If a voucher flags you, their vouch is invalidated -- a single member's action can never cause a 2-point swing.
 
-### Replication Health: Is My Data Resilient?
-**Replication Health** answers a critical question: "If the bot crashes, can the trust network be recovered?"
+**Mesh health (DVR)**: Distinct Validator Ratio measures independently-verified members. `DVR = Distinct_Validators / floor(N/4)`. Three tiers: red (0-33%), yellow (33-66%), green (66-100%).
 
-Stroma uses a **Reciprocal Persistence Network** — bots hold encrypted chunks of each other's state, but can't read them. The architecture includes:
-- **Registry-based discovery** for finding peers
-- **PoW Sybil resistance** preventing fake bots from diluting the network
-- **Challenge-response verification** proving chunk possession without revealing content
-- **Rendezvous hashing** for deterministic holder assignment
-- **64KB chunk size** optimizing distribution breadth vs coordination overhead
-- **1% spot check fairness** detecting free-riders with minimal overhead
-- **Contract-based distribution** 
+**Cluster detection**: Bridge Removal algorithm (Tarjan's) identifies peer circles. Cross-cluster vouching is enforced to prevent coordinated infiltration. Bootstrap exception for groups under 4 members.
 
-**Status (measured at write time)**:
-- 🟢 **Replicated** (all chunks 3/3): Fully resilient — all chunks available
-- 🟡 **Partial** (some chunks 2/3): Recoverable, but degraded
-- 🔴 **At Risk** (any chunk ≤1/3): Cannot recover — writes blocked until fixed
-- 🔵 **Initializing**: New bot establishing persistence
+**Governance**: All group decisions via `/propose` and Signal Polls. Bot executes only contract-approved actions. Operator has zero override power.
 
-**Check with**: `/mesh replication`
+### Technical Stack
 
-**Replication Factor**: 3 copies per chunk (1 local + 2 remote replicas). Need any 1 of 3 to recover each chunk.
-
-→ **[Persistence Documentation](docs/PERSISTENCE.md)** - Full durability architecture
-
-### Federation (Future)
-- **Emergent discovery**: Bots find each other via shared validators
-- **Human control**: Both groups vote to approve
-- **Private overlap**: PSI-CA reveals only count, not identities
-- **Cross-mesh vouching**: Members vouch across federated groups
-- **Shadow Handover**: Bot identity rotation with cryptographic succession
-
-→ **[Federation Roadmap](docs/FEDERATION.md)** - North star design
-
-## Technical Architecture
-
-### Core Innovation: Recursive ZK-Vouching
-- **Embedded Freenet Kernel**: In-process (single binary, no external service)
-- **Zero-Knowledge Proofs**: Verify trust without revealing who vouched (STARKs)
-- **Set-Based State**: BTreeSet membership with on-demand Merkle Trees
-- **Mergeable Contracts**: CRDT-like eventual consistency (no consensus algorithms)
-- **Vouch Invalidation**: Voucher-flaggers cancel their own vouches (logical consistency)
-
-### Three Layers (Single Binary)
-1. **Signal** - Human interface (bot commands, 1-on-1 PMs, conversational)
-2. **Rust Bot** - Trust logic (gatekeeper, matchmaker, health monitor, diplomat)
-3. **Embedded Freenet** - Decentralized state (in-process kernel, ComposableState, anonymous routing)
-
-→ **[Technical Deep Dive](docs/DEVELOPER-GUIDE.md)** - Architecture, modules, contracts
+| Component | Technology | Notes |
+|-----------|------------|-------|
+| Language | Rust 1.93+ | Static MUSL binary, edition 2021 |
+| Signal (high-level) | Presage (fork) | Group management, polls (protocol v8) |
+| Signal (low-level) | libsignal-service-rs (fork) | Protocol v8 poll support |
+| State | freenet / freenet-stdlib | ComposableState, summary-delta sync |
+| Identity masking | HMAC-SHA256 (ring) | BIP-39 mnemonic, HKDF-SHA256 key derivation |
+| ZK circuits | winterfell | AIR defined; full STARK proving planned |
+| Serialization | CBOR (ciborium) | Not JSON -- compact binary format |
+| Store | SQLite + SQLCipher | Encrypted protocol state, no message history |
 
 ---
-
-_For detailed specifications on Trust Model, Mesh Health, Federation, Technical Stack, Configuration, Security, and Implementation Phases, see the documentation links above._
-
----
-
-## Technical Stack
-
-| Component | Technology | Why |
-|-----------|------------|-----|
-| **Language** | Rust 1.93+ | musl 1.2.5, improved DNS, static binaries |
-| **Embedded Node** | freenet v0.1.107+ | In-process node (NodeConfig::build()) |
-| **Contract Framework** | freenet-stdlib v0.1.30+ | Wasm contracts (ComposableState) |
-| **Contracts** | freenet-stdlib v0.1+ | ContractInterface trait, summary-delta sync |
-| **ZK-Proofs** | STARKs (winterfell) | No trusted setup, post-quantum |
-| **Identity** | HMAC-SHA256 (ring) | ACI-derived key (bot's Signal identity) |
-| **Signal (high-level)** | Presage (FORK) | High-level Rust API, group management, polls |
-| **Signal (low-level)** | libsignal-service-rs (FORK) | Protocol v8 poll support via our fork |
-| **Voting** | Native Signal Polls | Structured voting (protocol v8) |
-| **CLI** | clap 4+ | Operator commands |
-
-→ **[Full Technical Stack](docs/DEVELOPER-GUIDE.md)** - Architecture, contracts, performance targets
 
 ## Security Principles
 
-- **Anonymity-First**: All identifiers hashed (HMAC), immediate zeroization
-- **Zero-Knowledge**: Trust verified via STARKs without revealing social graph
-- **Freenet as Truth**: Signal state derived from decentralized contract
-- **Operator Least Privilege**: Service runner only, no override powers
-- **Immediate Ejection**: No grace periods when trust threshold violated
+- **Anonymity-first**: All identifiers hashed (HMAC), immediate zeroization of sensitive buffers
+- **No message history**: Store wraps presage SQLite with message persistence disabled
+- **Operator least-privilege**: Service runner only -- cannot add/remove members, change settings, or override consensus
+- **Immediate ejection**: No grace periods when trust threshold violated
+- **Decentralized truth**: Signal state derived from Freenet contract, not the other way around
 
-→ **[Security Model](docs/DEVELOPER-GUIDE.md#security)** - Threat model, attack resistance
+---
 
 ## Getting Started
-
-### For Operators
-
-**Container (Recommended - Easiest):**
-```bash
-# Docker
-docker run -d -v stroma-data:/data ghcr.io/roder/stroma:latest
-
-# Podman (identical)
-podman run -d -v stroma-data:/data ghcr.io/roder/stroma:latest
-```
-
-**Static Binary (Maximum Security):**
-```bash
-wget https://github.com/roder/stroma/releases/download/v1.0.0/stroma
-gpg --verify stroma.asc && chmod +x stroma && ./stroma run
-```
-
-Both methods use the **same secure static binary** (container just wraps it for ease).
-
-→ **[Operator Guide](docs/OPERATOR-GUIDE.md)** - Complete installation, bootstrap, maintenance  
-→ **[Container Build Guide](docs/CONTAINER-BUILD.md)** - Docker/Podman build instructions
 
 ### For Developers
 
 ```bash
-# Clone and build (includes embedded Freenet kernel)
 git clone https://github.com/roder/stroma.git
 cd stroma
-cargo build --release --target x86_64-unknown-linux-musl
-
-# Binary includes everything - no external freenet-core needed
-./target/x86_64-unknown-linux-musl/release/stroma --help
+cargo build --release
+cargo nextest run --all-features
 ```
 
-→ **[Developer Guide](docs/DEVELOPER-GUIDE.md)** - Architecture, testing, contributing  
+> **Note**: No releases or container images exist yet. The project is pre-alpha.
 
-## Design Philosophy
+### For Operators
 
-### Trust as Emergent Property
-Trust **mutually arises** across the network through relationships, not central authority.
+Operator deployment is not yet available. See [Operator Guide](docs/OPERATOR-GUIDE.md) for the planned deployment model.
 
-### Fluid Identity
-Membership is **temporary permission** from current trust balance. Ejection is immediate when threshold violated - no grace periods.
+---
 
-### Mutual Arising
-Groups discover each other via **emergent discovery** (shared validators), not admin coordination. The network scales as a coherent organism.
+## The Road Ahead
 
-→ **[Philosophy & Principles](docs/FEDERATION.md)** - Deep dive on design values
+Stroma's development follows three horizons:
+
+**Now** (Phases 0-3): Wire the validated mock layer to real Signal and Freenet networks. Reach UAT.
+
+**Next** (Phases 4-5): [Federation](docs/FEDERATION.md) -- connect groups through shared members. Emergent discovery via Social Anchor Hashing. Trust that spans communities.
+
+**Future** (Phase 6+): [Trust Topology Platform](docs/TRUST-TOPOLOGY-PLATFORM.md) -- groups choose how trust organizes itself, guided by natural patterns. The protocol becomes a laboratory for collective intelligence.
 
 ---
 
 ## Contributing
 
 This project uses:
-- **Gastown coordination** - Claude agents with specialized roles
-- **Beads** - Immutable design constraints (see `.beads/`)
+- **Gastown coordination** -- Claude agents with specialized roles
+- **Beads** -- Immutable architectural constraints (see `.beads/`)
 
-**All commits by Claude agents must include:**
+All commits by Claude agents must include:
 ```
 Co-authored-by: Claude <noreply@anthropic.com>
 ```
 
-→ **[AGENTS.md](AGENTS.md)** - Agent coordination model  
-→ **[TODO.md](docs/todo/TODO.md)** - Current tasks and progress
-
-## License
-
-**AGPL-3.0-or-later** (GNU Affero General Public License v3.0 or later)
-
-### Why AGPL (Not MIT/Apache)?
-
-Stroma uses AGPL-3.0-or-later for three critical reasons:
-
-**1. Legal Requirement (Dependency Licensing)**
-
-Stroma depends on AGPL-3.0 libraries:
-- `libsignal-service-rs` (AGPL-3.0-only) - Signal protocol implementation
-- `presage` (AGPL-3.0) - High-level Signal client library
-
-AGPL is a copyleft license. Any software linking to AGPL code must also be AGPL. We cannot legally use MIT/Apache-2.0 while depending on these libraries.
-
-**2. Security Alignment (Threat Model Defense)**
-
-Stroma's primary threat is **trust map seizure by compromised operator or state-level adversary**. The security model has three defense layers:
-
-1. **No centralized storage** (Freenet distributed state)
-2. **Cryptographic privacy** (HMAC hashing, ZK-proofs, zeroization)
-3. **Metadata isolation** (1-on-1 PMs, operator least-privilege)
-
-AGPL adds a **fourth layer: enforced transparency**.
-
-Even though "nobody will host this as a service," every operator **is** running a service for their group. AGPL ensures:
-- ✅ Group members can **inspect the bot's source code** to verify it's not leaking Signal IDs
-- ✅ Operators cannot hide modifications that violate the Eight Absolutes (§ security-constraints.bead)
-- ✅ Audit trail prevents backdoors (must provide source to group members on request)
-- ✅ Fork protection prevents proprietary surveillance variants
-
-**The transparency requirement is a security feature, not just a sharing norm.**
-
-**3. Philosophical Alignment (Power Distribution)**
-
-Stroma's core principle is **"Power With" vs "Power Over"** — distributing power laterally rather than concentrating it. AGPL's copyleft ensures:
-- ✅ No single entity can capture the trust infrastructure via proprietary fork
-- ✅ Network effects strengthen the commons, not a vendor
-- ✅ All federated groups benefit from improvements
-- ✅ Community ownership of trust network is legally protected
-
-### What This Means for You
-
-**If you run a Stroma bot:**
-- You must provide the source code to your group members if requested (AGPL § 13)
-- You can modify the bot, but must share modifications with your group
-- This protects your group from hidden surveillance modifications
-
-**If you want to use Stroma's cryptographic primitives without Signal:**
-- The AGPL requirement comes from Signal dependencies, not our core crypto
-- You could potentially extract non-Signal modules under a different license (contact maintainers)
-
-**If you want to fork Stroma:**
-- Your fork must also be AGPL-3.0-or-later
-- This prevents proprietary surveillance forks that violate the trust model
-- Federation between forks benefits all users equally
-
-See [LICENSE](LICENSE) for full license text.
+See [AGENTS.md](AGENTS.md) for the agent coordination model and [TODO.md](docs/todo/TODO.md) for current tasks.
 
 ---
 
-**Status**: Pre-alpha. Architecture validated, implementation in progress.
+## License
 
-**Last Updated**: 2026-02-08
+**AGPL-3.0-or-later**
+
+**Why AGPL?**
+
+1. **Legal requirement**: Stroma depends on AGPL-3.0 libraries (libsignal-service-rs, presage). Copyleft propagates.
+
+2. **Security alignment**: Every operator runs a service for their group. AGPL ensures group members can inspect the bot's source code to verify it isn't leaking identities. Enforced transparency is a security feature.
+
+3. **Philosophical alignment**: Stroma distributes power laterally. AGPL prevents proprietary forks that could capture the trust infrastructure. Network effects strengthen the commons, not a vendor.
+
+**What this means**: If you run a Stroma bot, you must provide source code to your group members on request. If you fork Stroma, your fork must also be AGPL-3.0-or-later.
+
+See [LICENSE](LICENSE) for full text.
+
+---
+
+**Last Updated**: 2026-02-14
