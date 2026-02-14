@@ -230,12 +230,31 @@ pub async fn execute(
 
     println!("✅ Bot is running and connected to Signal");
     println!();
-    println!("📬 Awaiting messages...");
-    println!();
-    println!("To initiate bootstrap:");
-    println!("  1. Send a PM to this bot from your Signal account");
-    println!("  2. Send: /create-group \"Your Group Name\"");
-    println!("  3. Follow the bot's instructions to add seed members");
+
+    // Show appropriate status message based on bootstrap state
+    if config.group_id.0.is_empty() {
+        // Not bootstrapped - show instructions
+        println!("📬 Awaiting messages...");
+        println!();
+        println!("To initiate bootstrap:");
+        println!("  1. Send a PM to this bot from your Signal account");
+        println!("  2. Send: /create-group \"Your Group Name\"");
+        println!("  3. Follow the bot's instructions to add seed members");
+    } else {
+        // Bootstrapped - show group info
+        println!(
+            "✅ Bootstrapped to group: {}...",
+            &hex::encode(&config.group_id.0)[..16]
+        );
+        println!();
+        println!("📬 Ready for commands in group or via DM");
+        println!();
+        println!("Available commands:");
+        println!("  • Send /help for full command list");
+        println!("  • /status - View your trust standing");
+        println!("  • /mesh - View network health");
+        println!("  • /invite @user - Invite new members");
+    }
     println!();
     println!("Press Ctrl+C to stop.");
     println!();
