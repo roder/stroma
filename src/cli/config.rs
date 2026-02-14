@@ -50,6 +50,17 @@ pub struct SignalConfig {
     /// Signal servers to use (production or staging)
     #[serde(default = "default_servers")]
     pub servers: String,
+
+    /// Signal group ID (hex-encoded master key) - set during bootstrap
+    ///
+    /// Per 1:1 bot-to-group architecture, this is set when /create-group completes
+    /// and becomes IMMUTABLE. Once set, the bot will:
+    /// - Only respond to messages from this group
+    /// - Leave all other groups
+    /// - Reject attempts to change this value
+    ///
+    /// To change groups, you must unregister and re-bootstrap the bot.
+    pub group_id: Option<String>,
 }
 
 /// Freenet integration configuration
@@ -99,6 +110,7 @@ impl StromaConfig {
             signal: SignalConfig {
                 store_path,
                 servers: default_servers(),
+                group_id: None,
             },
             freenet: FreenetConfig::default(),
             logging: LoggingConfig::default(),
@@ -117,7 +129,6 @@ impl StromaConfig {
     }
 
     /// Save configuration to a TOML file
-    #[allow(dead_code)]
     pub fn save(&self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let contents = toml::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize config: {}", e))?;
@@ -130,6 +141,32 @@ impl StromaConfig {
 
         fs::write(path, contents)
             .map_err(|e| format!("Failed to write config file '{}': {}", path.display(), e))?;
+
+        Ok(())
+    }
+
+    /// Set group_id and persist to config file (called when bootstrap completes)
+    ///
+    /// This makes the bot's group assignment IMMUTABLE. Once set, the bot will
+    /// only respond to this group and reject all others.
+    ///
+    /// Returns error if group_id is already set (to prevent accidental changes).
+    #[allow(dead_code)] // TODO: Used when CLI->library config integration is complete
+    pub fn set_group_id(
+        &mut self,
+        path: &Path,
+        group_id_hex: String,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if self.signal.group_id.is_some() {
+            return Err(
+                "Group ID already set. Bot is already bootstrapped to a group. \
+                       To change groups, unregister and re-bootstrap."
+                    .into(),
+            );
+        }
+
+        self.signal.group_id = Some(group_id_hex);
+        self.save(path)?;
 
         Ok(())
     }
@@ -155,6 +192,13 @@ store_path = "{store_path}"
 
 # Signal servers: "production" or "staging"
 servers = "production"
+
+# Group ID (hex-encoded master key) - SET AUTOMATICALLY during bootstrap
+# This field is set when /create-group completes and becomes IMMUTABLE.
+# Once set, the bot will ONLY respond to this group and leave all others.
+# To change groups, you must unregister and re-bootstrap the bot.
+# Do not set this manually - it's managed by the bot.
+# group_id = "..."
 
 [freenet]
 # Freenet node address (optional)

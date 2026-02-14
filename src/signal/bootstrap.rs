@@ -132,7 +132,7 @@ impl<C: SignalClient> BootstrapManager<C> {
         from: &ServiceId,
         new_seed: &ServiceId,
         username: &str,
-    ) -> SignalResult<()> {
+    ) -> SignalResult<Option<GroupId>> {
         // Get current collecting state
         let (group_name, initiator, current_seeds, current_service_ids) = match &self.state {
             BootstrapState::CollectingSeeds {
@@ -209,6 +209,7 @@ impl<C: SignalClient> BootstrapManager<C> {
                 3 - seed_count
             );
             self.signal.send_message(from, &message).await?;
+            Ok(None) // Bootstrap not yet complete
         } else {
             let message = format!(
                 "✅ {} added as seed member #3.\n   Seed group complete! Creating Signal group and Freenet contract...",
@@ -217,21 +218,25 @@ impl<C: SignalClient> BootstrapManager<C> {
             self.signal.send_message(from, &message).await?;
 
             // Complete bootstrap with both hashes (for Freenet) and ServiceIds (for Signal group)
-            self.complete_bootstrap(freenet, group_name, updated_seeds, &updated_service_ids)
+            let group_id = self
+                .complete_bootstrap(freenet, group_name, updated_seeds, &updated_service_ids)
                 .await?;
-        }
 
-        Ok(())
+            // Return GroupId to signal bootstrap completion
+            Ok(Some(group_id))
+        }
     }
 
     /// Complete bootstrap by creating Signal group and Freenet contract
+    ///
+    /// Returns the GroupId of the created group.
     pub async fn complete_bootstrap(
         &mut self,
         freenet: &impl FreenetClient,
         group_name: String,
         seed_hashes: Vec<MemberHash>,
         seed_service_id_strings: &[String],
-    ) -> SignalResult<()> {
+    ) -> SignalResult<GroupId> {
         assert_eq!(seed_hashes.len(), 3, "Must have exactly 3 seed members");
         assert_eq!(
             seed_service_id_strings.len(),
@@ -335,12 +340,13 @@ impl<C: SignalClient> BootstrapManager<C> {
 
         // 6. Transition to complete state
         self.state = BootstrapState::Complete {
-            group_id,
+            group_id: group_id.clone(),
             group_name,
             contract_hash,
         };
 
-        Ok(())
+        // Return GroupId so caller can persist it and leave other groups
+        Ok(group_id)
     }
 }
 

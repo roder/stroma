@@ -111,7 +111,7 @@ pub async fn execute(
     println!("Store: {}", store_path.display());
 
     // Load or create configuration
-    let _config = if config_path.exists() {
+    let stroma_config = if config_path.exists() {
         StromaConfig::load(&config_path)?
     } else {
         // Generate default config
@@ -121,7 +121,6 @@ pub async fn execute(
         println!("   Created: {}", config_path.display());
         StromaConfig::load(&config_path)?
     };
-    // TODO: Use config when bot service is fully implemented
 
     if let Some(contact) = &bootstrap_contact {
         println!("Bootstrap Contact: {}", contact);
@@ -190,9 +189,19 @@ pub async fn execute(
     let mut client = LibsignalClient::with_manager(service_id, store, manager);
 
     // Build BotConfig with keyring-derived keys
-    // group_id will be set during /create-group bootstrap
+    // Load group_id from config if already bootstrapped
+    let group_id = if let Some(group_id_hex) = &stroma_config.signal.group_id {
+        // Parse hex-encoded master key back to GroupId
+        let bytes =
+            hex::decode(group_id_hex).map_err(|e| format!("Invalid group_id in config: {}", e))?;
+        GroupId(bytes)
+    } else {
+        // Not yet bootstrapped - will be set during /create-group
+        GroupId(vec![])
+    };
+
     let config = BotConfig {
-        group_id: GroupId(vec![]), // Set during bootstrap
+        group_id,
         min_vouch_threshold: 2,
         identity_masking_key: *keyring.identity_masking_key(),
         voter_pepper: *keyring.voter_pepper(),
@@ -229,6 +238,9 @@ pub async fn execute(
 
             // Create bot AFTER receive loop starts (client is moved into bot)
             let mut bot = StromaBot::new(client, freenet, config)?;
+
+            // Set config path for persistence when bootstrap completes
+            bot.set_config_path(config_path.clone());
 
             tokio::select! {
                 result = bot.run() => {
