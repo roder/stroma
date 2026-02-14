@@ -648,22 +648,24 @@ impl SignalClient for LibsignalClient {
     }
 
     async fn leave_group(&self, group: &GroupId) -> SignalResult<()> {
-        use tracing::{info, warn};
+        use tracing::info;
 
-        // TODO: Presage doesn't currently have a leave_group() method
-        // Workaround: Remove from in-memory tracking so we don't respond to it
-        // This prevents the bot from sending messages to this group, but doesn't
-        // actually remove the bot from the group in Signal's view.
-        //
-        // Full solution requires either:
-        // 1. Adding leave_group() to presage Manager
-        // 2. Using remove_group_member() to remove ourselves
-        // 3. Manually building the group update message
+        let manager = self.manager.as_ref().ok_or_else(|| {
+            SignalError::NotImplemented("leave_group: no Manager configured".to_string())
+        })?;
 
-        warn!(
-            "Presage leave_group() not implemented - removing from in-memory tracking only: {}",
-            group
-        );
+        let master_key = {
+            let keys = self.group_keys.lock().await;
+            *keys.get(group).ok_or_else(|| {
+                SignalError::GroupNotFound(format!("Cannot leave unknown group: {}", group))
+            })?
+        };
+
+        // Call presage's leave_group (removes bot from group in Signal)
+        let mut mgr = manager.lock().await;
+        mgr.leave_group(&master_key)
+            .await
+            .map_err(|e| SignalError::Network(format!("leave_group failed: {:?}", e)))?;
 
         // Remove from in-memory tracking
         {
@@ -675,10 +677,7 @@ impl SignalClient for LibsignalClient {
             members.remove(group);
         }
 
-        info!(
-            "Removed group from tracking (bot will ignore messages from this group): {}",
-            group
-        );
+        info!("✅ Successfully left group: {}", group);
 
         Ok(())
     }
