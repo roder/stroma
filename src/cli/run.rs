@@ -188,6 +188,13 @@ pub async fn execute(
     // Create LibsignalClient with Manager (clones Manager for receive loop)
     let mut client = LibsignalClient::with_manager(service_id, store, manager);
 
+    // Load existing groups from presage store (restores group_keys after restart)
+    println!("📦 Loading groups from store...");
+    client
+        .load_groups_from_store()
+        .await
+        .map_err(|e| format!("Failed to load groups from store: {}", e))?;
+
     // Build BotConfig with keyring-derived keys
     // Load group_id from config if already bootstrapped
     let group_id = if let Some(group_id_hex) = &stroma_config.signal.group_id {
