@@ -135,9 +135,17 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         sender: &ServiceId,
         text: &str,
     ) -> SignalResult<()> {
+        use tracing::info;
+
         match source {
             MessageSource::DirectMessage => self.client.send_message(sender, text).await,
             MessageSource::Group(message_group_id) => {
+                info!(
+                    "send_response: Group message from {} (configured: {})",
+                    hex::encode(&message_group_id.0),
+                    hex::encode(&self.config.group_id.0)
+                );
+
                 // Validate we have a configured group
                 if self.config.group_id.0.is_empty() {
                     // Bootstrap incomplete - fall back to DM
@@ -155,7 +163,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                 // Validate message is from the correct group (1:1 invariant)
                 if message_group_id != &self.config.group_id {
                     warn!(
-                        "Rejecting group message from wrong group: {} (configured: {})",
+                        "send_response: REJECTING wrong group: {} (configured: {})",
                         hex::encode(&message_group_id.0),
                         hex::encode(&self.config.group_id.0)
                     );
@@ -172,6 +180,10 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                 }
 
                 // Valid group message - respond to the group
+                info!(
+                    "send_response: Sending to group {}",
+                    hex::encode(&self.config.group_id.0)
+                );
                 self.client
                     .send_group_message(&self.config.group_id, text)
                     .await
@@ -355,12 +367,20 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
     /// Handle incoming message
     async fn handle_message(&mut self, message: Message) -> SignalResult<()> {
+        use tracing::info;
+
         // Defensive: Validate group messages are from the configured group (1:1 invariant)
         if let MessageSource::Group(ref msg_group_id) = message.source {
+            info!(
+                "Received group message from: {} (configured: {})",
+                hex::encode(&msg_group_id.0),
+                hex::encode(&self.config.group_id.0)
+            );
+
             if !self.config.group_id.0.is_empty() && msg_group_id != &self.config.group_id {
                 // Message from wrong group - ignore it
                 warn!(
-                    "Ignoring message from wrong group: {} (configured: {})",
+                    "REJECTING message from wrong group: {} (configured: {})",
                     hex::encode(&msg_group_id.0),
                     hex::encode(&self.config.group_id.0)
                 );
