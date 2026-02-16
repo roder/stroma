@@ -843,6 +843,121 @@ Each step is the same pattern at a larger scale. The loop doesn't change. The or
 
 ---
 
+## The Smallest Loop: One Full Revolution
+
+The entire vision -- trust topology, federated mutual aid, community intelligence -- grows from a single atom: one developer, one AI, one codebase, one loop where the end becomes the beginning.
+
+This is the roadmap for one full revolution.
+
+### What You Need
+
+| Component | Implementation | Status |
+|-----------|---------------|--------|
+| Git post-commit hook | Shell script that logs commit metadata to a local PoI store | ~30 minutes to build |
+| Local PoI store | SQLite table or JSON file: `{hash, author, timestamp, message, files_changed, diff_summary}` | Trivial |
+| RAG indexer | Index the PoI store + codebase + docs + beads. LlamaIndex, or a script that assembles context from recent commits + relevant files | Off-the-shelf tooling exists |
+| Local LLM | ollama + Llama 3.2 3B (runs on Mac, no GPU) or Llama 3.1 8B (if GPU available) | Install and run |
+| Prompt script | Feeds RAG context to the model, asks: "Given the current state of the project, what is the most valuable next step?" | A single script |
+
+No Stroma bot. No Freenet. No Signal group. No cloud. Just a git hook, a local database, a retrieval script, and a small model. Everything runs on the developer's machine.
+
+### The Loop (One Revolution)
+
+```
+Step 1: WORK
+    Developer writes code. Anything -- a bug fix, a new module,
+    a test, a documentation update.
+
+Step 2: COMMIT
+    git commit -m "Add property tests for PoI contract merge semantics"
+    
+    Post-commit hook fires automatically:
+    -> Extracts: commit hash, author, timestamp, message, files changed
+    -> Computes: diff summary (insertions, deletions, files touched)
+    -> Writes: new row to local PoI store (the proto-ledger)
+
+Step 3: INDEX
+    RAG indexer updates (triggered by hook, or on next query):
+    -> Reads: PoI store (all commits, recent weighted higher)
+    -> Reads: codebase (src/, docs/, .beads/, Cargo.toml)
+    -> Reads: convergence docs, TODO.md, architectural beads
+    -> Builds: vector index or context window of relevant chunks
+
+Step 4: REFLECT
+    Developer (or cron job, or pre-commit hook on next session) runs:
+    
+    $ mutualai suggest
+    
+    The prompt script:
+    -> Retrieves: recent PoI claims (last N commits)
+    -> Retrieves: relevant codebase context (files related to recent work)
+    -> Retrieves: architectural constraints (beads, plans)
+    -> Retrieves: open TODOs and known gaps
+    -> Asks the model: "Given what was just done, what's the current
+       state of the project, and what is the single most valuable
+       next step?"
+    
+    Model responds (grounded in retrieved context):
+    "The PoI contract schema was documented in MUTUALAI-CONVERGENCE.md
+    (lines 170-210) but has no corresponding Rust implementation.
+    The SignedClaim struct, ProofOfImpactState, and PoIDelta types
+    should be implemented in src/freenet/poi_contract.rs following
+    the patterns in src/freenet/trust_contract.rs. This would
+    validate that the append-only set-union merge design works
+    with Freenet's ComposableState trait."
+
+Step 5: WORK (the loop restarts)
+    Developer reads the suggestion. Decides whether it's right.
+    If yes: writes the code. Commits. Hook fires. Index updates.
+    If no: the rejection itself is informative -- the model learns
+    (via RAG) what the project actually needed vs. what it suggested.
+    
+    Either way, the loop has completed one revolution.
+    The end (suggestion) became the beginning (new work).
+```
+
+### What One Revolution Proves
+
+After one full loop:
+- A git commit produced a structured record (proto-PoI)
+- The record was indexed alongside the full project context (proto-RAG)
+- An AI model consumed that context and produced a grounded suggestion (proto-mutual cognition)
+- A human evaluated the suggestion and acted (trust-weighted governance at its simplest: one person, one decision)
+- The action produced a new commit (new PoI), completing the loop
+
+That's the atom. Every larger structure -- Stroma trust groups, federated mutual aid networks, mycelial topology, cross-community AI coordination -- is this atom repeated at increasing scale.
+
+### Scaling the Loop
+
+Each step in the roadmap adds one capability to the loop without breaking it:
+
+| Scale | What's Added | What Changes |
+|-------|-------------|--------------|
+| **1 developer + 1 AI** | Git hook + local RAG + local LLM | The atom. One revolution. |
+| **Small team (3-5)** | Shared PoI store (git repo itself), team RAG | Multiple humans contributing commits. AI sees patterns across contributors. |
+| **Stroma group** | Bot on live Signal, `/record-impact` command | PoI claims go to Freenet contract instead of local SQLite. Trust-weighted writes. AI is a vouched member. |
+| **With topology** | Phyllotaxis or mycelial overlay | Introductions and suggestions shaped by trust topology. AI proposes based on network structure. |
+| **Federated** | Multiple Stroma groups, shared PoI visibility | AI agents cross-reference PoI ledgers across groups. Surplus matched with need across communities. |
+| **Material mutual aid** | Non-code PoI (food distribution, logistics, housing) | The loop is the same. The content of "work" expands from code to real-world action. |
+
+At every scale, the loop is identical: work -> record -> index -> reflect -> work. The content changes. The trust boundary expands. The intelligence deepens. But the pattern is the same one you can run tomorrow on your laptop.
+
+### The Two Parallel Tracks
+
+```
+Track 1: Stroma UAT (trust foundation)
+    Wire bot to live Signal -> Family pilot -> Trust mechanics validated
+    |
+    |  (converge when bot is live and AI can be vouched in)
+    |
+Track 2: MutualAI atom (mutual cognition)
+    Git hook + RAG + local LLM -> Dev loop running -> Pattern validated
+```
+
+Track 2 starts immediately. Track 1 continues on its existing roadmap. They converge when the Stroma bot is live and the AI agent becomes a vouched member of a real Signal group. At that point, the local PoI store migrates to a Freenet contract, the local LLM becomes a Signal participant, and the smallest loop becomes the foundation of the organism.
+
+---
+
 ## The Experiment
 
 The system is the hypothesis. The running of it is the experiment. What emerges is the discovery.
