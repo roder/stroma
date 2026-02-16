@@ -114,20 +114,8 @@ harness = false
 
 # Protocol v8 poll support via our fork of libsignal-service-rs
 # Branch rebased on post-websocket-migration libsignal (commit 498c03d)
-# [patch."https://github.com/whisperfish/libsignal-service-rs"]
-# libsignal-service = { git = "https://github.com/roder/libsignal-service-rs", branch = "main" }
-
-# LOCAL DEV ONLY: Remove before PR. Use local repos for development.
-# Push libsignal-service-rs and presage first, then remove these patches.
-
-# Patch presage dependencies to use local clones
-[patch."https://github.com/roder/presage"]
-presage = { path = "../presage/presage" }
-presage-store-sqlite = { path = "../presage/presage-store-sqlite" }
-
-# Patch libsignal-service-rs to use local clone (for presage and its workspace members)
-[patch."https://github.com/roder/libsignal-service-rs"]
-libsignal-service = { path = "../libsignal-service-rs" }
+[patch."https://github.com/whisperfish/libsignal-service-rs"]
+libsignal-service = { git = "https://github.com/roder/libsignal-service-rs", branch = "main" }
 
 # Required per libsignal-service-rs README: patch curve25519-dalek to use Signal's fork
 # This resolves the version conflict between crates.io and Signal's forked version
