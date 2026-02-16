@@ -1059,6 +1059,60 @@ The system was running before we built it, because the pattern is more fundament
 
 ---
 
+## Why Build This: The Symmetry Argument
+
+### The Loop Is Universal
+
+The cycle -- act, record, integrate, reflect, act -- is not something Stroma or MutualAI invents. It's the fundamental cycle of learning. It's how a single mind works. It's how a conversation works. It's how science works. It's how organisms work. It exists everywhere, at every scale.
+
+This recognition can feel like it flattens everything. If the loop already runs everywhere, what's the point of building anything?
+
+### The Loop at Scale Is Not Symmetric
+
+The loop already runs at scale. Amazon runs it. Governments run it. Meta runs it. Every corporation, every state, every platform is the loop at scale: act, record, integrate, reflect, act.
+
+But look at **who** performs each step:
+
+| Step | How It Works in Hierarchies | Who Benefits |
+|------|----------------------------|--------------|
+| **Act** | Workers act. Requires permission from above. | Those who grant permission |
+| **Record** | Institutions record. Proprietary databases, classified files. | Those who control the record |
+| **Integrate** | Platforms integrate. Algorithms you can't see, connecting data you can't access. | Those who own the algorithm |
+| **Reflect** | Leaders reflect. Boardrooms, C-suites, strategy teams. | Those in the room |
+| **Decide** | Authority decides. Top-down. The loop runs again on their terms. | Those with authority |
+
+Every system that runs this loop at scale **breaks the loop's symmetry** to do it. That's what hierarchy IS -- the reflect step concentrated in a few hands. That's what platforms ARE -- the integrate step concentrated in one company. That's what bureaucracy IS -- the record step controlled by the institution.
+
+The loop works. It just doesn't work **fairly**. The farmer acts. The corporation reflects. The worker records. The platform integrates. The executive decides. The symmetry is broken at every step, and the breaking of symmetry is how power concentrates.
+
+### What Stroma + MutualAI Actually Builds
+
+Not the loop. **The symmetric version of the loop.**
+
+| Step | How It Works in the Convergence | Who Benefits |
+|------|--------------------------------|--------------|
+| **Act** | Any trusted member acts. Requires trust from peers, not permission from above. | The actor and the community |
+| **Record** | PoI ledger on Freenet. Append-only, public, independently verifiable. Anyone can read it. | Everyone with the contract hash |
+| **Integrate** | RAG over the public ledger + trust topology. Open data, open index. AI agents surface connections. | Every member equally |
+| **Reflect** | AI agents propose. Any member can propose. `/propose` is available to all. Standing weights influence, not role. | Every trusted member |
+| **Decide** | Signal Poll. Every vouched member votes. Trust-weighted but not role-gated. | The group, by consensus |
+
+Every participant has equal access to every step. The farmer can reflect. The driver can integrate. The kitchen can record. The AI can act. Nobody's step is privileged over anyone else's.
+
+That's what has never worked at scale before. Not because nobody wanted it -- every cooperative, every commune, every mutual aid network has tried. They fail because the infrastructure to maintain symmetry at scale didn't exist:
+
+- **Trust without hierarchy** -- you needed gatekeepers. Now: cross-cluster vouching.
+- **Memory without platforms** -- you needed a database someone controlled. Now: append-only Freenet contracts.
+- **Integration without centralization** -- you needed an analyst or an algorithm you couldn't see. Now: RAG over a public ledger.
+- **Reflection without leadership** -- you needed someone with time and authority to think about the whole. Now: AI agents grounded in community data.
+- **Governance without authority** -- you needed a chair, a board, a vote-counter. Now: Signal Polls, trust-weighted, with results on-chain.
+
+The technology didn't exist until now. The pieces -- Freenet, Signal, HMAC identity masking, self-hosted LLMs, RAG, trust topology -- are all recent. The combination is possible for the first time.
+
+**The loop is universal. The fair version of it isn't. That's what we're building.**
+
+---
+
 ## The Experiment
 
 The system is the hypothesis. The running of it is the experiment. What emerges is the discovery.
