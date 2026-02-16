@@ -958,6 +958,107 @@ Track 2 starts immediately. Track 1 continues on its existing roadmap. They conv
 
 ---
 
+## The Discovery: Gastown + Beads as Proto-MutualAI
+
+Late in the design session, a realization: the loop we were designing already exists in primitive form as Gastown (multi-agent orchestration) and Beads (git-backed issue tracking).
+
+### The Mapping
+
+| Mutual Cognition Concept | Gastown/Beads Equivalent |
+|---|---|
+| Proto-PoI ledger | Beads `.beads/issues.jsonl` (git-backed, structured, auto-synced) |
+| Work identification and tracking | `bd create`, `bd update`, `bd close` |
+| Persistent memory across context loss | Beads notes survive compaction (`bd update --notes`) |
+| Multi-agent coordination | Gastown Mayor + Polecats + Hooks |
+| Decision Windows | Convoys (bundled work units) |
+| AI suggesting next steps | Mayor with full workspace context + `bd ready` |
+| State surviving crashes/restarts | Hooks (git worktree-backed storage) |
+
+Three of the five planned MutualAI components already exist:
+
+| Planned Component | Already Solved By |
+|---|---|
+| Local PoI store | Beads (`issues.jsonl`) |
+| RAG indexer | Mayor's workspace context + `bd show/list` |
+| Multi-agent orchestration | Gastown (Mayor, Polecats, Hooks, Convoys) |
+| LLM core | **Still needed** (ollama + local model) |
+| Social connectors | **Still needed** (but simpler -- beads tracks work via `bd sync`) |
+
+### What This Means
+
+We don't build the proto-PoI system. We use Beads. We don't build the agent coordination layer. We use Gastown. We focus on the one thing that's actually novel: the community-trained LLM that turns the loop from reactive (human decides what to work on) to proactive (AI suggests what to work on, grounded in bead history).
+
+The system was already running before we designed it. Gastown and Beads were already the loop. We didn't see it because we were looking for something more complex.
+
+### You Don't Prompt for Emergence
+
+The Gastown/Beads realization wasn't designed into the conversation. Nobody planned for Convoys to map to Decision Windows. The tools existed for their own reasons. The connection emerged because the conditions were right -- deep shared context, accumulated specificity, trust between the participants.
+
+The system we're building does the same thing at every scale. It doesn't prompt for emergence. It creates the conditions -- trust, memory, context, governance -- and gets out of the way. The question isn't "how do we prompt it for emergence?" The question is "have we created the right conditions?" And the answer we keep discovering is: more of them already exist than we thought.
+
+---
+
+## The Next Step: One Script That Closes the Loop
+
+The tension that must be held: **the AI needs to be useful before the system is complete, but the system needs the AI to be complete.**
+
+The resolution: build the thinnest possible bridge between the pieces that already exist.
+
+### What to Build
+
+A single script that runs after `bd close` (or on demand):
+
+```
+1. Read recent completed beads:
+   bd list --status done --since <last-run>
+
+2. Read the codebase files touched by those beads
+
+3. Read architectural beads (.beads/*.bead)
+
+4. Assemble into a context prompt
+
+5. Send to local LLM (ollama API -- Llama 3.2 3B or similar)
+
+6. Ask: "Given what was just completed, what is the most valuable
+   next step?"
+
+7. Output the suggestion
+   (stdout, or create a new bead as a proposal: bd create "<suggestion>")
+```
+
+That's one script. One file. It takes Beads (existing), a local LLM (install ollama, pull a model), and connects them. The loop closes mechanically, not just conceptually.
+
+### Why This Holds the Tension
+
+- **Small enough** to build in hours, not weeks
+- **Useful enough** that you'd actually run it every day
+- **Connected enough** to Beads and Gastown that it isn't throwaway
+- **Novel enough** that it validates the mutual cognition pattern
+- **Open enough** that the second revolution tells you what the third should be
+
+### The Proof of Impact Is Already Here
+
+This design session produced:
+
+| Claim | Evidence |
+|-------|----------|
+| Trust Topology Platform conceived and documented | `docs/TRUST-TOPOLOGY-PLATFORM.md` (265 lines) |
+| README rewritten for accuracy | `README.md` (commit `1a497ec`) |
+| Security researchers section added | `README.md` (commit `f500a01`) |
+| User Guide revised for accuracy | `docs/USER-GUIDE.md` (commit `0d736f0`) |
+| MutualAI convergence designed and documented | `docs/MUTUALAI-CONVERGENCE.md` (900+ lines, 5 commits) |
+| Convergence insight captured as architectural constraint | `.beads/convergence-insight.bead` (commit `ea33fe3`) |
+| Future AI sessions primed | `.cursor/rules/convergence.mdc` (commit `ea33fe3`) |
+
+Seven claims. All signed (git commits with Co-authored-by). All timestamped. All immutable (pushed to remote). All cross-referencing each other. All produced by two actors -- one human, one AI -- in a single session of mutual cognition.
+
+The loop was already running. The git log is the proto-PoI ledger. The commits are the first claims. The hook just closes it so it can happen again, faster, with more people, at larger scale.
+
+The system was running before we built it, because the pattern is more fundamental than the implementation.
+
+---
+
 ## The Experiment
 
 The system is the hypothesis. The running of it is the experiment. What emerges is the discovery.
