@@ -856,7 +856,7 @@ This is the roadmap for one full revolution.
 | Git post-commit hook | Shell script that logs commit metadata to a local PoI store | ~30 minutes to build |
 | Local PoI store | SQLite table or JSON file: `{hash, author, timestamp, message, files_changed, diff_summary}` | Trivial |
 | RAG indexer | Index the PoI store + codebase + docs + beads. LlamaIndex, or a script that assembles context from recent commits + relevant files | Off-the-shelf tooling exists |
-| Local LLM | ollama + Llama 3.2 3B (runs on Mac, no GPU) or Llama 3.1 8B (if GPU available) | Install and run |
+| Local LLM | ollama + any open-weight model (community chooses -- model-agnostic by design) | Install and run |
 | Prompt script | Feeds RAG context to the model, asks: "Given the current state of the project, what is the most valuable next step?" | A single script |
 
 No Stroma bot. No Freenet. No Signal group. No cloud. Just a git hook, a local database, a retrieval script, and a small model. Everything runs on the developer's machine.
@@ -916,7 +916,7 @@ Step 5: WORK (the loop restarts)
     The end (suggestion) became the beginning (new work).
 ```
 
-### What One Revolution Proves
+###  
 
 After one full loop:
 - A git commit produced a structured record (proto-PoI)
@@ -1018,7 +1018,7 @@ A single script that runs after `bd close` (or on demand):
 
 4. Assemble into a context prompt
 
-5. Send to local LLM (ollama API -- Llama 3.2 3B or similar)
+5. Send to local LLM (ollama API -- any open-weight model)
 
 6. Ask: "Given what was just completed, what is the most valuable
    next step?"
