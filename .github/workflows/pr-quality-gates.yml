@@ -26,8 +26,11 @@ jobs:
         with:
           fetch-depth: 0  # Need full history for branch freshness check
 
-      - name: Install Protocol Buffers compiler
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            protobuf-compiler pkg-config libssl-dev cmake \
+            llvm-dev libclang-dev clang
 
       - name: Setup Rust toolchain
         uses: ./.github/actions/rust-setup
@@ -76,6 +79,10 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
 
       - name: Clippy lint
+        # --allow-multiple-definition: sqlcipher (vendored OpenSSL) + boring-sys (BoringSSL)
+        # both define libcrypto symbols. Safe: separate code paths (DB encryption vs TLS).
+        env:
+          RUSTFLAGS: '-C link-args=-Wl,--allow-multiple-definition'
         run: |
           set -o pipefail
           echo "## Clippy Lint" >> $GITHUB_STEP_SUMMARY
@@ -90,6 +97,8 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
 
       - name: Run tests
+        env:
+          RUSTFLAGS: '-C link-args=-Wl,--allow-multiple-definition'
         run: |
           set -o pipefail
           echo "## Test Suite" >> $GITHUB_STEP_SUMMARY
@@ -104,6 +113,8 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
 
       - name: Check coverage
+        env:
+          RUSTFLAGS: '-C link-args=-Wl,--allow-multiple-definition'
         run: |
           echo "## Code Coverage" >> $GITHUB_STEP_SUMMARY
           cargo llvm-cov nextest --all-features --lcov --output-path coverage.lcov
