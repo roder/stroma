@@ -83,6 +83,103 @@ impl LibsignalClient {
         }
     }
 
+    /// Load a specific group from presage store by GroupId
+    ///
+    /// Use this when group_id is configured to avoid loading unwanted test groups.
+    /// Enforces 1:1 bot-to-group invariant by only loading the configured group.
+    pub async fn load_specific_group(&mut self, group_id: &GroupId) -> SignalResult<()> {
+        use presage::store::ContentsStore;
+        use tracing::info;
+
+        let manager = self.manager.as_ref().ok_or_else(|| {
+            SignalError::NotImplemented("load_specific_group: no Manager configured".to_string())
+        })?;
+
+        // Convert GroupId to master_key bytes for presage API
+        let master_key: [u8; 32] = group_id
+            .0
+            .clone()
+            .try_into()
+            .map_err(|_| SignalError::Protocol("Invalid group_id length".to_string()))?;
+
+        let mgr = manager.lock().await;
+
+        // Load specific group from store
+        let group_result =
+            mgr.store().group(master_key).await.map_err(|e| {
+                SignalError::Store(format!("Failed to load group from store: {:?}", e))
+            })?;
+
+        if let Some(group) = group_result {
+            let mut group_keys = self.group_keys.lock().await;
+            let mut group_members = self.group_members.lock().await;
+
+            group_keys.insert(group_id.clone(), master_key);
+            group_members.entry(group_id.clone()).or_default();
+
+            info!(
+                "Loaded configured group: {} ({} members in revision {})",
+                hex::encode(master_key),
+                group.members.len(),
+                group.revision
+            );
+        } else {
+            return Err(SignalError::GroupNotFound(format!(
+                "Configured group not found in store: {}",
+                group_id
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Load existing groups from presage store
+    ///
+    /// Populates group_keys and group_members from persisted group data.
+    /// Should be called after construction to restore state after restart.
+    ///
+    /// Note: Prefer load_specific_group() when group_id is known (1:1 invariant).
+    /// This method loads ALL groups, which may include unwanted test groups.
+    pub async fn load_groups_from_store(&mut self) -> SignalResult<()> {
+        use presage::store::ContentsStore;
+        use tracing::info;
+
+        let manager = self.manager.as_ref().ok_or_else(|| {
+            SignalError::NotImplemented("load_groups_from_store: no Manager configured".to_string())
+        })?;
+
+        let mgr = manager.lock().await;
+        let groups = mgr.store().groups().await.map_err(|e| {
+            SignalError::Store(format!("Failed to load groups from store: {:?}", e))
+        })?;
+
+        let mut group_keys = self.group_keys.lock().await;
+        let mut group_members = self.group_members.lock().await;
+
+        for group_result in groups {
+            let (master_key, group) = group_result
+                .map_err(|e| SignalError::Store(format!("Failed to load group: {:?}", e)))?;
+
+            let group_id = GroupId(master_key.to_vec());
+
+            group_keys.insert(group_id.clone(), master_key);
+
+            // Initialize empty member set (will be populated as we see members)
+            group_members.entry(group_id.clone()).or_default();
+
+            info!(
+                "Loaded group from store: {} ({} members in revision {})",
+                hex::encode(master_key),
+                group.members.len(),
+                group.revision
+            );
+        }
+
+        info!("Loaded {} group(s) from presage store", group_keys.len());
+
+        Ok(())
+    }
+
     /// Start the background receive loop.
     ///
     /// Must be called from within a `tokio::task::LocalSet` context (uses `spawn_local`).
@@ -196,7 +293,7 @@ impl SignalClient for LibsignalClient {
         };
 
         use presage::libsignal_service::content::ContentBody;
-        use presage::proto::DataMessage;
+        use presage::proto::{DataMessage, GroupContextV2};
 
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -206,6 +303,11 @@ impl SignalClient for LibsignalClient {
         let data_message = DataMessage {
             body: Some(text.to_string()),
             timestamp: Some(timestamp),
+            group_v2: Some(GroupContextV2 {
+                master_key: Some(master_key.to_vec()),
+                revision: Some(0),
+                ..Default::default()
+            }),
             ..Default::default()
         };
 
@@ -511,6 +613,65 @@ impl SignalClient for LibsignalClient {
         ))
     }
 
+    async fn resolve_identifier(&self, identifier: &str) -> SignalResult<ServiceId> {
+        use crate::signal::pm::{parse_identifier, Identifier};
+
+        let parsed = parse_identifier(identifier);
+
+        match parsed {
+            Identifier::Uuid(uuid_str) => {
+                // Validate ServiceId format (supports both plain UUIDs and prefixed forms like "PNI:..." or "ACI:...")
+                presage::libsignal_service::protocol::ServiceId::parse_from_service_id_string(
+                    &uuid_str,
+                )
+                .ok_or_else(|| {
+                    SignalError::InvalidMessage(format!("Invalid ServiceId '{}'", uuid_str))
+                })?;
+                Ok(ServiceId(uuid_str))
+            }
+            Identifier::Username(username) => {
+                let manager = self.manager.as_ref().ok_or_else(|| {
+                    SignalError::NotImplemented(
+                        "resolve_identifier (username): no Manager configured".to_string(),
+                    )
+                })?;
+
+                let mut mgr = manager.lock().await;
+                let aci = mgr.resolve_username(&username).await.map_err(|e| {
+                    SignalError::Network(format!("resolve_username failed: {:?}", e))
+                })?;
+
+                match aci {
+                    Some(aci) => Ok(ServiceId(aci.service_id_string())),
+                    None => Err(SignalError::InvalidMessage(format!(
+                        "Username '{}' not found on Signal",
+                        username
+                    ))),
+                }
+            }
+            Identifier::Phone(phone) => {
+                let manager = self.manager.as_ref().ok_or_else(|| {
+                    SignalError::NotImplemented(
+                        "resolve_identifier (phone): no Manager configured".to_string(),
+                    )
+                })?;
+
+                let mut mgr = manager.lock().await;
+                let service_id = mgr.resolve_phone_number(&phone).await.map_err(|e| {
+                    SignalError::Network(format!("resolve_phone_number failed: {:?}", e))
+                })?;
+
+                match service_id {
+                    Some(id) => Ok(ServiceId(id.service_id_string())),
+                    None => Err(SignalError::InvalidMessage(format!(
+                        "Phone number '{}' not found on Signal",
+                        phone
+                    ))),
+                }
+            }
+        }
+    }
+
     async fn receive_messages(&self) -> SignalResult<Vec<Message>> {
         let rx = self.message_rx.as_ref().ok_or_else(|| {
             SignalError::NotImplemented(
@@ -530,6 +691,54 @@ impl SignalClient for LibsignalClient {
     fn service_id(&self) -> &ServiceId {
         &self.service_id
     }
+
+    async fn list_groups(&self) -> SignalResult<Vec<(GroupId, usize)>> {
+        let keys = self.group_keys.lock().await;
+        let members = self.group_members.lock().await;
+
+        let mut groups = Vec::new();
+        for (group_id, _master_key) in keys.iter() {
+            let member_count = members.get(group_id).map(|m| m.len()).unwrap_or(0);
+            groups.push((group_id.clone(), member_count));
+        }
+
+        Ok(groups)
+    }
+
+    async fn leave_group(&self, group: &GroupId) -> SignalResult<()> {
+        use tracing::info;
+
+        let manager = self.manager.as_ref().ok_or_else(|| {
+            SignalError::NotImplemented("leave_group: no Manager configured".to_string())
+        })?;
+
+        let master_key = {
+            let keys = self.group_keys.lock().await;
+            *keys.get(group).ok_or_else(|| {
+                SignalError::GroupNotFound(format!("Cannot leave unknown group: {}", group))
+            })?
+        };
+
+        // Call presage's leave_group (removes bot from group in Signal)
+        let mut mgr = manager.lock().await;
+        mgr.leave_group(&master_key)
+            .await
+            .map_err(|e| SignalError::Network(format!("leave_group failed: {:?}", e)))?;
+
+        // Remove from in-memory tracking
+        {
+            let mut keys = self.group_keys.lock().await;
+            keys.remove(group);
+        }
+        {
+            let mut members = self.group_members.lock().await;
+            members.remove(group);
+        }
+
+        info!("✅ Successfully left group: {}", group);
+
+        Ok(())
+    }
 }
 
 /// Convert presage Received message to our Message type
@@ -542,8 +751,24 @@ fn convert_received(received: Received) -> Option<Message> {
             if let presage::libsignal_service::content::ContentBody::DataMessage(dm) = &content.body
             {
                 if let Some(body) = &dm.body {
+                    // Determine message source (DM vs group)
+                    // For group messages, extract and include the actual GroupId
+                    let source = if let Some(group_v2) = &dm.group_v2 {
+                        // Message is from a group context
+                        if let Some(master_key_bytes) = &group_v2.master_key {
+                            MessageSource::Group(GroupId(master_key_bytes.clone()))
+                        } else {
+                            // Group message without master key - treat as DM (shouldn't happen)
+                            MessageSource::DirectMessage
+                        }
+                    } else {
+                        // Message is a direct message (1-on-1 PM)
+                        MessageSource::DirectMessage
+                    };
+
                     return Some(Message {
                         sender: ServiceId(sender_id),
+                        source,
                         content: MessageContent::Text(body.clone()),
                         timestamp,
                     });

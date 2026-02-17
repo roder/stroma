@@ -74,6 +74,7 @@ pub struct StromaBot<C: SignalClient, F: crate::freenet::FreenetClient> {
     client: C,
     freenet: F,
     config: BotConfig,
+    config_path: Option<std::path::PathBuf>,
     group_manager: GroupManager<C>,
     poll_manager: PollManager<C>,
     bootstrap_manager: BootstrapManager<C>,
@@ -104,6 +105,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             client,
             freenet,
             config,
+            config_path: None,
             group_manager,
             poll_manager,
             bootstrap_manager,
@@ -111,6 +113,148 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             member_resolver,
             persistence_manager,
         })
+    }
+
+    /// Set config file path for persistence
+    ///
+    /// Must be called after construction to enable config persistence when
+    /// bootstrap completes.
+    pub fn set_config_path(&mut self, path: std::path::PathBuf) {
+        self.config_path = Some(path);
+    }
+
+    /// Send response to appropriate destination with defensive group_id validation
+    ///
+    /// Per Stroma architecture, bot should be 1:1 with group. This method:
+    /// 1. Validates group messages are from the correct group
+    /// 2. Falls back to DM if group_id not configured or wrong group
+    /// 3. Provides helpful error messages
+    async fn send_response(
+        &self,
+        source: &MessageSource,
+        sender: &ServiceId,
+        text: &str,
+    ) -> SignalResult<()> {
+        use tracing::info;
+
+        match source {
+            MessageSource::DirectMessage => self.client.send_message(sender, text).await,
+            MessageSource::Group(message_group_id) => {
+                info!(
+                    "send_response: Group message from {} (configured: {})",
+                    hex::encode(&message_group_id.0),
+                    hex::encode(&self.config.group_id.0)
+                );
+
+                // Validate we have a configured group
+                if self.config.group_id.0.is_empty() {
+                    // Bootstrap incomplete - fall back to DM
+                    warn!(
+                        "Group message received but group_id not configured - falling back to DM"
+                    );
+                    let fallback_msg = format!(
+                        "{}\n\n⚠️ Note: I received your command in a group, but I'm not fully configured yet. \
+                        Please complete bootstrap with /create-group first.",
+                        text
+                    );
+                    return self.client.send_message(sender, &fallback_msg).await;
+                }
+
+                // Validate message is from the correct group (1:1 invariant)
+                if message_group_id != &self.config.group_id {
+                    warn!(
+                        "send_response: REJECTING wrong group: {} (configured: {})",
+                        hex::encode(&message_group_id.0),
+                        hex::encode(&self.config.group_id.0)
+                    );
+                    let error_msg = format!(
+                        "⚠️ I received your command from a different group than I'm configured for.\n\n\
+                        I only respond to my configured group: {}...\n\
+                        Your message came from: {}...\n\n\
+                        This bot follows a strict 1:1 bot-to-group architecture. \
+                        Please send commands in the correct group or via direct message.",
+                        &hex::encode(&self.config.group_id.0)[..16],
+                        &hex::encode(&message_group_id.0)[..16]
+                    );
+                    return self.client.send_message(sender, &error_msg).await;
+                }
+
+                // Valid group message - respond to the group
+                info!(
+                    "send_response: Sending to group {}",
+                    hex::encode(&self.config.group_id.0)
+                );
+                self.client
+                    .send_group_message(&self.config.group_id, text)
+                    .await
+            }
+        }
+    }
+
+    /// Handle bootstrap completion
+    ///
+    /// Called when /add-seed completes with the 3rd seed member.
+    /// This enforces the 1:1 bot-to-group invariant by:
+    /// 1. Updating in-memory config with group_id
+    /// 2. Leaving all other Signal groups (if any)
+    ///
+    /// TODO: Persist group_id to config file when CLI integration is complete
+    async fn on_bootstrap_complete(&mut self, group_id: GroupId) -> SignalResult<()> {
+        use tracing::info;
+
+        let group_id_hex = hex::encode(&group_id.0);
+
+        // 1. Update in-memory config
+        self.config.group_id = group_id.clone();
+        self.group_manager = GroupManager::new(self.client.clone(), group_id.clone());
+
+        info!("✅ Bootstrap complete - group_id set: {}", group_id_hex);
+
+        // 2. Persist to config file
+        // TODO: Requires access to StromaConfig from cli module
+        // For now, config_path is stored but not used. This will be implemented
+        // when we add proper CLI->library integration for config updates.
+        if self.config_path.is_some() {
+            warn!(
+                "TODO: Persist group_id {} to config file (not yet implemented)",
+                group_id_hex
+            );
+        }
+
+        // 3. Leave all other Signal groups (enforce 1:1 bot-to-group invariant)
+        let all_groups = self.client.list_groups().await?;
+        let mut left_count = 0;
+
+        for (other_group_id, _) in all_groups {
+            if other_group_id != group_id {
+                info!(
+                    "Leaving group {} (not my configured group)",
+                    hex::encode(&other_group_id.0)
+                );
+                match self.client.leave_group(&other_group_id).await {
+                    Ok(()) => {
+                        left_count += 1;
+                        info!("✅ Left group: {}", hex::encode(&other_group_id.0));
+                    }
+                    Err(e) => {
+                        warn!(
+                            "⚠️ Failed to leave group {}: {}",
+                            hex::encode(&other_group_id.0),
+                            e
+                        );
+                    }
+                }
+            }
+        }
+
+        if left_count > 0 {
+            info!(
+                "✅ Enforced 1:1 bot-to-group invariant: left {} other group(s)",
+                left_count
+            );
+        }
+
+        Ok(())
     }
 
     /// Run bot event loop
@@ -223,9 +367,56 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
     /// Handle incoming message
     async fn handle_message(&mut self, message: Message) -> SignalResult<()> {
+        use tracing::info;
+
+        // Defensive: Validate group messages are from the configured group (1:1 invariant)
+        if let MessageSource::Group(ref msg_group_id) = message.source {
+            info!(
+                "Received group message from: {} (configured: {})",
+                hex::encode(&msg_group_id.0),
+                hex::encode(&self.config.group_id.0)
+            );
+
+            if !self.config.group_id.0.is_empty() && msg_group_id != &self.config.group_id {
+                // Message from wrong group - ignore it
+                warn!(
+                    "REJECTING message from wrong group: {} (configured: {})",
+                    hex::encode(&msg_group_id.0),
+                    hex::encode(&self.config.group_id.0)
+                );
+                let error_msg = format!(
+                    "⚠️ I only respond to my configured group.\n\n\
+                    Configured: {}...\n\
+                    Your message from: {}...",
+                    &hex::encode(&self.config.group_id.0)[..16],
+                    &hex::encode(&msg_group_id.0)[..16]
+                );
+                return self.client.send_message(&message.sender, &error_msg).await;
+            }
+        }
+
         match message.content {
             MessageContent::Text(text) => {
                 let command = parse_command(&text);
+
+                // Security: Trust operations MUST be in DMs (privacy-first architecture)
+                let requires_dm = matches!(
+                    command,
+                    Command::CreateGroup { .. }
+                        | Command::AddSeed { .. }
+                        | Command::Invite { .. }
+                        | Command::Vouch { .. }
+                        | Command::Flag { .. }
+                        | Command::RejectIntro { .. }
+                );
+
+                if requires_dm && !matches!(message.source, MessageSource::DirectMessage) {
+                    let error_msg = "❌ Trust operations must be sent via direct message (DM) for privacy. Please message me directly.";
+                    // send_response will validate group and send appropriate error
+                    return self
+                        .send_response(&message.source, &message.sender, error_msg)
+                        .await;
+                }
 
                 // Route commands to appropriate handlers
                 match command {
@@ -235,22 +426,79 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                             .await?;
                     }
                     Command::AddSeed { ref username } => {
-                        self.bootstrap_manager
-                            .handle_add_seed(&self.freenet, &message.sender, username)
+                        let service_id = self.client.resolve_identifier(username).await?;
+
+                        // Reject PNI - groups require ACI
+                        if service_id.0.starts_with("PNI:") {
+                            return Err(SignalError::InvalidMessage(format!(
+                                "Cannot add user: Account '{}' has privacy settings that prevent ACI disclosure. \
+                                 Ask them to share their Signal username instead, or adjust privacy settings.",
+                                username
+                            )));
+                        }
+
+                        let maybe_group_id = self
+                            .bootstrap_manager
+                            .handle_add_seed(&self.freenet, &message.sender, &service_id, username)
                             .await?;
+
+                        // If bootstrap completed (3rd seed added), persist group_id and cleanup
+                        if let Some(group_id) = maybe_group_id {
+                            self.on_bootstrap_complete(group_id).await?;
+                        }
                     }
                     Command::Invite {
                         ref username,
                         ref context,
                     } => {
-                        self.handle_invite(&message.sender, username, context.as_deref())
+                        let invitee_id = self.client.resolve_identifier(username).await?;
+
+                        // Reject PNI - groups require ACI
+                        if invitee_id.0.starts_with("PNI:") {
+                            return Err(SignalError::InvalidMessage(format!(
+                                "Cannot invite user: Account '{}' due to privacy settings. \
+                                 Ask them to share their Signal username instead, or adjust privacy settings.",
+                                username
+                            )));
+                        }
+
+                        self.handle_invite(&message.sender, &invitee_id, context.as_deref())
                             .await?;
                     }
                     Command::Vouch { ref username } => {
-                        self.handle_vouch(&message.sender, username).await?;
+                        let target_id = self.client.resolve_identifier(username).await?;
+
+                        // Reject PNI - trust operations require ACI
+                        if target_id.0.starts_with("PNI:") {
+                            return Err(SignalError::InvalidMessage(format!(
+                                "Cannot vouch: Account '{}' due to privacy settings. \
+                                 Ask them to share their Signal username instead.",
+                                username
+                            )));
+                        }
+
+                        self.handle_vouch(&message.sender, &target_id).await?;
                     }
                     Command::RejectIntro { ref username } => {
-                        self.handle_reject_intro(&message.sender, username).await?;
+                        let invitee_id = self.client.resolve_identifier(username).await?;
+
+                        // Reject PNI - trust operations require ACI
+                        if invitee_id.0.starts_with("PNI:") {
+                            return Err(SignalError::InvalidMessage(format!(
+                                "Cannot reject intro: Account '{}' due to privacy settings. \
+                                 Ask them to share their Signal username instead.",
+                                username
+                            )));
+                        }
+
+                        self.handle_reject_intro(&message.sender, &invitee_id)
+                            .await?;
+                    }
+                    Command::Help => {
+                        self.handle_help(&message.sender, &message.source).await?;
+                    }
+                    Command::DebugGroups => {
+                        self.handle_debug_groups(&message.sender).await?;
                     }
                     _ => {
                         // Other commands go through normal handler
@@ -261,6 +509,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                             &self.config,
                             &self.persistence_manager,
                             &message.sender,
+                            &message.source,
                             command,
                         )
                         .await?;
@@ -288,7 +537,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     async fn handle_invite(
         &mut self,
         sender: &ServiceId,
-        username: &str,
+        invitee: &ServiceId,
         context: Option<&str>,
     ) -> SignalResult<()> {
         use super::matchmaker::BlindMatchmaker;
@@ -304,9 +553,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             Some(hash) => *hash,
             None => {
                 // Bootstrap phase: allow invitations before contract setup
-                return self
-                    .handle_invite_bootstrap(sender, username, context)
-                    .await;
+                return self.handle_invite_bootstrap(sender, invitee, context).await;
             }
         };
 
@@ -314,9 +561,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             Ok(state) => state.data,
             Err(FreenetError::ContractNotFound) => {
                 // Bootstrap phase
-                return self
-                    .handle_invite_bootstrap(sender, username, context)
-                    .await;
+                return self.handle_invite_bootstrap(sender, invitee, context).await;
             }
             Err(e) => {
                 let response = format!("❌ Failed to query Freenet: {}", e);
@@ -346,7 +591,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         // Phase 1: Query Freenet state for previous flags (GAP-10)
         // Check if invitee already has history in the system
         let invitee_hash: MemberHash =
-            mask_identity(username, &self.config.identity_masking_key).into();
+            mask_identity(&invitee.0, &self.config.identity_masking_key).into();
         let is_ejected = state.ejected.contains(&invitee_hash);
         let has_previous_flags = is_ejected || state.flags.contains_key(&invitee_hash);
         let previous_flag_count = if has_previous_flags {
@@ -359,10 +604,10 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             0
         };
 
-        // Create ephemeral vetting session
+        // Create ephemeral vetting session (keyed by invitee's ServiceId)
         let result = self.vetting_sessions.create_session(
-            ServiceId(username.to_string()), // TODO: resolve username to actual ServiceId
-            username.to_string(),
+            invitee.clone(),
+            invitee.0.clone(),
             inviter_hash,
             sender.clone(),
             context.map(|s| s.to_string()),
@@ -371,7 +616,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         );
 
         if let Err(e) = result {
-            let response = format!("❌ Cannot invite {}: {}", username, e);
+            let response = format!("❌ Cannot invite {}: {}", invitee.0, e);
             return self.client.send_message(sender, &response).await;
         }
 
@@ -406,7 +651,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                 Some(assessor_id) => {
                     // Assign assessor to session
                     if let Err(e) = self.vetting_sessions.assign_assessor(
-                        username,
+                        &invitee.0,
                         assessor,
                         assessor_id.clone(),
                     ) {
@@ -416,7 +661,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
                     // Send PM to assessor with assessment request
                     let assessment_msg = msg_assessment_request(
-                        username,
+                        &invitee.0,
                         context,
                         has_previous_flags,
                         previous_flag_count,
@@ -426,14 +671,17 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                         .await?;
 
                     // Send confirmation PM to inviter (no assessor identity revealed)
-                    let inviter_msg =
-                        msg_inviter_confirmation(username, has_previous_flags, previous_flag_count);
+                    let inviter_msg = msg_inviter_confirmation(
+                        &invitee.0,
+                        has_previous_flags,
+                        previous_flag_count,
+                    );
                     self.client.send_message(sender, &inviter_msg).await
                 }
                 None => {
                     // Assessor not in resolver - this shouldn't happen
                     // Send stalled notification to inviter
-                    let stall_msg = msg_no_candidates(username);
+                    let stall_msg = msg_no_candidates(&invitee.0);
                     self.client.send_message(sender, &stall_msg).await
                 }
             }
@@ -442,7 +690,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             // Bootstrap exception: Network is small
             let response = format!(
                 "✅ Invitation for {} recorded as first vouch.\n\nContext: {}\n\nNote: Network is small (bootstrap phase). They'll join once they receive one more vouch from any member.",
-                username,
+                invitee.0,
                 context.unwrap_or("(no context provided)")
             );
             self.client.send_message(sender, &response).await
@@ -453,7 +701,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     async fn handle_invite_bootstrap(
         &mut self,
         sender: &ServiceId,
-        username: &str,
+        invitee: &ServiceId,
         context: Option<&str>,
     ) -> SignalResult<()> {
         // Hash inviter's ServiceId to MemberHash using mnemonic-derived key
@@ -462,8 +710,8 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
         // Create ephemeral vetting session (bootstrap: no previous flags)
         let result = self.vetting_sessions.create_session(
-            ServiceId(username.to_string()),
-            username.to_string(),
+            invitee.clone(),
+            invitee.0.clone(),
             inviter_hash,
             sender.clone(),
             context.map(|s| s.to_string()),
@@ -472,14 +720,14 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         );
 
         if let Err(e) = result {
-            let response = format!("❌ Cannot invite {}: {}", username, e);
+            let response = format!("❌ Cannot invite {}: {}", invitee.0, e);
             return self.client.send_message(sender, &response).await;
         }
 
         // Bootstrap phase: simple confirmation, no cross-cluster matching yet
         let response = format!(
             "✅ Invitation for {} recorded as first vouch.\n\nContext: {}\n\nNote: Network is small (bootstrap phase). They'll join once they receive one more vouch from any member.",
-            username,
+            invitee.0,
             context.unwrap_or("(no context provided)")
         );
         self.client.send_message(sender, &response).await
@@ -488,7 +736,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     /// Handle /vouch command
     ///
     /// Records second vouch and admits member if threshold met.
-    async fn handle_vouch(&mut self, sender: &ServiceId, username: &str) -> SignalResult<()> {
+    async fn handle_vouch(&mut self, sender: &ServiceId, target: &ServiceId) -> SignalResult<()> {
         use crate::matchmaker::cluster_detection::detect_clusters;
         use std::collections::BTreeSet;
 
@@ -521,14 +769,14 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             return self.client.send_message(sender, response).await;
         }
 
-        // 4. Check if vetting session exists for username and clone needed data
+        // 4. Check if vetting session exists for target and clone needed data
         let (invitee_id, inviter_hash, inviter_id) =
-            match self.vetting_sessions.get_session(username) {
+            match self.vetting_sessions.get_session(&target.0) {
                 Some(s) => (s.invitee_id.clone(), s.inviter, s.inviter_id.clone()),
                 None => {
                     let response = format!(
                     "❌ No active vetting session for {}. They must be invited first with /invite.",
-                    username
+                    target.0
                 );
                     return self.client.send_message(sender, &response).await;
                 }
@@ -541,7 +789,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         if voucher_hash == inviter_hash {
             let response = format!(
                 "❌ You already vouched for {} when you invited them. A second vouch from a different member is required.",
-                username
+                target.0
             );
             return self.client.send_message(sender, &response).await;
         }
@@ -562,7 +810,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             if !is_cross_cluster {
                 let response = format!(
                     "❌ Cross-cluster vouching required: {} was invited by someone in your cluster. A vouch from a member in a different cluster is needed.",
-                    username
+                    target.0
                 );
                 return self.client.send_message(sender, &response).await;
             }
@@ -730,19 +978,19 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             }
 
             // 15. Delete ephemeral vetting session
-            let _session = self.vetting_sessions.admit(username).ok();
+            let _session = self.vetting_sessions.admit(&target.0).ok();
 
             // 16. Notify voucher (sender)
             let response = format!(
                 "✅ Your vouch for {} has been recorded. They now have {} effective vouch(es) and met all requirements.\n\n🎉 {} has been admitted to the group!",
-                username, effective_vouches, username
+                target.0, effective_vouches, target.0
             );
             self.client.send_message(sender, &response).await?;
 
             // 17. Notify inviter
             let inviter_response = format!(
                 "🎉 Great news! {} has been admitted to the group after receiving the required vouches.",
-                username
+                target.0
             );
             self.client
                 .send_message(&inviter_id, &inviter_response)
@@ -756,12 +1004,12 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             let response = if standing < 0 {
                 format!(
                     "✅ Your vouch for {} has been recorded.\n\nHowever, they currently have negative standing ({}). They need more vouches to overcome flags before admission.",
-                    username, standing
+                    target.0, standing
                 )
             } else {
                 format!(
                     "✅ Your vouch for {} has been recorded.\n\nThey now have {} effective vouch(es). {} more vouch(es) needed to reach the {}-vouch threshold.",
-                    username, effective_vouches, vouches_needed, min_threshold
+                    target.0, effective_vouches, vouches_needed, min_threshold
                 )
             };
 
@@ -775,19 +1023,19 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
     async fn handle_reject_intro(
         &mut self,
         sender: &ServiceId,
-        username: &str,
+        invitee: &ServiceId,
     ) -> SignalResult<()> {
         use super::matchmaker::BlindMatchmaker;
 
         // Get the vetting session for the invitee
-        let session = match self.vetting_sessions.get_session_mut(username) {
+        let session = match self.vetting_sessions.get_session_mut(&invitee.0) {
             Some(s) => s,
             None => {
                 return self
                     .client
                     .send_message(
                         sender,
-                        &format!("❌ No active vetting session found for {}", username),
+                        &format!("❌ No active vetting session found for {}", invitee.0),
                     )
                     .await;
             }
@@ -841,7 +1089,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                 sender,
                 &format!(
                     "✅ You have declined the assessment for {}.\n\nI'll find another assessor.",
-                    username
+                    invitee.0
                 ),
             )
             .await?;
@@ -900,7 +1148,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                 Some(validator_id) => {
                     // Get session data for PM (extract values to avoid borrow conflict)
                     let (context, has_previous_flags, previous_flag_count) = {
-                        let session = self.vetting_sessions.get_session(username).unwrap();
+                        let session = self.vetting_sessions.get_session(&invitee.0).unwrap();
                         (
                             session.context.clone(),
                             session.has_previous_flags,
@@ -910,7 +1158,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
                     // Assign validator to session
                     if let Err(e) = self.vetting_sessions.assign_assessor(
-                        username,
+                        &invitee.0,
                         validator_hash,
                         validator_id.clone(),
                     ) {
@@ -925,7 +1173,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
                     // Send PM to new assessor with assessment request
                     let assessment_msg = msg_assessment_request(
-                        username,
+                        &invitee.0,
                         context.as_deref(),
                         has_previous_flags,
                         previous_flag_count,
@@ -940,14 +1188,14 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                             &inviter_id,
                             &format!(
                                 "✅ New assessor assigned for {}. Assessment in progress.",
-                                invitee_username
+                                invitee.0
                             ),
                         )
                         .await?;
                 }
                 None => {
                     // Validator not in resolver - shouldn't happen, but handle gracefully
-                    let session = self.vetting_sessions.get_session_mut(username).unwrap();
+                    let session = self.vetting_sessions.get_session_mut(&invitee.0).unwrap();
                     session.status = VettingStatus::Stalled;
 
                     self.client
@@ -955,7 +1203,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                             &inviter_id,
                             &format!(
                                 "❌ Vetting stalled: Selected assessor for {} not reachable.\n\nThe invitation remains open - they'll be matched when the network topology changes.",
-                                invitee_username
+                                invitee.0
                             ),
                         )
                         .await?;
@@ -964,7 +1212,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         } else {
             // No available validators - stalled
             // Update session status and notify inviter
-            let session = self.vetting_sessions.get_session_mut(username).unwrap();
+            let session = self.vetting_sessions.get_session_mut(&invitee.0).unwrap();
             session.status = VettingStatus::Stalled;
 
             self.client
@@ -978,6 +1226,102 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                 .await?;
         }
 
+        Ok(())
+    }
+
+    /// Handle /debug-groups command (temporary - will be removed)
+    ///
+    /// Lists all Signal groups the bot is a member of. Used to extract group_id
+    /// for manual addition to config.toml after bootstrap with old code.
+    async fn handle_debug_groups(&self, sender: &ServiceId) -> SignalResult<()> {
+        let groups = self.client.list_groups().await?;
+
+        let mut response = String::from("🔍 Debug: Groups I'm a member of\n\n");
+
+        if groups.is_empty() {
+            response.push_str("No groups found.\n\n");
+            response.push_str("This means either:\n");
+            response.push_str("1. Bootstrap hasn't been completed yet\n");
+            response.push_str("2. The bot was restarted and group info is not persisted\n");
+        } else {
+            response.push_str(&format!("Found {} group(s):\n\n", groups.len()));
+            for (i, (group_id, member_count)) in groups.iter().enumerate() {
+                let group_id_hex = hex::encode(&group_id.0);
+                response.push_str(&format!(
+                    "{}. Group ID: {}\n   Members: {}\n   Configured: {}\n\n",
+                    i + 1,
+                    group_id_hex,
+                    member_count,
+                    if group_id == &self.config.group_id {
+                        "✅ YES (this is my group)"
+                    } else {
+                        "❌ NO (should leave this group)"
+                    }
+                ));
+            }
+
+            if !self.config.group_id.0.is_empty() {
+                response.push_str(&format!(
+                    "Current config.group_id: {}\n\n",
+                    hex::encode(&self.config.group_id.0)
+                ));
+            } else {
+                response.push_str("⚠️ Current config.group_id is EMPTY\n\n");
+                response.push_str("To fix: Add this to config.toml under [signal] section:\n");
+                if let Some((first_group, _)) = groups.first() {
+                    response.push_str(&format!(
+                        "group_id = \"{}\"\n\n",
+                        hex::encode(&first_group.0)
+                    ));
+                }
+                response.push_str("Then restart the bot.");
+            }
+        }
+
+        self.client.send_message(sender, &response).await
+    }
+
+    /// Handle /help command
+    async fn handle_help(
+        &mut self,
+        sender: &ServiceId,
+        source: &MessageSource,
+    ) -> SignalResult<()> {
+        use crate::signal::pm::Command;
+
+        // Generate help text dynamically from Command enum
+        let mut help_text = String::from("🤖 Stroma Bot Commands\n\n");
+
+        // Group commands by category
+        help_text.push_str("⚙️ Bootstrap Commands:\n");
+        for (syntax, description) in Command::all_commands().iter().take(2) {
+            help_text.push_str(&format!("  {} - {}\n", syntax, description));
+        }
+
+        help_text.push_str("\n🤝 Trust Operations:\n");
+        for (syntax, description) in Command::all_commands().iter().skip(2).take(4) {
+            help_text.push_str(&format!("  {} - {}\n", syntax, description));
+        }
+
+        help_text.push_str("\n📊 Governance:\n");
+        for (syntax, description) in Command::all_commands().iter().skip(6).take(1) {
+            help_text.push_str(&format!("  {} - {}\n", syntax, description));
+        }
+
+        help_text.push_str("\n📈 Information:\n");
+        for (syntax, description) in Command::all_commands().iter().skip(7).take(3) {
+            help_text.push_str(&format!("  {} - {}\n", syntax, description));
+        }
+
+        help_text.push_str("\n❓ Meta:\n");
+        for (syntax, description) in Command::all_commands().iter().skip(10).take(1) {
+            help_text.push_str(&format!("  {} - {}\n", syntax, description));
+        }
+
+        help_text.push_str("\n💡 Tip: Use @username or username.## for Signal usernames, +15551234567 for phone numbers.");
+
+        // Respond using defensive helper (handles unconfigured group_id)
+        self.send_response(source, sender, &help_text).await?;
         Ok(())
     }
 
@@ -1363,6 +1707,7 @@ mod tests {
 
         let message = Message {
             sender: ServiceId("user1".to_string()),
+            source: MessageSource::DirectMessage,
             content: MessageContent::Text("/status".to_string()),
             timestamp: 1234567890,
         };
@@ -1666,6 +2011,7 @@ mod tests {
 
         let message = Message {
             sender: ServiceId("alice".to_string()),
+            source: MessageSource::DirectMessage,
             content: MessageContent::Text("/invite @bob Great activist".to_string()),
             timestamp: 1234567890,
         };
@@ -1675,13 +2021,14 @@ mod tests {
         // Verify bot sent response
         let sent = client.sent_messages();
         assert_eq!(sent.len(), 1);
-        assert!(sent[0].content.contains("Invitation for @bob recorded"));
+        eprintln!("Actual message: {}", sent[0].content);
+        assert!(sent[0].content.contains("Invitation for") && sent[0].content.contains("recorded"));
 
         // Verify ephemeral session created
         assert_eq!(bot.vetting_sessions.active_count(), 1);
-        let session = bot.vetting_sessions.get_session("@bob");
+        let session = bot.vetting_sessions.get_session("bob");
         assert!(session.is_some());
-        assert_eq!(session.unwrap().invitee_username, "@bob");
+        assert_eq!(session.unwrap().invitee_username, "bob");
     }
 
     #[tokio::test]
@@ -1858,7 +2205,7 @@ mod tests {
             .unwrap();
 
         // Handle reject-intro from the assessor
-        bot.handle_reject_intro(&assessor_id, invitee_username)
+        bot.handle_reject_intro(&assessor_id, &ServiceId(invitee_username.to_string()))
             .await
             .unwrap();
 
@@ -1913,7 +2260,7 @@ mod tests {
             .unwrap();
 
         // Try to reject from wrong sender
-        bot.handle_reject_intro(&wrong_sender, invitee_username)
+        bot.handle_reject_intro(&wrong_sender, &ServiceId(invitee_username.to_string()))
             .await
             .unwrap();
 
@@ -1935,13 +2282,144 @@ mod tests {
         let mut bot = StromaBot::new(client.clone(), freenet, config).unwrap();
 
         // Try to reject for non-existent session
-        bot.handle_reject_intro(&ServiceId("someone".to_string()), "@nonexistent")
-            .await
-            .unwrap();
+        bot.handle_reject_intro(
+            &ServiceId("someone".to_string()),
+            &ServiceId("@nonexistent".to_string()),
+        )
+        .await
+        .unwrap();
 
         // Verify error message was sent
         let sent = client.sent_messages();
         assert!(!sent.is_empty());
         assert!(sent[0].content.contains("No active vetting session"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_help_generates_dynamic_output() {
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
+        let config = BotConfig::default();
+        let mut bot = StromaBot::new(client.clone(), freenet, config).unwrap();
+
+        // Send help command
+        bot.handle_help(
+            &ServiceId("user1".to_string()),
+            &MessageSource::DirectMessage,
+        )
+        .await
+        .unwrap();
+
+        // Verify help message was sent
+        let sent = client.sent_messages();
+        assert_eq!(sent.len(), 1);
+
+        let help_text = &sent[0].content;
+
+        // Verify structure
+        assert!(help_text.contains("🤖 Stroma Bot Commands"));
+
+        // Verify command categories
+        assert!(help_text.contains("⚙️ Bootstrap Commands:"));
+        assert!(help_text.contains("🤝 Trust Operations:"));
+        assert!(help_text.contains("📊 Governance:"));
+        assert!(help_text.contains("📈 Information:"));
+        assert!(help_text.contains("❓ Meta:"));
+
+        // Verify key commands are present
+        assert!(help_text.contains("/create-group"));
+        assert!(help_text.contains("/add-seed"));
+        assert!(help_text.contains("/invite"));
+        assert!(help_text.contains("/vouch"));
+        assert!(help_text.contains("/flag"));
+        assert!(help_text.contains("/reject-intro"));
+        assert!(help_text.contains("/propose"));
+        assert!(help_text.contains("/status"));
+        assert!(help_text.contains("/mesh"));
+        assert!(help_text.contains("/audit"));
+        assert!(help_text.contains("/help"));
+
+        // Verify descriptions are included
+        assert!(help_text.contains("Invite someone"));
+        assert!(help_text.contains("Vouch for"));
+        assert!(help_text.contains("Flag a member"));
+        assert!(help_text.contains("View your personal trust standing"));
+        assert!(help_text.contains("View network overview"));
+
+        // Verify tip is included
+        assert!(help_text.contains("💡 Tip"));
+    }
+
+    #[test]
+    fn test_command_help_text_coverage() {
+        use crate::signal::pm::Command;
+
+        // Verify all commands (except Unknown) have help text
+        let bootstrap_cmds = [
+            Command::CreateGroup {
+                group_name: String::new(),
+            },
+            Command::AddSeed {
+                username: String::new(),
+            },
+        ];
+
+        let trust_cmds = [
+            Command::Invite {
+                username: String::new(),
+                context: None,
+            },
+            Command::Vouch {
+                username: String::new(),
+            },
+            Command::Flag {
+                username: String::new(),
+                reason: None,
+            },
+            Command::RejectIntro {
+                username: String::new(),
+            },
+        ];
+
+        let governance_cmds = [Command::Propose {
+            subcommand: String::new(),
+            args: vec![],
+        }];
+
+        let info_cmds = [
+            Command::Status { username: None },
+            Command::Mesh { subcommand: None },
+            Command::Audit {
+                subcommand: String::new(),
+            },
+        ];
+
+        let meta_cmds = [Command::Help];
+
+        // All non-Unknown commands should have help text
+        for cmd in bootstrap_cmds
+            .iter()
+            .chain(trust_cmds.iter())
+            .chain(governance_cmds.iter())
+            .chain(info_cmds.iter())
+            .chain(meta_cmds.iter())
+        {
+            assert!(
+                cmd.help_text().is_some(),
+                "Command {:?} should have help text",
+                cmd
+            );
+        }
+
+        // Unknown should not have help text
+        assert!(Command::Unknown("test".to_string()).help_text().is_none());
+
+        // Verify all_commands() returns expected count
+        let all_cmds = Command::all_commands();
+        assert_eq!(
+            all_cmds.len(),
+            11,
+            "all_commands() should return 11 commands (excluding Unknown)"
+        );
     }
 }

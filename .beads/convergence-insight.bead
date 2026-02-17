@@ -1,0 +1,118 @@
+# Bead: The Convergence Insight
+
+**Status**: Immutable Architectural Constraint
+**Created**: 2026-02-14
+**Context**: Foundational insight from the Stroma + MutualAI design session
+
+---
+
+## The Insight
+
+Stroma is not a trust network. It is the **foundation layer of a living system**.
+
+The trust network is not the product. It is the substrate that makes collective intelligence, mutual aid, and self-organizing coordination possible. Every architectural decision in Stroma -- identity masking, the proposal system, Freenet contracts, the topology platform, the ejection protocol, ephemeral vetting -- was designed for the trust use case, but serves equally as the foundation for trust-gated collective action.
+
+Nothing in Stroma needs to change to support this. The architecture was already right. It discovered what it was right *for* through the convergence with MutualAI.
+
+---
+
+## The Principle: Emergence from Dualistic Tension
+
+Creating the conditions for existence is emergence from dualistic tension.
+
+The six dualities in `philosophical-foundations.bead` are not design tradeoffs to be resolved. They are the **generative source** of the system. The tension between Trust and Anonymity produces the identity masking layer. The tension between Inclusion and Protection produces cross-cluster vouching. The tension between Accountability and Forgiveness produces immediate ejection with immediate re-entry.
+
+The system does not resolve these tensions. It holds space for them. What emerges from that holding -- the specific social dynamics, coordination patterns, and collective intelligence -- is not designed. It is discovered through the running of the system.
+
+This principle extends beyond Stroma:
+- **Stroma** emerges from the tension between verification and anonymity
+- **MutualAI** emerges from the tension between individual agency and collective action
+- **The convergence** emerges from the tension between the two projects (trust foundation vs. collective intelligence)
+- **The organism** emerges from the tension between deterministic trust patterns and non-deterministic collective intelligence
+
+Each layer holds a tension. Each tension produces emergence. The emergence becomes the substrate for the next tension. The system is self-referential: it creates the conditions for its own existence.
+
+---
+
+## The Architecture of Meaning
+
+Stroma and MutualAI are adjacent, decoupled processes that form an organism:
+
+- **Stroma** = immune system + growth pattern (who is trusted, how trust forms)
+- **MutualAI** = nervous system + memory (what the organism knows, what it remembers)
+- **Trust Topology** = body plan (phyllotaxis for growth, mycelial for resource flow, stigmergy for emergence)
+- **PoI Ledger** = backbone (immutable record of impact, Freenet append-only contract)
+- **Federation** = species (many organisms connected, sharing resources)
+
+Neither project controls the other. The organism arises from their coupling. That's mutual arising -- the philosophical concept that both projects share as their foundation.
+
+---
+
+## The Self-Training Loop
+
+The organism is alive because it feeds back into itself:
+
+1. Real-world action produces Proof of Impact
+2. PoI is recorded immutably on Freenet
+3. RAG system indexes the PoI ledger, trust topology, and social signals
+4. AI model (trained on this community's data) proposes new actions
+5. Trust-weighted governance ratifies or rejects
+6. Actions are taken, producing new Proof of Impact
+7. The loop continues; the model improves; the trust deepens; the topology adapts
+
+The first loop iteration is the codebase improving the codebase. Git commits are the first PoI claims. The development team is the first mutual aid network. The system's first proof of impact is its own existence.
+
+---
+
+## The Bootstrap
+
+The system we designed to preserve community memory (PoI ledger + RAG + trust topology) does not yet exist. The primitive tools that bootstrap it:
+
+- **Git commits** = proto-PoI ledger (immutable, signed, timestamped)
+- **Markdown documents** = proto-RAG corpus (searchable, contextual)
+- **Beads** = proto-trust topology (immutable constraints that shape decisions)
+- **Cursor rules** = proto-community intelligence (priming for future AI sessions)
+
+These are the pre-technological versions of the system. They serve the same function with less capability. When the real system exists, it will subsume them -- but the pattern is the same.
+
+---
+
+## Key Design Decisions (Canonical)
+
+1. **`/propose` replaces Raft consensus**: Trusted members agreeing via Signal Polls, not anonymous nodes agreeing via replicated state machines.
+
+2. **Freenet append-only set contract replaces blockchain**: Immutability through merge algebra (set-union, commutative, idempotent), not through hash-chain consensus. No 51% attack possible.
+
+3. **AI agents are vouched community members**: Alignment through social accountability (flag/eject), not just technical constraints (RLHF). The community IS the alignment mechanism.
+
+4. **Proof of Impact strengthens vouches**: Trust with receipts. Vouches grounded in verifiable, immutable evidence.
+
+5. **Mycelial topology for mutual aid**: Resource flow optimization, not structural resilience. Aid flows through gradient paths from surplus to need.
+
+6. **Federation is a network of mutual aid networks**: Cross-group PoI matching, trust-weighted coordination, BidirectionalMin sovereignty.
+
+7. **The interface between Stroma and MutualAI is minimal**: A Freenet contract hash and Signal group membership. Nothing else.
+
+---
+
+## For Future Sessions
+
+When working on Stroma, remember:
+
+- The trust network is the foundation layer, not the final product
+- Every architectural decision serves double duty: trust management AND collective intelligence substrate
+- MutualAI is an adjacent, independent project that consumes Stroma's trust/governance/state layer
+- The convergence document is at `docs/MUTUALAI-CONVERGENCE.md`
+- The trust topology vision is at `docs/TRUST-TOPOLOGY-PLATFORM.md`
+- The plan for topology beads is at `.cursor/plans/trust_topology_platform_beads_aa49c522.plan.md`
+- The philosophical foundations in `philosophical-foundations.bead` are load-bearing architecture, not decoration
+
+---
+
+## Related Documents
+
+- `.beads/philosophical-foundations.bead` -- The six dualities that generate the system
+- `.beads/architecture-objectives.bead` -- Technical architecture (extends to MutualAI substrate)
+- `docs/MUTUALAI-CONVERGENCE.md` -- Full technical convergence document (818+ lines)
+- `docs/TRUST-TOPOLOGY-PLATFORM.md` -- Trust topology as a platform for natural patterns
+- `.cursor/plans/trust_topology_platform_beads_aa49c522.plan.md` -- Pending topology beads

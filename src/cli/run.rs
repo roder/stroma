@@ -111,7 +111,7 @@ pub async fn execute(
     println!("Store: {}", store_path.display());
 
     // Load or create configuration
-    let _config = if config_path.exists() {
+    let stroma_config = if config_path.exists() {
         StromaConfig::load(&config_path)?
     } else {
         // Generate default config
@@ -121,7 +121,6 @@ pub async fn execute(
         println!("   Created: {}", config_path.display());
         StromaConfig::load(&config_path)?
     };
-    // TODO: Use config when bot service is fully implemented
 
     if let Some(contact) = &bootstrap_contact {
         println!("Bootstrap Contact: {}", contact);
@@ -190,9 +189,36 @@ pub async fn execute(
     let mut client = LibsignalClient::with_manager(service_id, store, manager);
 
     // Build BotConfig with keyring-derived keys
-    // group_id will be set during /create-group bootstrap
+    // Load group_id from config if already bootstrapped
+    let group_id = if let Some(group_id_hex) = &stroma_config.signal.group_id {
+        // Parse hex-encoded master key back to GroupId
+        let bytes =
+            hex::decode(group_id_hex).map_err(|e| format!("Invalid group_id in config: {}", e))?;
+        GroupId(bytes)
+    } else {
+        // Not yet bootstrapped - will be set during /create-group
+        GroupId(vec![])
+    };
+
+    // Load groups from presage store
+    // If group_id is configured, only load that specific group (1:1 invariant)
+    // If not configured, load all groups (bootstrap mode - user might be in test groups)
+    if !group_id.0.is_empty() {
+        println!("📦 Loading configured group from store...");
+        client
+            .load_specific_group(&group_id)
+            .await
+            .map_err(|e| format!("Failed to load configured group: {}", e))?;
+    } else {
+        println!("📦 Loading groups from store (bootstrap mode)...");
+        client
+            .load_groups_from_store()
+            .await
+            .map_err(|e| format!("Failed to load groups from store: {}", e))?;
+    }
+
     let config = BotConfig {
-        group_id: GroupId(vec![]), // Set during bootstrap
+        group_id,
         min_vouch_threshold: 2,
         identity_masking_key: *keyring.identity_masking_key(),
         voter_pepper: *keyring.voter_pepper(),
@@ -204,12 +230,31 @@ pub async fn execute(
 
     println!("✅ Bot is running and connected to Signal");
     println!();
-    println!("📬 Awaiting messages...");
-    println!();
-    println!("To initiate bootstrap:");
-    println!("  1. Send a PM to this bot from your Signal account");
-    println!("  2. Send: /create-group \"Your Group Name\"");
-    println!("  3. Follow the bot's instructions to add seed members");
+
+    // Show appropriate status message based on bootstrap state
+    if config.group_id.0.is_empty() {
+        // Not bootstrapped - show instructions
+        println!("📬 Awaiting messages...");
+        println!();
+        println!("To initiate bootstrap:");
+        println!("  1. Send a PM to this bot from your Signal account");
+        println!("  2. Send: /create-group \"Your Group Name\"");
+        println!("  3. Follow the bot's instructions to add seed members");
+    } else {
+        // Bootstrapped - show group info
+        println!(
+            "✅ Bootstrapped to group: {}...",
+            &hex::encode(&config.group_id.0)[..16]
+        );
+        println!();
+        println!("📬 Ready for commands in group or via DM");
+        println!();
+        println!("Available commands:");
+        println!("  • Send /help for full command list");
+        println!("  • /status - View your trust standing");
+        println!("  • /mesh - View network health");
+        println!("  • /invite @user - Invite new members");
+    }
     println!();
     println!("Press Ctrl+C to stop.");
     println!();
@@ -229,6 +274,9 @@ pub async fn execute(
 
             // Create bot AFTER receive loop starts (client is moved into bot)
             let mut bot = StromaBot::new(client, freenet, config)?;
+
+            // Set config path for persistence when bootstrap completes
+            bot.set_config_path(config_path.clone());
 
             tokio::select! {
                 result = bot.run() => {

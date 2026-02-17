@@ -278,6 +278,35 @@ impl SignalClient for MockSignalClient {
         Ok(())
     }
 
+    async fn resolve_identifier(&self, identifier: &str) -> SignalResult<ServiceId> {
+        use crate::signal::pm::{parse_identifier, Identifier};
+
+        let parsed = parse_identifier(identifier);
+
+        match parsed {
+            Identifier::Uuid(uuid_str) => {
+                // Validate ServiceId format (supports both plain UUIDs and prefixed forms like "PNI:..." or "ACI:...")
+                presage::libsignal_service::protocol::ServiceId::parse_from_service_id_string(
+                    &uuid_str,
+                )
+                .ok_or_else(|| {
+                    SignalError::InvalidMessage(format!(
+                        "Invalid ServiceId '{}': parse failed",
+                        uuid_str
+                    ))
+                })?;
+                Ok(ServiceId(uuid_str))
+            }
+            Identifier::Username(username) => {
+                // Mock: For tests, treat usernames as direct service IDs
+                Ok(ServiceId(username))
+            }
+            Identifier::Phone(_phone) => Err(SignalError::NotImplemented(
+                "Phone number resolution not yet implemented".to_string(),
+            )),
+        }
+    }
+
     async fn receive_messages(&self) -> SignalResult<Vec<Message>> {
         let mut state = self.state.lock().unwrap();
         let messages = state.incoming_messages.drain(..).collect();
@@ -286,6 +315,22 @@ impl SignalClient for MockSignalClient {
 
     fn service_id(&self) -> &ServiceId {
         &self.service_id
+    }
+
+    async fn list_groups(&self) -> SignalResult<Vec<(GroupId, usize)>> {
+        let state = self.state.lock().unwrap();
+        let mut groups = Vec::new();
+        for (group_id, members) in &state.group_members {
+            groups.push((group_id.clone(), members.len()));
+        }
+        Ok(groups)
+    }
+
+    async fn leave_group(&self, group: &GroupId) -> SignalResult<()> {
+        let mut state = self.state.lock().unwrap();
+        state.group_members.remove(group);
+        state.group_info.remove(group);
+        Ok(())
     }
 }
 
@@ -404,6 +449,7 @@ mod tests {
 
         let message = Message {
             sender: sender.clone(),
+            source: MessageSource::DirectMessage,
             content: MessageContent::Text("/status".to_string()),
             timestamp: 1234567890,
         };

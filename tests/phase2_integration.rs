@@ -278,6 +278,13 @@ mod test_mocks {
             Ok(())
         }
 
+        async fn resolve_identifier(
+            &self,
+            identifier: &str,
+        ) -> stroma::signal::traits::SignalResult<ServiceId> {
+            Ok(ServiceId(identifier.to_string()))
+        }
+
         async fn receive_messages(
             &self,
         ) -> stroma::signal::traits::SignalResult<Vec<stroma::signal::traits::Message>> {
@@ -286,6 +293,15 @@ mod test_mocks {
 
         fn service_id(&self) -> &ServiceId {
             &self.service_id
+        }
+
+        async fn list_groups(&self) -> stroma::signal::traits::SignalResult<Vec<(GroupId, usize)>> {
+            // Mock: No groups
+            Ok(vec![])
+        }
+
+        async fn leave_group(&self, _group: &GroupId) -> stroma::signal::traits::SignalResult<()> {
+            Ok(())
         }
     }
 

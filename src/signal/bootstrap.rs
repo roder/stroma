@@ -130,8 +130,9 @@ impl<C: SignalClient> BootstrapManager<C> {
         &mut self,
         freenet: &impl FreenetClient,
         from: &ServiceId,
-        new_seed_username: &str,
-    ) -> SignalResult<()> {
+        new_seed: &ServiceId,
+        username: &str,
+    ) -> SignalResult<Option<GroupId>> {
         // Get current collecting state
         let (group_name, initiator, current_seeds, current_service_ids) = match &self.state {
             BootstrapState::CollectingSeeds {
@@ -172,7 +173,7 @@ impl<C: SignalClient> BootstrapManager<C> {
 
         // Hash new seed identity using secure HMAC
         let new_seed_hash: MemberHash =
-            mask_identity(new_seed_username, &self.identity_masking_key).into();
+            mask_identity(&new_seed.0, &self.identity_masking_key).into();
 
         // Check for duplicates
         if current_seeds.contains(&new_seed_hash) {
@@ -185,9 +186,9 @@ impl<C: SignalClient> BootstrapManager<C> {
         let mut updated_seeds = current_seeds;
         updated_seeds.push(new_seed_hash);
 
-        // Keep raw identity string for Signal group creation
+        // Keep raw ServiceId string for Signal group creation
         let mut updated_service_ids = current_service_ids;
-        updated_service_ids.push(new_seed_username.to_string());
+        updated_service_ids.push(new_seed.0.clone());
 
         let seed_count = updated_seeds.len();
 
@@ -203,34 +204,39 @@ impl<C: SignalClient> BootstrapManager<C> {
         if seed_count < 3 {
             let message = format!(
                 "✅ {} added as seed member #{}.\n   Need {} more seed member(s) to complete the group.",
-                new_seed_username,
+                username,
                 seed_count,
                 3 - seed_count
             );
             self.signal.send_message(from, &message).await?;
+            Ok(None) // Bootstrap not yet complete
         } else {
             let message = format!(
                 "✅ {} added as seed member #3.\n   Seed group complete! Creating Signal group and Freenet contract...",
-                new_seed_username
+                username
             );
             self.signal.send_message(from, &message).await?;
 
             // Complete bootstrap with both hashes (for Freenet) and ServiceIds (for Signal group)
-            self.complete_bootstrap(freenet, group_name, updated_seeds, &updated_service_ids)
+            let group_id = self
+                .complete_bootstrap(freenet, group_name, updated_seeds, &updated_service_ids)
                 .await?;
-        }
 
-        Ok(())
+            // Return GroupId to signal bootstrap completion
+            Ok(Some(group_id))
+        }
     }
 
     /// Complete bootstrap by creating Signal group and Freenet contract
+    ///
+    /// Returns the GroupId of the created group.
     pub async fn complete_bootstrap(
         &mut self,
         freenet: &impl FreenetClient,
         group_name: String,
         seed_hashes: Vec<MemberHash>,
         seed_service_id_strings: &[String],
-    ) -> SignalResult<()> {
+    ) -> SignalResult<GroupId> {
         assert_eq!(seed_hashes.len(), 3, "Must have exactly 3 seed members");
         assert_eq!(
             seed_service_id_strings.len(),
@@ -334,12 +340,13 @@ impl<C: SignalClient> BootstrapManager<C> {
 
         // 6. Transition to complete state
         self.state = BootstrapState::Complete {
-            group_id,
+            group_id: group_id.clone(),
             group_name,
             contract_hash,
         };
 
-        Ok(())
+        // Return GroupId so caller can persist it and leave other groups
+        Ok(group_id)
     }
 }
 
@@ -444,7 +451,9 @@ mod tests {
 
         let from = ServiceId("alice".to_string());
         let freenet = MockFreenetClient::new();
-        let result = manager.handle_add_seed(&freenet, &from, "@bob").await;
+        let result = manager
+            .handle_add_seed(&freenet, &from, &ServiceId("@bob".to_string()), "@bob")
+            .await;
 
         assert!(result.is_err());
     }
@@ -463,7 +472,9 @@ mod tests {
         // Try to add seed as someone else
         let other = ServiceId("eve".to_string());
         let freenet = MockFreenetClient::new();
-        let result = manager.handle_add_seed(&freenet, &other, "@bob").await;
+        let result = manager
+            .handle_add_seed(&freenet, &other, &ServiceId("@bob".to_string()), "@bob")
+            .await;
 
         assert!(matches!(result, Err(SignalError::Unauthorized)));
     }
@@ -481,7 +492,9 @@ mod tests {
             .unwrap();
 
         // Add first seed
-        let result = manager.handle_add_seed(&freenet, &initiator, "@bob").await;
+        let result = manager
+            .handle_add_seed(&freenet, &initiator, &ServiceId("@bob".to_string()), "@bob")
+            .await;
         assert!(result.is_ok());
 
         match manager.state() {
@@ -493,7 +506,12 @@ mod tests {
 
         // Add second seed
         let result = manager
-            .handle_add_seed(&freenet, &initiator, "@charlie")
+            .handle_add_seed(
+                &freenet,
+                &initiator,
+                &ServiceId("@charlie".to_string()),
+                "@charlie",
+            )
             .await;
         assert!(result.is_ok());
 
@@ -515,12 +533,14 @@ mod tests {
 
         // Add seed
         manager
-            .handle_add_seed(&freenet, &initiator, "@bob")
+            .handle_add_seed(&freenet, &initiator, &ServiceId("@bob".to_string()), "@bob")
             .await
             .unwrap();
 
         // Try to add same seed again
-        let result = manager.handle_add_seed(&freenet, &initiator, "@bob").await;
+        let result = manager
+            .handle_add_seed(&freenet, &initiator, &ServiceId("@bob".to_string()), "@bob")
+            .await;
         assert!(result.is_err());
     }
 
@@ -550,11 +570,16 @@ mod tests {
             .unwrap();
 
         manager
-            .handle_add_seed(&freenet, &initiator, "@bob")
+            .handle_add_seed(&freenet, &initiator, &ServiceId("@bob".to_string()), "@bob")
             .await
             .unwrap();
         manager
-            .handle_add_seed(&freenet, &initiator, "@charlie")
+            .handle_add_seed(
+                &freenet,
+                &initiator,
+                &ServiceId("@charlie".to_string()),
+                "@charlie",
+            )
             .await
             .unwrap();
 
@@ -596,11 +621,16 @@ mod tests {
             .unwrap();
 
         manager
-            .handle_add_seed(&freenet, &initiator, "@bob")
+            .handle_add_seed(&freenet, &initiator, &ServiceId("@bob".to_string()), "@bob")
             .await
             .unwrap();
         manager
-            .handle_add_seed(&freenet, &initiator, "@charlie")
+            .handle_add_seed(
+                &freenet,
+                &initiator,
+                &ServiceId("@charlie".to_string()),
+                "@charlie",
+            )
             .await
             .unwrap();
 

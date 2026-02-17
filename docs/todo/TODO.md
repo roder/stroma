@@ -46,17 +46,19 @@ Steps 1-2 can be parallelized (presage E2E validation is independent of stroma w
 | Area | Status | Blocks UAT? |
 |------|--------|-------------|
 | **Mock-Layer Logic** | COMPLETE (502+ tests) | No |
-| **Presage Fork E2E** | ✅ Polls UAT-validated (create/vote/terminate on live Signal) | **Partial** -- Group CRUD still needed |
-| **LibsignalClient** | 100% stubbed (8/8 methods) | **Yes** -- Step 2 |
-| **StromaStore** | Planned (replaces StromaProtocolStore, wraps encrypted SqliteStore) | **Yes** -- Step 2 |
-| **Passphrase Management** | Planned (BIP-39 24-word recovery phrase) | **Yes** -- Step 2 |
-| **Register CLI** | Planned (new phone number registration) | **Yes** -- Step 2 |
-| **link_secondary_device** | Returns NotImplemented | **Yes** -- Step 2 |
-| **EmbeddedKernel** | Custom mock, not real Freenet | **Yes** -- Step 3 |
+| **Presage Fork E2E** | ✅ Polls UAT-validated. ✅ Group create/add-member functionally tested via bootstrap flow. | **No** -- core group ops working |
+| **LibsignalClient** | Partial -- send_message, send_group_message, create_poll, terminate_poll, receive_messages wired to presage. create_group, add/remove_member working via bootstrap.rs. | **Partial** -- Step 2 |
+| **StromaStore** | ✅ DONE -- wraps encrypted SqliteStore with SQLCipher, no-ops message persistence | No |
+| **Passphrase Management** | ✅ DONE -- BIP-39 24-word, --passphrase-file delivery | No |
+| **Register CLI** | ✅ DONE -- `stroma register` command | No |
+| **link_secondary_device** | ✅ DONE -- working, QR code linking tested | No |
+| **Bootstrap Flow** | ✅ FUNCTIONALLY TESTED -- /create-group creates Signal group, /add-seed adds members, triangle vouching initializes trust state | No |
+| **EmbeddedKernel** | Custom mock (HashMap fallback), not real Freenet. Blocked on upstream visibility fix (st-ko618). | **Yes** -- Step 3 |
 | **Freenet state stream** | Commented out in run() | **Yes** -- Step 3 |
 | **handle_reject_intro** | BROKEN (blank state, no-op) | **Yes** -- Step 4 |
 | **handle_status** | Hardcoded placeholder | **Yes** -- Step 4 |
 | **CI/CD Coverage** | Disabled (87%) | No (post-UAT) |
+| **MutualAI Convergence** | ✅ Vision documented (1100+ lines). Rust CLI running (`mutualai suggest`). Beads tracking initialized. | No -- parallel track |
 
 ### Codebase Statistics
 

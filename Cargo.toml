@@ -136,7 +136,6 @@ rustls-pemfile = { path = "patches/rustls-pemfile" }
 # See: uid_encryption.rs SYSTEM_HARDCODED panic
 # bincode = { path = "patches/bincode" }
 
-
 [profile.release]
 lto = true              # Link-time optimization
 codegen-units = 1       # Better optimization

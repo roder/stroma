@@ -29,10 +29,23 @@ pub struct GroupInfo {
     pub announcements_only: bool,
 }
 
+/// Message source (DM or group context)
+///
+/// Per Stroma architecture, bot belongs to ONE Signal group only.
+/// GroupId is extracted from incoming messages to validate they're from the correct group.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MessageSource {
+    /// Direct message (1-on-1 PM)
+    DirectMessage,
+    /// Message from a group context (includes the actual GroupId for validation)
+    Group(GroupId),
+}
+
 /// Signal message content
 #[derive(Debug, Clone)]
 pub struct Message {
     pub sender: ServiceId,
+    pub source: MessageSource,
     pub content: MessageContent,
     pub timestamp: u64,
 }
@@ -173,9 +186,30 @@ pub trait SignalClient: Clone {
     /// Set announcements-only mode (true = only admins can send messages)
     async fn set_announcements_only(&self, group: &GroupId, enabled: bool) -> SignalResult<()>;
 
+    /// Resolve a user identifier (UUID, username, or phone number) to a ServiceId.
+    ///
+    /// Accepts:
+    /// - Raw UUIDs: "a1b2c3d4-5678-90ab-cdef-1234567890ab"
+    /// - Usernames: "matt.42" or "@matt.42"
+    /// - Phone numbers: "+15551234567" (Phase 2, not yet implemented)
+    ///
+    /// Returns error if the identifier cannot be resolved or is invalid.
+    async fn resolve_identifier(&self, identifier: &str) -> SignalResult<ServiceId>;
+
     /// Receive messages (blocking until message arrives)
     async fn receive_messages(&self) -> SignalResult<Vec<Message>>;
 
     /// Get bot's own service ID
     fn service_id(&self) -> &ServiceId;
+
+    /// List all groups bot is a member of (for debugging/cleanup)
+    ///
+    /// Returns list of (GroupId, member_count) tuples.
+    /// Used to enforce 1:1 bot-to-group invariant and find group_id after bootstrap.
+    async fn list_groups(&self) -> SignalResult<Vec<(GroupId, usize)>>;
+
+    /// Leave a Signal group
+    ///
+    /// Removes bot from the group. Used to enforce 1:1 bot-to-group invariant.
+    async fn leave_group(&self, group: &GroupId) -> SignalResult<()>;
 }
