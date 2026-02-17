@@ -20,8 +20,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Protocol Buffers compiler
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            protobuf-compiler pkg-config libssl-dev cmake \
+            llvm-dev libclang-dev clang
 
       - name: Setup Rust toolchain
         uses: ./.github/actions/rust-setup
@@ -37,6 +40,8 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Generate coverage
+        env:
+          OPENSSL_NO_VENDOR: "1"
         run: |
           cargo llvm-cov nextest --all-features --lcov --output-path lcov.info \
             --ignore-filename-regex '(docs/spike/.*\.rs|src/main\.rs)$'

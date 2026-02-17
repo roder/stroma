@@ -18,8 +18,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Protocol Buffers compiler
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            protobuf-compiler pkg-config libssl-dev cmake \
+            llvm-dev libclang-dev clang
 
       - name: Setup Rust toolchain
         uses: ./.github/actions/rust-setup
@@ -32,6 +35,8 @@ jobs:
         run: cargo fmt --check
 
       - name: Run Clippy
+        env:
+          OPENSSL_NO_VENDOR: "1"
         run: cargo clippy --all-targets -- -D warnings
 
   # ============================================================================
@@ -44,8 +49,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Protocol Buffers compiler
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            protobuf-compiler pkg-config libssl-dev cmake \
+            llvm-dev libclang-dev clang
 
       - name: Setup Rust toolchain
         uses: ./.github/actions/rust-setup
@@ -57,6 +65,8 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Run tests
+        env:
+          OPENSSL_NO_VENDOR: "1"
         run: cargo nextest run --all-features
 
   # ============================================================================
