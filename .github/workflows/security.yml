@@ -101,13 +101,11 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y \
-            musl-tools pkg-config libssl-dev protobuf-compiler \
-            llvm-dev libclang-dev clang
+            pkg-config libssl-dev protobuf-compiler \
+            llvm-dev libclang-dev clang cmake
 
-      - name: Install Rust toolchain and musl target
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.93.0
-        with:
-          targets: x86_64-unknown-linux-musl
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -118,6 +116,11 @@ jobs:
         # while boring-sys (libsignal v0.87.1) enables bindgen/runtime.
         # clang-sys panics when both runtime+static are enabled.
         # Binary size measurement is still valid for tracking size changes.
+        #
+        # OPENSSL_NO_VENDOR=1 tells openssl-sys to use system OpenSSL instead
+        # of vendoring, preventing symbol conflicts with boring-sys's BoringSSL.
+        env:
+          OPENSSL_NO_VENDOR: "1"
         run: cargo build --release --bin stroma
 
       - name: Measure binary size
