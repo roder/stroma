@@ -103,17 +103,14 @@ jobs:
       - name: Install system dependencies
         run: |
           apk add --no-cache musl-dev pkgconfig openssl-dev openssl-libs-static git \
-            clang18-libs llvm18-dev protoc
+            clang18-static clang18-libs llvm18-dev protoc
 
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Build release binary (musl)
         env:
-          # Remove LIBCLANG_STATIC_PATH to avoid clang-sys feature conflict
-          # libsignal v0.87.1 brings in boring-sys which uses bindgen -> clang-sys
-          # Setting LIBCLANG_STATIC_PATH forces static feature, but runtime is also
-          # enabled by default, causing panic: `runtime` and `static` can't be combined
+          LIBCLANG_STATIC_PATH: /usr/lib/llvm18/lib
           LLVM_CONFIG_PATH: /usr/lib/llvm18/bin/llvm-config
         run: cargo build --release --target x86_64-unknown-linux-musl --bin stroma
 
