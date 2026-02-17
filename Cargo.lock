@@ -6192,7 +6192,6 @@ dependencies = [
  "async-trait",
  "bip39",
  "ciborium",
- "clang-sys",
  "clap",
  "criterion",
  "dirs 5.0.1",
