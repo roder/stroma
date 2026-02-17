@@ -117,8 +117,11 @@ jobs:
         # clang-sys panics when both runtime+static are enabled.
         # Binary size measurement is still valid for tracking size changes.
         #
-        # OPENSSL_NO_VENDOR=1 tells openssl-sys to use system OpenSSL instead
-        # of vendoring, preventing symbol conflicts with boring-sys's BoringSSL.
+        # --allow-multiple-definition: sqlcipher bundles vendored OpenSSL while
+        # boring-sys bundles BoringSSL. Both define libcrypto symbols. Safe because
+        # they operate in separate code paths (sqlcipher: DB encryption, boring: TLS).
+        env:
+          RUSTFLAGS: '-C link-args=-Wl,--allow-multiple-definition'
         run: cargo build --release --bin stroma
 
       - name: Measure binary size

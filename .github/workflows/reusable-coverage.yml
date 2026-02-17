@@ -40,6 +40,10 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Generate coverage
+        # --allow-multiple-definition: sqlcipher (vendored OpenSSL) + boring-sys (BoringSSL)
+        # both define libcrypto symbols. Safe: separate code paths (DB encryption vs TLS).
+        env:
+          RUSTFLAGS: '-C link-args=-Wl,--allow-multiple-definition'
         run: |
           cargo llvm-cov nextest --all-features --lcov --output-path lcov.info \
             --ignore-filename-regex '(docs/spike/.*\.rs|src/main\.rs)$'
