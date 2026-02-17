@@ -91,7 +91,7 @@ These are the pre-technological versions of the system. They serve the same func
 
 6. **Federation is a network of mutual aid networks**: Cross-group PoI matching, trust-weighted coordination, BidirectionalMin sovereignty.
 
-7. **The interface between Stroma and MutualAI is minimal**: A Freenet contract hash and Signal group membership. Nothing else.
+7. **The interface between Stroma and MutualAI is the capability manifest**: Not a hardcoded `poi_contract` field. MutualAI is an agent capability. The PoI ledger is managed via capability config keys.
 
 ---
 
@@ -102,8 +102,9 @@ When working on Stroma, remember:
 - The trust network is the foundation layer, not the final product
 - Every architectural decision serves double duty: trust management AND collective intelligence substrate
 - MutualAI is an adjacent, independent project that consumes Stroma's trust/governance/state layer
-- The convergence document is at `docs/MUTUALAI-CONVERGENCE.md`
-- The trust topology vision is at `docs/TRUST-TOPOLOGY-PLATFORM.md`
+- The convergence document is at `docs/vision/MUTUALAI-CONVERGENCE.md`
+- The trust topology vision is at `docs/vision/TRUST-TOPOLOGY-PLATFORM.md`
+- The extensible capability interface is at `docs/vision/EXTENSIBLE-CONTRACT-INTERFACES.md`
 - The plan for topology beads is at `.cursor/plans/trust_topology_platform_beads_aa49c522.plan.md`
 - The philosophical foundations in `philosophical-foundations.bead` are load-bearing architecture, not decoration
 
@@ -113,6 +114,8 @@ When working on Stroma, remember:
 
 - `.beads/philosophical-foundations.bead` -- The six dualities that generate the system
 - `.beads/architecture-objectives.bead` -- Technical architecture (extends to MutualAI substrate)
-- `docs/MUTUALAI-CONVERGENCE.md` -- Full technical convergence document (818+ lines)
-- `docs/TRUST-TOPOLOGY-PLATFORM.md` -- Trust topology as a platform for natural patterns
+- `.beads/extensible-contracts.bead` -- Capability model (generalizes PoI, topology, federation)
+- `docs/vision/MUTUALAI-CONVERGENCE.md` -- Full technical convergence document (818+ lines)
+- `docs/vision/TRUST-TOPOLOGY-PLATFORM.md` -- Trust topology as a platform for natural patterns
+- `docs/vision/EXTENSIBLE-CONTRACT-INTERFACES.md` -- Stroma as capability platform
 - `.cursor/plans/trust_topology_platform_beads_aa49c522.plan.md` -- Pending topology beads

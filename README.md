@@ -93,8 +93,12 @@ See [TODO.md](docs/todo/TODO.md) for the complete implementation checklist.
 ### For Developers
 - **[Developer Guide](docs/DEVELOPER-GUIDE.md)** -- Architecture, modules, contracts
 - **[Algorithms](docs/ALGORITHMS.md)** -- DVR matchmaking, cluster detection, complexity analysis
-- **[Federation](docs/FEDERATION.md)** -- North star design for cross-group trust
-- **[Trust Topology Platform](docs/TRUST-TOPOLOGY-PLATFORM.md)** -- Long-horizon vision: trust shaped by natural patterns
+
+### Vision (Long-Horizon)
+- **[Extensible Capability Interface](docs/vision/EXTENSIBLE-CONTRACT-INTERFACES.md)** -- Platform design: trust-gated capabilities
+- **[Federation](docs/vision/FEDERATION.md)** -- North star design for cross-group trust (Phase 4-5)
+- **[Trust Topology Platform](docs/vision/TRUST-TOPOLOGY-PLATFORM.md)** -- Trust shaped by natural patterns (Phase 6+)
+- **[MutualAI Convergence](docs/vision/MUTUALAI-CONVERGENCE.md)** -- Collective intelligence integration (Phase 7+)
 
 ---
 
@@ -177,9 +181,9 @@ Stroma's development follows three horizons:
 
 **Now** (Phases 0-3): [TODO](docs/todo/TODO.md) -- Wire the validated mock layer to real Signal and Freenet networks. Reach UAT. 
 
-**Next** (Phases 4-5): [Federation](docs/FEDERATION.md) -- connect groups through shared members. Emergent discovery via Social Anchor Hashing. Trust that spans communities.
+**Next** (Phases 4-5): [Federation](docs/vision/FEDERATION.md) -- connect groups through shared members. Emergent discovery via Social Anchor Hashing. Trust that spans communities.
 
-**Future** (Phase 6+): [Trust Topology Platform](docs/TRUST-TOPOLOGY-PLATFORM.md) -- groups choose how trust organizes itself, guided by natural patterns. The protocol becomes a laboratory for collective intelligence.
+**Future** (Phase 6+): [Trust Topology Platform](docs/vision/TRUST-TOPOLOGY-PLATFORM.md) -- groups choose how trust organizes itself, guided by natural patterns. The protocol becomes a laboratory for collective intelligence.
 
 ---
 
@@ -216,4 +220,4 @@ See [LICENSE](LICENSE) for full text.
 
 ---
 
-**Last Updated**: 2026-02-14
+**Last Updated**: 2026-02-17

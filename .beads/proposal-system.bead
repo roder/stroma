@@ -91,7 +91,28 @@ Examples:
 - `config_change_threshold` (0.50-1.00) - Vote threshold
 - `min_quorum` (0.25-1.00) - Minimum participation
 
-**3. Federation (federate)** *(deferred to Phase 4+)*
+**3. Capability Activation (capability)**
+```
+/propose capability <url-or-@bot> [--timeout duration]
+
+Examples:
+/propose capability https://example.com/phyllotaxis.yml --timeout 72h
+/propose capability @mutualaibot --timeout 96h
+```
+
+**Two types:**
+- **Contract capabilities**: URL to manifest YAML (WASM module on Freenet)
+- **Agent capabilities**: @botusername (bot must be vouched first)
+
+**Flow:**
+1. Bot fetches manifest (URL or PM to bot: `/capabilities`)
+2. Bot creates Signal Poll: "Enable capability: [name]? [description]"
+3. Group votes
+4. If approved: Deploy WASM (contract) OR register namespace (agent)
+
+See `.beads/extensible-contracts.bead` for complete capability model.
+
+**4. Federation (federate)** *(deferred to Phase 4+)*
 ```
 /propose federate <group-id> [--timeout duration]
 

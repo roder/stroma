@@ -81,24 +81,30 @@ Primary Contract (DVR)              Topology Contract (e.g., Phyllotaxis)
 
 ### Activating a Topology
 
-A group chooses its topology through the existing proposal system:
+A group chooses its topology through the extensible capability system:
 
 ```
-/propose stroma phyllotaxis true
+/propose capability https://example.com/phyllotaxis.yml
 ```
 
-The group votes. If approved, the bot deploys a new Freenet contract for that topology and begins suggesting introductions based on its algorithm. The primary DVR system continues unchanged.
+The group votes on the capability manifest. If approved, the bot:
+1. Deploys the phyllotaxis WASM contract to Freenet
+2. Registers the `phyllotaxis` namespace
+3. Makes `/phyllotaxis` commands available
+
+The primary DVR system continues unchanged. Topology is an overlay, not a replacement.
 
 ### Viewing Your Network
 
-The `/mesh` command shows the primary DVR health view (unchanged). Adding a topology name shows that topology's view:
+The `/mesh` command shows the primary DVR health view (unchanged). Each active topology exposes its own view command:
 
 ```
 /mesh                  -- DVR security view (existing)
-/mesh phyllotaxis      -- Phyllotaxis spiral view (new)
+/phyllotaxis mesh      -- Phyllotaxis spiral view
+/mycelial mesh         -- Mycelial flow view
 ```
 
-Each topology defines its own health metric and visualization, so members can see how the network looks through different lenses.
+Each topology capability defines its own health metric and visualization commands via its manifest, so members can see how the network looks through different lenses.
 
 ---
 
@@ -254,10 +260,10 @@ The protocol becomes a laboratory. The groups become experiments. And the result
 
 ## Further Reading
 
-- [How Stroma Works](HOW-IT-WORKS.md) -- The core trust protocol in everyday terms
+- [How Stroma Works](../HOW-IT-WORKS.md) -- The core trust protocol in everyday terms
 - [Federation](FEDERATION.md) -- The north star: connecting groups through shared trust
-- [Trust Model](TRUST-MODEL.md) -- Mathematical details of standing, vouching, and ejection
-- [Algorithms](ALGORITHMS.md) -- DVR, cluster detection, and graph theory foundations
+- [Trust Model](../TRUST-MODEL.md) -- Mathematical details of standing, vouching, and ejection
+- [Algorithms](../ALGORITHMS.md) -- DVR, cluster detection, and graph theory foundations
 
 ---
 

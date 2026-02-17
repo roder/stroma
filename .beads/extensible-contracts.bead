@@ -1,0 +1,339 @@
+# Extensible Contract Interface
+
+**Status**: CANONICAL  
+**Type**: Architecture Specification  
+**Created**: 2026-02-17  
+**Last Updated**: 2026-02-17
+
+---
+
+## Summary
+
+Stroma is a trust-gated capability platform. The trust network is the substrate. Everything else composes onto it through a unified capability interface.
+
+Rather than hardcoding each new feature (topology plans, PoI ledger, federation contracts) as special cases in `GroupConfig` and `/propose` subcommands, we provide **one extensible interface**: capabilities.
+
+**This is scope reduction, not scope creep.** One interface replaces N special cases.
+
+---
+
+## Two Capability Types
+
+| Aspect | Contract Capability | Agent Capability |
+|--------|-------------------|------------------|
+| **What it is** | Freenet WASM contract | Vouched Signal bot (separate process) |
+| **Example** | Phyllotaxis trust topology | MutualAI coordination bot |
+| **State** | On Freenet (contract hash) | In agent's own storage |
+| **Runtime** | Sandboxed by Freenet WASM | Runs as separate process |
+| **Binary** | WASM module | None (bot already running) |
+| **Discovery** | Manifest at URL | PM bot with `/capabilities` |
+| **Activation** | Deploy WASM to Freenet | Register namespace + commands |
+
+Both types:
+- Share the same manifest format
+- Require Signal Poll approval
+- Register a unique namespace
+- Declare commands and config keys
+
+---
+
+## Manifest Schema (v1)
+
+```yaml
+manifest_version: 1                # REQUIRED: version for forward compat
+type: contract | agent             # REQUIRED: which kind
+namespace: <unique-string>         # REQUIRED: /propose <namespace> ...
+description: |                     # REQUIRED: shown in Signal Poll
+  Human-readable description
+url: https://...                   # REQUIRED: docs/source link
+
+# --- For type: contract ---
+wasm:
+  url: https://...                 # REQUIRED: where to fetch WASM
+  checksum: sha256:...             # REQUIRED: integrity verification
+
+# --- For type: agent ---
+# (no wasm section -- bot is already running)
+
+# --- Commands exposed by this capability ---
+commands:
+  - name: enable                   # command name (prefixed by namespace)
+    type: binary                   # binary | command | proposal
+    description: "..."             # optional description
+    options: [...]                 # for type: binary or proposal
+    timeout: 1d                    # for type: proposal
+    quorum: 0.51                   # for type: proposal
+
+# --- Config keys registered under this namespace ---
+config:
+  - key: ring_count                # config key (scoped to namespace)
+    type: integer | float | string | enum
+    default: <value>
+    values: [...]                  # for type: enum
+    description: "..."
+```
+
+### Required Fields
+
+- `manifest_version`: Must be `1` (for forward compatibility)
+- `type`: Must be `contract` or `agent`
+- `namespace`: Unique string (alphanumeric + hyphen)
+- `description`: Human-readable explanation (shown in Signal Poll)
+- `url`: Link to documentation/source code
+
+### Type-Specific Requirements
+
+**For `type: contract`:**
+- `wasm.url`: HTTPS URL to WASM file
+- `wasm.checksum`: SHA-256 hash for integrity
+
+**For `type: agent`:**
+- No `wasm` section
+- Bot must be vouched before capability proposal
+
+---
+
+## Command Types
+
+Three types cover all governance patterns:
+
+### 1. `type: binary`
+
+Creates an Approve/Reject Signal Poll.
+
+**Example:**
+```yaml
+commands:
+  - name: enable
+    type: binary
+```
+
+**Usage:**
+```
+/propose phyllotaxis enable
+```
+
+**Result:** Signal Poll with "Approve" and "Reject" options.
+
+### 2. `type: command`
+
+Direct action. Stroma bot verifies member's standing and executes immediately.
+
+**Example:**
+```yaml
+commands:
+  - name: record-impact
+    type: command
+    description: Record a Proof of Impact claim
+```
+
+**Usage:**
+```
+/mutualai record-impact "Delivered 200 lbs squash"
+```
+
+**Result:** Bot checks member standing, writes to Freenet, replies with confirmation.
+
+### 3. `type: proposal`
+
+Creates a custom Signal Poll with specified options, timeout, and quorum.
+
+**Example:**
+```yaml
+commands:
+  - name: verify-impact
+    type: proposal
+    options: [Yes, No]
+    timeout: 1d
+    quorum: 0.51
+```
+
+**Usage:**
+```
+/mutualai verify-impact --question "Was delivery completed?"
+```
+
+**Result:** Signal Poll with custom options, 1-day timeout, 51% quorum.
+
+---
+
+## Activation Flows
+
+### Contract Capability
+
+```
+1. Member:      /propose capability https://example.com/phyllotaxis.yml
+2. Stroma bot:  Fetches manifest, validates schema
+3. Stroma bot:  Creates Signal Poll: "Enable capability: Phyllotaxis?"
+4. Group:       Votes (existing threshold + quorum)
+5. If approved: Deploy WASM to Freenet, register namespace
+6. Available:   /propose phyllotaxis enable
+                /propose phyllotaxis mode on
+```
+
+### Agent Capability
+
+**Prerequisite:** Bot must be vouched via standard admission flow.
+
+```
+1. Member:      /propose capability @mutualaibot
+2. Stroma bot:  PMs @mutualaibot: /capabilities
+3. Agent:       Responds with YAML manifest
+4. Stroma bot:  Creates Signal Poll: "Enable capability: MutualAI?"
+5. Group:       Votes
+6. If approved: Register namespace, commands available
+7. Available:   /mutualai record-impact "..."
+                /mutualai suggest
+```
+
+---
+
+## Security Model
+
+### No Native Binaries
+
+The original proposal included native binary distribution. This has been **removed** after design review.
+
+- **Contract capabilities**: WASM-only, sandboxed by Freenet
+- **Agent capabilities**: No binary needed (bot already running)
+
+### Three Security Gates
+
+1. **WASM Sandboxing** (for contract capabilities)
+   - No filesystem access
+   - No network calls
+   - No access to other contracts except via Freenet interfaces
+   - Must implement `ComposableState` trait
+
+2. **Trust-Gated Admission** (for agent capabilities)
+   - Bot must be vouched before capability proposal
+   - Cross-cluster assessment required
+   - Trust boundary is admission, not manifest
+
+3. **Governance Approval** (for all capabilities)
+   - Capability activation requires Signal Poll
+   - Group controls what their trust network is used for
+   - Two gates: admission (trust) + activation (governance)
+
+---
+
+## Namespace Isolation
+
+Each capability owns its namespace. Commands are prefixed:
+
+```
+/phyllotaxis enable
+/mutualai record-impact "..."
+/mutualai-west suggest
+/propose phyllotaxis ring_count 7
+/propose mutualai poi_contract <hash>
+```
+
+Config keys are scoped to the capability:
+- `phyllotaxis.ring_count` ≠ `mutualai.ring_count`
+- Multiple instances of same capability type can coexist
+
+---
+
+## Architecture Changes
+
+### Before (hardcoded)
+
+```rust
+struct GroupConfig {
+    min_vouches: u32,
+    max_flags: u32,
+    // ... trust settings ...
+    federation_contracts: Vec<ContractHash>,  // special case
+    poi_contract: Option<ContractHash>,       // special case
+    // Each new integration = new field
+}
+
+enum ProposalSubcommand {
+    Config { key, value },
+    Stroma { key, value },
+    Signal { key, value },
+    // Each new integration = new variant
+}
+```
+
+### After (extensible)
+
+```rust
+struct GroupConfig {
+    min_vouches: u32,
+    max_flags: u32,
+    // ... trust settings ...
+    capabilities: Vec<ActiveCapability>,      // all integrations
+}
+
+struct ActiveCapability {
+    namespace: String,
+    manifest: CapabilityManifest,
+    contract_hash: Option<ContractHash>,      // for contract capabilities
+    agent_member: Option<MemberHash>,         // for agent capabilities
+    config: HashMap<String, String>,          // capability-specific config
+}
+
+// /propose <namespace> <command> works for any registered capability
+// No new variants needed -- manifest defines commands
+```
+
+---
+
+## How This Generalizes Other Features
+
+### Trust Topology Platform
+
+Each topology (phyllotaxis, mycelial, stigmergy, coral) is a **contract capability**:
+- WASM module deployed to Freenet
+- Stores ring assignments, connection patterns, health metrics
+- Activated via `/propose capability <url>`
+- `GroupConfig` no longer needs `topology_plan: Option<ContractHash>`
+
+### MutualAI Convergence
+
+MutualAI bot is an **agent capability**:
+- Must be vouched before capability proposal
+- Manifest retrieved via PM: `/capabilities`
+- PoI ledger is a Freenet contract managed via `mutualai.poi_contract` config
+- `GroupConfig` no longer needs `poi_contract: Option<ContractHash>`
+
+### Federation
+
+Federation contracts could themselves be capabilities:
+- Proposed, voted on, activated through same mechanism
+- `GroupConfig` no longer needs `federation_contracts: Vec<ContractHash>`
+
+---
+
+## Design Principles
+
+1. **One interface, not N**: Every integration uses manifest + governance flow
+2. **Trust first, capability second**: Admission before capability proposal
+3. **No native execution**: WASM for contracts (sandboxed), nothing for agents
+4. **Community decides**: Activation always requires group vote
+5. **Namespace isolation**: Each capability owns its namespace, no collisions
+
+---
+
+## Related Beads
+
+- `.beads/proposal-system.bead` - `/propose` command structure
+- `.beads/freenet-contract-design.bead` - ComposableState, CBOR, set-union merge
+- `.beads/governance-model.bead` - Signal Poll voting rules
+- `.beads/terminology.bead` - Capability definitions
+- `.beads/convergence-insight.bead` - MutualAI integration as capability
+
+---
+
+## References
+
+- `docs/vision/EXTENSIBLE-CONTRACT-INTERFACES.md` - Full proposal (this bead is the canonical spec)
+- `docs/vision/TRUST-TOPOLOGY-PLATFORM.md` - Topologies as contract capabilities
+- `docs/vision/MUTUALAI-CONVERGENCE.md` - MutualAI as agent capability
+- `docs/vision/FEDERATION.md` - Federation as capability model
+
+---
+
+*Last Updated: 2026-02-17*

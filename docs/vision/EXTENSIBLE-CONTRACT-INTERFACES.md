@@ -6,7 +6,7 @@
 
 ## The Generalization
 
-Stroma is a decentralized trust network that stores its [trust graph as a Freenet contract](FREENET_IMPLEMENTATION.md) and governs itself through [consensus via Signal Polls](USER-GUIDE.md#Configuration). Currently, the `/propose` command supports two hardcoded sub-interfaces: `stroma` and `signal`.
+Stroma is a decentralized trust network that stores its [trust graph as a Freenet contract](../FREENET_IMPLEMENTATION.md) and governs itself through [consensus via Signal Polls](../USER-GUIDE.md#Configuration). Currently, the `/propose` command supports two hardcoded sub-interfaces: `stroma` and `signal`.
 
 But the trust network is not the final product -- it is the **substrate** that other capabilities compose onto. [Trust Topology Plans](TRUST-TOPOLOGY-PLATFORM.md) need Freenet contracts and the governance system. [Proof of Impact](MUTUALAI-CONVERGENCE.md) needs Freenet contracts and the governance system. Future capabilities nobody has imagined yet will need the same things.
 

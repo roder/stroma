@@ -42,7 +42,7 @@ Stroma is a privacy-first, decentralized trust network built on Signal, Freenet,
 - Federation connects groups through shared members with mutual consent
 - Freenet contracts store state as mergeable sets with eventual consistency
 
-See [How Stroma Works](HOW-IT-WORKS.md) for the full protocol and [Trust Topology Platform](TRUST-TOPOLOGY-PLATFORM.md) for the topology vision.
+See [How Stroma Works](../HOW-IT-WORKS.md) for the full protocol and [Trust Topology Platform](TRUST-TOPOLOGY-PLATFORM.md) for the topology vision.
 
 ## What MutualAI Is
 
@@ -103,18 +103,31 @@ Freenet (decentralized state layer)
 - AI agent proposals (surfaced through `/propose` in Signal)
 - Cross-network intelligence (RAG from social connectors)
 
-**The interface is minimal:**
-- A Freenet contract hash for the PoI ledger (stored in Stroma's `GroupConfig`)
-- Signal group membership (AI agents are vouched members)
+**The interface is the capability manifest:**
+- MutualAI bot is vouched into the group (standard admission flow)
+- Bot exposes a capability manifest via `/capabilities` command
+- Manifest declares commands (`record-impact`, `verify-impact`, `suggest`)
+- Manifest declares config keys (e.g., `poi_contract` for the PoI ledger contract hash)
 - The `/propose` command (universal governance mechanism)
 
-Activating MutualAI for a Stroma group is itself a proposal:
+Activating MutualAI for a Stroma group follows the standard capability flow:
 
 ```
-/propose stroma poi_contract <freenet-contract-hash>
+1. /invite @mutualaibot "Community coordination AI"
+   (assessor evaluates and vouches)
+
+2. /propose capability @mutualaibot
+   (Stroma PMs bot with /capabilities, gets manifest, creates Signal Poll)
+
+3. Group votes
+
+4. If approved: /mutualai commands become available
+   /mutualai record-impact "..."
+   /mutualai suggest
+   /propose mutualai poi_contract <freenet-contract-hash>
 ```
 
-The group votes. If approved, the Stroma bot begins writing Proof of Impact claims to that contract on behalf of trusted members. If not, the group remains a pure trust network.
+The group votes twice: once to admit the bot (trust), once to enable its capabilities (governance). If the group doesn't approve the capability, the bot remains a vouched member but its AI features are inactive.
 
 ---
 
@@ -695,12 +708,14 @@ From MutualAI's existing codebase, the concepts and code that carry forward:
 
 | Component | Description |
 |-----------|-------------|
+| **MutualAI as agent capability** | MutualAI bot is an agent capability, vouched via standard admission + activated via `/propose capability @mutualaibot` |
+| **Capability manifest** | Bot exposes commands (`record-impact`, `verify-impact`, `suggest`) and config keys (`poi_contract`) via manifest |
 | **PoI Freenet contract** | Append-only `BTreeSet<SignedClaim>` contract on Freenet -- the immutable ledger |
-| **`/record-impact` command** | Stroma bot command for writing PoI claims through the trust boundary |
-| **`poi_contract` config** | `GroupConfig` field linking a Stroma group to its MutualAI PoI ledger |
+| **`/mutualai record-impact` command** | Direct command (no poll) -- bot verifies member standing and writes PoI claim |
+| **`mutualai.poi_contract` config** | Capability-scoped config key storing the PoI ledger contract hash |
 | **Trust-weighted PoI** | Impact claims weighted by the author's Stroma trust standing |
 | **Evidence-based vouching** | `/vouch` grounded in verifiable PoI history |
-| **Mycelial topology** | Trust topology optimized for resource flow (mutual aid distribution) |
+| **Mycelial topology** | Trust topology as contract capability -- optimized for resource flow (mutual aid distribution) |
 
 ---
 
@@ -721,16 +736,18 @@ Both projects talk about **mutual arising**. Both reject hierarchy. Both treat i
 
 ## Stroma Integration Points (Existing Code)
 
-The convergence leverages Stroma's existing architecture. These are the specific touchpoints in the current codebase:
+The convergence leverages Stroma's extensible capability architecture. These are the specific touchpoints in the current codebase:
 
 | Stroma Component | File | Role in Convergence |
 |------------------|------|---------------------|
-| `GroupConfig` | `src/freenet/trust_contract.rs` | Add `poi_contract: Option<ContractHash>` field (like existing `federation_contracts`) |
-| `ProposalSubcommand::Stroma` | `src/signal/proposals/command.rs` | Handle `poi_contract` key in `/propose stroma` |
-| `execute_other_proposal()` | `src/signal/proposals/executor.rs` | Execute PoI contract activation after group vote |
+| `GroupConfig` | `src/freenet/trust_contract.rs` | Contains `capabilities: Vec<ActiveCapability>` -- MutualAI is registered here after `/propose capability @mutualaibot` is approved |
+| `ActiveCapability` | `src/capabilities/mod.rs` | Stores capability manifest, namespace (`mutualai`), contract hash (for PoI ledger), config (`poi_contract`) |
+| `CapabilityManifest` | `src/capabilities/manifest.rs` | Parses manifest from bot's `/capabilities` response |
+| `ProposalSubcommand::Capability` | `src/signal/proposals/command.rs` | Handles `/propose capability @mutualaibot` and `/propose mutualai poi_contract <hash>` |
+| `execute_capability_proposal()` | `src/signal/proposals/executor.rs` | Executes capability activation + config changes after group vote |
 | `TrustNetworkState` | `src/freenet/trust_contract.rs` | Source of membership + standing data for PoI claim validation |
 | `FreenetClient` trait | `src/freenet/traits.rs` | Read/write to PoI contract using existing Freenet interface |
-| `StromaBot::handle_message()` | `src/signal/bot.rs` | Route `/record-impact` command to PoI handler |
+| `StromaBot::handle_message()` | `src/signal/bot.rs` | Routes `/mutualai record-impact` to capability handler (verifies standing, writes to PoI contract) |
 | `MemberResolver` | `src/signal/member_resolver.rs` | Resolve MemberHash for PoI claim construction (ephemeral, zeroizing) |
 | `TrustGraph` | `src/matchmaker/graph_analysis.rs` | Topology data consumed by MutualAI's RAG system |
 | `suggest_introductions()` | `src/matchmaker/strategic_intro.rs` | Extended for mycelial topology (flow-based introductions) |
@@ -1126,10 +1143,10 @@ The system demonstrates its own philosophy by existing. And it gets better at de
 ---
 
 **See Also:**
-- [How Stroma Works](HOW-IT-WORKS.md) -- The trust protocol
+- [How Stroma Works](../HOW-IT-WORKS.md) -- The trust protocol
 - [Trust Topology Platform](TRUST-TOPOLOGY-PLATFORM.md) -- Natural patterns for trust organization
 - [Federation](FEDERATION.md) -- Connecting groups through shared trust
-- [Threat Model](THREAT-MODEL.md) -- Security design and attack resistance
+- [Threat Model](../THREAT-MODEL.md) -- Security design and attack resistance
 
 ---
 
