@@ -22,7 +22,7 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y \
             protobuf-compiler pkg-config libssl-dev cmake \
-            llvm-dev libclang-dev clang
+            llvm-dev libclang-dev clang libtomcrypt-dev
 
       - name: Setup Rust toolchain
         uses: ./.github/actions/rust-setup
@@ -35,10 +35,6 @@ jobs:
         run: cargo fmt --check
 
       - name: Run Clippy
-        # --allow-multiple-definition: sqlcipher (vendored OpenSSL) + boring-sys (BoringSSL)
-        # both define libcrypto symbols. Safe: separate code paths (DB encryption vs TLS).
-        env:
-          RUSTFLAGS: '-C link-args=-Wl,--allow-multiple-definition'
         run: cargo clippy --all-targets -- -D warnings
 
   # ============================================================================
@@ -55,7 +51,7 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y \
             protobuf-compiler pkg-config libssl-dev cmake \
-            llvm-dev libclang-dev clang
+            llvm-dev libclang-dev clang libtomcrypt-dev
 
       - name: Setup Rust toolchain
         uses: ./.github/actions/rust-setup
@@ -67,10 +63,6 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Run tests
-        # --allow-multiple-definition: sqlcipher (vendored OpenSSL) + boring-sys (BoringSSL)
-        # both define libcrypto symbols. Safe: separate code paths (DB encryption vs TLS).
-        env:
-          RUSTFLAGS: '-C link-args=-Wl,--allow-multiple-definition'
         run: cargo nextest run --all-features
 
   # ============================================================================

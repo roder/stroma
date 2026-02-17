@@ -102,7 +102,7 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y \
             pkg-config libssl-dev protobuf-compiler \
-            llvm-dev libclang-dev clang cmake
+            llvm-dev libclang-dev clang cmake libtomcrypt-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.93.0
@@ -117,11 +117,8 @@ jobs:
         # clang-sys panics when both runtime+static are enabled.
         # Binary size measurement is still valid for tracking size changes.
         #
-        # --allow-multiple-definition: sqlcipher bundles vendored OpenSSL while
-        # boring-sys bundles BoringSSL. Both define libcrypto symbols. Safe because
-        # they operate in separate code paths (sqlcipher: DB encryption, boring: TLS).
-        env:
-          RUSTFLAGS: '-C link-args=-Wl,--allow-multiple-definition'
+        # presage uses libtomcrypt for sqlcipher (not OpenSSL) to avoid symbol
+        # conflicts with boring-sys's BoringSSL.
         run: cargo build --release --bin stroma
 
       - name: Measure binary size

@@ -24,7 +24,7 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y \
             protobuf-compiler pkg-config libssl-dev cmake \
-            llvm-dev libclang-dev clang
+            llvm-dev libclang-dev clang libtomcrypt-dev
 
       - name: Setup Rust toolchain
         uses: ./.github/actions/rust-setup
