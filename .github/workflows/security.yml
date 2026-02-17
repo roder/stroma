@@ -97,27 +97,33 @@ jobs:
   binary-size:
     name: Binary Size Monitor
     runs-on: ubuntu-latest
-    container:
-      image: rust:1.93-alpine
     steps:
       - name: Install system dependencies
         run: |
-          apk add --no-cache musl-dev pkgconfig openssl-dev openssl-libs-static git \
-            clang18-static clang18-libs llvm18-dev protoc
+          sudo apt-get update && sudo apt-get install -y \
+            musl-tools pkg-config libssl-dev protobuf-compiler \
+            llvm-dev libclang-dev clang
+
+      - name: Install Rust toolchain and musl target
+        uses: dtolnay/rust-toolchain@1.93.0
+        with:
+          targets: x86_64-unknown-linux-musl
 
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build release binary (musl)
-        env:
-          LIBCLANG_STATIC_PATH: /usr/lib/llvm18/lib
-          LLVM_CONFIG_PATH: /usr/lib/llvm18/bin/llvm-config
-        run: cargo build --release --target x86_64-unknown-linux-musl --bin stroma
+      - name: Build release binary
+        # Build for native glibc target instead of musl to avoid clang-sys
+        # feature conflict: wasmer enables bindgen/static for musl targets,
+        # while boring-sys (libsignal v0.87.1) enables bindgen/runtime.
+        # clang-sys panics when both runtime+static are enabled.
+        # Binary size measurement is still valid for tracking size changes.
+        run: cargo build --release --bin stroma
 
       - name: Measure binary size
         id: size-check
         run: |
-          BINARY_SIZE=$(stat -c%s "target/x86_64-unknown-linux-musl/release/stroma" || echo "0")
+          BINARY_SIZE=$(stat -c%s "target/release/stroma" || echo "0")
           echo "binary_size=$BINARY_SIZE" >> $GITHUB_OUTPUT
           echo "Binary size: $(numfmt --to=iec-i --suffix=B $BINARY_SIZE)"
 
