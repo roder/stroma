@@ -119,11 +119,6 @@ jobs:
         #
         # OPENSSL_NO_VENDOR=1 tells openssl-sys to use system OpenSSL instead
         # of vendoring, preventing symbol conflicts with boring-sys's BoringSSL.
-        env:
-          # Point sqlcipher (libsqlite3-sys) to system OpenSSL so its -lcrypto
-          # resolves to system libcrypto.so before boring-sys's BoringSSL libcrypto
-          OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
-          OPENSSL_INCLUDE_DIR: /usr/include
         run: cargo build --release --bin stroma
 
       - name: Measure binary size

@@ -35,9 +35,6 @@ jobs:
         run: cargo fmt --check
 
       - name: Run Clippy
-        env:
-          OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
-          OPENSSL_INCLUDE_DIR: /usr/include
         run: cargo clippy --all-targets -- -D warnings
 
   # ============================================================================
@@ -66,9 +63,6 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Run tests
-        env:
-          OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
-          OPENSSL_INCLUDE_DIR: /usr/include
         run: cargo nextest run --all-features
 
   # ============================================================================

@@ -40,9 +40,6 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Generate coverage
-        env:
-          OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
-          OPENSSL_INCLUDE_DIR: /usr/include
         run: |
           cargo llvm-cov nextest --all-features --lcov --output-path lcov.info \
             --ignore-filename-regex '(docs/spike/.*\.rs|src/main\.rs)$'
