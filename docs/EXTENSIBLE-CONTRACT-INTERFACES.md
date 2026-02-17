@@ -77,10 +77,10 @@ Three types cover all governance patterns:
 | Type | What it does | Example |
 |------|-------------|---------|
 | **binary** | Creates an Approve/Reject Signal Poll | `/propose phyllotaxis enable` |
-| **command** | Direct action -- Stroma bot verifies standing and executes immediately | `/record-impact "delivered 200 lbs squash"` |
-| **proposal** | Creates a custom poll with specified options, timeout, quorum | `/propose @mutualai verify-impact ...` |
+| **command** | Direct action -- Stroma bot verifies standing and executes immediately | `/mutualai record-impact "delivered 200 lbs squash"` |
+| **proposal** | Creates a custom poll with specified options, timeout, quorum | `/mutualai verify-impact --question "Was delivery completed?"` |
 
-Most interactions are `command` (immediate, trust-gated). Governance decisions are `binary` or `proposal`.
+All commands are prefixed with the capability's namespace (`/phyllotaxis ...`, `/mutualai ...`). This ensures no collisions when multiple capabilities or multiple instances of the same capability type are active. Governance decisions that change config use `/propose <namespace> <key> <value>`.
 
 ---
 
@@ -238,11 +238,20 @@ config:
 
 **Usage after activation:**
 
+All commands are namespaced by the agent's namespace. This prevents collisions when multiple agents of the same type exist in a group (e.g., two MutualAI bots from different operators).
+
 ```
-/record-impact "Matched 200 lbs surplus squash with Community Kitchen"
-/propose mutualai verify-impact --question "Was the delivery completed?"
+/mutualai record-impact "Matched 200 lbs surplus squash with Community Kitchen"
+/mutualai verify-impact --question "Was the delivery completed?"
 /mutualai suggest
 /propose mutualai poi_contract <freenet-hash>
+```
+
+If a second MutualAI bot (`@mutualai-west`) is vouched and registered with namespace `mutualai-west`:
+
+```
+/mutualai-west record-impact "Delivered supplies to West Side shelter"
+/mutualai-west suggest
 ```
 
 MutualAI can also create Freenet contracts (like the PoI ledger) through Stroma's infrastructure. The agent doesn't need its own Freenet integration -- it uses Stroma's. The `poi_contract` config key stores the contract hash that Stroma manages on the agent's behalf.
