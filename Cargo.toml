@@ -85,6 +85,9 @@ rand = "0.8"
 tempfile = "3.10"
 criterion = { version = "0.5", features = ["html_reports"] }
 
+[build-dependencies]
+# No longer needed - fix moved to patch.crates-io
+
 [[bench]]
 name = "stark_vouch"
 harness = false
