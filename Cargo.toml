@@ -86,7 +86,14 @@ tempfile = "3.10"
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [build-dependencies]
+<<<<<<< HEAD
 # No longer needed - fix moved to patch.crates-io
+=======
+# Fix clang-sys feature conflict for Alpine/musl builds (from boring-sys via libsignal)
+# Adding as direct build-dep with only `static` feature unifies feature resolution
+# Cannot have both `runtime` and `static` features enabled simultaneously
+clang-sys = { version = "1.8", default-features = false, features = ["clang_6_0", "static"] }
+>>>>>>> d81d7f9 (Fix clang-sys feature conflict for Alpine/musl builds)
 
 [[bench]]
 name = "stark_vouch"
