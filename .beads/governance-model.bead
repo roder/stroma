@@ -234,11 +234,47 @@ async fn execute_proposal(proposal: &Proposal, freenet: &FreenetClient) -> Resul
 - **REDIRECT** - use `/propose` for group decisions
 - **BLOCK** - do not implement operator privileges
 
+### Capability Governance
+
+**Capability activation requires two gates:**
+1. **Trust gate** (for agent capabilities): Bot must be vouched before capability proposal
+2. **Governance gate** (for all capabilities): Group votes on capability activation
+
+**Workflow:**
+```
+1. Member: /propose capability @mutualaibot
+2. Bot: PMs @mutualaibot with /capabilities
+3. Bot: Creates Signal Poll: "Enable capability: MutualAI?"
+4. Group votes
+5. If approved: Namespace registered, commands available
+```
+
+**Commands from capabilities:**
+- **Binary commands** (e.g., `/phyllotaxis enable`): Create Approve/Reject poll
+- **Direct commands** (e.g., `/mutualai record-impact`): Bot verifies standing, executes immediately
+- **Proposal commands** (e.g., `/mutualai verify-impact`): Create custom poll
+
+**Config changes:**
+```
+/propose mutualai poi_contract <freenet-hash>
+```
+
+Bot verifies:
+1. Capability is active
+2. Config key is registered in manifest
+3. Value matches type/validation rules
+
+After group vote approval: Bot updates capability config in `GroupConfig.capabilities`.
+
+See `.beads/extensible-contracts.bead` for complete capability governance model.
+
 ### Testing Requirements
 
 **Must test:**
 - [ ] Bot cannot add member without Freenet approval
 - [ ] Bot cannot remove member without Freenet approval
 - [ ] Bot cannot change settings without Freenet approval
+- [ ] Bot cannot activate capability without group vote
+- [ ] Bot verifies capability config changes via /propose
 - [ ] Operator commands limited to service management
 - [ ] Audit trail records operator actions correctly

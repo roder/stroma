@@ -559,4 +559,4 @@ A network can have high connection density but low resilience if all connections
 - [How It Works](HOW-IT-WORKS.md) -- Plain-language protocol explanation
 - [Trust Model](TRUST-MODEL.md) -- Mathematical details and edge cases
 - [Threat Model](THREAT-MODEL.md) -- Security design, attack resistance, accepted risks
-- [Federation](FEDERATION.md) -- Future multi-group connections (Phase 4+)
+- [Federation](vision/FEDERATION.md) -- Future multi-group connections (Phase 4+)

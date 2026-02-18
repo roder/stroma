@@ -109,14 +109,6 @@ skip = []
 # Skip dependency trees
 skip-tree = []
 
-# Banned crates (prohibited by security policy)
-deny = [
-    # presage-store-sqlite is allowed ONLY through StromaStore wrapper
-    # StromaStore uses encrypted SqliteStore for account config, groups, and vote state
-    # but delegates message storage to separate, ephemeral storage (server seizure protection)
-    # See security-constraints.bead §10
-]
-
 # Note: chrono was previously banned in favor of time crate, but it's a transitive
 # dependency from libsignal/presage. Consider migrating when upstream supports time.
 

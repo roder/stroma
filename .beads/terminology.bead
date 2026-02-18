@@ -192,6 +192,26 @@ The Blind Matchmaker has two architecturally separate roles:
 
 **Mesh Optimization**: Between existing members already in the group, the bot suggests introductions to strengthen the trust graph (upgrade Bridges to Validators, connect isolated clusters). This is a separate concern from admission.
 
+### Capability Terms
+
+| Term | Definition | Example |
+|------|------------|---------|
+| **Capability** | A contract or agent that extends Stroma's functionality via manifest | Phyllotaxis topology, MutualAI bot |
+| **Capability Manifest** | YAML description of a capability's namespace, commands, and config | `manifest_version: 1`, `type: contract`, `namespace: phyllotaxis` |
+| **Contract Capability** | WASM module deployed to Freenet (e.g., topology plan) | Phyllotaxis spiral topology |
+| **Agent Capability** | Vouched Signal bot that exposes commands (e.g., MutualAI) | MutualAI coordination bot |
+| **Namespace** | Unique prefix for capability commands and config | `/phyllotaxis enable`, `/mutualai record-impact` |
+| **Command Type** | `binary` (Approve/Reject poll), `command` (direct action), `proposal` (custom poll) | `/propose phyllotaxis enable` (binary) |
+
+**Activation Flow:**
+1. Member: `/propose capability <url-or-@bot>`
+2. Bot fetches manifest (URL or PM: `/capabilities`)
+3. Bot creates Signal Poll: "Enable capability: [name]?"
+4. Group votes
+5. If approved: Deploy WASM (contract) OR register namespace (agent)
+
+See `.beads/extensible-contracts.bead` for complete specification.
+
 ### Federation Terms (Phase 4+)
 
 | Term | Definition |

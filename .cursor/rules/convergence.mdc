@@ -13,8 +13,8 @@ Nothing in Stroma needs to change to support this. The architecture was already 
 ## Key Documents
 
 - `.beads/convergence-insight.bead` -- The foundational insight and design decisions
-- `docs/MUTUALAI-CONVERGENCE.md` -- Full technical convergence vision (800+ lines)
-- `docs/TRUST-TOPOLOGY-PLATFORM.md` -- Trust topology as platform for natural patterns
+- `docs/vision/MUTUALAI-CONVERGENCE.md` -- Full technical convergence vision (800+ lines)
+- `docs/vision/TRUST-TOPOLOGY-PLATFORM.md` -- Trust topology as platform for natural patterns
 
 ## When This Matters
 

@@ -5,8 +5,9 @@
 //! - Proof size: < 100KB
 //! - Verification: < 100ms (target)
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use std::collections::BTreeSet;
+use std::hint::black_box;
 use stroma::stark::{prove_vouch_claim, verify_vouch_proof, VouchClaim};
 
 fn test_member(id: u8) -> stroma::stark::types::MemberHash {

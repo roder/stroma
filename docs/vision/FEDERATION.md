@@ -804,8 +804,8 @@ Even though MVP is single-group, we design for the world we want to create - not
 
 - [Architecture Decisions Bead](../.beads/architecture-decisions.bead) - Immutable design constraints
 - [Federation Roadmap Bead](../.beads/federation-roadmap.bead) - Immutable north star
-- [Developer Guide](DEVELOPER-GUIDE.md) - Technical implementation
-- [Trust Model](TRUST-MODEL.md) - Trust mechanics
+- [Developer Guide](../DEVELOPER-GUIDE.md) - Technical implementation
+- [Trust Model](../TRUST-MODEL.md) - Trust mechanics
 
 ---
 

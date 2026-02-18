@@ -168,3 +168,53 @@ fn test_delta_commutativity() {
 ```
 
 **See**: `docs/spike/q1/RESULTS.md` for validated implementation with full test suite.
+
+---
+
+## Capability Contracts
+
+Capability contracts follow the same `ComposableState` pattern as the trust contract but are deployed dynamically via the extensible capability interface.
+
+### Characteristics
+
+| Aspect | Trust Contract | Capability Contract |
+|--------|---------------|---------------------|
+| **Purpose** | Membership, standing, vouches | Topology, PoI ledger, federation, etc. |
+| **Deployment** | Created at group formation | Deployed via `/propose capability <url>` |
+| **State Pattern** | Set-based (CBOR BTreeSet) | Set-based (CBOR BTreeSet) |
+| **Merge Algebra** | Set-union (commutative) | Set-union (commutative) |
+| **Sandboxing** | N/A (built-in) | WASM sandbox (no filesystem, network, or host access) |
+| **Interface** | `ComposableState` | `ComposableState` |
+
+### Examples
+
+**Phyllotaxis Topology Contract:**
+- Stores ring assignments, connection patterns
+- State: `BTreeSet<RingAssignment>` (member hash + ring number + angle)
+- Delta: `RingDelta { added: Vec<Assignment>, removed: Vec<Assignment> }`
+- Health metric: Spiral completeness
+
+**PoI Ledger Contract:**
+- Stores signed impact claims
+- State: `BTreeSet<SignedClaim>` (claim ID + actor + timestamp + witness)
+- Delta: `ClaimDelta { added: Vec<SignedClaim>, removed: Vec<ClaimID> }`
+- Append-only with claim invalidation (tombstones)
+
+### Security Model
+
+Capability contracts are sandboxed by Freenet's WASM execution:
+- Cannot access host filesystem
+- Cannot make network calls
+- Cannot access other contracts except via Freenet's defined interfaces
+- Must implement `ComposableState` trait (mergeable, commutative deltas)
+
+### Activation Flow
+
+1. Member: `/propose capability https://example.com/phyllotaxis.yml`
+2. Bot fetches manifest, validates WASM checksum
+3. Bot creates Signal Poll: "Enable capability: Phyllotaxis?"
+4. Group votes
+5. If approved: Bot deploys WASM to Freenet, registers namespace
+6. Commands available: `/phyllotaxis enable`, `/propose phyllotaxis mode on`
+
+See `.beads/extensible-contracts.bead` for complete capability model.

@@ -654,7 +654,7 @@ EOF
 )"
 ```
 
-**See**: `.cursor/rules/git-standards.mdc` for complete git workflow
+**See**: `.beads/git-standards.mdc` for complete git workflow
 
 ## 10. Bot Storage Constraints (SERVER SEIZURE THREAT)
 
