@@ -6,8 +6,9 @@
 //! - Cross-cluster assessor selection
 //! - DVR optimization (distinct validators, non-overlapping voucher sets)
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::hint::black_box;
 use stroma::freenet::contract::MemberHash;
 use stroma::freenet::trust_contract::{GroupConfig, TrustNetworkState};
 use stroma::signal::matchmaker::BlindMatchmaker;

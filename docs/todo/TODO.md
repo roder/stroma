@@ -227,7 +227,7 @@ All 7 critical gaps resolved. 16/16 proptests passing.
 - [X] Implement `link_secondary_device()` in `src/signal/linking.rs` (currently stubbed)
 - [X] Lift `presage-store-sqlite` ban in `deny.toml` and `security.yml` (REQUIRES HUMAN APPROVAL)
 - [X] Enable 16 CLI integration tests in `tests/cli_integration.rs` (all `#[ignore]` with reason "presage dependency")
-- [ ] End-to-end manual test: bot registers/links, receives messages, creates group, restarts without losing state
+- [X] End-to-end manual test: bot registers/links, receives messages, creates group, restarts without losing state
 
 **Testing Strategy**:
 

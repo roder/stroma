@@ -494,15 +494,7 @@ pub async fn handle_pm_command<F: crate::freenet::FreenetClient>(
             .await
         }
 
-        Command::Unknown(text) => {
-            send_response(
-                client,
-                source,
-                sender,
-                &format!("Unknown command: {}", text),
-            )
-            .await
-        }
+        Command::Unknown(_text) => Ok(()),
     }
 }
 

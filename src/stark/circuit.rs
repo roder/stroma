@@ -35,8 +35,6 @@ pub struct VouchAir {
 impl Air for VouchAir {
     type BaseField = BaseElement;
     type PublicInputs = VouchPublicInputs;
-    type GkrProof = ();
-    type GkrVerifier = ();
 
     fn new(trace_info: TraceInfo, pub_inputs: Self::PublicInputs, options: ProofOptions) -> Self {
         // Define constraint degrees
@@ -169,6 +167,8 @@ mod tests {
             winterfell::FieldExtension::None,
             4,   // FRI folding factor
             255, // FRI max remainder degree (must be 2^n - 1)
+            winterfell::BatchingMethod::Linear,
+            winterfell::BatchingMethod::Linear,
         );
 
         let air = VouchAir::new(trace_info, pub_inputs, options);

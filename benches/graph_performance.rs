@@ -6,8 +6,9 @@
 //! - Blind Matchmaker: < 200ms
 //! - /mesh commands: < 100ms
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::collections::HashSet;
+use std::hint::black_box;
 use stroma::freenet::contract::MemberHash;
 use stroma::freenet::trust_contract::TrustNetworkState;
 use stroma::matchmaker::cluster_detection::detect_clusters;

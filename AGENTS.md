@@ -12,37 +12,28 @@ bd close <id>         # Complete work
 bd sync               # Sync with git
 ```
 
-## Security CI/CD Requirements
+## Core Standards, Philosophy, and Security Requiresments
 
-**CRITICAL**: All PRs to `main` are automatically blocked if they violate security constraints.
+**MUST READ**:
 
-**Before committing code, you MUST run:**
+* `.beads/core-standards.bead`
+* `.beads/philosophical-foundations.bead`
+* `.beads/rust-standards.bead`
+* `.beads/git-standards.bead`
+* `.beads/security-requirements.bead`
+* `.beads/documentation-workflow.bead`
+* `.beads/rust-async.bead`
+* `.beads/testing-standards.bead`
+* `.beads/terminology.bead`
 
-```bash
-# Quick security check (2-3 minutes)
-cargo fmt --check              # Format verification
-cargo clippy --all-targets --all-features -- -D warnings  # Lint
-cargo deny check               # Supply chain security
-
-# Full security check (5-10 minutes)
-cargo llvm-cov nextest --all-features  # 100% coverage required
-cargo build --release --target x86_64-unknown-linux-musl  # Binary size check
-```
-
-**Security Constraints (Auto-Reject)**:
-- ❌ No cleartext Signal IDs (use `mask_identity()` + zeroize)
-- ❌ No `presage-store-sqlite` (use `StromaProtocolStore`)
-- ❌ No grace periods in ejection logic
-- ❌ Unsafe blocks MUST have `// SAFETY:` comments
-- ❌ Test coverage MUST be 100%
-
-**See**: `docs/SECURITY-CI-CD.md` for complete security requirements and fix patterns.
 
 ## CI/CD Green Branch Protection
 
+**CRITICAL**: All PRs to `main` are automatically blocked.
+
 **ABSOLUTE REQUIREMENT**: Main branch CI/CD status MUST be ✅ passing at all times.
 
-### Before Pushing to Main:
+### Before Pushing Code:
 
 1. **Verify local quality gates pass:**
    ```bash
@@ -62,48 +53,6 @@ cargo build --release --target x86_64-unknown-linux-musl  # Binary size check
    gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/commits/main/status --jq '.state'
    # Must return "success" before merging
    ```
-
-3. **If CI fails on main:**
-   - **IMMEDIATE**: File P0 bug: `bd create --title="CI BROKEN: <description>" --type=bug --priority=0`
-   - Notify mayor: `gt mail send mayor/ -s "🚨 CI BROKEN"`
-   - **DO NOT push more code** until main is green
-   - Fix or revert the breaking commit immediately
-
-### CI/CD Infrastructure Changes (Human Authorization Required)
-
-**ABSOLUTE RULE**: Changes to CI/CD infrastructure REQUIRE human authorization.
-
-**Protected Files** (Cannot modify without approval):
-- `.github/workflows/*.yml` (All workflow files)
-- `.github/actions/*` (Custom actions)
-- `.github/codeql/codeql-config.yml` (CodeQL config)
-- `deny.toml` (Dependency policy)
-- Git hooks (if modifying hook logic, not just beads updates)
-
-**Process for CI/CD Changes**:
-1. Identify CI/CD bug or improvement need
-2. File issue: `bd create --title="CI/CD: <description>" --type=bug --priority=1`
-3. Document proposed change in issue description
-4. Request human review: `gt mail send  mayor -s "CI/CD Change Request: <issue-id>"`
-5. **WAIT for human approval** before modifying workflow files
-6. After approval: Make changes, test in branch, submit PR
-7. Human must approve PR before merge
-
-**Note**: `crew-approvals` is a mail group that routes to all crew members (`*/crew/*`)
-
-**What qualifies as CI/CD infrastructure**:
-- GitHub Actions workflow definitions
-- Job configurations, dependencies, triggers
-- Security check configurations (CodeQL, cargo-deny)
-- Coverage thresholds or enforcement logic
-- Binary size baselines or limits
-- Any automation that gates merges
-
-**What does NOT require authorization** (can be changed by agents):
-- Source code that causes CI failures (fix the code, not the CI)
-- Test code to achieve coverage
-- Documentation in docs/ folder
-- Dependency updates (as long as deny.toml allows)
 
 ## Landing the Plane (Session Completion)
 
@@ -135,24 +84,8 @@ cargo build --release --target x86_64-unknown-linux-musl  # Binary size check
 
 **When creating commits as an AI agent**, you MUST follow these standards:
 
-### Co-Authorship Attribution (MANDATORY)
-**CRITICAL**: All commits authored by Claude MUST include Co-authored-by trailer:
-
-```bash
-git commit -m "$(cat <<'EOF'
-Commit message title
-
-Detailed description of changes...
-
-Co-authored-by: Claude <noreply@anthropic.com>
-EOF
-)"
-```
-
 **Format Requirements**:
-- Co-authored-by line at the END of commit message
 - Blank line before Co-authored-by
-- Exact format: `Co-authored-by: Claude <noreply@anthropic.com>`
 - Use HEREDOC for multi-line commit messages
 
 **Example**:
@@ -164,17 +97,15 @@ Add HMAC identity masking with zeroization
 - Add immediate zeroization of sensitive buffers
 - Add unit tests with fixed test pepper
 
-Co-authored-by: Claude <noreply@anthropic.com>
 EOF
 )"
 ```
-
-**See**: `.cursor/rules/git-standards.mdc` for complete standards.
+**See**: `.beads/git-standards.bead` for complete git standards.
 
 ## Additional Resources
 
 - **Security Requirements**: `docs/SECURITY-CI-CD.md` - Complete security workflow and fix patterns
-- **Security Constraints**: `.beads/security-constraints.bead` - Immutable security policy
 - **Technology Stack**: `.beads/technology-stack.bead` - Technology decisions and patterns
+- **Architecture Decisions**: `.beads/*.bead` has specific information and context about decision making, objectives, architecture, goals, and constraints. 
 - **Issue Tracking**: Run `bd onboard` for beads workflow introduction
 

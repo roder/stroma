@@ -23,7 +23,7 @@ pub fn generate_passphrase() -> String {
 
     // Generate 32 bytes (256 bits) of entropy for 24-word mnemonic
     let mut entropy = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut entropy);
+    rand::rng().fill_bytes(&mut entropy);
 
     let mnemonic = Mnemonic::from_entropy_in(Language::English, &entropy)
         .expect("Failed to generate BIP-39 mnemonic");
