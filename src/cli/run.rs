@@ -275,8 +275,36 @@ pub async fn execute(
             // Create bot AFTER receive loop starts (client is moved into bot)
             let mut bot = StromaBot::new(client, freenet, config)?;
 
-            // Set config path for persistence when bootstrap completes
-            bot.set_config_path(config_path.clone());
+            // Wire the group-ID persistence callback.
+            //
+            // When bootstrap completes the bot calls this closure with the
+            // hex-encoded group ID.  All config I/O stays here in cli/;
+            // bot.rs never imports StromaConfig.
+            //
+            // `set_group_id` takes &mut self, but the trait bound on the
+            // callback is `Fn` (not `FnMut`).  We use a Mutex for interior
+            // mutability so the closure satisfies the shared-ref bound while
+            // still being able to mutate the config value.
+            {
+                let cb_path = config_path.clone();
+                let cb_cfg = std::sync::Mutex::new(stroma_config.clone());
+                bot.set_group_id_persister(Box::new(move |group_id_hex| {
+                    cb_cfg
+                        .lock()
+                        .map_err(|e| {
+                            Box::new(std::io::Error::other(format!(
+                                "config mutex poisoned: {}",
+                                e
+                            )))
+                                as Box<dyn std::error::Error + Send + Sync>
+                        })?
+                        .set_group_id(&cb_path, group_id_hex)
+                        .map_err(|e| {
+                            Box::new(std::io::Error::other(e.to_string()))
+                                as Box<dyn std::error::Error + Send + Sync>
+                        })
+                }));
+            }
 
             tokio::select! {
                 result = bot.run() => {

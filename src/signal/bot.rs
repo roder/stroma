@@ -69,12 +69,22 @@ impl Default for BotConfig {
     }
 }
 
+/// Callback type for persisting the group ID when bootstrap completes.
+///
+/// Receives the hex-encoded group ID string and is responsible for writing it
+/// to the operator config file. Lives in `cli/` — `bot.rs` has no knowledge
+/// of `StromaConfig` or any config file format.
+type GroupIdPersister =
+    Box<dyn Fn(String) -> Result<(), Box<dyn std::error::Error + Send + Sync>> + Send + Sync>;
+
 /// Stroma Signal bot
 pub struct StromaBot<C: SignalClient, F: crate::freenet::FreenetClient> {
     client: C,
     freenet: F,
     config: BotConfig,
-    config_path: Option<std::path::PathBuf>,
+    /// Called once when bootstrap completes to persist the group ID.
+    /// Wired by the CLI layer via [`StromaBot::set_group_id_persister`].
+    on_group_id_persisted: Option<GroupIdPersister>,
     group_manager: GroupManager<C>,
     poll_manager: PollManager<C>,
     bootstrap_manager: BootstrapManager<C>,
@@ -105,7 +115,7 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
             client,
             freenet,
             config,
-            config_path: None,
+            on_group_id_persisted: None,
             group_manager,
             poll_manager,
             bootstrap_manager,
@@ -115,12 +125,26 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
         })
     }
 
-    /// Set config file path for persistence
+    /// Register a callback that persists the group ID when bootstrap completes.
     ///
-    /// Must be called after construction to enable config persistence when
-    /// bootstrap completes.
-    pub fn set_config_path(&mut self, path: std::path::PathBuf) {
-        self.config_path = Some(path);
+    /// The callback receives the hex-encoded group ID and is responsible for
+    /// writing it to the operator config file.  Config logic stays entirely in
+    /// the `cli` crate layer — `bot.rs` never imports `StromaConfig`.
+    ///
+    /// # Example (from `cli/run.rs`)
+    ///
+    /// ```rust,ignore
+    /// let cb_path = config_path.clone();
+    /// let mut cb_cfg  = stroma_config.clone();
+    /// bot.set_group_id_persister(Box::new(move |id| {
+    ///     cb_cfg.set_group_id(&cb_path, id)
+    ///           .map_err(|e| Box::new(std::io::Error::new(
+    ///               std::io::ErrorKind::Other, e.to_string(),
+    ///           )) as Box<dyn std::error::Error + Send + Sync>)
+    /// }));
+    /// ```
+    pub fn set_group_id_persister(&mut self, persister: GroupIdPersister) {
+        self.on_group_id_persisted = Some(persister);
     }
 
     /// Send response to appropriate destination with defensive group_id validation
@@ -210,15 +234,20 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
 
         info!("✅ Bootstrap complete - group_id set: {}", group_id_hex);
 
-        // 2. Persist to config file
-        // TODO: Requires access to StromaConfig from cli module
-        // For now, config_path is stored but not used. This will be implemented
-        // when we add proper CLI->library integration for config updates.
-        if self.config_path.is_some() {
-            warn!(
-                "TODO: Persist group_id {} to config file (not yet implemented)",
-                group_id_hex
-            );
+        // 2. Persist to config file via the operator-supplied callback.
+        //    Config I/O stays in cli/; bot.rs never imports StromaConfig.
+        if let Some(ref persister) = self.on_group_id_persisted {
+            if let Err(e) = persister(group_id_hex.clone()) {
+                // Log and continue — failing to write the config is recoverable
+                // (the in-memory state is correct; operator can add it manually).
+                tracing::warn!(
+                    "Failed to persist group_id {} to config file: {}",
+                    group_id_hex,
+                    e
+                );
+            } else {
+                info!("✅ group_id persisted to config file");
+            }
         }
 
         // 3. Leave all other Signal groups (enforce 1:1 bot-to-group invariant)
@@ -2277,6 +2306,81 @@ mod tests {
         // Verify session was NOT updated
         let session = bot.vetting_sessions.get_session(invitee_username).unwrap();
         assert_eq!(session.excluded_candidates.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_group_id_persister_called_on_bootstrap_complete() {
+        use std::sync::{Arc, Mutex};
+
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
+        let config = BotConfig::default();
+        let mut bot = StromaBot::new(client.clone(), freenet, config).unwrap();
+
+        // Record every call the persister receives.
+        let captured: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));
+        let captured_clone = Arc::clone(&captured);
+
+        bot.set_group_id_persister(Box::new(move |id| {
+            captured_clone.lock().unwrap().push(id);
+            Ok(())
+        }));
+
+        // Synthesise a bootstrap-complete event with a known group ID.
+        let group_id = GroupId(vec![0xde, 0xad, 0xbe, 0xef]);
+        let expected_hex = hex::encode(&group_id.0);
+
+        bot.on_bootstrap_complete(group_id.clone()).await.unwrap();
+
+        // Verify the callback received exactly one call with the correct hex string.
+        let calls = captured.lock().unwrap();
+        assert_eq!(calls.len(), 1, "persister should be called exactly once");
+        assert_eq!(
+            calls[0], expected_hex,
+            "persister should receive the correct group_id hex"
+        );
+
+        // Verify in-memory config was also updated.
+        assert_eq!(bot.config.group_id, group_id);
+    }
+
+    #[tokio::test]
+    async fn test_bootstrap_complete_without_persister_does_not_panic() {
+        // Verifies the None branch: no persister registered = no crash.
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
+        let config = BotConfig::default();
+        let mut bot = StromaBot::new(client, freenet, config).unwrap();
+
+        // Deliberately do NOT call set_group_id_persister.
+        let group_id = GroupId(vec![0x01, 0x02]);
+        bot.on_bootstrap_complete(group_id.clone()).await.unwrap();
+
+        // In-memory state should still be updated.
+        assert_eq!(bot.config.group_id, group_id);
+    }
+
+    #[tokio::test]
+    async fn test_bootstrap_complete_persister_error_is_non_fatal() {
+        // A failing persister must not abort the bootstrap.
+        let client = MockSignalClient::new(ServiceId("bot".to_string()));
+        let freenet = MockFreenetClient::new();
+        let config = BotConfig::default();
+        let mut bot = StromaBot::new(client, freenet, config).unwrap();
+
+        bot.set_group_id_persister(Box::new(|_| {
+            Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "disk full",
+            )) as Box<dyn std::error::Error + Send + Sync>)
+        }));
+
+        let group_id = GroupId(vec![0xca, 0xfe]);
+        // Must not return Err — config write failure is recoverable.
+        bot.on_bootstrap_complete(group_id.clone()).await.unwrap();
+
+        // In-memory state should still be correct despite the disk error.
+        assert_eq!(bot.config.group_id, group_id);
     }
 
     #[tokio::test]

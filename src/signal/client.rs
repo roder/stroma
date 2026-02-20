@@ -333,17 +333,42 @@ impl SignalClient for LibsignalClient {
 
             let mut mgr = manager.lock().await;
 
-            // Look up profile keys for each member (None if not found)
-            let mut members_with_keys = Vec::new();
+            // Separate ACI members (passed to create_group) from PNI-only
+            // members (added afterward via add_group_member).
+            //
+            // presage's create_group takes (Aci, Option<ProfileKey>), so a PNI
+            // UUID forced into the Aci type creates a server-side pending invite
+            // addressed to the *wrong identity namespace* — the user's Signal
+            // client can't match it to their PNI and the invite is invisible.
+            //
+            // add_group_member accepts ServiceId directly and correctly creates
+            // PNI-addressed pending invites.
+            let mut aci_members_with_keys = Vec::new();
+            let mut pni_members: Vec<(uuid::Uuid, ServiceId)> = Vec::new();
+
             for member in members {
-                let uuid: uuid::Uuid = member.0.parse().map_err(|e| {
+                let (raw_uuid_str, is_pni) = if let Some(rest) = member.0.strip_prefix("PNI:") {
+                    (rest, true)
+                } else if let Some(rest) = member.0.strip_prefix("ACI:") {
+                    (rest, false)
+                } else {
+                    (member.0.as_str(), false)
+                };
+
+                let uuid: uuid::Uuid = raw_uuid_str.parse().map_err(|e| {
                     SignalError::InvalidMessage(format!("Invalid UUID '{}': {}", member.0, e))
                 })?;
-                let aci: presage::libsignal_service::protocol::Aci = uuid.into();
-                let service_id: presage::libsignal_service::protocol::ServiceId = aci.into();
 
-                // Try contacts first, then profile_keys store
-                let profile_key: Option<presage::libsignal_service::zkgroup::profiles::ProfileKey> =
+                if is_pni {
+                    // Defer PNI members — add after group creation with correct
+                    // ServiceId::Pni via add_group_member.
+                    pni_members.push((uuid, member.clone()));
+                    continue;
+                }
+
+                // ACI members: look up profile key for full membership or pending invite
+                let aci: presage::libsignal_service::protocol::Aci = uuid.into();
+                let profile_key: Option<presage::libsignal_service::zkgroup::profiles::ProfileKey> = {
                     if let Some(pk) = mgr
                         .store()
                         .contact_by_id(&uuid)
@@ -355,19 +380,51 @@ impl SignalClient for LibsignalClient {
                     {
                         Some(pk)
                     } else {
-                        mgr.store().profile_key(&service_id).await.ok().flatten()
-                    };
+                        let aci_sid: presage::libsignal_service::protocol::ServiceId = aci.into();
+                        mgr.store().profile_key(&aci_sid).await.ok().flatten()
+                    }
+                };
 
-                // None = member will be added as pending invite (no profile key needed)
-                members_with_keys.push((aci, profile_key));
+                aci_members_with_keys.push((aci, profile_key));
             }
 
-            let (master_key, pending_sids) = mgr
-                .create_group(name, members_with_keys)
+            // Step 1: Create group with ACI-only members.
+            let (master_key, mut pending_sids) = mgr
+                .create_group(name, aci_members_with_keys)
                 .await
                 .map_err(|e| SignalError::Network(format!("create_group failed: {:?}", e)))?;
 
             let group_id = GroupId(master_key.to_vec());
+
+            // Step 2: Add PNI members via add_group_member (ServiceId::Pni).
+            // This creates pending invites addressed to the correct PNI identity
+            // so the user's Signal client can match and display them.
+            for (uuid, member_sid) in &pni_members {
+                let pni_service_id: presage::libsignal_service::protocol::ServiceId =
+                    presage::libsignal_service::protocol::Pni::from(*uuid).into();
+                tracing::info!(
+                    member = %member_sid.0,
+                    "adding PNI member to group via add_group_member"
+                );
+                match mgr
+                    .add_group_member(&master_key, pni_service_id, None)
+                    .await
+                {
+                    Ok(()) => {
+                        pending_sids.push(pni_service_id);
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            member = %member_sid.0,
+                            "failed to add PNI member to group: {:?}", e
+                        );
+                        return Err(SignalError::Network(format!(
+                            "add PNI member {} to group failed: {:?}",
+                            member_sid.0, e
+                        )));
+                    }
+                }
+            }
 
             {
                 let mut keys = self.group_keys.lock().await;
@@ -381,7 +438,9 @@ impl SignalClient for LibsignalClient {
                 }
             }
 
-            // Convert presage ServiceIds to stroma ServiceIds
+            // Convert presage ServiceIds to stroma ServiceIds.
+            // PNI members added via add_group_member already have ServiceId::Pni,
+            // so service_id_string() returns "PNI:<uuid>" — no prefix fixup needed.
             let pending_members: Vec<ServiceId> = pending_sids
                 .iter()
                 .map(|sid| ServiceId(sid.service_id_string()))
@@ -416,17 +475,60 @@ impl SignalClient for LibsignalClient {
                 })?
             };
 
-            let uuid: uuid::Uuid = member.0.parse().map_err(|e| {
+            // Strip optional PNI:/ACI: prefix before UUID parsing.
+            // presage::send_group_invite_dm accepts impl Into<ServiceId>, so we
+            // can send to both ACI and PNI addresses. For PNI-only members we
+            // must use ServiceId::Pni so Signal routes the DM correctly.
+            let (raw_uuid_str, is_pni) = if let Some(rest) = member.0.strip_prefix("PNI:") {
+                (rest, true)
+            } else if let Some(rest) = member.0.strip_prefix("ACI:") {
+                (rest, false)
+            } else {
+                (member.0.as_str(), false)
+            };
+
+            let uuid: uuid::Uuid = raw_uuid_str.parse().map_err(|e| {
                 SignalError::InvalidMessage(format!("Invalid UUID '{}': {}", member.0, e))
             })?;
-            let aci: presage::libsignal_service::protocol::Aci = uuid.into();
+
+            // Build the correct ServiceId type — PNI members need ServiceId::Pni
+            // so Signal routes to their PNI inbox. Using Aci for a PNI UUID sends
+            // the message to the wrong identity (or gets NotFound) and the invite
+            // is never displayed to the user.
+            let recipient_service_id: presage::libsignal_service::protocol::ServiceId = if is_pni {
+                presage::libsignal_service::protocol::Pni::from(uuid).into()
+            } else {
+                presage::libsignal_service::protocol::Aci::from(uuid).into()
+            };
 
             let mut mgr = manager.lock().await;
-            mgr.send_group_invite_dm(&master_key, aci)
+            match mgr
+                .send_group_invite_dm(&master_key, recipient_service_id)
                 .await
-                .map_err(|e| {
-                    SignalError::Network(format!("send_group_invite_dm failed: {:?}", e))
-                })?;
+            {
+                Ok(()) => {
+                    tracing::info!(member = %member.0, "group invite DM sent");
+                }
+                Err(e) => {
+                    let err_str = format!("{:?}", e);
+                    if err_str.contains("NotFound") {
+                        // No reachable devices for this identity. The member is already
+                        // a pending invite in the group from create_group and will see
+                        // the invite when they next open Signal.
+                        tracing::warn!(
+                            member = %member.0,
+                            is_pni,
+                            "invite DM not delivered (NotFound: no reachable devices); \
+                             member is pending in group and will see invite on next sync"
+                        );
+                    } else {
+                        return Err(SignalError::Network(format!(
+                            "send_group_invite_dm failed: {}",
+                            err_str
+                        )));
+                    }
+                }
+            }
 
             Ok(())
         } else {
