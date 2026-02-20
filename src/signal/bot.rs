@@ -428,13 +428,16 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                     Command::AddSeed { ref username } => {
                         let service_id = self.client.resolve_identifier(username).await?;
 
-                        // Reject PNI - groups require ACI
+                        // PNI-only identities are accepted: they will be added as pending
+                        // invites at the presage level (build_add_pending_member_action now
+                        // accepts ServiceId, not just Aci). The seed group bootstrap path
+                        // stores raw service ID strings and passes them through
+                        // create_group, which handles pending invites transparently.
                         if service_id.0.starts_with("PNI:") {
-                            return Err(SignalError::InvalidMessage(format!(
-                                "Cannot add user: Account '{}' has privacy settings that prevent ACI disclosure. \
-                                 Ask them to share their Signal username instead, or adjust privacy settings.",
-                                username
-                            )));
+                            tracing::info!(
+                                username,
+                                "resolved to PNI-only identity; seed member will be added as pending invite"
+                            );
                         }
 
                         let maybe_group_id = self
@@ -453,13 +456,15 @@ impl<C: SignalClient, F: crate::freenet::FreenetClient> StromaBot<C, F> {
                     } => {
                         let invitee_id = self.client.resolve_identifier(username).await?;
 
-                        // Reject PNI - groups require ACI
+                        // PNI-only identities are accepted: they will be added as pending
+                        // invites (no profile key credential exists for PNI).  The vetting
+                        // session is keyed on the raw PNI string, which is stable for the
+                        // lifetime of the session.
                         if invitee_id.0.starts_with("PNI:") {
-                            return Err(SignalError::InvalidMessage(format!(
-                                "Cannot invite user: Account '{}' due to privacy settings. \
-                                 Ask them to share their Signal username instead, or adjust privacy settings.",
-                                username
-                            )));
+                            tracing::info!(
+                                username,
+                                "resolved to PNI-only identity; invitee will be added as pending invite if admitted"
+                            );
                         }
 
                         self.handle_invite(&message.sender, &invitee_id, context.as_deref())

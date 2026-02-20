@@ -7,8 +7,11 @@
 //! - Invariant: signal_state.members ⊆ freenet_state.members
 //!
 //! Ejection process:
-//! 1. Remove from Signal group (with retry)
+//! 1. Remove from Signal group (with retry)        ← security-critical, always fatal on failure
 //! 2. Send PM to ejected member (using hash, not cleartext)
+//!    - ACI members: sent with retry, failure is fatal
+//!    - PNI-only members: best-effort, failure is logged and skipped
+//!      (PNI identities have no routable DM address; group removal still completes)
 //! 3. Announce to group (using hash, not name)
 //! 4. Update Freenet: move to `ejected` set
 
@@ -72,7 +75,11 @@ where
     S: SignalClient,
     F: FreenetClient,
 {
-    // Step 1: Remove from Signal group (with retry)
+    // Step 1: Remove from Signal group (with retry).
+    //
+    // Security-critical: this is the only step that is always fatal on failure.
+    // A PNI-only member is still ejectable — group removal is by internal UUID,
+    // not by ACI/PNI routing, so it succeeds for both identity types.
     let service_id_clone = member_service_id.clone();
     let group_id_clone = group_id.clone();
     let signal_clone = signal.clone();
@@ -89,7 +96,14 @@ where
     .await
     .map_err(|e| EjectionError::SignalError(e.to_string()))?;
 
-    // Step 2: Send PM to ejected member (using hash)
+    // Step 2: Send PM to ejected member (using hash, not cleartext).
+    //
+    // PNI-only members (ServiceId starts with "PNI:") have no routable DM
+    // address in Signal — presage cannot deliver a direct message to them.
+    // For ACI members this step is retried and any persistent failure is
+    // propagated as an error.  For PNI members we make a single best-effort
+    // attempt and, if it fails, log a warning and continue: the security-
+    // critical removal in Step 1 has already completed.
     let pm_message = format!(
         "You have been ejected from the group.\n\
          \n\
@@ -101,18 +115,31 @@ where
         format_member_hash(member)
     );
 
-    // Send PM with retry
-    retry_with_backoff(
-        || {
-            let signal = signal_clone.clone();
-            let service = service_id_clone.clone();
-            let msg = pm_message.clone();
-            async move { signal.send_message(&service, &msg).await }
-        },
-        is_signal_error_retryable,
-    )
-    .await
-    .map_err(|e| EjectionError::SignalError(format!("Failed to send PM: {}", e)))?;
+    let is_pni = member_service_id.0.starts_with("PNI:");
+
+    if is_pni {
+        // Best-effort: log and continue on any failure.
+        if let Err(e) = signal.send_message(&service_id_clone, &pm_message).await {
+            tracing::warn!(
+                member_hash = %format_member_hash(member),
+                "Ejection PM skipped for PNI-only member (no routable DM address): {}",
+                e
+            );
+        }
+    } else {
+        // ACI member: retry with backoff; persistent failure is fatal.
+        retry_with_backoff(
+            || {
+                let signal = signal_clone.clone();
+                let service = service_id_clone.clone();
+                let msg = pm_message.clone();
+                async move { signal.send_message(&service, &msg).await }
+            },
+            is_signal_error_retryable,
+        )
+        .await
+        .map_err(|e| EjectionError::SignalError(format!("Failed to send PM: {}", e)))?;
+    }
 
     // Step 3: Announce to group (using hash, not name)
     let announcement = format!(
@@ -254,6 +281,7 @@ mod tests {
         group_messages: Arc<Mutex<Vec<(GroupId, String)>>>,
         service_id: ServiceId,
         fail_remove: Arc<Mutex<bool>>,
+        fail_send_message: Arc<Mutex<bool>>,
     }
 
     impl MockSignalClient {
@@ -264,6 +292,7 @@ mod tests {
                 group_messages: Arc::new(Mutex::new(Vec::new())),
                 service_id: ServiceId("bot".to_string()),
                 fail_remove: Arc::new(Mutex::new(false)),
+                fail_send_message: Arc::new(Mutex::new(false)),
             }
         }
 
@@ -283,11 +312,22 @@ mod tests {
         fn set_fail_remove(&self, fail: bool) {
             *self.fail_remove.blocking_lock() = fail;
         }
+
+        async fn set_fail_send_message(&self, fail: bool) {
+            *self.fail_send_message.lock().await = fail;
+        }
     }
 
     #[async_trait(?Send)]
     impl SignalClient for MockSignalClient {
         async fn send_message(&self, recipient: &ServiceId, text: &str) -> Result<(), SignalError> {
+            if *self.fail_send_message.lock().await {
+                // Use a non-retryable error so retry_with_backoff returns
+                // immediately in tests rather than sleeping for minutes.
+                return Err(SignalError::Protocol(
+                    "simulated unroutable identity".to_string(),
+                ));
+            }
             self.sent_messages
                 .lock()
                 .await
@@ -575,5 +615,111 @@ mod tests {
 
         // Member not in members set -> should not eject
         assert!(!should_eject(&state, &member));
+    }
+
+    /// PNI-only member: ejection completes even when the PM cannot be delivered.
+    ///
+    /// The group removal (Step 1) is the security-critical action.  A PNI
+    /// identity has no routable DM address, so a send failure on Step 2 must
+    /// be treated as a warning, not an error, and the rest of the ejection
+    /// (group announcement + Freenet update) must still complete.
+    #[tokio::test]
+    async fn test_eject_pni_member_pm_failure_is_non_fatal() {
+        let freenet = Arc::new(MockFreenetClient::new());
+        let signal = MockSignalClient::new();
+        let contract = ContractHash::from_bytes(&[0u8; 32]);
+        let group_id = GroupId(vec![1, 2, 3]);
+
+        let initial_state = TrustNetworkState::new();
+        let state_bytes = initial_state.to_bytes().unwrap();
+        freenet.put_state(
+            contract,
+            crate::freenet::traits::ContractState { data: state_bytes },
+        );
+
+        let member = test_member(2);
+        // PNI-prefixed ServiceId — no routable DM address.
+        let pni_service_id = ServiceId("PNI:11111111-1111-1111-1111-111111111111".to_string());
+
+        // Make send_message fail to simulate an unroutable PNI identity.
+        signal.set_fail_send_message(true).await;
+
+        // Ejection must succeed despite the PM failure.
+        eject_member(
+            &member,
+            &pni_service_id,
+            &signal,
+            freenet.clone(),
+            &contract,
+            &group_id,
+        )
+        .await
+        .expect("ejection should succeed even when PM to PNI member fails");
+
+        // Step 1: member was removed from the group.
+        let removed = signal.get_removed_members().await;
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0], pni_service_id);
+
+        // Step 2: no PM recorded (send failed and was swallowed).
+        let messages = signal.get_sent_messages().await;
+        assert_eq!(messages.len(), 0, "no PM should be recorded for PNI member");
+
+        // Step 3: group announcement was still sent.
+        let announcements = signal.get_group_messages().await;
+        assert_eq!(announcements.len(), 1);
+        assert!(announcements[0].1.contains("ejected"));
+    }
+
+    /// ACI member: a persistent PM failure propagates as an error.
+    ///
+    /// Unlike PNI members, an ACI holder has a routable DM address.  If
+    /// `send_message` fails for every retry attempt the ejection function
+    /// must return `Err` so the caller can log/alert rather than silently
+    /// dropping the notification.
+    #[tokio::test]
+    async fn test_eject_aci_member_pm_failure_is_fatal() {
+        let freenet = Arc::new(MockFreenetClient::new());
+        let signal = MockSignalClient::new();
+        let contract = ContractHash::from_bytes(&[0u8; 32]);
+        let group_id = GroupId(vec![1, 2, 3]);
+
+        let initial_state = TrustNetworkState::new();
+        let state_bytes = initial_state.to_bytes().unwrap();
+        freenet.put_state(
+            contract,
+            crate::freenet::traits::ContractState { data: state_bytes },
+        );
+
+        let member = test_member(3);
+        // Plain ACI-style ServiceId (no "PNI:" prefix).
+        let aci_service_id = ServiceId("aci-uuid-goes-here".to_string());
+
+        // Make send_message always fail.
+        signal.set_fail_send_message(true).await;
+
+        let result = eject_member(
+            &member,
+            &aci_service_id,
+            &signal,
+            freenet.clone(),
+            &contract,
+            &group_id,
+        )
+        .await;
+
+        assert!(
+            result.is_err(),
+            "ejection should fail when PM to ACI member cannot be delivered"
+        );
+        assert!(
+            matches!(result.unwrap_err(), EjectionError::SignalError(_)),
+            "error kind should be SignalError"
+        );
+
+        // Step 1 still completed: removal was attempted before the PM.
+        let removed = signal.get_removed_members().await;
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0], aci_service_id);
     }
 }

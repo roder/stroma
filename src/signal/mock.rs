@@ -301,9 +301,29 @@ impl SignalClient for MockSignalClient {
                 // Mock: For tests, treat usernames as direct service IDs
                 Ok(ServiceId(username))
             }
-            Identifier::Phone(_phone) => Err(SignalError::NotImplemented(
-                "Phone number resolution not yet implemented".to_string(),
-            )),
+            Identifier::Phone(phone) => {
+                // Mock: resolve phone numbers to a synthetic PNI for tests.
+                // Production LibsignalClient calls manager.resolve_phone_number()
+                // via CDSI and returns the real ACI or PNI from the lookup.
+                //
+                // We deterministically derive a mock UUID from the phone digits
+                // so the same number always resolves to the same ServiceId.
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                let mut h = DefaultHasher::new();
+                phone.hash(&mut h);
+                let n = h.finish();
+                // Format as a valid UUID-shaped string (128-bit from two 64-bit halves)
+                let mock_uuid = format!(
+                    "{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
+                    (n >> 32) as u32,
+                    (n >> 16) as u16,
+                    (n & 0x0fff) as u16,
+                    (0x8000u64 | (n.wrapping_shr(48) & 0x3fff)) as u16,
+                    n & 0xffff_ffff_ffff
+                );
+                Ok(ServiceId(format!("PNI:{}", mock_uuid)))
+            }
         }
     }
 

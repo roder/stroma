@@ -1,3 +1,8 @@
 
 # Use bd merge for beads JSONL files
 .beads/issues.jsonl merge=beads
+# Vendored upstream files - mark as generated so they collapse in PR diffs
+patches/libsqlite3-sys/sqlcipher/** linguist-generated=true
+patches/libsqlite3-sys/sqlite3/** linguist-generated=true
+patches/libsqlite3-sys/bindgen-bindings/** linguist-generated=true
+patches/libsqlite3-sys/src/** linguist-generated=true
