@@ -326,7 +326,10 @@ impl<C: SignalClient> BootstrapManager<C> {
         for member in &pending_members {
             match self.signal.send_group_invite(&group_id, member).await {
                 Ok(()) => {
-                    tracing::info!(member = %member.0, "group invite DM sent");
+                    // Either the invite DM was sent, or the member is already a
+                    // pending invite with no reachable devices (NotFound). Both
+                    // are correct outcomes — the member is in the group.
+                    tracing::info!(member = %member.0, "pending member notified");
                 }
                 Err(e) => {
                     tracing::warn!(

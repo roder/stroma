@@ -151,7 +151,6 @@ impl StromaConfig {
     /// only respond to this group and reject all others.
     ///
     /// Returns error if group_id is already set (to prevent accidental changes).
-    #[allow(dead_code)] // TODO: Used when CLI->library config integration is complete
     pub fn set_group_id(
         &mut self,
         path: &Path,
