@@ -202,6 +202,52 @@ See [AGENTS.md](AGENTS.md) for the agent coordination model and [TODO.md](docs/t
 
 ---
 
+## AI Development Environment
+
+Stroma uses [OpenCode](https://opencode.ai) with Zed's Agent Client Protocol (ACP) for AI-assisted development, integrated with the Gas Town multi-agent coordination system.
+
+### What is Zed ACP?
+
+The [Agent Client Protocol (ACP)](https://zed.dev/acp) is an open standard that enables any AI agent to integrate with any editing environment. Created by Zed Industries, ACP provides:
+
+- **Universal compatibility**: Any agent on ACP works with any ACP-compatible editor
+- **Privacy first**: When using third-party agents, nothing touches Zed's servers
+- **Open source**: Apache-licensed protocol with community-driven ecosystem
+
+Agents like OpenCode, Claude Code, Gemini CLI, and Codex all support ACP, allowing developers to choose their preferred AI assistant while maintaining a consistent IDE experience.
+
+### OpenCode Integration
+
+Stroma uses [OpenCode](https://github.com/anomalyco/opencode), an open-source AI coding agent with native ACP support. The `.opencode/` directory contains:
+
+- **`plugins/gastown.js`** -- Custom plugin that hooks OpenCode session events to inject Gas Town context. Automatically runs `gt prime` on session start and compaction, ensuring agents always have current role context.
+- **`commands/handoff.md`** -- Custom slash command for cycling to fresh sessions while preserving work context via the hook system.
+
+### Gas Town Coordination
+
+The integration bridges OpenCode's session model with Gas Town's multi-agent architecture:
+
+```
+OpenCode Session ──→ Gastown Plugin ──→ gt prime ──→ Role context injected
+       │                                          │
+       └── Agent operates with full rig context ──┘
+```
+
+When an OpenCode session starts or compacts, the plugin automatically loads role context (polecat, witness, refinery, etc.) and hooks work from beads. This ensures AI agents understand their role, current assignment, and relevant architectural constraints without manual context management.
+
+### For Contributors
+
+To work with Stroma's AI development environment:
+
+1. **Install OpenCode**: See [opencode.ai](https://opencode.ai) for installation
+2. **Open the project**: `opencode` in the stroma directory
+3. **Automatic context**: The Gastown plugin loads automatically via `experimental.chat.system.transform`
+4. **Role-based work**: Agents understand their assigned role (polecat, witness, etc.) and can interact with beads
+
+The `.opencode/` configuration is project-local and committed to the repository, ensuring all contributors have consistent AI tooling.
+
+---
+
 ## License
 
 **AGPL-3.0-or-later**
