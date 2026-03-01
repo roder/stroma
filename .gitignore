@@ -49,3 +49,7 @@ state.json
 # Gas Town (added by gt)
 .beads/
 *.info
+
+# AI agent files
+.gemini/
+.opencode/
