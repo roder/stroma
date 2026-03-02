@@ -38,6 +38,8 @@ target
 # Gas Town (added by gt)
 .runtime/
 .claude/
+.gemini/
+.opencode/
 state.json
 # Note: .beads/ has its own .gitignore for runtime files
 # We track *.bead files and issues.jsonl for team collaboration

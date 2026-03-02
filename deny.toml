@@ -28,7 +28,6 @@ allow = [
     "0BSD",                 # Zero-Clause BSD (most permissive BSD variant, from Freenet deps)
     "BSD-2-Clause",
     "BSD-3-Clause",
-    "0BSD",                 # Zero-Clause BSD (OSI approved, public domain equivalent, from Freenet deps)
     "BSL-1.0",              # Boost Software License 1.0 (OSI approved, from xxhash-rust)
     "ISC",
     "Unicode-3.0",          # Unicode License v3 (OSI approved, from ICU crates)
@@ -37,7 +36,6 @@ allow = [
     "Zlib",                 # zlib License (OSI approved, FSF Free/Libre, from foldhash via presage)
     "AGPL-3.0-or-later",    # Project license
     "AGPL-3.0-only",        # Signal libraries (libsignal-net, attest, usernames, etc.)
-    "Zlib",                 # Zlib license (permissive, from foldhash via Freenet)
     "CDLA-Permissive-2.0",  # Community Data License Agreement (permissive, from webpki-roots)
 ]
 
@@ -62,13 +60,19 @@ exceptions = [
     { allow = ["AGPL-3.0-only"], crate = "presage" },
     { allow = ["AGPL-3.0-only"], crate = "presage-store-sqlite" },
 
-    # Freenet dependencies (LGPL copyleft, required for P2P network)
+    # Freenet dependencies (required for P2P network)
+    { allow = ["AGPL-3.0-or-later"], crate = "freenet" },
     { allow = ["LGPL-3.0-only"], crate = "freenet-macros" },
     { allow = ["LGPL-3.0-only"], crate = "freenet-stdlib" },
     { allow = ["LGPL-3.0-or-later"], crate = "pav_regression" },
 ]
 
 # Clarifications for ambiguous licenses
+[[licenses.clarify]]
+name = "freenet"
+expression = "AGPL-3.0-or-later"
+license-files = []
+
 [[licenses.clarify]]
 name = "ring"
 expression = "MIT AND ISC AND OpenSSL"
@@ -104,7 +108,38 @@ allow = []
 # Skip certain crates from duplicate version checks
 # These duplicates are from incompatible dependency requirements
 # and cannot be easily resolved without upstream changes
-skip = []
+skip = [
+    "bitflags",
+    "fixedbitset",
+    "flatbuffers",
+    "foldhash",
+    "getrandom",
+    "hashbrown",
+    "itertools",
+    "libcrux-platform",
+    "libcrux-sha3",
+    "linux-raw-sys",
+    "petgraph",
+    "prost",
+    "prost-build",
+    "prost-derive",
+    "prost-types",
+    "rand",
+    "rand_chacha",
+    "rand_core",
+    "regex-syntax",
+    "rustix",
+    "rustls",
+    "rustls-webpki",
+    "thiserror",
+    "thiserror-impl",
+    "tokio-rustls",
+    "tokio-tungstenite",
+    "toml",
+    "toml_datetime",
+    "tungstenite",
+    "wasm-encoder",
+]
 
 # Skip dependency trees
 skip-tree = []
